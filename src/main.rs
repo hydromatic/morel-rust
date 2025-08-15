@@ -15,8 +15,14 @@
 // language governing permissions and limitations under the
 // License.
 
+extern crate core;
+use crate::parser::parse;
+
+mod parser;
+
 fn main() {
     println!("Hi, {}", add(3, 4));
+    parse("123,456,789");
 }
 
 fn add(a: i32, b: i32) -> i32 {
