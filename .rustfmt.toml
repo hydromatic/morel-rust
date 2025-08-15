@@ -15,6 +15,6 @@
 # language governing permissions and limitations under the
 # License.
 
-tab_spaces = 2
+tab_spaces = 4
 
 # End .rustfmt.toml
