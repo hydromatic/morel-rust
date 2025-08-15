@@ -24,3 +24,6 @@ edition = "2024"
 [[bin]]
 name = "main"
 path = "src/main.rs"
+
+[dependencies]
+phf = { version = "0.12", features = ["macros"] }
