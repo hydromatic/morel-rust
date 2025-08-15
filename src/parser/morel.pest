@@ -15,29 +15,27 @@
 // language governing permissions and limitations under the
 // License.
 
-extern crate core;
-use crate::parser::generated::parse;
+/// A literal is a number, string, or character.
+/// E.g. `42`, `~3.5`, `6e~23`, `"hello"`, or `#"c"`.
+literal = { numeric_literal | string_literal | char_literal }
 
-mod parser;
-
-fn main() {
-    println!("Hi, {}", add(3, 4));
-    parse("123,456,789");
+numeric_literal = {
+  scientific_literal
+| real_literal
+| non_negative_integer_literal
+| negative_integer_literal
+}
+non_negative_integer_literal = { ASCII_DIGIT+ }
+negative_integer_literal = { "~" ~ non_negative_integer_literal }
+real_literal = { "~"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+scientific_literal = {
+  "~"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("e" | "E") ~ "~"? ~ ASCII_DIGIT+
 }
 
-fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
+string_literal = { "\"" ~ (string_char | escape)* ~ "\"" }
+string_char = { !("\\" | "\"") ~ ANY }
+escape = { "\\" ~ "\\" | "\\" ~ "\""}
 
-#[cfg(test)]
-mod test {
-    use super::add;
+char_literal = { "#" ~ "\"" ~ (string_char | escape) ~ "\"" }
 
-    #[test]
-    fn test_add() {
-        assert_eq!(add(3, 4), 7);
-        assert_eq!(add(-1, 1), 0);
-        assert_eq!(add(0, 0), 0);
-        assert_eq!(add(-5, -5), -10);
-    }
-}
+// End morel.pest
