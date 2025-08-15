@@ -33,6 +33,22 @@ $ cd morel-rust
 $ cargo build; ./target/main
 ```
 
+### Run the Morel shell
+
+```bash
+$ cargo run
+morel-rust version 0.1.0 (rust version 1.89.0)
+- "Hello, world!";
+"Hello, world!"
+-
+```
+
+Type control+D to exit the shell.
+
+(The shell does not do much yet, besides echoing the input.
+That will change as we port [the parser](#1), type-checker, and
+executor from [Morel Java](morel).)
+
 ## More information
 
 * License: <a href="LICENSE">Apache License, Version 2.0</a>
