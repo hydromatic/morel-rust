@@ -15,6 +15,8 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::parser::ast;
+use crate::parser::ast::Node;
 use pest::Parser;
 use pest_derive::Parser;
 
@@ -23,25 +25,27 @@ use pest_derive::Parser;
 #[grammar = "src/parser/morel.pest"]
 struct MorelParser;
 
-pub fn parse(input: &str) {
-    match MorelParser::parse(Rule::literal, input) {
-        Ok(pairs) => {
-            for pair in pairs {
-                println!("Parsed field: {:?}", pair.as_str());
-            }
+pub fn parse(input: &str) -> Node<'_> {
+    let mut pairs =
+        MorelParser::parse(Rule::literal, input).expect("should be valid");
+    if let Some(pair) = pairs.next() {
+        match pair.as_rule() {
+            Rule::expr => Node::Expr(ast::build_expr(pair)),
+            Rule::decl => Node::Decl(ast::build_decl(pair)),
+            _ => panic!("Unexpected rule: {:?}", pair.as_rule()),
         }
-        Err(e) => {
-            eprintln!("Failed to parse input: {}", e);
-        }
+    } else {
+        panic!("Empty");
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::parser::generated::Rule;
-    use crate::parser::generated::Rule::{char_literal, string_literal};
-    use Rule::{literal, numeric_literal};
+    use crate::parser::ast;
+    use crate::parser::ast::Ast;
+    use crate::parser::parser::Rule;
     use pest::iterators::Pair;
+    use pest::Parser;
 
     /// Test fixture.
     struct Fixture {
@@ -49,11 +53,25 @@ mod test {
     }
 
     impl Fixture {
+        fn assert_build(&self, matcher: impl Fn(&str)) {
+            use super::MorelParser;
+
+            let result = MorelParser::parse(Rule::statement, self.s.as_str());
+            let expr = ast::build_program(
+                result.expect("should parse").next().unwrap(),
+            );
+            let mut s = String::new();
+            expr.unparse(&mut s);
+            matcher(&s);
+        }
+    }
+
+    impl Fixture {
         pub(crate) fn ok(&self) {
             use super::MorelParser;
             use pest::Parser;
 
-            let result = MorelParser::parse(literal, self.s.as_str());
+            let result = MorelParser::parse(Rule::literal, self.s.as_str());
             assert!(
                 result.is_ok(),
                 "For [{}], expected successful parse, got: {:?}",
@@ -66,7 +84,7 @@ mod test {
             use super::MorelParser;
             use pest::Parser;
 
-            let result = MorelParser::parse(literal, self.s.as_str());
+            let result = MorelParser::parse(Rule::literal, self.s.as_str());
             assert!(
                 result.is_err(),
                 "For [{}], expected parse to fail, got: {:?}",
@@ -82,9 +100,16 @@ mod test {
             let result = MorelParser::parse(rule, self.s.as_str());
             let file = result.expect("parse should succeed").next().unwrap();
             let matcher = &is_a(expected_rule, is(self.s.as_str()));
+            let mut count = 0;
             for line in file.into_inner() {
                 matcher(&line);
+                count = count + 1;
             }
+            assert_eq!(
+                count, 1,
+                "Expected exactly one match for [{}], got [{}]",
+                self.s, count
+            );
         }
     }
 
@@ -108,27 +133,46 @@ mod test {
     /// matches a given string.
     fn is_a(rule: Rule, matcher: impl Fn(&str)) -> impl Fn(&Pair<Rule>) {
         move |line: &Pair<Rule>| {
-            if line.as_rule() == rule {
-                matcher(line.as_str());
-            } else {
-                assert!(false, "Unexpected rule: {:?}", line);
-            }
+            assert_eq!(
+                rule,
+                line.as_rule(),
+                "Expected rule {:?}, got {:?} for line [{}]",
+                rule,
+                line.as_rule(),
+                line.as_str()
+            );
+            matcher(line.as_str());
         }
     }
 
     #[test]
-    fn test_morel_parser() {
-        ml("1").assert_parse(literal, numeric_literal);
-        ml("~3.5").assert_parse(literal, numeric_literal);
-        ml("\"a string\"").assert_parse(literal, string_literal);
-        ml("\"\"").assert_parse(literal, string_literal);
-        ml("\"a\\\\b\\\"c\"").assert_parse(literal, string_literal);
-        ml("#\"a\"").assert_parse(literal, char_literal);
-        ml("#\"\\\"\"").assert_parse(literal, char_literal);
-        ml("#\"\\\\\"").assert_parse(literal, char_literal);
+    fn test_parse() {
+        ml("1").assert_parse(Rule::literal, Rule::numeric_literal);
+        ml("~3.5").assert_parse(Rule::literal, Rule::numeric_literal);
+        ml("\"a string\"").assert_parse(Rule::literal, Rule::string_literal);
+        ml("\"\"").assert_parse(Rule::literal, Rule::string_literal);
+        ml("\"a\\\\b\\\"c\"").assert_parse(Rule::literal, Rule::string_literal);
+        ml("#\"a\"").assert_parse(Rule::literal, Rule::char_literal);
+        ml("#\"\\\"\"").assert_parse(Rule::literal, Rule::char_literal);
+        ml("#\"\\\\\"").assert_parse(Rule::literal, Rule::char_literal);
         ml("123.45").ok();
         ml("\"a string\"").ok();
         ml("#\"a\"").ok();
         ml("not a number").fail();
+    }
+
+    #[test]
+    fn test_parse_decl() {
+        ml("1").assert_parse(Rule::expr, Rule::literal);
+        ml("xyz").assert_parse(Rule::expr, Rule::identifier);
+        ml("xyz").assert_parse(Rule::statement, Rule::expr);
+        ml("val x = 5").assert_parse(Rule::statement, Rule::decl);
+        ml("val `x` = 5").assert_parse(Rule::statement, Rule::decl);
+    }
+
+    #[test]
+    fn test_parse_build() {
+        ml("1").assert_build(&is("1"));
+        ml("val x = 5").assert_build(&is("val x = 5"));
     }
 }

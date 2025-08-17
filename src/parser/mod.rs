@@ -15,4 +15,6 @@
 // language governing permissions and limitations under the
 // License.
 
-pub mod generated;
+pub mod ast;
+#[allow(clippy::module_inception)]
+pub mod parser;

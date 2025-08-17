@@ -16,7 +16,7 @@
 // License.
 
 extern crate core;
-use crate::parser::generated::parse;
+use crate::parser::parser::parse;
 
 mod parser;
 

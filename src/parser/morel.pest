@@ -14,9 +14,20 @@
 // either express or implied.  See the License for the specific
 // language governing permissions and limitations under the
 // License.
+WHITESPACE = _{ " " }
+keywords = { "val" | "if" }
+statement = { expr | decl }
+
+expr = { identifier | literal }
+
+identifier = { unquoted_identifier | quoted_identifier }
+unquoted_identifier = @{ !keywords ~ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
+quoted_identifier = { "`" ~ (identifier_char | identifier_escape)* ~ "`" }
+identifier_char = { !"`" ~ ANY }
+identifier_escape = { "`" ~ "`" }
 
 /// A literal is a number, string, or character.
-/// E.g. `42`, `~3.5`, `6e~23`, `"hello"`, or `#"c"`.
+/// E.g. `42`, `~3.5`, `6.02e~23`, `"hello"`, or `#"c"`.
 literal = { numeric_literal | string_literal | char_literal }
 
 numeric_literal = {
@@ -37,5 +48,13 @@ string_char = { !("\\" | "\"") ~ ANY }
 escape = { "\\" ~ "\\" | "\\" ~ "\""}
 
 char_literal = { "#" ~ "\"" ~ (string_char | escape) ~ "\"" }
+
+/// A declaration declares a value or a type.
+decl = { val_decl | type_decl }
+val_decl = { "val" ~ pat ~ (":" ~ type_decl)? ~ ("=" ~ expr)? }
+type_decl = { "int" | "real" | "string" | "char" | "bool" }
+
+/// A pattern can be an identifier or a tuple.
+pat = { identifier }
 
 // End morel.pest
