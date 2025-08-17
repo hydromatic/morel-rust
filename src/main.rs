@@ -16,28 +16,45 @@
 // License.
 
 extern crate core;
+use crate::parser::ast::Ast;
 use crate::parser::parser::parse;
 
 mod parser;
 
 fn main() {
-    println!("Hi, {}", add(3, 4));
-    parse("123,456,789");
-}
+    println!("Morel Rust Parser");
+    println!("A Standard ML interpreter with relational extensions");
 
-fn add(a: i32, b: i32) -> i32 {
-    a + b
+    // Test string and char literals to verify our format! fix
+    let test_cases = vec![
+        ("42", "Integer"),
+        ("\"hello world\"", "String"),
+        ("#\"c\"", "Character"),
+        ("true", "Boolean"),
+        ("()", "Unit"),
+    ];
+
+    for (example, description) in test_cases {
+        println!("\nParsing {} example: {}", description, example);
+
+        match std::panic::catch_unwind(|| parse(example)) {
+            Ok(node) => {
+                let mut output = String::new();
+                node.unparse(&mut output);
+                println!("Result: {}", output);
+            }
+            Err(_) => {
+                println!("Parse error");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use super::add;
-
     #[test]
-    fn test_add() {
-        assert_eq!(add(3, 4), 7);
-        assert_eq!(add(-1, 1), 0);
-        assert_eq!(add(0, 0), 0);
-        assert_eq!(add(-5, -5), -10);
+    fn test_dummy() {
+        // Placeholder test to ensure tests still run
+        assert_eq!(2 + 2, 4);
     }
 }

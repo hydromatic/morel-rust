@@ -14,47 +14,256 @@
 // either express or implied.  See the License for the specific
 // language governing permissions and limitations under the
 // License.
-WHITESPACE = _{ " " }
-keywords = { "val" | "if" }
+
+// Whitespace and comments
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+COMMENT = _{ line_comment | block_comment }
+line_comment = _{ "(*)" ~ (!("\n" | "\r") ~ ANY)* ~ ("\n" | "\r" | EOI) }
+block_comment = _{ "(*" ~ (block_comment | (!"*)" ~ ANY))* ~ "*)" }
+
+// Keywords
+keywords = {
+    "and" | "andalso" | "as" | "case" | "datatype" | "div" | "else" | "end" |
+    "fn" | "fun" | "if" | "in" | "let" | "mod" | "o" | "of" | "orelse" |
+    "rec" | "then" | "type" | "val" |
+    // Relational extensions
+    "compute" | "current" | "distinct" | "elem" | "except" | "exists" |
+    "forall" | "from" | "group" | "implies" | "intersect" | "into" | "join" |
+    "notelem" | "on" | "order" | "ordinal" | "require" | "skip" | "take" |
+    "through" | "typeof" | "union" | "unorder" | "where" | "with" | "yield" |
+    // Overloaded operators
+    "inst" | "over"
+}
+
+// Top-level program
+program = { SOI ~ statement ~ EOI }
 statement = { expr | decl }
 
-expr = { identifier | literal }
+// Expressions with operator precedence (lowest to highest)
+expr = { expr_annotated }
 
-identifier = { unquoted_identifier | quoted_identifier }
-unquoted_identifier = @{ !keywords ~ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
-quoted_identifier = { "`" ~ (identifier_char | identifier_escape)* ~ "`" }
-identifier_char = { !"`" ~ ANY }
-identifier_escape = { "`" ~ "`" }
+expr_annotated = { expr_implies ~ (":" ~ type_expr)? }
 
-/// A literal is a number, string, or character.
-/// E.g. `42`, `~3.5`, `6.02e~23`, `"hello"`, or `#"c"`.
-literal = { numeric_literal | string_literal | char_literal }
+expr_implies = { expr_orelse ~ ("implies" ~ expr_orelse)* }
+
+expr_orelse = { expr_andalso ~ ("orelse" ~ expr_andalso)* }
+
+expr_andalso = { expr_o ~ ("andalso" ~ expr_o)* }
+
+expr_o = { expr_relational ~ ("o" ~ expr_relational)* }
+
+expr_relational = {
+    expr_cons ~ (
+        ("=" | "<>" | "<" | ">" | "<=" | ">=" | "elem" | "notelem") ~
+        expr_cons
+    )*
+}
+
+expr_cons = { expr_additive ~ ("::" ~ expr_additive | "@" ~ expr_additive)* }
+
+expr_additive = { expr_multiplicative ~ (("+" | "-" | "^") ~ expr_multiplicative)* }
+
+expr_multiplicative = { expr_over ~ (("*" | "/" | "div" | "mod") ~ expr_over)* }
+
+expr_over = { expr_unary ~ ("over" ~ expr_cons)? }
+
+expr_unary = { "~" ~ expr_unary | expr_application }
+
+expr_application = { expr_postfix ~ expr_postfix* }
+
+expr_postfix = { atom ~ ("." ~ identifier)* }
+
+atom = {
+    // Literals
+    literal |
+    // Identifiers and special constructs
+    identifier |
+    record_selector |
+    "current" |
+    "ordinal" |
+    // Parenthesized expressions
+    "(" ~ expr ~ ")" |
+    // Tuples
+    "(" ~ expr ~ ("," ~ expr)+ ~ ")" |
+    // Lists
+    "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" |
+    // Records
+    "{" ~ (named_expr ~ ("," ~ named_expr)*)? ~ "}" |
+    // Control structures
+    if_expr |
+    case_expr |
+    let_expr |
+    fn_expr |
+    // Relational expressions
+    from_expr
+}
+
+// Named expressions for records and relational clauses
+named_expr = {
+    identifier ~ "=" ~ expr |
+    expr
+}
+
+// Control structures
+if_expr = { "if" ~ expr ~ "then" ~ expr ~ "else" ~ expr }
+
+case_expr = { "case" ~ expr ~ "of" ~ case_arms }
+case_arms = { case_arm ~ ("|" ~ case_arm)* }
+case_arm = { pat ~ "=>" ~ expr }
+
+let_expr = { "let" ~ decl_list ~ "in" ~ expr ~ "end" }
+decl_list = { decl ~ (";" ~ decl)* }
+
+fn_expr = { "fn" ~ fun_matches }
+fun_matches = { fun_match ~ ("|" ~ fun_match)* }
+fun_match = { pat ~ "=>" ~ expr }
+
+// Relational expressions (simplified)
+from_expr = {
+    "from" ~ from_items ~
+    ("where" ~ expr)? ~
+    ("group" ~ group_list)? ~
+    ("compute" ~ compute_list)? ~
+    ("order" ~ order_list)? ~
+    ("yield" ~ expr)?
+}
+
+from_items = { from_item ~ ("," ~ from_item)* }
+from_item = { pat ~ "in" ~ expr }
+
+group_list = { named_expr ~ ("," ~ named_expr)* }
+compute_list = { named_expr ~ ("," ~ named_expr)* }
+order_list = { expr ~ ("," ~ expr)* }
+
+// Patterns (fixed left-recursion)
+pat = { pat_annotated }
+
+pat_annotated = { pat_as ~ (":" ~ type_expr)? }
+
+pat_as = { pat_cons ~ ("as" ~ identifier)? }
+
+pat_cons = { pat_atom ~ ("::" ~ pat_cons)? }
+
+pat_atom = {
+    wildcard_pat |
+    id_pat |
+    literal_pat |
+    tuple_pat |
+    record_pat |
+    list_pat |
+    con_pat |
+    "(" ~ pat ~ ")"
+}
+
+wildcard_pat = { "_" }
+id_pat = { identifier }
+literal_pat = { literal }
+tuple_pat = { "(" ~ pat ~ ("," ~ pat)+ ~ ")" }
+record_pat = { "{" ~ (pat_field ~ ("," ~ pat_field)*)? ~ ("," ~ "...")? ~ "}" }
+pat_field = { identifier ~ ("=" ~ pat)? }
+list_pat = { "[" ~ (pat ~ ("," ~ pat)*)? ~ "]" }
+con_pat = { identifier ~ pat_atom? }
+
+// Declarations
+decl = {
+    val_decl |
+    fun_decl |
+    type_decl |
+    datatype_decl
+}
+
+val_decl = { "val" ~ ("rec")? ~ val_bind ~ ("and" ~ val_bind)* }
+val_bind = { pat ~ (":" ~ type_expr)? ~ "=" ~ expr }
+
+fun_decl = { "fun" ~ fun_bind ~ ("and" ~ fun_bind)* }
+fun_bind = { identifier ~ fun_matches }
+
+type_decl = { "type" ~ type_bind ~ ("and" ~ type_bind)* }
+type_bind = { type_vars? ~ identifier ~ "=" ~ type_expr }
+
+datatype_decl = { "datatype" ~ datatype_bind ~ ("and" ~ datatype_bind)* }
+datatype_bind = { type_vars? ~ identifier ~ "=" ~ con_bind ~ ("|" ~ con_bind)* }
+con_bind = { identifier ~ ("of" ~ type_expr)? }
+
+// Types
+type_expr = {
+    type_fn
+}
+
+type_fn = { type_tuple ~ ("->" ~ type_tuple)* }
+
+type_tuple = { type_app ~ ("*" ~ type_app)* }
+
+type_app = { type_atom ~ type_atom* }
+
+type_atom = {
+    type_var |
+    type_con |
+    "(" ~ type_expr ~ ")" |
+    "{" ~ (type_field ~ ("," ~ type_field)*)? ~ "}" |
+    "(" ~ type_expr ~ ("," ~ type_expr)+ ~ ")"
+}
+
+type_var = { "'" ~ identifier }
+type_con = { identifier }
+type_field = { identifier ~ ":" ~ type_expr }
+type_vars = { type_var | "(" ~ type_var ~ ("," ~ type_var)+ ~ ")" }
+
+// Literals
+literal = {
+    numeric_literal |
+    string_literal |
+    char_literal |
+    bool_literal |
+    unit_literal
+}
 
 numeric_literal = {
-  scientific_literal
-| real_literal
-| non_negative_integer_literal
-| negative_integer_literal
-}
-non_negative_integer_literal = { ASCII_DIGIT+ }
-negative_integer_literal = { "~" ~ non_negative_integer_literal }
-real_literal = { "~"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
-scientific_literal = {
-  "~"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ ("e" | "E") ~ "~"? ~ ASCII_DIGIT+
+    scientific_literal |
+    real_literal |
+    negative_integer_literal |
+    non_negative_integer_literal
 }
 
-string_literal = { "\"" ~ (string_char | escape)* ~ "\"" }
-string_char = { !("\\" | "\"") ~ ANY }
-escape = { "\\" ~ "\\" | "\\" ~ "\""}
+non_negative_integer_literal = @{ ASCII_DIGIT+ }
+negative_integer_literal = @{ "~" ~ ASCII_DIGIT+ }
+real_literal = @{ "~"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+scientific_literal = @{
+    "~"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT*)? ~ ("e" | "E") ~ "~"? ~ ASCII_DIGIT+
+}
 
-char_literal = { "#" ~ "\"" ~ (string_char | escape) ~ "\"" }
+string_literal = @{ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ (string_char | string_escape)* }
+string_char = { !("\"" | "\\") ~ ANY }
+string_escape = @{
+    "\\" ~ ("\\" | "\"" | "a" | "b" | "t" | "n" | "v" | "f" | "r") |
+    "\\" ~ "^" ~ ('@'..'^') |
+    "\\" ~ ASCII_DIGIT{3}
+}
 
-/// A declaration declares a value or a type.
-decl = { val_decl | type_decl }
-val_decl = { "val" ~ pat ~ (":" ~ type_decl)? ~ ("=" ~ expr)? }
-type_decl = { "int" | "real" | "string" | "char" | "bool" }
+char_literal = @{ "#" ~ string_literal }
 
-/// A pattern can be an identifier or a tuple.
-pat = { identifier }
+bool_literal = { "true" | "false" }
+unit_literal = { "()" }
+
+// Identifiers
+identifier = { quoted_identifier | unquoted_identifier }
+
+unquoted_identifier = @{
+    !keywords ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "'")*
+}
+
+quoted_identifier = @{
+    "`" ~ quoted_inner ~ "`"
+}
+quoted_inner = @{ (quoted_char | quoted_escape)* }
+quoted_char = { !"`" ~ ANY }
+quoted_escape = @{ "`" ~ "`" }
+
+// Record selectors
+record_selector = @{ "#" ~ (ASCII_ALPHANUMERIC | "_" | "'")+ }
+
+// Type variables
+ty_var = @{ "'" ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "'")* }
 
 // End morel.pest
