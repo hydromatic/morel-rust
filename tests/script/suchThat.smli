@@ -1,0 +1,767 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * Tests for queries with unbounded variables.
+ * (Originally, such queries used a 'suchthat' keyword, but that keyword
+ * has since been removed.)
+ *)
+
+(* ------------------------------------------------------ *)
+(* Convert predicates into ranges. *)
+from i where i > 0 andalso i < 10;
+> val it = [1,2,3,4,5,6,7,8,9] : int bag
+from i where i > 0 andalso i < 4 yield {j = i + 1};
+> val it = [{j=2},{j=3},{j=4}] : {j:int} bag
+from i where i > 0 andalso i < 4 yield {j = i + 1} order DESC j;
+> val it = [{j=4},{j=3},{j=2}] : {j:int} list
+from i where i > 0 andalso i < 10 andalso i mod 3 = 2;
+> val it = [2,5,8] : int bag
+from i where i = 0 orelse i = 12;
+> val it = [0,12] : int bag
+from i where i > 0 andalso i < 10 orelse i > 12 andalso i <= 15;
+> val it = [1,2,3,4,5,6,7,8,9,13,14,15] : int bag
+from i
+where i > 0 andalso i < 10
+join b
+where b = true;
+> val it =
+>   [{b=true,i=1},{b=true,i=2},{b=true,i=3},{b=true,i=4},{b=true,i=5},
+>    {b=true,i=6},{b=true,i=7},{b=true,i=8},{b=true,i=9}] : {b:bool, i:int} bag
+from i
+where i > 0 andalso i < 10
+join b
+where b = (i mod 2 = 0);
+> val it =
+>   [{b=false,i=1},{b=true,i=2},{b=false,i=3},{b=true,i=4},{b=false,i=5},
+>    {b=true,i=6},{b=false,i=7},{b=true,i=8},{b=false,i=9}] : {b:bool, i:int} bag
+
+(*) Unbound variables in declared 'join';
+(*) condition on 'j' occurs after 'join'
+from i, j
+where i > 0 andalso i < 3
+join k, m
+where j > 4 andalso j < 7
+  andalso k > 8 andalso k < 11
+  andalso m > 12 andalso m < 15;
+> val it =
+>   [{i=1,j=5,k=9,m=13},{i=1,j=5,k=9,m=14},{i=1,j=5,k=10,m=13},
+>    {i=1,j=5,k=10,m=14},{i=1,j=6,k=9,m=13},{i=1,j=6,k=9,m=14},
+>    {i=1,j=6,k=10,m=13},{i=1,j=6,k=10,m=14},{i=2,j=5,k=9,m=13},
+>    {i=2,j=5,k=9,m=14},{i=2,j=5,k=10,m=13},{i=2,j=5,k=10,m=14},...]
+>   : {i:int, j:int, k:int, m:int} bag
+
+(* ------------------------------------------------------ *)
+(* Unbounded variables with `take` and other clauses. *)
+
+(* Odd and even numbers that are not a multiple of 6. *)
+from i
+  where i >= 0 andalso i <= 100 andalso i mod 6 <> 0
+  yield {i, odd = i mod 2 = 1}
+  group odd compute count over ()
+  order odd;
+> val it = [{count=34,odd=false},{count=50,odd=true}]
+>   : {count:int, odd:bool} list
+
+from i
+  where i >= 0 andalso i <= 100
+  yield i mod 3
+  distinct
+  order DESC current;
+> val it = [2,1,0] : int list
+
+(* [MOREL-258] `take` in query with unbounded variable gives error *)
+from i
+  where i >= 0 andalso i <= 100
+  take 3;
+> val it = [0,1,2] : int bag
+
+from i
+  where i >= 0 andalso i <= 100
+  skip 96;
+> val it = [96,97,98,99,100] : int bag
+
+from i
+  where i >= 0 andalso i <= 100
+  order DESC i
+  skip 80
+  take 5;
+> val it = [20,19,18,17,16] : int list
+
+from i
+  where i >= 0 andalso i <= 10
+  through j in (fn bag => Bag.`take` (bag, 3));
+> val it = [0,1,2] : int bag
+
+exists i
+  where i >= 0 andalso i <= 100;
+> val it = true : bool
+
+exists i
+  where i >= 30 andalso i <= 40 andalso i mod 17 = 0;
+> val it = true : bool
+
+exists i
+  where i >= 40 andalso i <= 50 andalso i mod 17 = 0;
+> val it = false : bool
+
+forall i
+  where i >= 50 andalso i < 60
+  require i + 100 < 155;
+> val it = false : bool
+
+forall i
+  where i >= 40 andalso i < 50
+  require i + 100 < 155;
+> val it = true : bool
+
+(*) 'on' in 'from'
+from i in [1, 2, 3],
+  j in [2, 3, 4] on j = i;
+> val it = [{i=2,j=2},{i=3,j=3}] : {i:int, j:int} list
+
+from a in [1, 2],
+    b in [3, 4, 5] on a + b = 6
+where b < 5
+join c in [6, 7] on b + c = 10,
+    d in [7, 8];
+> val it = [{a=2,b=4,c=6,d=7},{a=2,b=4,c=6,d=8}]
+>   : {a:int, b:int, c:int, d:int} list
+
+from dno, name, loc
+where {deptno = dno, dname = name, loc} elem scott.depts
+  andalso dno > 20;
+> val it =
+>   [{dno=30,loc="CHICAGO",name="SALES"},{dno=40,loc="BOSTON",name="OPERATIONS"}]
+>   : {dno:int, loc:string, name:string} bag
+
+(*) As previous but with a literal in the record.
+from dno, name
+where {deptno = dno, dname = name, loc = "CHICAGO"} elem scott.depts
+  andalso dno > 20;
+> val it = [{dno=30,name="SALES"}] : {dno:int, name:string} bag
+
+(*) Equivalent to previous, rephrasing 'suchthat' as 'where'
+from dno, name
+where {deptno = dno, dname = name, loc = "CHICAGO"} elem scott.depts
+  andalso dno > 20;
+> val it = [{dno=30,name="SALES"}] : {dno:int, name:string} bag
+
+(*) Equivalent to previous, splitting 'where'
+from dno, name
+where {deptno = dno, dname = name, loc = "CHICAGO"} elem scott.depts
+where dno > 20;
+> val it = [{dno=30,name="SALES"}] : {dno:int, name:string} bag
+
+(*) Variables 'dno', 'name' are infinite until constrained by conditions.
+from v, dno, name
+where v elem scott.depts
+where v.deptno = dno
+where name = v.dname
+where v.loc = "CHICAGO"
+yield {dno, name = #dname v};
+> val it = [{dno=30,name="SALES"}] : {dno:int, name:string} bag
+
+(*) Forward references are required. 'dno' is infinite until we see the
+(*) condition 'v.deptno = dno', and at that point we haven't declared
+(*) 'v'. So we defer 'dno' until after 'v'.
+from dno, name, v
+where v elem scott.depts
+where v.deptno = dno
+where name = v.dname
+where v.loc = "CHICAGO"
+yield {dno = #deptno v, name = #dname v};
+> val it = [{dno=30,name="SALES"}] : {dno:int, name:string} bag
+
+(*) An extra condition on 'dno' yields empty result.
+from dno, name, v
+where v elem scott.depts
+where v.deptno = dno
+where name = v.dname
+where v.loc = "CHICAGO"
+where dno = 20
+yield {dno = #deptno v, name = #dname v};
+> val it = [] : {dno:int, name:string} bag
+
+(*) Inequality on 'dno'
+from dno, name, v
+where v elem scott.depts
+where v.deptno = dno
+where name = v.dname
+where v.loc = "CHICAGO"
+where dno > 20
+yield {dno = #deptno v, name = #dname v};
+> val it = [{dno=30,name="SALES"}] : {dno:int, name:string} bag
+
+(*) We can iterate over a finite datatype
+from i
+where Option.getOpt i;
+> val it = [(NONE,true),(SOME true,false),(SOME true,true)]
+>   : (bool option * bool) bag
+
+(*) If the expression is 'elem set' we can deduce the extent.
+from e
+  where (e elem scott.emps)
+  where e.deptno = 20
+  yield e.ename;
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+
+(*) A function that finds its data internally.
+let
+  fun isEmp e =
+    e elem scott.emps
+in
+  from e
+    where isEmp e
+    where e.deptno = 20
+    yield e.ename
+end;
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+
+(*) As above, using 'andalso' rather than 'where'
+let
+  fun isEmp e =
+    e elem scott.emps
+in
+  from e
+    where isEmp e andalso e.deptno = 20
+    yield e.ename
+end;
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+
+(*) As previous, but 'fun' followed by 'from' without using 'let'
+(*) TODO should return same as previous, currently can't inline fun declared separately
+fun isEmp e =
+  e elem scott.emps;
+> val isEmp = fn
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} -> bool
+(*
+from e
+  where isEmp e andalso e.deptno = 20
+  yield e.ename;
+*)
+
+(*) Similar to 'isEmp' but with a conjunctive condition.
+let
+  fun isClerk e =
+    e elem scott.emps andalso e.job = "CLERK"
+in
+  from e
+    where isClerk e andalso e.deptno = 20
+    yield e.ename
+end;
+> val it = ["SMITH","ADAMS"] : string bag
+
+(*) A disjunctive condition prevents the extent.
+(*) TODO: throw an error, rather than returning an empty list
+(*
+let
+  fun isEmp50 e =
+    e elem scott.emps orelse e.deptno = 50
+in
+  from e
+    where isEmp50 e
+    yield e.ename
+end;
+*)
+
+(*) A function with external extent.
+(* TODO enable when we have types
+fun hasJob (e, job) =
+  e.job = job;
+ *)
+
+(*) Valid, because the argument has an extent.
+(*
+let
+  fun hasJob (e, job) =
+    e.job = job
+in
+  from e in scott.emps,
+      j
+    where hasJob (e, j)
+    yield j
+end;
+val it =
+  ["CLERK","SALESMAN","SALESMAN","MANAGER","SALESMAN","MANAGER","MANAGER",
+   "ANALYST","PRESIDENT","SALESMAN","CLERK","CLERK",...] : string list
+*)
+
+(*) Invalid, because the argument has no extent.
+(*) TODO should give error 'e not grounded'
+(*
+let
+  fun hasJob (e, job) =
+    e.job = job
+in
+  from e where hasJob (e, "CLERK")
+end;
+*)
+
+(*) A string function with external extent.
+(*) Given s2, we could generate finite s1.
+fun isPrefix (s1, s2) =
+  String.isPrefix s1 s2;
+> val isPrefix = fn : string * string -> bool
+(*) This is invalid, but it could be valid
+(*
+from s where isPrefix (s, "abcd");
+> val it = ["", "a", "ab", "abc", "abcd"] : string list
+*)
+
+(*) An integer function with external extent.
+(*) Given j, k we could generate finite i.
+fun isBetween (i, j, k) =
+  i <= j andalso j <= k;
+> val isBetween = fn : 'a * 'a * 'a -> bool
+(*
+from i where isBetween (i, 5, 8);
+> val it = [5, 6, 7, 8] : int list
+*)
+
+(* ------------------------------------------------------ *)
+(* Convenience function that converts a predicate to a
+ * relation. *)
+(*
+fun enumerate predicate =
+  from r where predicate r;
+*)
+(* TODO should print
+val enumerate = fn : ('a -> bool) -> 'a list
+*)
+(*) TODO should return non-empty list
+(*
+enumerate isEmp;
+*)
+
+(* ------------------------------------------------------ *)
+(* The following example from Souffle,
+ * https://souffle-lang.github.io/simple.
+ *
+ * Say we have a Datalog file example.dl, whose contents are as shown:
+ *
+ *   .decl edge(x:number, y:number)
+ *   .input edge
+ *
+ *   .decl path(x:number, y:number)
+ *   .output path
+ *
+ *   path(x, y) :- edge(x, y).
+ *   path(x, y) :- path(x, z), edge(z, y).
+ *
+ * We see that edge is a .input relation, and so will be read from disk. Also,
+ * path is a .output relation, and so will be written to disk.
+ *
+ * The last two lines say that 1) "there is a path from x to y if there is an
+ * edge from x to y", and 2) "there is a path from x to y if there is a path
+ * from x to some z, and there is an edge from that z to y".
+ *
+ * So if the input edge relation is pairs of vertices in a graph, by these two
+ * rules the output path relation will give us all pairs of vertices x and y for
+ * which a path exists in that graph from x to y.
+ *
+ * For instance, if the contents of the tab-separated input file edge.facts is
+ *
+ *   1  2
+ *   2  3
+ *
+ * The contents of the output file path.csv, after we evaluate this program,
+ * will be
+ *
+ *   1  2
+ *   2  3
+ *   1  3
+ *)
+val edges = [
+ {x = 1, y = 2},
+ {x = 2, y = 3}];
+> val edges = [{x=1,y=2},{x=2,y=3}] : {x:int, y:int} list
+fun edge (x, y) = {x, y} elem edges;
+> val edge = fn : int * int -> bool
+(* TODO
+fun path (x, y) =
+  edge (x, y)
+  orelse exists (
+    from z where path (x, z) andalso edge (z, y));
+> val path = fn : int * int -> bool
+*)
+(* TODO
+from p where path p;
+> val it = [(1,2),(2,3),(1,3)] : (int * int) list
+*)
+
+(* More edges *)
+(*
+   1 --> 4 ----+
+   |     |     |
+   |     v     v
+   +---> 2 --> 3
+*)
+val edges = [(1, 2), (2, 3), (1, 4), (4, 2), (4, 3)];
+> val edges = [(1,2),(2,3),(1,4),(4,2),(4,3)] : (int * int) list
+fun edge (x, y) = (x, y) elem edges;
+> val edge = fn : int * int -> bool
+
+(*) Return points that are 2 hops apart.
+(*
+from x, y, z where edge (x, y) andalso edge (y, z) andalso x <> z
+  group x, z;
+*)
+
+(* Previous is equivalent to following. (Which implies a theorem connecting
+   'exists' with 'group' and variable elimination.) *)
+(*
+from x, z
+  where exists (from y where edge (x, y) andalso edge (y, z))
+  andalso x <> z;
+*)
+
+(*) Also equivalent.
+(*
+from x, z where exists (
+   from y where edge (x, y) andalso edge (y, z) andalso x <> z);
+*)
+
+(*) Also equivalent.
+(*
+from x, y
+  where edge (x, y)
+  join y2, z
+  where y2 = y andalso edge (y, z) andalso x <> z
+  group x, y;
+*)
+
+(* ------------------------------------------------------ *)
+(* Joe's bar.
+ * See http://infolab.stanford.edu/~ullman/fcdb/aut07/slides/dlog.pdf.
+ *)
+
+val barPatrons = [
+  {bar = "squirrel", patron = "shaggy"},
+  {bar = "cask", patron = "fred"},
+  {bar = "cask", patron = "scooby"},
+  {bar = "cask", patron = "shaggy"},
+  {bar = "cask", patron = "velma"}];
+> val barPatrons =
+>   [{bar="squirrel",patron="shaggy"},{bar="cask",patron="fred"},
+>    {bar="cask",patron="scooby"},{bar="cask",patron="shaggy"},
+>    {bar="cask",patron="velma"}] : {bar:string, patron:string} list
+
+val barBeers = [
+  {bar =  "squirrel", beer =  "ipa", price =  2},
+  {bar =  "squirrel", beer =  "pale", price =  2},
+  {bar =  "squirrel", beer =  "amber", price =  3},
+  {bar =  "cask", beer =  "stout", price =  4},
+  {bar =  "cask", beer =  "ipa", price =  5}];
+> val barBeers =
+>   [{bar="squirrel",beer="ipa",price=2},{bar="squirrel",beer="pale",price=2},
+>    {bar="squirrel",beer="amber",price=3},{bar="cask",beer="stout",price=4},
+>    {bar="cask",beer="ipa",price=5}] : {bar:string, beer:string, price:int} list
+
+val patronBeers = [
+  {patron =  "shaggy", beer = "amber"},
+  {patron =  "fred", beer = "amber"},
+  {patron =  "velma", beer = "stout"}];
+> val patronBeers =
+>   [{beer="amber",patron="shaggy"},{beer="amber",patron="fred"},
+>    {beer="stout",patron="velma"}] : {beer:string, patron:string} list
+
+fun frequents (patron, bar) =
+  {patron, bar} elem barPatrons;
+> val frequents = fn : string * string -> bool
+fun likes (patron, beer) =
+  {patron, beer} elem patronBeers;
+> val likes = fn : string * string -> bool
+fun sells (bar, beer, price) =
+  {bar, beer, price} elem barBeers;
+> val sells = fn : string * string * int -> bool
+
+(* Patron p is happy if there exists a bar, a beer, and a price such that p
+ * frequents the bar, likes the beer, and the bar sells the beer at price p.
+ *
+ * Datalog:
+ *    Happy(p) <- Frequents(p, bar) AND Likes(p, beer) AND Sells(bar, beer)
+ *)
+(* TODO
+fun happy patron =
+  exists (
+    from bar, beer, price
+      where frequents (patron, bar)
+      andalso likes (patron, beer)
+      andalso sells (bar, beer, price));
+> val happy = fn : string -> bool
+*)
+
+(* Find happy patrons. Shaggy is happy because the Squirrel and Cask sell
+   Amber; Velma is happy because Cask sells Stout. Fred and Scooby are not
+   happy. *)
+(* TODO
+from p where happy p;
+> val it = ["shaggy", "velma"] : string list
+*)
+
+(* A beer is considered cheap if there are at least two bars that sell it for
+ * under $3.
+ *
+ * Datalog:
+ *   Cheap(beer) <- Sells(bar1, beer, p1) AND Sells(bar2, beer, p2)
+ *     AND p1 < 3 AND p2 < 3 AND bar1 <> bar2
+ *)
+(* TODO
+fun cheap beer =
+  exists (
+    from bar1, price1, bar2, price2
+      where sells (bar1, beer, price1)
+        andalso sells (bar2, beer, price2)
+        andalso price1 < 3
+        andalso price2 < 3
+        andalso bar1 <> bar2);
+> val cheap = fn : string -> bool
+*)
+
+(*) Pale is cheap
+(* TODO
+from b where cheap b;
+> val it = ["pale"] : string list
+*)
+
+(* A rule is safe if:
+ * 1. Each distinguished variable,
+ * 2. Each variable in an arithmetic subgoal, and
+ * 3. Each variable in a negated subgoal,
+ *
+ * also appears in a non-negated, relational sub-goal.
+ *
+ * Each of the following is unsafe and not allowed:
+ *
+ * 1. S(x) <- R(y)
+ * 2. S(x) <- R(y) AND NOT R(x)
+ * 3. S(x) <- R(y) AND x < y
+ *
+ * In each case, an infinite number of values of x can satisfy the rule, even
+ * if R is a finite relation.
+ *
+ * If rules are safe, we can use the following evaluation approach:
+ * For each subgoal, consider all tuples that make the subgoal true.
+ * If a selection of tuples define a single value for each variable,
+ * then add the head to the result.
+ * Leads to finite search for P(x) <- Q(x), but P(x) <- Q(y) is problematic.
+ *)
+fun isR y = true;
+> val isR = fn : 'a -> bool
+(* TODO
+fun isS1 x = exists (from y where isR y);
+> val isS1 = fn : 'a -> bool
+*)
+
+(*) isS1 is unsafe
+(* TODO should throw unsafe
+from x where isS1 x;
+> Unsafe
+*)
+
+(*
+fun isS2 x = exists (from y where isR y andalso not (isR x));
+*)
+
+(*) isS2 is unsafe
+(* TODO should throw unsafe
+from x where isS2 x;
+> Unsafe
+*)
+
+(*
+fun isS3 x = exists (from y where isR y andalso x < y);
+*)
+
+(*) isS3 is unsafe
+(* TODO should throw unsafe
+from x where isS3 x;
+> Unsafe
+*)
+
+(* Example Datalog Program. Using EDB Sells (bar, beer, price) and
+ * Likes (patron, beer), find the patrons who like beers Joe doesn't sell.
+ *
+ * Datalog:
+ *   JoeSells(b) <- Sells('Joe''s Bar', b, p)
+ *   Answer(p) <- Likes(p, b)
+ *     AND NOT JoeSells(b)
+ *)
+(* TODO
+fun caskSells b =
+  exists (from beer, price where sells ("cask", beer, price));
+> val caskSells = fn : 'a -> bool
+*)
+
+(* TODO
+from p where exists (
+  from b where likes (p, b) andalso not (caskSells b));
+> val it = ["foo"] : string list
+*)
+
+(* Cousin
+ *
+ * Datalog:
+ *   Sib(x,y) <- Par(x,p) AND Par(y,p) AND x<>y
+ *   Cousin(x,y) <- Sib(x,y)
+ *   Cousin(x,y) <- Par(x,xp) AND Par(y,yp) AND Cousin(xp,yp)
+ *)
+fun par (x, p) =
+  (p, x) elem [
+    ("a", "b"),
+    ("a", "c"),
+    ("d", "c"),
+    ("d", "e"),
+    ("b", "f"),
+    ("c", "g"),
+    ("e", "i"),
+    ("f", "j"),
+    ("f", "k"),
+    ("g", "k"),
+    ("h", "i")];
+> val par = fn : string * string -> bool
+(* TODO
+fun sib (x, y) = exists (
+  from p where par (x, p) andalso par (y, p) andalso x <> y);
+> val sib = fn : string * string -> bool
+*)
+
+(* TODO
+fun cousin (x, y) = sib (x, y)
+  orelse exists (
+    from xp, yp
+      where par (x, xp)
+      andalso par (y, yp)
+      andalso cousin (xp, yp));
+> val cousin = fn : string * string -> bool
+*)
+
+(*
+ Round 1: (b, c), (c, e), (g, h), (j, k)
+ Round 2: same
+ Round 3: add (f, g), (f, h), (g, i), (i, k)
+ Round 4: add (i, j), (k, k)
+ *)
+(* TODO
+enumerate sib;
+> val it = [("b","c")] : (string * string) list
+*)
+
+(*
+enumerate cousin;
+> val it = [("b","c"), ("c","e"),("g","h"),("j","k"),("f","g"),("f","h"),("g","i"),("i","k"),("i","j"),("k","k")] : (string * string) list
+*)
+
+(* Nonmonotone relation.
+ * 'cousin2' is as 'cousin', but 'orelse' has become 'and not'.
+ * The graph is not stratified: there is a path with an infinite number
+ * of 'not' as we traverse the cycle cousin - s2 - cousin,
+ * where s2 is the expression 'notExists (...)'. *)
+(* TODO
+fun cousin2 (x, y) = sib (x, y)
+  andalso notExists (
+    from (xp, yp)
+      where par (x, xp)
+      andalso par (y, yp)
+      andalso cousin2 (xp, yp));
+> val cousin2 = fn : string * string -> bool
+*)
+
+(* TODO
+enumerate cousin2;
+> Error: non-stratified
+*)
+
+(* ------------------------------------------------------ *)
+(* Coloring Australia using three colors.
+ * (From "Basic Modelling in MiniZinc".)
+ *
+ * Australia has six federated states (New South Wales, Queensland,
+ * South Australia, Tasmania, Victoria, and Western Australia) and
+ * Northern Territories. Bordering states/territories must not be the
+ * same color.
+ *
+ *                   _,__        .:
+ *           Darwin <*  /        | \
+ *              .-./     |.     :  :,
+ *             /  |        |-._/     \_
+ *            /   |   NT   |   '       \
+ *          .'    |        |      Q    *: Brisbane
+ *       .-'      |________|___.         ;
+ *       |    WA  |            |         |
+ *       \        |     SA     |-------./
+ *        |       |            |  NSW  /
+ *  Perth  \*     |  __.--._   |`--.__/
+ *          \     |.'       \:.|   V  |
+ *          >__,-'             \_/*_.-'
+ *                                Melbourne
+ *                               :--,
+ *                               'T/
+ *)
+datatype Color = BLUE | GREEN | RED;
+> datatype Color = BLUE | GREEN | RED
+from wa, nt, sa, q, nsw, v, t
+where q = RED
+  andalso t = GREEN
+  andalso wa <> nt
+  andalso wa <> sa
+  andalso nt <> sa
+  andalso nt <> q
+  andalso sa <> q
+  andalso sa <> nsw
+  andalso sa <> v
+  andalso nsw <> v;
+> val it =
+>   [{nsw=BLUE,nt=BLUE,q=RED,sa=GREEN,t=GREEN,v=RED,wa=RED},
+>    {nsw=RED,nt=BLUE,q=RED,sa=GREEN,t=GREEN,v=BLUE,wa=RED},
+>    {nsw=GREEN,nt=GREEN,q=RED,sa=BLUE,t=GREEN,v=RED,wa=RED},
+>    {nsw=RED,nt=GREEN,q=RED,sa=BLUE,t=GREEN,v=GREEN,wa=RED}]
+>   : {nsw:Color, nt:Color, q:Color, sa:Color, t:Color, v:Color, wa:Color} bag
+
+(* ------------------------------------------------------ *)
+(* Arithmetic optimization.
+ * (From "Basic Modelling in MiniZinc".)
+ *
+ * A banana cake which takes 250g of self-raising flour, 2 mashed bananas,
+ * 75g sugar and 100g of butter, and a chocolate cake which takes 200g of
+ * self-raising flour, 75g of cocoa, 150g sugar and 150g of butter. We can sell
+ * a chocolate cake for $4.50 and a banana cake for $4.00. And we have 4kg
+ * self-raising flour, 6 bananas, 2kg of sugar, 500g of butter and 500g of
+ * cocoa. The question is how many of each sort of cake should we bake for the
+ * fete to maximize the profit.
+ *)
+from b, c
+where b >= 0 andalso b <= 100      (*) number of banana cakes
+andalso c >= 0 andalso c <= 100    (*) number of chocolate cakes
+andalso 50 * b + 200 * c <= 4000   (*) flour
+andalso 2 * b <= 6                 (*) bananas
+andalso 75 * b + 150 * c <= 2000   (*) sugar
+andalso 100 * b + 150 * c <= 500   (*) butter
+andalso 75 * c <= 500              (*) cocoa
+yield {b, c, profit = 400 * b + 450 * c}
+order DESC profit;
+> val it =
+>   [{b=2,c=2,profit=1700},{b=3,c=1,profit=1650},{b=0,c=3,profit=1350},
+>    {b=1,c=2,profit=1300},{b=2,c=1,profit=1250},{b=3,c=0,profit=1200},
+>    {b=0,c=2,profit=900},{b=1,c=1,profit=850},{b=2,c=0,profit=800},
+>    {b=0,c=1,profit=450},{b=1,c=0,profit=400},{b=0,c=0,profit=0}]
+>   : {b:int, c:int, profit:int} list
+
+(*) End suchThat.smli

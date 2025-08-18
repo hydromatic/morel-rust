@@ -1,0 +1,265 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * Solves the Wordle word puzzle. It includes the corpus of words and
+ * solutions used by the actual web site, and has a mechanism for
+ * choosing the optimal guess given the information from previous
+ * guesses.
+ *)
+Sys.set ("lineWidth", 78);
+> val it = () : unit
+Sys.set ("printLength", 64);
+> val it = () : unit
+
+(*) Set this to false in tests, true if you want to do some slow/clever stuff.
+val slow = false;
+> val slow = false : bool
+
+val words = from w in file.data.wordle.words yield w.word;
+> val words =
+>   ["aahed","aalii","aargh","aarti","abaca","abaci","aback","abacs","abaft",
+>    "abaka","abamp","aband","abase","abash","abask","abate","abaya","abbas",
+>    "abbed","abbes","abbey","abbot","abcee","abeam","abear","abele","abers",
+>    "abets","abhor","abide","abies","abled","abler","ables","ablet","ablow",
+>    "abmho","abode","abohm","aboil","aboma","aboon","abord","abore","abort",
+>    "about","above","abram","abray","abrim","abrin","abris","absey","absit",
+>    "abuna","abune","abuse","abuts","abuzz","abyes","abysm","abyss","acais",
+>    "acari",...] : string list
+val answers = from a in file.data.wordle.answers yield a.answer;
+> val answers =
+>   [2009,8991,10069,5232,678,1224,3940,3503,7366,9818,4942,3236,7025,5704,10731,
+>    4590,8786,976,15,3681,6648,2669,4046,2462,10764,2199,12,6729,8963,882,8551,
+>    3908,4970,2421,10651,7961,11894,12450,11605,7834,117,2383,10479,9097,2837,
+>    2377,2128,10571,6951,8494,6780,6323,11921,3872,1302,3991,3814,10664,968,
+>    5438,9738,8566,12743,3074,...] : int list
+
+fun mask (guess, answer) =
+  let
+    fun mask2 (m, i, [], answer) = m
+      | mask2 (m, i, letter :: rest, answer) =
+          mask2 ((m * 3
+            + (if String.sub (answer, i) = letter then 2
+             else if String.isSubstring (str letter) answer then 1
+             else 0)), i + 1, rest, answer)
+  in
+    mask2 (0, 0, explode guess, answer)
+  end;
+> val mask = fn : string * string -> int
+
+(*) should be 0 (no letters in common)
+mask ("abcde", "troll");
+> val it = 0 : int
+(*) should be 2 (last letter is correct)
+mask ("abcde", "sprue");
+> val it = 2 : int
+(*) should be 1 (last letter exists)
+mask ("abcde", "sprew");
+> val it = 1 : int
+(*) should be 2 (last letter is correct and exists elsewhere)
+mask ("abcde", "spree");
+> val it = 2 : int
+(*) should be 6 (second to last letter is correct)
+mask ("abcde", "spuds");
+> val it = 6 : int
+
+Sys.set ("matchCoverageEnabled", false);
+> val it = () : unit
+fun maskToString m =
+  let
+    fun maskToString2 (m, s, 0) = s
+      | maskToString2 (m, s, k) =
+        maskToString2 (m div 3,
+          (case (m mod 3) of
+              0 => "b"
+            | 1 => "y"
+            | 2 => "g") ^ s,
+          k - 1)
+  in
+    maskToString2 (m, "", 5)
+  end;
+> val maskToString = fn : int -> string
+Sys.unset "matchCoverageEnabled";
+> val it = () : unit
+
+maskToString 0;
+> val it = "bbbbb" : string
+maskToString 1;
+> val it = "bbbby" : string
+maskToString 5;
+> val it = "bbbyg" : string
+maskToString (mask ("abcde", "spuds"));
+> val it = "bbbgb" : string
+
+(* For a guess, returns the number of mask groups.
+   The expected size of a mask group is the number of remaining
+   words divided by the number of groups. For all guesses, the
+   number of remaining words is the same. Therefore the best guess
+   is the one that returns the most mask groups. *)
+fun f (guess, remainingWords: 'a list) =
+  from w in remainingWords
+    group {m = mask (guess, w)} compute {c = count over ()}
+    compute count over ();
+> val f = fn : string * string list -> int
+
+(* Returns the best guesses in "sampleWords".
+   A good guess is one that, in the worst case scenario,
+   namely a mask shared by a lot of words, minimizes the
+   size of that set of words. *)
+fun bestGuesses2 (sampleWords: 'a list, remainingWords: 'a list) =
+  from w in sampleWords,
+    f = f (w, remainingWords)
+    order DESC f;
+> val bestGuesses2 = fn : string list * string list -> {f:int, w:string} list
+
+fun bestGuesses words =
+  bestGuesses2 (words, words);
+> val bestGuesses = fn : string list -> {f:int, w:string} list
+
+(*) Run on a sample of 500 words; faster than the full set of 12,972 words.
+val sampleWords = if slow then words else List.`take` (words, 200);
+> val sampleWords =
+>   ["aahed","aalii","aargh","aarti","abaca","abaci","aback","abacs","abaft",
+>    "abaka","abamp","aband","abase","abash","abask","abate","abaya","abbas",
+>    "abbed","abbes","abbey","abbot","abcee","abeam","abear","abele","abers",
+>    "abets","abhor","abide","abies","abled","abler","ables","ablet","ablow",
+>    "abmho","abode","abohm","aboil","aboma","aboon","abord","abore","abort",
+>    "about","above","abram","abray","abrim","abrin","abris","absey","absit",
+>    "abuna","abune","abuse","abuts","abuzz","abyes","abysm","abyss","acais",
+>    "acari",...] : string list
+bestGuesses2 (sampleWords, words);
+> val it =
+>   [{f=179,w="acres"},{f=172,w="acros"},{f=172,w="aeros"},{f=171,w="acers"},
+>    {f=167,w="aesir"},{f=166,w="aeons"},{f=165,w="acred"},{f=165,w="aegis"},
+>    {f=164,w="acnes"},{f=159,w="acrid"},{f=159,w="adits"},{f=158,w="ables"},
+>    {f=158,w="adios"},{f=157,w="abers"},{f=157,w="actin"},{f=157,w="agros"},
+>    {f=154,w="abris"},{f=154,w="acmes"},{f=154,w="acold"},{f=154,w="acton"},
+>    {f=154,w="actor"},{f=154,w="agrin"},{f=153,w="acned"},{f=153,w="agers"},
+>    {f=152,w="acids"},{f=151,w="abies"},{f=151,w="acorn"},{f=151,w="adore"},
+>    {f=151,w="agile"},{f=149,w="abets"},{f=149,w="agons"},{f=148,w="agist"},
+>    {f=147,w="aches"},{f=147,w="admen"},{f=147,w="agone"},{f=146,w="abler"},
+>    {f=146,w="ablet"},{f=146,w="abore"},{f=146,w="adorn"},{f=146,w="aglet"},
+>    {f=146,w="agues"},{f=145,w="abuts"},{f=145,w="agios"},{f=144,w="abled"},
+>    {f=144,w="abord"},{f=144,w="abort"},{f=144,w="abyes"},{f=144,w="acute"},
+>    {f=144,w="agent"},{f=142,w="absit"},{f=142,w="acted"},{f=141,w="admin"},
+>    {f=141,w="aglus"},{f=140,w="abrin"},{f=140,w="absey"},{f=139,w="abide"},
+>    {f=138,w="abode"},{f=137,w="abuse"},{f=137,w="admit"},{f=137,w="adust"},
+>    {f=137,w="afrit"},{f=137,w="afros"},{f=137,w="agley"},{f=136,w="ached"},...]
+>   : {f:int, w:string} list
+
+(* Returns the words left after applying a set of filters from previous
+   guesses. *)
+fun remaining (words: 'a list, []) = words
+  | remaining (words, (guess, m) :: rest) =
+      from w in (remaining (words, rest))
+        where maskToString (mask (guess, w)) = m;
+> val remaining = fn : string list * (string * string) list -> string list
+
+fun remaining2 (words: 'a list, guess, m) =
+  from w in words
+    where mask (guess, w) = m;
+> val remaining2 = fn : string list * string * int -> string list
+
+(*) Solve puzzle #164 by guessing "stage", "tumor" then "troll".
+remaining (words, [("stage", "bybbb")]);
+> val it =
+>   ["bhoot","binit","biont","birth","bitch","bitou","bitty","blitz","blunt",
+>    "blurt","booth","booty","borty","bortz","botch","bothy","botty","boult",
+>    "boxty","brith","britt","broth","bruit","brunt","bufty","built","bundt",
+>    "bunty","burnt","butch","butoh","butty","butut","butyl","chirt","chott",
+>    "chout","cinct","clift","clint","clipt","cloot","cloth","clout","compt",
+>    "conto","coopt","count","court","couth","crith","croft","crout","cruft",
+>    "crwth","crypt","cubit","culti","culty","cunit","cutch","cutin","cutto",
+>    "cutty",...] : string list
+remaining (words, [("stage", "bybbb"),
+                   ("tumor", "gbbyy")]);
+> val it =
+>   ["thorn","thoro","thorp","torch","toric","torii","trock","troll","tronc",
+>    "tronk","troth"] : string list
+remaining (words, [("stage", "bybbb"),
+                   ("tumor", "gbbyy"),
+                   ("troll", "ggggg")]);
+> val it = ["troll"] : string list
+
+(*) Solve puzzle #164 by taking the best guess at each step.
+bestGuesses (remaining (words, [("serai", "bbybb")]));
+> val it =
+>   [{f=57,w="court"},{f=52,w="courd"},{f=51,w="tronc"},{f=50,w="brond"},
+>    {f=50,w="crout"},{f=49,w="prunt"},{f=49,w="thorn"},{f=48,w="brunt"},
+>    {f=48,w="drony"},{f=48,w="gourd"},{f=48,w="grunt"},{f=48,w="yourt"},
+>    {f=47,w="bourd"},{f=47,w="courb"},{f=47,w="crudy"},{f=47,w="round"},
+>    {f=47,w="truck"},{f=46,w="chord"},{f=46,w="crony"},{f=46,w="crudo"},
+>    {f=46,w="front"},{f=46,w="rotch"},{f=46,w="trugo"},{f=46,w="trump"},
+>    {f=45,w="bourg"},{f=45,w="broch"},{f=45,w="bronc"},{f=45,w="croft"},
+>    {f=45,w="cruft"},{f=45,w="grund"},{f=45,w="trock"},{f=45,w="tromp"},
+>    {f=45,w="tronk"},{f=45,w="trunk"},{f=44,w="churl"},{f=44,w="clour"},
+>    {f=44,w="dropt"},{f=44,w="drown"},{f=44,w="grody"},{f=44,w="thorp"},
+>    {f=44,w="thurl"},{f=44,w="truly"},{f=43,w="blurt"},{f=43,w="bourn"},
+>    {f=43,w="broth"},{f=43,w="brung"},{f=43,w="churn"},{f=43,w="croup"},
+>    {f=43,w="crump"},{f=43,w="crunk"},{f=43,w="frond"},{f=43,w="routh"},
+>    {f=42,w="cowry"},{f=42,w="cromb"},{f=42,w="crown"},{f=42,w="crumb"},
+>    {f=42,w="dowry"},{f=42,w="grout"},{f=42,w="grump"},{f=42,w="prong"},
+>    {f=42,w="proud"},{f=42,w="troop"},{f=41,w="brock"},{f=41,w="brugh"},...]
+>   : {f:int, w:string} list
+bestGuesses (remaining (words, [("serai", "bbybb"),
+                                ("court", "bybyy")]));
+> val it =
+>   [{f=7,w="troop"},{f=6,w="tromp"},{f=5,w="broth"},{f=5,w="froth"},
+>    {f=5,w="proto"},{f=5,w="trooz"},{f=5,w="troth"},{f=5,w="wroth"},
+>    {f=4,w="ortho"},{f=4,w="troll"},{f=4,w="tronk"}] : {f:int, w:string} list
+bestGuesses (remaining (words, [("serai", "bbybb"),
+                                ("court", "bybyy"),
+                                ("troop", "gggyb")]));
+> val it = [{f=2,w="troll"},{f=2,w="tronk"},{f=2,w="troth"}]
+>   : {f:int, w:string} list
+bestGuesses (remaining (words, [("serai", "bbybb"),
+                                ("court", "bybyy"),
+                                ("troop", "gggyb"),
+                                ("troll", "ggggg")]));
+> val it = [{f=1,w="troll"}] : {f:int, w:string} list
+
+(*) Solves the puzzle from a starting word.
+fun solve (firstGuess, answer, words) =
+  let
+    fun solve2 ([], steps) = "*" :: steps
+      | solve2 (remainingWord :: nil, steps) = remainingWord :: steps
+      | solve2 (remainingWords, steps) =
+      case (bestGuesses remainingWords) of
+          [] => "*" :: steps
+        | {f, w = guess} :: guesses =>
+            solve3 (guess, remainingWords, steps)
+    and solve3 (guess, remainingWords, steps) =
+      if guess = answer then
+        guess :: steps
+      else
+        solve2 (remaining2 (remainingWords,
+                            guess,
+                            mask (guess, answer)),
+                guess :: steps)
+  in
+    List.rev (solve3 (firstGuess, words, []))
+  end;
+> val solve = fn : string * string * string list -> string list
+
+solve ("tares", "unify", words);
+> val it = ["tares","colin","dingy","unify"] : string list
+if slow then solve ("paseo", "unify", words) else [];
+> val it = [] : string list
+if slow then solve ("xenon", "unify", words) else [];
+> val it = [] : string list
+
+(*) End wordle.smli

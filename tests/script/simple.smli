@@ -1,0 +1,615 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *)
+Sys.set ("lineWidth", 78);
+> val it = () : unit
+
+(*) Literals
+1;
+> val it = 1 : int
+~2;
+> val it = ~2 : int
+~2147483647;
+> val it = ~2147483647 : int
+~2147483648;
+> val it = ~2147483648 : int
+2147483647;
+> val it = 2147483647 : int
+"a string";
+> val it = "a string" : string
+"a \"quoted\" string\\with backslash";
+> val it = "a \"quoted\" string\\with backslash" : string
+"";
+> val it = "" : string
+#"a";
+> val it = #"a" : char
+#"\"";
+> val it = #"\"" : char
+#"\\";
+> val it = #"\\" : char
+true;
+> val it = true : bool
+[1,2,3];
+> val it = [1,2,3] : int list
+(1,2);
+> val it = (1,2) : int * int
+(1,(2,"three"),true);
+> val it = (1,(2,"three"),true) : int * (int * string) * bool
+[(1,"a"),(2,"b"),(3,"c")];
+> val it = [(1,"a"),(2,"b"),(3,"c")] : (int * string) list
+([1,2],["a","b","c"]);
+> val it = ([1,2],["a","b","c"]) : int list * string list
+{a=1, b="two"};
+> val it = {a=1,b="two"} : {a:int, b:string}
+{1="a", 2=true, 3=(3,4,5)};
+> val it = ("a",true,(3,4,5)) : string * bool * (int * int * int)
+("a", true, (3,4,5));
+> val it = ("a",true,(3,4,5)) : string * bool * (int * int * int)
+{1="a"};
+> val it = {1="a"} : {1:string}
+("a");
+> val it = "a" : string
+{1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11,a="a",a1="a1",a2="a2",a10="a10"};
+> val it =
+>   {1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11,a="a",a1="a1",a10="a10",
+>    a2="a2"}
+>   : {1:int, 2:int, 3:int, 4:int, 5:int, 6:int, 7:int, 8:int, 9:int, 10:int,
+>      11:int, a:string, a1:string, a10:string, a2:string}
+{1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11};
+> val it = (1,2,3,4,5,6,7,8,9,10,11)
+>   : int * int * int * int * int * int * int * int * int * int * int
+{0=0};
+> val it = {0=0} : {0:int}
+{0=0,1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11};
+> val it = {0=0,1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11}
+>   : {0:int, 1:int, 2:int, 3:int, 4:int, 5:int, 6:int, 7:int, 8:int, 9:int,
+>      10:int, 11:int}
+{1=1,2=2,3=3,5=5,6=6,7=7,8=8,9=9,10=10,11=11};
+> val it = {1=1,2=2,3=3,5=5,6=6,7=7,8=8,9=9,10=10,11=11}
+>   : {1:int, 2:int, 3:int, 5:int, 6:int, 7:int, 8:int, 9:int, 10:int, 11:int}
+
+(*) All the characters
+Sys.set ("printLength", 300);
+> val it = () : unit
+List.tabulate(256, fn i => (i, Char.chr i));
+> val it =
+>   [(0,#"\^@"),(1,#"\^A"),(2,#"\^B"),(3,#"\^C"),(4,#"\^D"),(5,#"\^E"),
+>    (6,#"\^F"),(7,#"\a"),(8,#"\b"),(9,#"\t"),(10,#"\n"),(11,#"\v"),(12,#"\f"),
+>    (13,#"\r"),(14,#"\^N"),(15,#"\^O"),(16,#"\^P"),(17,#"\^Q"),(18,#"\^R"),
+>    (19,#"\^S"),(20,#"\^T"),(21,#"\^U"),(22,#"\^V"),(23,#"\^W"),(24,#"\^X"),
+>    (25,#"\^Y"),(26,#"\^Z"),(27,#"\^["),(28,#"\^\"),(29,#"\^]"),(30,#"\^^"),
+>    (31,#"\^_"),(32,#" "),(33,#"!"),(34,#"\""),(35,#"#"),(36,#"$"),(37,#"%"),
+>    (38,#"&"),(39,#"'"),(40,#"("),(41,#")"),(42,#"*"),(43,#"+"),(44,#","),
+>    (45,#"-"),(46,#"."),(47,#"/"),(48,#"0"),(49,#"1"),(50,#"2"),(51,#"3"),
+>    (52,#"4"),(53,#"5"),(54,#"6"),(55,#"7"),(56,#"8"),(57,#"9"),(58,#":"),
+>    (59,#";"),(60,#"<"),(61,#"="),(62,#">"),(63,#"?"),(64,#"@"),(65,#"A"),
+>    (66,#"B"),(67,#"C"),(68,#"D"),(69,#"E"),(70,#"F"),(71,#"G"),(72,#"H"),
+>    (73,#"I"),(74,#"J"),(75,#"K"),(76,#"L"),(77,#"M"),(78,#"N"),(79,#"O"),
+>    (80,#"P"),(81,#"Q"),(82,#"R"),(83,#"S"),(84,#"T"),(85,#"U"),(86,#"V"),
+>    (87,#"W"),(88,#"X"),(89,#"Y"),(90,#"Z"),(91,#"["),(92,#"\\"),(93,#"]"),
+>    (94,#"^"),(95,#"_"),(96,#"`"),(97,#"a"),(98,#"b"),(99,#"c"),(100,#"d"),
+>    (101,#"e"),(102,#"f"),(103,#"g"),(104,#"h"),(105,#"i"),(106,#"j"),
+>    (107,#"k"),(108,#"l"),(109,#"m"),(110,#"n"),(111,#"o"),(112,#"p"),
+>    (113,#"q"),(114,#"r"),(115,#"s"),(116,#"t"),(117,#"u"),(118,#"v"),
+>    (119,#"w"),(120,#"x"),(121,#"y"),(122,#"z"),(123,#"{"),(124,#"|"),
+>    (125,#"}"),(126,#"~"),(127,#"\127"),(128,#"\128"),(129,#"\129"),
+>    (130,#"\130"),(131,#"\131"),(132,#"\132"),(133,#"\133"),(134,#"\134"),
+>    (135,#"\135"),(136,#"\136"),(137,#"\137"),(138,#"\138"),(139,#"\139"),
+>    (140,#"\140"),(141,#"\141"),(142,#"\142"),(143,#"\143"),(144,#"\144"),
+>    (145,#"\145"),(146,#"\146"),(147,#"\147"),(148,#"\148"),(149,#"\149"),
+>    (150,#"\150"),(151,#"\151"),(152,#"\152"),(153,#"\153"),(154,#"\154"),
+>    (155,#"\155"),(156,#"\156"),(157,#"\157"),(158,#"\158"),(159,#"\159"),
+>    (160,#"\160"),(161,#"\161"),(162,#"\162"),(163,#"\163"),(164,#"\164"),
+>    (165,#"\165"),(166,#"\166"),(167,#"\167"),(168,#"\168"),(169,#"\169"),
+>    (170,#"\170"),(171,#"\171"),(172,#"\172"),(173,#"\173"),(174,#"\174"),
+>    (175,#"\175"),(176,#"\176"),(177,#"\177"),(178,#"\178"),(179,#"\179"),
+>    (180,#"\180"),(181,#"\181"),(182,#"\182"),(183,#"\183"),(184,#"\184"),
+>    (185,#"\185"),(186,#"\186"),(187,#"\187"),(188,#"\188"),(189,#"\189"),
+>    (190,#"\190"),(191,#"\191"),(192,#"\192"),(193,#"\193"),(194,#"\194"),
+>    (195,#"\195"),(196,#"\196"),(197,#"\197"),(198,#"\198"),(199,#"\199"),
+>    (200,#"\200"),(201,#"\201"),(202,#"\202"),(203,#"\203"),(204,#"\204"),
+>    (205,#"\205"),(206,#"\206"),(207,#"\207"),(208,#"\208"),(209,#"\209"),
+>    (210,#"\210"),(211,#"\211"),(212,#"\212"),(213,#"\213"),(214,#"\214"),
+>    (215,#"\215"),(216,#"\216"),(217,#"\217"),(218,#"\218"),(219,#"\219"),
+>    (220,#"\220"),(221,#"\221"),(222,#"\222"),(223,#"\223"),(224,#"\224"),
+>    (225,#"\225"),(226,#"\226"),(227,#"\227"),(228,#"\228"),(229,#"\229"),
+>    (230,#"\230"),(231,#"\231"),(232,#"\232"),(233,#"\233"),(234,#"\234"),
+>    (235,#"\235"),(236,#"\236"),(237,#"\237"),(238,#"\238"),(239,#"\239"),
+>    (240,#"\240"),(241,#"\241"),(242,#"\242"),(243,#"\243"),(244,#"\244"),
+>    (245,#"\245"),(246,#"\246"),(247,#"\247"),(248,#"\248"),(249,#"\249"),
+>    (250,#"\250"),(251,#"\251"),(252,#"\252"),(253,#"\253"),(254,#"\254"),
+>    (255,#"\255")] : (int * char) list
+Sys.unset "printLength";
+> val it = () : unit
+
+String.size "tt";
+> val it = 2 : int
+String.size "\t";
+> val it = 1 : int
+String.size "\n";
+> val it = 1 : int
+String.size "\r";
+> val it = 1 : int
+String.size "\a";
+> val it = 1 : int
+String.size "\b";
+> val it = 1 : int
+String.size "\f";
+> val it = 1 : int
+String.size "\v";
+> val it = 1 : int
+String.size "\^@";
+> val it = 1 : int
+
+(* A string with non-printable characters. *)
+String.implode [#"\t", #"a", #"\128", #"b"];
+> val it = "\ta\128b" : string
+
+(*) Identifiers
+val x = 1
+and x' = 2
+and x'' = 3
+and x'y = 4
+and ABC123 = 5
+and Abc_123 = 6
+and Abc_ = 7;
+> val x = 1 : int
+> val x' = 2 : int
+> val x'' = 3 : int
+> val x'y = 4 : int
+> val ABC123 = 5 : int
+> val Abc_123 = 6 : int
+> val Abc_ = 7 : int
+
+fun foo x
+  x'
+  x''
+  x'y
+  ABC123
+  Abc_123
+  Abc_
+  `a b` = 1;
+> val foo = fn : 'a -> 'b -> 'c -> 'd -> 'e -> 'f -> 'g -> 'h -> int
+
+{x = 1,
+ x' = 2,
+ x'' = 3,
+ x'y = 4,
+ ABC123 = 5,
+ Abc_123 = 6,
+ Abc_ = 7,
+ `A bc` = 8};
+> val it = {`A bc`=8,ABC123=5,Abc_=7,Abc_123=6,x=1,x'=2,x''=3,x'y=4}
+>   : {`A bc`:int, ABC123:int, Abc_:int, Abc_123:int, x:int, x':int, x'':int,
+>      x'y:int}
+
+(*) Quoted identifiers
+val `identifier with space` = 1;
+> val `identifier with space` = 1 : int
+val `identifier with ``backtick`` and period.` = 2;
+> val `identifier with ``backtick`` and period.` = 2 : int
+val `val` = "yes, you can use keywords as identifiers";
+> val val = "yes, you can use keywords as identifiers" : string
+
+(*) Quoted type name
+val x: `int` = 1;
+> val x = 1 : int
+val x: `order` = LESS;
+> val x = LESS : order
+fun f (x: `order` list) = List.length x;
+> val f = fn : order list -> int
+fun f (x: {a:`order`, b:bool, c:`order`}) = if x.b then x.a else x.c;
+> val f = fn : {a:order, b:bool, c:order} -> order
+fun compareInt (x: int, y: int) : `order` =
+  if x < y then LESS
+  else if x > y then GREATER
+  else EQUAL;
+> val compareInt = fn : int * int -> order
+
+(*) Simple commands
+val x = 1;
+> val x = 1 : int
+x + 2;
+> val it = 3 : int
+let
+  fun fact n =
+    if n = 0
+    then 1
+    else n * (fact (n - 1))
+in
+  fact 5
+end;
+> val it = 120 : int
+let
+  fun plus x y = x + y
+in
+  plus 2
+end;
+> val it = fn : int -> int
+it 3;
+> val it = 5 : int
+
+fun strTimes s 0 l = l
+  | strTimes s i l = strTimes ("a" ^ s) (i - 1) (s :: l);
+> val strTimes = fn : string -> int -> string list -> string list
+
+strTimes "" 3 [];
+> val it = ["aa","a",""] : string list
+strTimes "" 8 [];
+> val it = ["aaaaaaa","aaaaaa","aaaaa","aaaa","aaa","aa","a",""] : string list
+strTimes "" 9 [];
+> val it = ["aaaaaaaa","aaaaaaa","aaaaaa","aaaaa","aaaa","aaa","aa","a",""]
+>   : string list
+strTimes "" 12 [];
+> val it =
+>   ["aaaaaaaaaaa","aaaaaaaaaa","aaaaaaaaa","aaaaaaaa","aaaaaaa","aaaaaa",
+>    "aaaaa","aaaa","aaa","aa","a",""] : string list
+strTimes "" 13 [];
+> val it =
+>   ["aaaaaaaaaaaa","aaaaaaaaaaa","aaaaaaaaaa","aaaaaaaaa","aaaaaaaa","aaaaaaa",
+>    "aaaaaa","aaaaa","aaaa","aaa","aa","a",...] : string list
+strTimes "" 20 [];
+> val it =
+>   ["aaaaaaaaaaaaaaaaaaa","aaaaaaaaaaaaaaaaaa","aaaaaaaaaaaaaaaaa",
+>    "aaaaaaaaaaaaaaaa","aaaaaaaaaaaaaaa","aaaaaaaaaaaaaa","aaaaaaaaaaaaa",
+>    "aaaaaaaaaaaa","aaaaaaaaaaa","aaaaaaaaaa","aaaaaaaaa","aaaaaaaa",...]
+>   : string list
+
+[{a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",d="ddddddddd"}];
+> val it =
+>   [
+>    {a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",
+>     d="ddddddddd"}] : {a:string, b:string, c:string, d:string} list
+[{a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",d="ddddddddd"},{a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",d="ddddddddd"}];
+> val it =
+>   [
+>    {a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",
+>     d="ddddddddd"},
+>    {a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",
+>     d="ddddddddd"}] : {a:string, b:string, c:string, d:string} list
+{a=1,b=2,c=3,d=4,e=5,f=6,g=7,h=8,i=9,j=10,k=11,l=12,m=13,n=14,o_=15,p=16};
+> val it =
+>   {a=1,b=2,c=3,d=4,e=5,f=6,g=7,h=8,i=9,j=10,k=11,l=12,m=13,n=14,o_=15,p=16}
+>   : {a:int, b:int, c:int, d:int, e:int, f:int, g:int, h:int, i:int, j:int,
+>      k:int, l:int, m:int, n:int, o_:int, p:int}
+(*
+sml prints the following, but we cannot split types yet:
+
+val it = {a=1,b={a=2,b={a=3,b={a=4,b={a=#,b=#}}}}}
+  : {a:int,
+     b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:unit}}}}}}}
+*)
+{a=1,b={a=2,b={a=3,b={a=4,b={a=5,b={a=6,b={a=7,b={}}}}}}}};
+> val it = {a=1,b={a=2,b={a=3,b={a=4,b={a=#,b=#}}}}}
+>   : {a:int,
+>      b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:unit}}}}}}}
+
+(*) Bug: Fails due to lack of parentheses
+(*
+let
+  fun in_ e [] = false
+    | in_ e (h :: t) = e = h orelse in_ e t
+in
+  (in_ 3 [1,2,3], in_ 4 [1,2,3])
+end;
+*)
+
+(*) Succeeds when parentheses are added
+let
+  fun in_ e [] = false
+    | in_ e (h :: t) = e = h orelse (in_ e t)
+in
+  (in_ 3 [1,2,3], in_ 4 [1,2,3])
+end;
+> val it = (true,false) : bool * bool
+
+(*) Lambda on unit
+fn () => 1;
+> val it = fn : unit -> int
+it ();
+> val it = 1 : int
+
+(*) Multiple functions
+let
+  fun f x = 1
+  fun g x = 2
+in
+  f (g 0)
+end;
+> val it = 1 : int
+
+(*) Closure
+let
+  fun f x = 1 + x;
+  val x = f 2;
+  fun f y = x + y;
+  val x = 10
+in
+  f x
+end;
+> val it = 13 : int
+
+(*) As "Closure", but each 'fun' is replaced with a lambda.
+let
+  val f = fn x => 1 + x;
+  val x = f 2;
+  val f = fn y => x + y;
+  val x = 10
+in
+  f x
+end;
+> val it = 13 : int
+
+(*) As "Closure", but converted to nested 'let' expressions.
+let
+  fun f x = 1 + x
+in
+  let
+    val x = f 2
+  in
+    let
+      fun g y = x + y
+    in
+      let
+        val x = 10
+      in
+        g x
+      end
+    end
+  end
+end;
+> val it = 13 : int
+
+(*) Similar to "Closure", but a simpler expression.
+let
+  val x = 1;
+  fun f y = x + y;
+  val x = 10;
+in
+  f x
+end;
+> val it = 11 : int
+
+(*) Similar to "Closure", but the two occurrences of 'x'
+(*) have different data types, so that the bug is more obvious.
+let
+  val x = "abc";
+  fun g y = size x + y;
+  val x = 10
+in
+  g x
+end;
+> val it = 13 : int
+
+(*) As previous, but converting 'fun' to a lambda.
+let
+  val x = "abc";
+  val g = fn y => size x + y;
+  val x = 10
+in
+  g x
+end;
+> val it = 13 : int
+
+(*) A fun in a fun (test case for [MOREL-19])
+fun foo arg =
+  let
+    fun baz x = x
+  in
+    baz arg
+  end;
+> val foo = fn : 'a -> 'a
+foo 3;
+> val it = 3 : int
+
+(*) Define a function using higher-order functions
+val longest = foldl (fn (s, t) => if size s > size t then s else t) "";
+> val longest = fn : string list -> string
+longest ["ab", "cde", "", "f"];
+> val it = "cde" : string
+longest [];
+> val it = "" : string
+
+(*) Mutually recursive functions
+let
+  fun f i = g (i * 2)
+  and g i = if i > 10 then i else f (i + 3)
+in
+  f
+end;
+> val it = fn : int -> int
+it 1;
+> val it = 26 : int
+
+(*) Same as previous, using 'val rec'
+let
+  val rec f = fn i => g (i * 2)
+  and g = fn i => if i > 10 then i else f (i + 3)
+in
+  f
+end;
+> val it = fn : int -> int
+it 1;
+> val it = 26 : int
+
+let
+  fun odd 0 = false
+    | odd n = even (n - 1)
+  and even 0 = true
+    | even n = odd (n - 1)
+in
+  (odd 17, even 17)
+end;
+> val it = (true,false) : bool * bool
+
+let
+  fun isZeroMod3 0 = true
+    | isZeroMod3 n = isTwoMod3 (n - 1)
+  and isOneMod3 0 = false
+    | isOneMod3 n = isZeroMod3 (n - 1)
+  and isTwoMod3 0 = false
+    | isTwoMod3 n = isOneMod3 (n - 1)
+in
+  (isZeroMod3 17, isOneMod3 17, isTwoMod3 17)
+end;
+> val it = (false,false,true) : bool * bool * bool
+
+(*) An example where identifiers with primes (') are more readable
+fun distance (x, y) (x', y') =
+  Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
+> val distance = fn : real * real -> real * real -> real
+distance (0.0, 1.0) (4.0, 4.0);
+> val it = 5.0 : real
+
+(*) Composite declarations
+let
+  val (x, y) = (1, 2)
+in
+  x + y
+end;
+> val it = 3 : int
+val (x, y) = (1, 2);
+> val x = 1 : int
+> val y = 2 : int
+it;
+> val it = (1,2) : int * int
+val (x, 2) = (1, 2);
+> val x = 1 : int
+it;
+> val it = (1,2) : int * int
+val h :: t = [1, 2, 3];
+> val h = 1 : int
+> val t = [2,3] : int list
+it;
+> val it = [1,2,3] : int list
+val _ = 3;
+
+val SOME i = SOME 1;
+> val i = 1 : int
+
+val SOME i = NONE;
+> uncaught exception Bind
+>   raised at: stdIn:1.5-1.18
+
+val SOME (q as (1, i), SOME true) = SOME ((1, 2), SOME true);
+> val q = (1,2) : int * int
+> val i = 2 : int
+
+val SOME (i, NONE) = SOME (1, SOME false);
+> uncaught exception Bind
+>   raised at: stdIn:1.5-1.42
+
+Sys.set ("matchCoverageEnabled", false);
+> val it = () : unit
+val (i, true) = (1, true);
+> val i = 1 : int
+val (i, false) = (1, true);
+> uncaught exception Bind
+>   raised at: stdIn:1.5-1.27
+let
+  val (i, false) = (1, true)
+in
+  i + 1
+end;
+> uncaught exception Bind
+>   raised at: stdIn:2.7-2.29
+Sys.unset "matchCoverageEnabled";
+> val it = () : unit
+
+(*) Patterns
+
+(*) The following example is from "Introduction to Standard ML" by Robert Harper.
+val x = (( "foo", true ), 17 );
+> val x = (("foo",true),17) : string * bool * int
+val ( l as (ll,lr), r ) = x;
+> val l = ("foo",true) : string * bool
+> val ll = "foo" : string
+> val lr = true : bool
+> val r = 17 : int
+
+Sys.set ("matchCoverageEnabled", false);
+> val it = () : unit
+fun f (true, []) = ~1
+  | f (true, l as (hd :: tl)) = length l
+  | f (false, list) = 0;
+> val f = fn : bool * 'a list -> int
+f (true, ["a","b","c"]);
+> val it = 3 : int
+Sys.unset "matchCoverageEnabled";
+> val it = () : unit
+
+let
+  val w as (x, y) = (1, 2)
+in
+  #1 w + #2 w + x + y
+end;
+> val it = 6 : int
+
+val x as (y, z) = (1, 2);
+> val x = (1,2) : int * int
+> val y = 1 : int
+> val z = 2 : int
+val x as h :: t = [1,2,3];
+> val x = [1,2,3] : int list
+> val h = 1 : int
+> val t = [2,3] : int list
+val x as y as (h,i) :: t = [(1,2),(3,4),(5,6)];
+> val x = [(1,2),(3,4),(5,6)] : (int * int) list
+> val y = [(1,2),(3,4),(5,6)] : (int * int) list
+> val h = 1 : int
+> val i = 2 : int
+> val t = [(3,4),(5,6)] : (int * int) list
+
+val a as SOME (b as (c, d)) = SOME (1, 2);
+> val a = SOME (1,2) : (int * int) option
+> val b = (1,2) : int * int
+> val c = 1 : int
+> val d = 2 : int
+
+val x as y as z = 3;
+> val x = 3 : int
+> val y = 3 : int
+> val z = 3 : int
+
+(*) Errors
+(* The first is printed as '1.9', the second as '1.9-1.11', and the third as '1.9-1.12'. *)
+"a string literal to reset the line counter after the comment";
+> val it = "a string literal to reset the line counter after the comment"
+>   : string
+val a = p + 1;
+> stdIn:1.9 Error: unbound variable or constructor: p
+>   raised at: stdIn:1.9
+val a = pq + 1;
+> stdIn:1.9-1.11 Error: unbound variable or constructor: pq
+>   raised at: stdIn:1.9-1.11
+val a = pqr + 1;
+> stdIn:1.9-1.12 Error: unbound variable or constructor: pqr
+>   raised at: stdIn:1.9-1.12
+
+fun f n = String.substring ("hello", 1, n);
+> val f = fn : int -> string
+f 2;
+> val it = "el" : string
+f 6;
+> uncaught exception Subscript [subscript out of bounds]
+>   raised at: stdIn:1.11-1.43
+f ~1;
+> uncaught exception Subscript [subscript out of bounds]
+>   raised at: stdIn:1.11-1.43
+
+(*) End simple.smli

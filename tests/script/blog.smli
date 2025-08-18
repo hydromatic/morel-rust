@@ -1,0 +1,2346 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * This script contains Morel fragments that are used in Morel's
+ * web site, documentation, and blog posts. Just, you know, to keep
+ * us honest.
+ *)
+Sys.set ("printDepth", ~1);
+> val it = () : unit
+Sys.set ("lineWidth", 78);
+> val it = () : unit
+Sys.set ("stringDepth", ~1);
+> val it = () : unit
+
+(*) === README.md ===================================================
+
+(*) Auxiliary declarations
+val e = {deptno = 10, name = "Fred"};
+> val e = {deptno=10,name="Fred"} : {deptno:int, name:string}
+val d = 10;
+> val d = 10 : int
+val filter = List.filter;
+> val filter = fn : ('a -> bool) -> 'a list -> 'a list
+
+"Hello, world!";
+> val it = "Hello, world!" : string
+
+(*) In Morel, you can omit label = if the expression is an identifier,
+(*) label application, or field reference. Thus
+{#deptno e, e.name, d};
+> val it = {d=10,deptno=10,name="Fred"} : {d:int, deptno:int, name:string}
+(*) is shorthand for
+{deptno = #deptno e, name = e.name, d = d};
+> val it = {d=10,deptno=10,name="Fred"} : {d:int, deptno:int, name:string}
+
+(*) In a sense, from is syntactic sugar. For example, given emps and
+(*) depts, relations defined as lists of records as follows
+val emps =
+  [{id = 100, name = "Fred", deptno = 10},
+   {id = 101, name = "Velma", deptno = 20},
+   {id = 102, name = "Shaggy", deptno = 30},
+   {id = 103, name = "Scooby", deptno = 30}];
+> val emps =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+val depts =
+  [{deptno = 10, name = "Sales"},
+   {deptno = 20, name = "Marketing"},
+   {deptno = 30, name = "Engineering"},
+   {deptno = 40, name = "Support"}];
+> val depts =
+>   [{deptno=10,name="Sales"},{deptno=20,name="Marketing"},
+>    {deptno=30,name="Engineering"},{deptno=40,name="Support"}]
+>   : {deptno:int, name:string} list
+(*) the expression
+from e in emps where e.deptno = 30 yield e.id;
+> val it = [102,103] : int list
+(*) is equivalent to standard ML
+map (fn e => (#id e)) (filter (fn e => (#deptno e) = 30) emps);
+> val it = [102,103] : int list
+
+(*) You can iterate over more than one collection, and therefore
+(*) generate a join or a cartesian product:
+from e in emps, d in depts
+  where e.deptno = d.deptno
+  yield {e.id, e.deptno, ename = e.name, dname = d.name};
+> val it =
+>   [{deptno=10,dname="Sales",ename="Fred",id=100},
+>    {deptno=20,dname="Marketing",ename="Velma",id=101},
+>    {deptno=30,dname="Engineering",ename="Shaggy",id=102},
+>    {deptno=30,dname="Engineering",ename="Scooby",id=103}]
+>   : {deptno:int, dname:string, ename:string, id:int} list
+(*) As in any ML expression, you can define functions within a from
+(*) expression, and those functions can operate on lists. Thus we can
+(*) implement equivalents of SQL's IN and EXISTS operators:
+(* FIXME
+let
+  fun in_ e [] = false
+    | in_ e (h :: t) = e = h orelse (in_ e t)
+in
+  from e in emps
+  where in_ e.deptno (from d in depts
+                where d.name = "Engineering"
+                yield d.deptno)
+  yield e.name
+end;
+*)
+(* FIXME
+let
+  fun exists [] = false
+    | exists hd :: tl = true
+in
+  from e in emps
+  where exists (from d in depts
+                where d.deptno = e.deptno
+                andalso d.name = "Engineering")
+  yield e.name
+end;
+*)
+
+(*) === Screen cast =================================================
+
+(*) Now we're in morel's shell, for interactive commands.
+(*) First of all, we need to talk about comments.
+
+(* This is a block comment, which can span multiple lines... *)
+
+(*) ... and this is a single-line comment.
+
+(*) Now, the basics.
+(*) Everything in ML is an expression.
+"a string literal";
+> val it = "a string literal" : string
+1 + 2;
+> val it = 3 : int
+
+(*) The Morel shell deduces the type of each expression,
+(*) and assigns it to a variable called "it".
+(*) We can use "it" in the next expression...
+it + 4;
+> val it = 7 : int
+
+(*) We just saw string and int expressions.
+(*) There are also boolean, list, record and tuple types:
+1 = 2;
+> val it = false : bool
+[1, 2, 3];
+> val it = [1,2,3] : int list
+{id = 10, name = "Alex"};
+> val it = {id=10,name="Alex"} : {id:int, name:string}
+(1, true, "yes");
+> val it = (1,true,"yes") : int * bool * string
+
+(*) You can assign values to variables.
+val x = 7;
+> val x = 7 : int
+val y =  x mod 3;
+> val y = 1 : int
+
+(*) Functions are expressions, too.
+(*) "fn" makes a lambda expression.
+val plusOne = fn x => x + 1;
+> val plusOne = fn : int -> int
+plusOne 2;
+> val it = 3 : int
+
+(*) Functions are widely used, so they have a shorthand.
+(*) "fun" is short for "val ... = fn".
+fun plusOne x = x + 1;
+> val plusOne = fn : int -> int
+plusOne 1000;
+> val it = 1001 : int
+
+(*) Functions can have multiple arguments, separated by spaces.
+fun plus x y = x + y;
+> val plus = fn : int -> int -> int
+plus 3 4;
+> val it = 7 : int
+
+(*) If we supply too few arguments, we get a closure that captures
+(*) the argument value and can be applied later.
+val plusTen = plus 10;
+> val plusTen = fn : int -> int
+plusTen 2;
+> val it = 12 : int
+
+(*) Functions can be recursive.
+fun fact n = if n = 1 then 1 else n * fact (n - 1);
+> val fact = fn : int -> int
+fact 1;
+> val it = 1 : int
+fact 5;
+> val it = 120 : int
+
+(*) A higher-order function is a function that operates on other
+(*) functions. Here are a couple.
+
+(*) "map" applies another function to each element of a list
+let
+  fun map f [] = []
+    | map f (head :: tail) = (f head) :: (map f tail)
+  fun double n = n * 2
+in
+  map double [1, 2, 3, 4]
+end;
+> val it = [2,4,6,8] : int list
+
+(*) "filter" keeps only those elements of a list for which
+(*) a predicate evaluates to true.
+let
+  fun filter p [] = []
+    | filter p (head :: tail) =
+      if (p head) then
+        (head :: (filter p tail))
+      else
+        (filter p tail)
+  fun even n = n mod 2 = 0
+in
+  filter even [1, 2, 3, 4]
+end;
+> val it = [2,4] : int list
+
+(*) You may notice that "map" and "filter" are very similar to the
+(*) "select" and "where" clauses of a SQL statement.
+(*)
+(*) This is no surprise: relational algebra, which underlies SQL, is
+(*) basically a collection of higher-order functions applied to
+(*) lists of records (relations).
+(*)
+(*) Can we extend ML syntax to make it easier to write relational
+(*) algebra expressions? You bet!
+
+(*) Let's start by defining "emps" and "depts" relations as lists of
+(*) records.
+val emps =
+  [{id = 100, name = "Fred", deptno = 10},
+   {id = 101, name = "Velma", deptno = 20},
+   {id = 102, name = "Shaggy", deptno = 30},
+   {id = 103, name = "Scooby", deptno = 30}];
+> val emps =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+val depts =
+  [{deptno = 10, name = "Sales"},
+   {deptno = 20, name = "HR"},
+   {deptno = 30, name = "Engineering"},
+   {deptno = 40, name = "Support"}];
+> val depts =
+>   [{deptno=10,name="Sales"},{deptno=20,name="HR"},
+>    {deptno=30,name="Engineering"},{deptno=40,name="Support"}]
+>   : {deptno:int, name:string} list
+
+(*) Now our first query, equivalent to "select * from emps as e".
+from e in emps yield e;
+> val it =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+
+(*) Now "select e.id from emps as e where e.deptno = 30"
+from e in emps where (#deptno e) = 30 yield (#id e);
+> val it = [102,103] : int list
+
+(*) Join two relations
+from e in emps, d in depts
+  where (#deptno e) = (#deptno d)
+  yield {id = (#id e), deptno = (#deptno e),
+         ename = (#name e), dname = (#name d)};
+> val it =
+>   [{deptno=10,dname="Sales",ename="Fred",id=100},
+>    {deptno=20,dname="HR",ename="Velma",id=101},
+>    {deptno=30,dname="Engineering",ename="Shaggy",id=102},
+>    {deptno=30,dname="Engineering",ename="Scooby",id=103}]
+>   : {deptno:int, dname:string, ename:string, id:int} list
+
+(*) A query with "exists" and a correlated sub-query.
+(*) We define the "exists" function ourselves: no need for a
+(*) built-in!
+(*)
+(*) Note: Since the blog post was written, we have added "exists"
+(*) as a keyword; to fix the example, we have added backticks.
+let
+  fun exists_ [] = false
+    | exists_ (head :: tail) = true
+in
+  from e in emps
+    where exists_ (from d in depts
+                  where (#deptno d) = (#deptno e)
+                  andalso (#name d) = "Engineering")
+    yield (#name e)
+end;
+> val it = ["Shaggy","Scooby"] : string list
+
+(*) That's all, folks!
+(*) To recap, Morel has:
+(*)  * expressions of int, string, boolean, float, char, list,
+(*)    tuple and record types;
+(*)  * lambda expressions and recursive functions;
+(*)  * algebraic datatypes and pattern-matching;
+(*)  * polymorphism and powerful type-inference;
+(*)  * relational expressions (an extension to Standard ML).
+(*)
+(*) Follow our progress at https://github.com/hydromatic/morel.
+(*) This is only release 0.1, so there's more to come!
+
+(*) === 2020/02/25: Morel: A functional language for data ===========
+
+(*) Auxiliary declarations
+val hr = {
+  emps = [
+    {id = 100, deptno = 10, name = "SCOTT"}],
+  depts = [
+    {deptno = 10, name = "SALES"}]};
+> val hr =
+>   {depts=[{deptno=10,name="SALES"}],emps=[{deptno=10,id=100,name="SCOTT"}]}
+>   : {depts:{deptno:int, name:string} list,
+>      emps:{deptno:int, id:int, name:string} list}
+
+(*) here is a query in Morel:
+from e in hr.emps,
+    d in hr.depts
+where e.deptno = d.deptno
+yield {e.id, e.deptno, ename = e.name, dname = d.name};
+> val it = [{deptno=10,dname="SALES",ename="SCOTT",id=100}]
+>   : {deptno:int, dname:string, ename:string, id:int} list
+
+(*) === 2020/03/03: Morel: The basic language =======================
+
+(* As a functional language, everything in Morel is an expression.
+The basic types are `bool`, `int`, `float`, `string` and `char`.  Here
+are literals in each. *)
+false;
+> val it = false : bool
+10;
+> val it = 10 : int
+~4.5;
+> val it = ~4.5 : real
+"morel";
+> val it = "morel" : string
+#"a";
+> val it = #"a" : char
+();
+> val it = () : unit
+
+(* As you'd expect, there are built-in operators for each data
+type. Here are a few examples: *)
+true andalso false;
+> val it = false : bool
+true orelse false;
+> val it = true : bool
+not false;
+> val it = true : bool
+1 + 2;
+> val it = 3 : int
+~(5 - 2);
+> val it = ~3 : int
+10 mod 3;
+> val it = 1 : int
+"mo" ^ "rel";
+> val it = "morel" : string
+
+(* You can assign values to variables. *)
+val x = 7;
+> val x = 7 : int
+val y = x mod 3;
+> val y = 1 : int
+x + y;
+> val it = 8 : int
+
+(* The shell deduces the type of each expression,
+   and assigns it to a variable called `it`.
+   We can use `it` in the next expression. *)
+"morel";
+> val it = "morel" : string
+String.size it;
+> val it = 5 : int
+it + 4;
+> val it = 9 : int
+
+(* A let expression binds one or more values and evaluates an expression *)
+let
+  val x = 3
+  val y = 2
+in
+  x + y
+end;
+> val it = 5 : int
+
+(* In addition to primitive types, there are list, record and tuple
+   types. *)
+[1, 2, 3];
+> val it = [1,2,3] : int list
+{id = 10, name = "Scooby"};
+> val it = {id=10,name="Scooby"} : {id:int, name:string}
+(1, true, "yes");
+> val it = (1,true,"yes") : int * bool * string
+
+(* Tuples are actually just records with fields named "1", "2",
+   etc.: *)
+(1, true, "yes");
+> val it = (1,true,"yes") : int * bool * string
+{1 = 1, 2 = true, 3 = "yes"};
+> val it = (1,true,"yes") : int * bool * string
+(1, true, "yes") = {1 = 1, 2 = true, 3 = "yes"};
+> val it = true : bool
+
+(* The empty record and empty tuple are equal, and are the only value
+   of the type unit. *)
+{};
+> val it = () : unit
+();
+> val it = () : unit
+{} = ();
+> val it = true : bool
+
+(* Functions are expressions, too.  `fn` makes a lambda expression.
+   After we have bound the lambda value to `plusOne`, we can use
+   `plusOne` as a function. *)
+val plusOne = fn x => x + 1;
+> val plusOne = fn : int -> int
+plusOne 2;
+> val it = 3 : int
+
+(* Functions declarations are common, so the `fun` keyword provides a
+   shorthand. *)
+fun plusOne x = x + 1;
+> val plusOne = fn : int -> int
+plusOne 2;
+> val it = 3 : int
+
+(* Functions can have multiple arguments, separated by spaces. *)
+fun plus x y = x + y;
+> val plus = fn : int -> int -> int
+plus 3 4;
+> val it = 7 : int
+
+(* If we supply too few arguments, we get a closure that captures the
+   argument value and can be applied later. *)
+val plusTen = plus 10;
+> val plusTen = fn : int -> int
+plusTen 2;
+> val it = 12 : int
+
+(* Functions can be recursive. *)
+fun factorial n =
+  if n = 1 then
+    1
+  else
+     n * factorial (n - 1);
+> val factorial = fn : int -> int
+factorial 1;
+> val it = 1 : int
+factorial 5;
+> val it = 120 : int
+
+(* A higher-order function is a function that operates on other
+   functions. Here are a couple of examples.
+
+   The map function applies a given function `f` to each element of a
+   list, returning a list. *)
+fun map f [] = []
+  | map f (head :: tail) = (f head) :: (map f tail);
+> val map = fn : ('a -> 'b) -> 'a list -> 'b list
+fun double n = n * 2;
+> val double = fn : int -> int
+map double [1, 2, 3, 4];
+> val it = [2,4,6,8] : int list
+
+(* The filter function keeps only those elements of a list for which a
+   predicate `p` evaluates to true. *)
+fun filter p [] = []
+  | filter p (head :: tail) =
+    if (p head) then
+      (head :: (filter p tail))
+    else
+      (filter p tail);
+> val filter = fn : ('a -> bool) -> 'a list -> 'a list
+fun even n = n mod 2 = 0;
+> val even = fn : int -> bool
+filter even [1, 2, 3, 4];
+> val it = [2,4] : int list
+
+(* Let's start by defining emps and depts relations as lists of
+   records. *)
+
+val emps =
+  [{id = 100, name = "Fred", deptno = 10},
+   {id = 101, name = "Velma", deptno = 20},
+   {id = 102, name = "Shaggy", deptno = 30},
+   {id = 103, name = "Scooby", deptno = 30}];
+> val emps =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+val depts =
+  [{deptno = 10, name = "Sales"},
+   {deptno = 20, name = "HR"},
+   {deptno = 30, name = "Engineering"},
+   {deptno = 40, name = "Support"}];
+> val depts =
+>   [{deptno=10,name="Sales"},{deptno=20,name="HR"},
+>    {deptno=30,name="Engineering"},{deptno=40,name="Support"}]
+>   : {deptno:int, name:string} list
+
+(* Now let's run our first query. *)
+from e in emps yield e;
+> val it =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+
+(* There is no difference between a query, a table and a list-valued
+   expression, so we could have instead written just `emps`. *)
+emps;
+> val it =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+
+(* A where clause filters out rows. *)
+from e in emps
+  where #deptno e = 30
+  yield {id = #id e};
+> val it = [{id=102},{id=103}] : {id:int} list
+
+(* The following is equivalent. *)
+from e in emps
+  where e.deptno = 30
+  yield {e.id};
+> val it = [{id=102},{id=103}] : {id:int} list
+
+(* If you omit 'yield' you get the raw values of 'e'. *)
+from e in emps
+  where #deptno e = 30;
+> val it = [{deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+
+(* Shorthand. The following 3 queries are equivalent. *)
+from e in emps
+  yield {e = #id e};
+> val it = [{e=100},{e=101},{e=102},{e=103}] : {e:int} list
+from e in emps
+  yield {e = e.id};
+> val it = [{e=100},{e=101},{e=102},{e=103}] : {e:int} list
+from e in emps
+  yield {e.id};
+> val it = [{id=100},{id=101},{id=102},{id=103}] : {id:int} list
+
+(* Joins and sub-queries. *)
+from e in emps,
+    d in depts
+  where e.deptno = d.deptno
+  yield {e.id, e.deptno, ename = e.name, dname = d.name};
+> val it =
+>   [{deptno=10,dname="Sales",ename="Fred",id=100},
+>    {deptno=20,dname="HR",ename="Velma",id=101},
+>    {deptno=30,dname="Engineering",ename="Shaggy",id=102},
+>    {deptno=30,dname="Engineering",ename="Scooby",id=103}]
+>   : {deptno:int, dname:string, ename:string, id:int} list
+
+(* The following query would, in SQL, be described as having 'EXISTS
+   and a correlated sub-query'. But 'exists' is not a built-in keyword
+   in Morel, just a function that we define in the query, and a
+   sub-query is just an expression that happens to return a list. *)
+let
+  fun exists_ [] = false
+    | exists_ (head :: tail) = true
+in
+  from e in emps
+    where exists_ (from d in depts
+                  where d.deptno = e.deptno
+                  andalso d.name = "Engineering")
+    yield e.name
+end;
+> val it = ["Shaggy","Scooby"] : string list
+
+(*) === 2020/03/03: Morel: The basic language =======================
+
+(*) WordCount in Standard ML
+(* Note: The blog post used Standard ML. Here, to accommodate missing
+   language features in Morel, we have changed "(op +)" to
+   "(fn (x, y) => x + y)". *)
+fun mapReduce mapper reducer list =
+  let
+    fun update (key, value, []) = [(key, [value])]
+      | update (key, value, ((key2, values) :: tail)) =
+          if key = key2 then
+            (key, (value :: values)) :: tail
+          else
+            (key2, values) :: (update (key, value, tail))
+    fun dedup ([], dict) = dict
+      | dedup ((key, value) :: tail, dict) =
+          dedup (tail, update (key, value, dict))
+    fun flatMap f list = List.foldl List.at [] (List.map f list)
+    val keyValueList = flatMap mapper list
+    val keyValuesList = dedup (keyValueList, [])
+  in
+    List.map (fn (key, values) => (key, reducer (key, values))) keyValuesList
+  end;
+> val mapReduce = fn
+>   : ('a -> ('b * 'c) list)
+>     -> ('b * 'c list -> 'd) -> 'a list -> ('b * 'd) list
+
+fun wc_mapper line =
+  let
+    fun split0 [] word words = word :: words
+      | split0 (#" " :: s) word words = split0 s "" (word :: words)
+      | split0 (c :: s) word words = split0 s (word ^ (String.str c)) words
+    fun split s = List.rev (split0 (String.explode s) "" [])
+  in
+    List.map (fn w => (w, 1)) (split line)
+  end;
+> val wc_mapper = fn : string -> (string * int) list
+fun wc_reducer (key, values) = List.foldl (fn (x, y) => x + y) 0 values;
+> val wc_reducer = fn : 'a * int list -> int
+
+(*) Check that they work on discrete values
+wc_mapper "a skunk sat on a stump";
+> val it = [("a",1),("skunk",1),("sat",1),("on",1),("a",1),("stump",1)]
+>   : (string * int) list
+wc_reducer ("hello", [1, 4, 2]);
+> val it = 7 : int
+
+(*) Bind them to mapReduce, and run
+fun wordCount lines = mapReduce wc_mapper wc_reducer lines;
+> val wordCount = fn : string list -> (string * int) list
+from p in wordCount ["a skunk sat on a stump",
+    "and thunk the stump stunk",
+    "but the stump thunk the skunk stunk"]
+order p.word;
+> stdIn:4.9-4.13 Error: no field 'word' in type 'string * int'
+>   raised at: stdIn:4.9-4.13
+from p in wordCount ["a skunk sat on a stump",
+    "and thunk the stump stunk",
+    "but the stump thunk the skunk stunk"]
+order #1 p;
+> val it =
+>   [("a",2),("and",1),("but",1),("on",1),("sat",1),("skunk",2),("stump",3),
+>    ("stunk",2),("the",3),("thunk",2)] : (string * int) list
+
+(*) WordCount in Morel
+val lines = ["a skunk sat on a stump",
+  "and thunk the stump stunk",
+  "but the stump thunk the skunk stunk"];
+> val lines =
+>   ["a skunk sat on a stump","and thunk the stump stunk",
+>    "but the stump thunk the skunk stunk"] : string list
+fun split s =
+  let
+    fun split0 [] word words = word :: words
+      | split0 (#" " :: s) word words = split0 s "" (word :: words)
+      | split0 (c :: s) word words = split0 s (word ^ (String.str c)) words
+  in
+    List.rev (split0 (String.explode s) "" [])
+  end;
+> val split = fn : string -> string list
+from line in lines,
+    word in split line
+  group word compute count over ()
+  order word;
+> val it =
+>   [{count=2,word="a"},{count=1,word="and"},{count=1,word="but"},
+>    {count=1,word="on"},{count=1,word="sat"},{count=2,word="skunk"},
+>    {count=3,word="stump"},{count=2,word="stunk"},{count=3,word="the"},
+>    {count=2,word="thunk"}] : {count:int, word:string} list
+
+(*) A more complete solution
+fun wordCount (lines: 'a list) =
+  let
+    fun split0 [] word words = word :: words
+      | split0 (#" " :: s) word words = split0 s "" (word :: words)
+      | split0 (c :: s) word words = split0 s (word ^ (String.str c)) words
+    fun split s = List.rev (split0 (String.explode s) "" [])
+  in
+    from line in lines,
+        word in split line
+    group word compute count over ()
+  end;
+> val wordCount = fn : string list -> {count:int, word:string} list
+from p in wordCount lines order p.word;
+> val it =
+>   [{count=2,word="a"},{count=1,word="and"},{count=1,word="but"},
+>    {count=1,word="on"},{count=1,word="sat"},{count=2,word="skunk"},
+>    {count=3,word="stump"},{count=2,word="stunk"},{count=3,word="the"},
+>    {count=2,word="thunk"}] : {count:int, word:string} list
+
+(*) === Aggregate functions =========================================
+
+val emps = scott.emps;
+> val emps = <relation>
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} bag
+val depts = scott.depts;
+> val depts = <relation> : {deptno:int, dname:string, loc:string} bag
+
+from e in emps
+  group e.deptno compute {sumSal = sum over e.sal}
+  order deptno;
+> val it =
+>   [{deptno=10,sumSal=8750.0},{deptno=20,sumSal=10875.0},
+>    {deptno=30,sumSal=9400.0}] : {deptno:int, sumSal:real} list
+
+from e in emps,
+    d in depts
+  where e.deptno = d.deptno
+  group {e.deptno, d.dname, e.job}
+    compute {sumSal = sum over e.sal,
+      minRemuneration = min over e.sal + e.comm}
+  order (deptno, job);
+> val it =
+>   [
+>    {deptno=10,dname="ACCOUNTING",job="CLERK",minRemuneration=1300.0,
+>     sumSal=1300.0},
+>    {deptno=10,dname="ACCOUNTING",job="MANAGER",minRemuneration=2450.0,
+>     sumSal=2450.0},
+>    {deptno=10,dname="ACCOUNTING",job="PRESIDENT",minRemuneration=5000.0,
+>     sumSal=5000.0},
+>    {deptno=20,dname="RESEARCH",job="ANALYST",minRemuneration=3000.0,
+>     sumSal=6000.0},
+>    {deptno=20,dname="RESEARCH",job="CLERK",minRemuneration=800.0,sumSal=1900.0},
+>    {deptno=20,dname="RESEARCH",job="MANAGER",minRemuneration=2975.0,
+>     sumSal=2975.0},
+>    {deptno=30,dname="SALES",job="CLERK",minRemuneration=950.0,sumSal=950.0},
+>    {deptno=30,dname="SALES",job="MANAGER",minRemuneration=2850.0,sumSal=2850.0},
+>    {deptno=30,dname="SALES",job="SALESMAN",minRemuneration=1500.0,
+>     sumSal=5600.0}]
+>   : {deptno:int, dname:string, job:string, minRemuneration:real, sumSal:real} list
+
+(*) In this example, we define our own version of the `sum` function:
+let
+  fun my_sum [] = 0
+    | my_sum (head :: tail) = head + (my_sum tail)
+  fun my_bag_sum bag = my_sum (Bag.toList bag)
+in
+  from e in emps
+    group e.deptno
+    compute {sumEmpno = my_bag_sum over e.empno}
+    order deptno
+end;
+> val it =
+>   [{deptno=10,sumEmpno=23555},{deptno=20,sumEmpno=38501},
+>    {deptno=30,sumEmpno=46116}] : {deptno:int, sumEmpno:int} list
+
+(*) The equivalent of SQL's COLLECT aggregate function is trivial
+from e in emps
+  group e.deptno
+    compute {names = (fn x => x) over e.ename}
+  order deptno;
+> val it =
+>   [{deptno=10,names=["CLARK","KING","MILLER"]},
+>    {deptno=20,names=["SMITH","JONES","SCOTT","ADAMS","FORD"]},
+>    {deptno=30,names=["ALLEN","WARD","MARTIN","BLAKE","TURNER","JAMES"]}]
+>   : {deptno:int, names:string bag} list
+
+(*) === StrangeLoop 2021 talk =======================================
+(*) Standard ML: values
+"Hello, world!";
+> val it = "Hello, world!" : string
+1 + 2;
+> val it = 3 : int
+~1.5;
+> val it = ~1.5 : real
+[1, 1, 2, 3, 5];
+> val it = [1,1,2,3,5] : int list
+fn i => i mod 2 = 1;
+> val it = fn : int -> bool
+(1, "a");
+> val it = (1,"a") : int * string
+{name = "Fred", empno = 100};
+> val it = {empno=100,name="Fred"} : {empno:int, name:string}
+
+(*) Standard ML: types
+true;
+> val it = true : bool
+#"a";
+> val it = #"a" : char
+~1;
+> val it = ~1 : int
+3.14;
+> val it = 3.14 : real
+"foo";
+> val it = "foo" : string
+();
+> val it = () : unit
+String.size;
+> val it = fn : string -> int
+fn (x, y) => x + y * y;
+> val it = fn : int * int -> int
+(10, "Fred");
+> val it = (10,"Fred") : int * string
+{empno=10, name="Fred"};
+> val it = {empno=10,name="Fred"} : {empno:int, name:string}
+[1, 2, 3];
+> val it = [1,2,3] : int list
+[(true, fn i => i + 1)];
+> val it = [(true,fn)] : (bool * (int -> int)) list
+List.length;
+> val it = fn : 'a list -> int
+
+(*) Standard ML: variables and functions
+val x = 1;
+> val x = 1 : int
+val isOdd = fn i => i mod 2 = 1;
+> val isOdd = fn : int -> bool
+fun isOdd i = i mod 2 = 0;
+> val isOdd = fn : int -> bool
+isOdd x;
+> val it = false : bool
+let
+  val x = 6
+  fun isOdd i = i mod 2 = 1
+in
+  isOdd x
+end;
+> val it = false : bool
+
+(*) Algebraic data types, case, and recursion
+(* TODO fix bug in parameterized datatype, and remove intTree below
+datatype 'a tree =
+    EMPTY
+  | LEAF of 'a
+  | NODE of ('a * 'a tree * 'a tree);
+*)
+datatype intTree =
+    EMPTY
+  | LEAF of int
+  | NODE of (int * intTree * intTree);
+> datatype intTree = EMPTY | LEAF of int | NODE of int * intTree * intTree
+fun sumTree EMPTY = 0
+  | sumTree (LEAF i) = i
+  | sumTree (NODE (i, l, r)) =
+        i + sumTree l + sumTree r;
+> val sumTree = fn : intTree -> int
+val t = NODE (1, LEAF 2, NODE (3, EMPTY, LEAF 7));
+> val t = NODE (1,LEAF 2,NODE (3,EMPTY,LEAF 7)) : intTree
+sumTree t;
+> val it = 13 : int
+val rec sumTree = fn t =>
+  case t of EMPTY => 0
+    | LEAF i => i
+    | NODE (i, l, r) => i + sumTree l + sumTree r;
+> val sumTree = fn : intTree -> int
+
+(*) Relations and higher-order functions
+val emps = [
+  {id = 100, name = "Fred", deptno = 10},
+  {id = 101, name = "Velma", deptno = 20},
+  {id = 102, name = "Shaggy", deptno = 30},
+  {id = 103, name = "Scooby", deptno = 30}];
+> val emps =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+List.filter (fn e => #deptno e = 30) emps;
+> val it = [{deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+
+(*) Implementing Join using higher-order functions
+val depts = [
+  {deptno = 10, name = "Sales"},
+  {deptno = 20, name = "Marketing"},
+  {deptno = 30, name = "R&D"}];
+> val depts =
+>   [{deptno=10,name="Sales"},{deptno=20,name="Marketing"},
+>    {deptno=30,name="R&D"}] : {deptno:int, name:string} list
+fun flatMap f xs = List.concat (List.map f xs);
+> val flatMap = fn : ('a -> 'b list) -> 'a list -> 'b list
+List.map
+  (fn (d, e) => {deptno = #deptno d, name = #name e})
+  (List.filter
+    (fn (d, e) => #deptno d = #deptno e)
+    (flatMap
+      (fn e => (List.map (fn d => (d, e)) depts))
+      emps));
+> val it =
+>   [{deptno=10,name="Fred"},{deptno=20,name="Velma"},{deptno=30,name="Shaggy"},
+>    {deptno=30,name="Scooby"}] : {deptno:int, name:string} list
+
+(*) Implementing Join in Morel using `from`
+from e in emps,
+    d in depts
+  where e.deptno = d.deptno
+  yield {d.deptno, e.name};
+> val it =
+>   [{deptno=10,name="Fred"},{deptno=20,name="Velma"},{deptno=30,name="Shaggy"},
+>    {deptno=30,name="Scooby"}] : {deptno:int, name:string} list
+from e in emps,
+    d in depts
+  where #deptno e = #deptno d
+  yield {deptno = #deptno d, name = #name e};
+> val it =
+>   [{deptno=10,name="Fred"},{deptno=20,name="Velma"},{deptno=30,name="Shaggy"},
+>    {deptno=30,name="Scooby"}] : {deptno:int, name:string} list
+
+(*) WordCount
+let
+  fun split0 [] word words = word :: words
+    | split0 (#" " :: s) word words = split0 s "" (word :: words)
+    | split0 (c :: s) word words = split0 s (word ^ (String.str c)) words
+  fun split s = List.rev (split0 (String.explode s) "" [])
+in
+  from line in lines,
+    word in split line
+  group word compute {c = count over ()}
+  order word
+end;
+> val it =
+>   [{c=2,word="a"},{c=1,word="and"},{c=1,word="but"},{c=1,word="on"},
+>    {c=1,word="sat"},{c=2,word="skunk"},{c=3,word="stump"},{c=2,word="stunk"},
+>    {c=3,word="the"},{c=2,word="thunk"}] : {c:int, word:string} list
+from p in wordCount ["a skunk sat on a stump",
+    "and thunk the stump stunk",
+    "but the stump thunk the skunk stunk"]
+order p.word;
+> val it =
+>   [{count=2,word="a"},{count=1,word="and"},{count=1,word="but"},
+>    {count=1,word="on"},{count=1,word="sat"},{count=2,word="skunk"},
+>    {count=3,word="stump"},{count=2,word="stunk"},{count=3,word="the"},
+>    {count=2,word="thunk"}] : {count:int, word:string} list
+
+(*) Functions as views, functions as values
+fun emps2 () =
+   from e in emps
+     yield {e.id,
+       e.name,
+       e.deptno,
+       comp = fn revenue => case e.deptno of
+           30 => e.id + revenue / 2
+         | _ => e.id};
+> val emps2 = fn
+>   : unit -> {comp:int -> int, deptno:int, id:int, name:string} list
+from e in emps2 ()
+  yield {e.name, e.id, c = e.comp 1000};
+> val it =
+>   [{c=100,id=100,name="Fred"},{c=101,id=101,name="Velma"},
+>    {c=602,id=102,name="Shaggy"},{c=603,id=103,name="Scooby"}]
+>   : {c:int, id:int, name:string} list
+
+(*) Chaining relational operators
+from e in emps;
+> val it =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
+>   : {deptno:int, id:int, name:string} list
+from e in emps
+  order (e.deptno, DESC e.id);
+> val it =
+>   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
+>    {deptno=30,id=103,name="Scooby"},{deptno=30,id=102,name="Shaggy"}]
+>   : {deptno:int, id:int, name:string} list
+from e in emps
+  order (e.deptno, DESC e.id)
+  yield {e.name, nameLength = String.size e.name, e.id, e.deptno};
+> val it =
+>   [{deptno=10,id=100,name="Fred",nameLength=4},
+>    {deptno=20,id=101,name="Velma",nameLength=5},
+>    {deptno=30,id=103,name="Scooby",nameLength=6},
+>    {deptno=30,id=102,name="Shaggy",nameLength=6}]
+>   : {deptno:int, id:int, name:string, nameLength:int} list
+from e in emps
+  order (e.deptno, DESC e.id)
+  yield {e.name, nameLength = String.size e.name, e.id, e.deptno}
+  where nameLength > 4;
+> val it =
+>   [{deptno=20,id=101,name="Velma",nameLength=5},
+>    {deptno=30,id=103,name="Scooby",nameLength=6},
+>    {deptno=30,id=102,name="Shaggy",nameLength=6}]
+>   : {deptno:int, id:int, name:string, nameLength:int} list
+from e in emps
+  order (e.deptno, DESC e.id)
+  yield {e.name, nameLength = String.size e.name, e.id, e.deptno}
+  where nameLength > 4
+  group deptno compute {c = count over (), s = sum over nameLength};
+> val it = [{c=1,deptno=20,s=5},{c=2,deptno=30,s=12}]
+>   : {c:int, deptno:int, s:int} list
+from e in emps
+  order (e.deptno, DESC e.id)
+  yield {e.name, nameLength = String.size e.name, e.id, e.deptno}
+  where nameLength > 4
+  group deptno compute {c = count over (), s = sum over nameLength}
+  where s > 10;
+> val it = [{c=2,deptno=30,s=12}] : {c:int, deptno:int, s:int} list
+from e in emps
+  order (e.deptno, DESC e.id)
+  yield {e.name, nameLength = String.size e.name, e.id, e.deptno}
+  where nameLength > 4
+  group deptno compute {c = count over (), s = sum over nameLength}
+  where s > 10
+  yield c + s;
+> val it = [14] : int list
+
+(*) Integration with Apache Calcite - schemas
+foodmart;
+> val it =
+>   {account=<relation>,agg_c_10_sales_fact_1997=<relation>,
+>    agg_c_14_sales_fact_1997=<relation>,
+>    agg_c_special_sales_fact_1997=<relation>,
+>    agg_g_ms_pcat_sales_fact_1997=<relation>,
+>    agg_l_03_sales_fact_1997=<relation>,agg_l_04_sales_fact_1997=<relation>,
+>    agg_l_05_sales_fact_1997=<relation>,agg_lc_06_sales_fact_1997=<relation>,
+>    agg_lc_100_sales_fact_1997=<relation>,agg_ll_01_sales_fact_1997=<relation>,
+>    agg_pl_01_sales_fact_1997=<relation>,category=<relation>,
+>    currency=<relation>,customer=<relation>,days=<relation>,
+>    department=<relation>,employee=<relation>,employee_closure=<relation>,
+>    expense_fact=<relation>,inventory_fact_1997=<relation>,
+>    inventory_fact_1998=<relation>,position=<relation>,product=<relation>,
+>    product_class=<relation>,promotion=<relation>,region=<relation>,
+>    reserve_employee=<relation>,salary=<relation>,sales_fact_1997=<relation>,
+>    sales_fact_1998=<relation>,sales_fact_dec_1998=<relation>,store=<relation>,
+>    store_ragged=<relation>,time_by_day=<relation>,warehouse=<relation>,
+>    warehouse_class=<relation>}
+>   : {
+>      account:
+>              {account_description:string, account_id:int, account_parent:int,
+>               account_rollup:string, account_type:string,
+>               custom_members:string} bag,
+>      agg_c_10_sales_fact_1997:
+>                               {customer_count:int, fact_count:int,
+>                                month_of_year:int, quarter:string,
+>                                store_cost:real, store_sales:real, the_year:int,
+>                                unit_sales:real} bag,
+>      agg_c_14_sales_fact_1997:
+>                               {customer_id:int, fact_count:int,
+>                                month_of_year:int, product_id:int,
+>                                promotion_id:int, quarter:string,
+>                                store_cost:real, store_id:int, store_sales:real,
+>                                the_year:int, unit_sales:real} bag,
+>      agg_c_special_sales_fact_1997:
+>                                    {customer_id:int, fact_count:int,
+>                                     product_id:int, promotion_id:int,
+>                                     store_cost_sum:real, store_id:int,
+>                                     store_sales_sum:real, time_month:int,
+>                                     time_quarter:string, time_year:int,
+>                                     unit_sales_sum:real} bag,
+>      agg_g_ms_pcat_sales_fact_1997:
+>                                    {customer_count:int, fact_count:int,
+>                                     gender:string, marital_status:string,
+>                                     month_of_year:int, product_category:string,
+>                                     product_department:string,
+>                                     product_family:string, quarter:string,
+>                                     store_cost:real, store_sales:real,
+>                                     the_year:int, unit_sales:real} bag,
+>      agg_l_03_sales_fact_1997:
+>                               {customer_id:int, fact_count:int,
+>                                store_cost:real, store_sales:real, time_id:int,
+>                                unit_sales:real} bag,
+>      agg_l_04_sales_fact_1997:
+>                               {customer_count:int, fact_count:int,
+>                                store_cost:real, store_sales:real, time_id:int,
+>                                unit_sales:real} bag,
+>      agg_l_05_sales_fact_1997:
+>                               {customer_id:int, fact_count:int, product_id:int,
+>                                promotion_id:int, store_cost:real, store_id:int,
+>                                store_sales:real, unit_sales:real} bag,
+>      agg_lc_06_sales_fact_1997:
+>                                {city:string, country:string, fact_count:int,
+>                                 state_province:string, store_cost:real,
+>                                 store_sales:real, time_id:int, unit_sales:real} bag,
+>      agg_lc_100_sales_fact_1997:
+>                                 {customer_id:int, fact_count:int,
+>                                  product_id:int, quarter:string,
+>                                  store_cost:real, store_sales:real,
+>                                  the_year:int, unit_sales:real} bag,
+>      agg_ll_01_sales_fact_1997:
+>                                {customer_id:int, fact_count:int,
+>                                 product_id:int, store_cost:real,
+>                                 store_sales:real, time_id:int, unit_sales:real} bag,
+>      agg_pl_01_sales_fact_1997:
+>                                {customer_id:int, fact_count:int,
+>                                 product_id:int, store_cost_sum:real,
+>                                 store_sales_sum:real, time_id:int,
+>                                 unit_sales_sum:real} bag,
+>      category:
+>               {category_description:string, category_id:string,
+>                category_parent:string, category_rollup:string} bag,
+>      currency:
+>               {conversion_ratio:real, currency:string, currency_id:int,
+>                date:string} bag,
+>      customer:
+>               {account_num:int, address1:string, address2:string,
+>                address3:string, address4:string, birthdate:string, city:string,
+>                country:string, customer_id:int, customer_region_id:int,
+>                date_accnt_opened:string, education:string, fname:string,
+>                fullname:string, gender:string, houseowner:string, lname:string,
+>                marital_status:string, member_card:string, mi:string,
+>                num_cars_owned:int, num_children_at_home:int, occupation:string,
+>                phone1:string, phone2:string, postal_code:string,
+>                state_province:string, total_children:int, yearly_income:string} bag,
+>      days:{day:int, week_day:string} bag,
+>      department:{department_description:string, department_id:int} bag,
+>      employee:
+>               {birth_date:string, department_id:int, education_level:string,
+>                employee_id:int, end_date:string, first_name:string,
+>                full_name:string, gender:string, hire_date:string,
+>                last_name:string, management_role:string, marital_status:string,
+>                position_id:int, position_title:string, salary:real,
+>                store_id:int, supervisor_id:int} bag,
+>      employee_closure:{distance:int, employee_id:int, supervisor_id:int} bag,
+>      expense_fact:
+>                   {account_id:int, amount:real, category_id:string,
+>                    currency_id:int, exp_date:string, store_id:int, time_id:int} bag,
+>      inventory_fact_1997:
+>                          {product_id:int, store_id:int, store_invoice:real,
+>                           supply_time:int, time_id:int, units_ordered:int,
+>                           units_shipped:int, warehouse_cost:real,
+>                           warehouse_id:int, warehouse_sales:real} bag,
+>      inventory_fact_1998:
+>                          {product_id:int, store_id:int, store_invoice:real,
+>                           supply_time:int, time_id:int, units_ordered:int,
+>                           units_shipped:int, warehouse_cost:real,
+>                           warehouse_id:int, warehouse_sales:real} bag,
+>      position:
+>               {management_role:string, max_scale:real, min_scale:real,
+>                pay_type:string, position_id:int, position_title:string} bag,
+>      product:
+>              {brand_name:string, cases_per_pallet:int, gross_weight:real,
+>               low_fat:bool, net_weight:real, product_class_id:int,
+>               product_id:int, product_name:string, recyclable_package:bool,
+>               shelf_depth:real, shelf_height:real, shelf_width:real, sku:int,
+>               srp:real, units_per_case:int} bag,
+>      product_class:
+>                    {product_category:string, product_class_id:int,
+>                     product_department:string, product_family:string,
+>                     product_subcategory:string} bag,
+>      promotion:
+>                {cost:real, end_date:string, media_type:string,
+>                 promotion_district_id:int, promotion_id:int,
+>                 promotion_name:string, start_date:string} bag,
+>      region:
+>             {region_id:int, sales_city:string, sales_country:string,
+>              sales_district:string, sales_district_id:int, sales_region:string,
+>              sales_state_province:string} bag,
+>      reserve_employee:
+>                       {birth_date:string, department_id:int,
+>                        education_level:string, employee_id:int,
+>                        end_date:string, first_name:string, full_name:string,
+>                        gender:string, hire_date:string, last_name:string,
+>                        marital_status:string, position_id:int,
+>                        position_title:string, salary:real, store_id:int,
+>                        supervisor_id:int} bag,
+>      salary:
+>             {currency_id:int, department_id:int, employee_id:int,
+>              overtime_paid:real, pay_date:string, salary_paid:real,
+>              vacation_accrued:real, vacation_used:real} bag,
+>      sales_fact_1997:
+>                      {customer_id:int, product_id:int, promotion_id:int,
+>                       store_cost:real, store_id:int, store_sales:real,
+>                       time_id:int, unit_sales:real} bag,
+>      sales_fact_1998:
+>                      {customer_id:int, product_id:int, promotion_id:int,
+>                       store_cost:real, store_id:int, store_sales:real,
+>                       time_id:int, unit_sales:real} bag,
+>      sales_fact_dec_1998:
+>                          {customer_id:int, product_id:int, promotion_id:int,
+>                           store_cost:real, store_id:int, store_sales:real,
+>                           time_id:int, unit_sales:real} bag,
+>      store:
+>            {coffee_bar:bool, first_opened_date:string, florist:bool,
+>             frozen_sqft:int, grocery_sqft:int, last_remodel_date:string,
+>             meat_sqft:int, prepared_food:bool, region_id:int, salad_bar:bool,
+>             store_city:string, store_country:string, store_fax:string,
+>             store_id:int, store_manager:string, store_name:string,
+>             store_number:int, store_phone:string, store_postal_code:string,
+>             store_sqft:int, store_state:string, store_street_address:string,
+>             store_type:string, video_store:bool} bag,
+>      store_ragged:
+>                   {coffee_bar:bool, first_opened_date:string, florist:bool,
+>                    frozen_sqft:int, grocery_sqft:int, last_remodel_date:string,
+>                    meat_sqft:int, prepared_food:bool, region_id:int,
+>                    salad_bar:bool, store_city:string, store_country:string,
+>                    store_fax:string, store_id:int, store_manager:string,
+>                    store_name:string, store_number:int, store_phone:string,
+>                    store_postal_code:string, store_sqft:int,
+>                    store_state:string, store_street_address:string,
+>                    store_type:string, video_store:bool} bag,
+>      time_by_day:
+>                  {day_of_month:int, fiscal_period:string, month_of_year:int,
+>                   quarter:string, the_date:string, the_day:string,
+>                   the_month:string, the_year:int, time_id:int,
+>                   week_of_year:int} bag,
+>      warehouse:
+>                {stores_id:int, wa_address1:string, wa_address2:string,
+>                 wa_address3:string, wa_address4:string, warehouse_city:string,
+>                 warehouse_class_id:int, warehouse_country:string,
+>                 warehouse_fax:string, warehouse_id:int, warehouse_name:string,
+>                 warehouse_owner_name:string, warehouse_phone:string,
+>                 warehouse_postal_code:string, warehouse_state_province:string} bag,
+>      warehouse_class:{description:string, warehouse_class_id:int} bag}
+scott;
+> val it =
+>   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
+>   : {bonuses:{comm:real, ename:string, job:string, sal:real} bag,
+>      depts:{deptno:int, dname:string, loc:string} bag,
+>      emps:
+>           {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>            job:string, mgr:int, sal:real} bag,
+>      salgrades:{grade:int, hisal:real, losal:real} bag}
+scott.depts;
+> val it = <relation> : {deptno:int, dname:string, loc:string} bag
+from d in scott.depts
+  where empty (from e in scott.emps
+    where e.deptno = d.deptno
+    andalso e.job = "CLERK");
+> val it = [{deptno=40,dname="OPERATIONS",loc="BOSTON"}]
+>   : {deptno:int, dname:string, loc:string} bag
+
+(*) Integration with Apache Calcite - relational algebra
+Sys.set ("hybrid", true);
+> val it = () : unit
+from d in scott.depts
+  where empty (from e in scott.emps
+    where e.deptno = d.deptno
+    andalso e.job = "CLERK");
+> val it = [{deptno=40,dname="OPERATIONS",loc="BOSTON"}]
+>   : {deptno:int, dname:string, loc:string} bag
+Sys.plan();
+> val it =
+>   "calcite(plan LogicalProject(deptno=[$0], dname=[$1], loc=[$2])\n  LogicalFilter(condition=[IS NULL($4)])\n    LogicalJoin(condition=[=($0, $3)], joinType=[left])\n      LogicalProject(deptno=[$0], dname=[$1], loc=[$2])\n        JdbcTableScan(table=[[scott, DEPT]])\n      LogicalProject(deptno=[$0], $f1=[true])\n        LogicalAggregate(group=[{0}])\n          LogicalProject(deptno=[$1])\n            LogicalFilter(condition=[AND(=($5, 'CLERK'), IS NOT NULL($1))])\n              LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n                JdbcTableScan(table=[[scott, EMP]])\n)"
+>   : string
+
+(* Workaround for [MOREL-270] Ambiguous collection types. *)
+fun mustBeList (list: 'a list) = list;
+> val mustBeList = fn : 'a list -> 'a list
+
+(*) Functional programming <=> relational programming
+fun squareList [] = []
+  | squareList (x :: xs) = x * x :: squareList xs;
+> val squareList = fn : int list -> int list
+squareList [1, 2, 3];
+> val it = [1,4,9] : int list
+fun squareList xs = List.map (fn x => x * 2) xs;
+> val squareList = fn : int list -> int list
+squareList [1, 2, 3];
+> val it = [2,4,6] : int list
+fun squareList xs =
+  from x in mustBeList xs
+    yield x * x;
+> val squareList = fn : int list -> int list
+squareList [1, 2, 3];
+> val it = [1,4,9] : int list
+
+(*) wordCount again
+fun mapReduce mapper reducer list =
+  from e in mustBeList list,
+      (k, v) in mustBeList (mapper e)
+    group k compute {c = (fn vs => reducer (k, vs)) over v};
+> val mapReduce = fn
+>   : ('a -> ('b * 'c) list)
+>     -> ('b * 'c list -> 'd) -> 'a list -> {c:'d, k:'b} list
+fun wc_mapper line =
+  List.map (fn w => (w, 1)) (split line);
+> val wc_mapper = fn : string -> (string * int) list
+fun wc_reducer (key, values) =
+  List.foldl (fn (x, y) => x + y) 0 values;
+> val wc_reducer = fn : 'a * int list -> int
+val wordCount = mapReduce wc_mapper wc_reducer;
+> val wordCount = fn : string list -> {c:int, k:string} list
+from p in wordCount lines order p.k;
+> val it =
+>   [{c=2,k="a"},{c=1,k="and"},{c=1,k="but"},{c=1,k="on"},{c=1,k="sat"},
+>    {c=2,k="skunk"},{c=3,k="stump"},{c=2,k="stunk"},{c=3,k="the"},
+>    {c=2,k="thunk"}] : {c:int, k:string} list
+from line in lines,
+   word in split line
+ group word compute {c = count over ()}
+ order word;
+> val it =
+>   [{c=2,word="a"},{c=1,word="and"},{c=1,word="but"},{c=1,word="on"},
+>    {c=1,word="sat"},{c=2,word="skunk"},{c=3,word="stump"},{c=2,word="stunk"},
+>    {c=3,word="the"},{c=2,word="thunk"}] : {c:int, word:string} list
+
+(*) === More than Query =============================================
+(* Talk "More than Query", at Data Council, 2025/04/23. *)
+Sys.set ("hybrid", false);
+> val it = () : unit
+
+(*) Solving Wordle
+fun mask (guess, answer) =
+  let
+    fun mask2 (m, i, [], answer) = m
+      | mask2 (m, i, letter :: rest, answer) =
+          mask2 ((m * 3
+          + (if String.sub(answer, i) = letter
+               then 2
+             else if String.isSubstring(str letter) answer
+               then 1
+             else 0)), i + 1, rest, answer)
+  in
+    mask2 (0, 0, explode guess, answer)
+  end;
+> val mask = fn : string * string -> int
+fun maskToString m =
+  let
+    fun maskToString2 (m, s, 0) = s
+      | maskToString2 (m, s, k) =
+        maskToString2 (m div 3,
+          List.nth(["b", "y", "g"], m mod 3) ^ s,
+          k - 1)
+  in
+    maskToString2 (m, "", 5)
+  end;
+> val maskToString = fn : int -> string
+
+val words = from w in file.data.wordle.words yield w.word;
+> val words =
+>   ["aahed","aalii","aargh","aarti","abaca","abaci","aback","abacs","abaft",
+>    "abaka","abamp","aband",...] : string list
+fun maskCount (guess, remainingWords: string list) =
+  from w in remainingWords
+    group {m = mask (guess, w)} compute {c = count over ()}
+    compute count over ();
+> val maskCount = fn : string * string list -> int
+fun bestGuesses words =
+  from w in words,
+    maskCount = maskCount (w, words)
+    order DESC maskCount;
+> val bestGuesses = fn : string list -> {maskCount:int, w:string} list
+fun remaining (words: string list, []) = words
+  | remaining (words, (guess, m) :: rest) =
+      from w in (remaining (words, rest))
+        where maskToString (mask (guess, w)) = m;
+> val remaining = fn : string list * (string * string) list -> string list
+
+bestGuesses (remaining (words, [("aster", "ybbby")]));
+> val it =
+>   [{maskCount=54,w="marid"},{maskCount=54,w="moria"},{maskCount=51,w="daric"},
+>    {maskCount=51,w="moira"},{maskCount=50,w="caird"},{maskCount=50,w="coria"},
+>    {maskCount=49,w="carbo"},{maskCount=49,w="cardi"},{maskCount=49,w="coram"},
+>    {maskCount=49,w="darcy"},{maskCount=49,w="moral"},{maskCount=48,w="maria"},
+>    ...] : {maskCount:int, w:string} list
+
+(*) Functional programming  –  values, types, operators
+1 + 2;
+> val it = 3 : int
+"Hello, " ^ "world!";
+> val it = "Hello, world!" : string
+val integers = [1, 2, 3, 4, 5, 6, 7, 8];
+> val integers = [1,2,3,4,5,6,7,8] : int list
+fun filter f [] = []
+  | filter f (first :: rest) =
+      if (f first)
+        then first :: (filter f rest)
+        else filter f rest;
+> val filter = fn : ('a -> bool) -> 'a list -> 'a list
+filter (fn i => i mod 2 = 0) integers;
+> val it = [2,4,6,8] : int list
+
+(*) Alternatives to SQL
+val db =
+  {emps = [{name = "Fred", deptno = 2, sal = 1000, comm = 100}]};
+> val db = {emps=[{comm=100,deptno=2,name="Fred",sal=1000}]}
+>   : {emps:{comm:int, deptno:int, name:string, sal:int} list}
+from e in db.emps
+  where e.deptno = 2
+  yield {e.name, pay = e.sal + e.comm};
+> val it = [{name="Fred",pay=1100}] : {name:string, pay:int} list
+
+(*) Pipe syntax
+val produceSales = [
+  {item = "bananas", category = "fruit", sales = 100},
+  {item = "apples", category = "fruit", sales = 200},
+  {item = "almonds", category = "nut", sales = 150},
+  {item = "peanuts", category = "nut", sales = 120},
+  {item = "carrots", category = "vegetable", sales = 80}];
+> val produceSales =
+>   [{category="fruit",item="bananas",sales=100},
+>    {category="fruit",item="apples",sales=200},
+>    {category="nut",item="almonds",sales=150},
+>    {category="nut",item="peanuts",sales=120},
+>    {category="vegetable",item="carrots",sales=80}]
+>   : {category:string, item:string, sales:int} list
+from p in produceSales
+  where p.item <> "bananas"
+    andalso p.category elem ["fruit", "nut"]
+  group p.item compute {c = count over (),
+    total = sum over p.sales}
+  order DESC item;
+> val it =
+>   [{c=1,item="peanuts",total=120},{c=1,item="apples",total=200},
+>    {c=1,item="almonds",total=150}] : {c:int, item:string, total:int} list
+
+(*) Billion dollar mistake
+from e in scott.emps
+  where e.deptno = 10
+    andalso
+    (forall e2 in scott.emps
+      where e2.deptno = 20
+        andalso e2.job = "PROGRAMMER"
+      require e.sal > e2.sal)
+  yield e.ename;
+> val it = ["CLARK","KING","MILLER"] : string bag
+
+(*) Types and collections
+datatype personnel_id =
+    EMPLOYEE of int
+  | CONTRACTOR of {ssid: string, agency: string};
+> datatype personnel_id = EMPLOYEE of int | CONTRACTOR of {agency:string, ssid:string}
+(* Disabled until "[MOREL-285] Type declaration" is fixed.
+type member = {name: string, deptno: int, id: personnel_id};
+*)
+val members = [
+  {name = "Smith", deptno = 10, id = EMPLOYEE 100},
+  {name = "Jones", deptno = 20,
+   id = CONTRACTOR {ssid = "xxx-xx-xxxx", agency = "Cheap & cheerful"}}];
+> val members =
+>   [{deptno=10,id=EMPLOYEE 100,name="Smith"},
+>    {deptno=20,id=CONTRACTOR {agency="Cheap & cheerful",ssid="xxx-xx-xxxx"},
+>     name="Jones"}] : {deptno:int, id:personnel_id, name:string} list
+
+val departments = scott.depts;
+> val departments = <relation> : {deptno:int, dname:string, loc:string} bag
+val primes = [2, 3, 5, 7, 11];
+> val primes = [2,3,5,7,11] : int list
+val bands = [["john", "paul", "george", "ringo"], ["simon", "garfunkel"]];
+> val bands = [["john","paul","george","ringo"],["simon","garfunkel"]]
+>   : string list list
+
+(*) Lists, bags, sets in Morel
+from i in [1, 2],
+    j in ["a", "b"],
+    k in [3, 4, 5, 6]
+  where i + k < 6;
+> val it =
+>   [{i=1,j="a",k=3},{i=1,j="a",k=4},{i=1,j="b",k=3},{i=1,j="b",k=4},
+>    {i=2,j="a",k=3},{i=2,j="b",k=3}] : {i:int, j:string, k:int} list
+from dept in [10, 30],
+    e in scott.emps
+  where e.deptno = dept
+  yield e.ename;
+> val it =
+>   ["CLARK","KING","MILLER","ALLEN","WARD","MARTIN","BLAKE","TURNER","JAMES"]
+>   : string bag
+from dept in [10, 30],
+    e in scott.emps
+  where e.deptno = dept
+  order DESC e.sal
+  take 3
+  yield {e.deptno, e.ename};
+> val it =
+>   [{deptno=10,ename="KING"},{deptno=30,ename="BLAKE"},
+>    {deptno=10,ename="CLARK"}] : {deptno:int, ename:string} list
+
+(*) DML
+(* Delete employees who earn more than 1,000. *)
+val emps2 =
+  from e in scott.emps
+    where not (e.sal > 1000.0);
+> val emps2 =
+>   [
+>    {comm=0.0,deptno=20,empno=7369,ename="SMITH",hiredate="1980-12-17",
+>     job="CLERK",mgr=7902,sal=800.0},
+>    {comm=0.0,deptno=30,empno=7900,ename="JAMES",hiredate="1981-12-03",
+>     job="CLERK",mgr=7698,sal=950.0}]
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} bag
+(* Add one employee. *)
+val emps3 = from e in emps2 union
+  [{empno = 100, deptno = 20, ename = "HYDE", job = "ANALYST",
+    sal = 1150.0, hiredate = "2023-10-01", mgr = 7902, comm = 0.0}];
+> val emps3 =
+>   [
+>    {comm=0.0,deptno=20,empno=7369,ename="SMITH",hiredate="1980-12-17",
+>     job="CLERK",mgr=7902,sal=800.0},
+>    {comm=0.0,deptno=30,empno=7900,ename="JAMES",hiredate="1981-12-03",
+>     job="CLERK",mgr=7698,sal=950.0},
+>    {comm=0.0,deptno=20,empno=100,ename="HYDE",hiredate="2023-10-01",
+>     job="ANALYST",mgr=7902,sal=1150.0}]
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} bag
+(* Double the salary of all managers. *)
+val emps4 =
+  from e in emps3
+    yield if e.job = "MANAGER"
+      then {e with sal = e.sal * 2.0}
+      else e;
+> val emps4 =
+>   [
+>    {comm=0.0,deptno=20,empno=7369,ename="SMITH",hiredate="1980-12-17",
+>     job="CLERK",mgr=7902,sal=800.0},
+>    {comm=0.0,deptno=30,empno=7900,ename="JAMES",hiredate="1981-12-03",
+>     job="CLERK",mgr=7698,sal=950.0},
+>    {comm=0.0,deptno=20,empno=100,ename="HYDE",hiredate="2023-10-01",
+>     job="ANALYST",mgr=7902,sal=1150.0}]
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} bag
+(* Commit. *)
+(*) TODO commit {scott with emps = emps4};
+
+(* New and removed employees. *)
+val empsAdded = from e in emps4 except scott.emps;
+> val empsAdded =
+>   [
+>    {comm=0.0,deptno=20,empno=100,ename="HYDE",hiredate="2023-10-01",
+>     job="ANALYST",mgr=7902,sal=1150.0}]
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} bag
+val empsRemoved = from e in scott.emps except emps4;
+> val empsRemoved =
+>   [
+>    {comm=0.0,deptno=10,empno=7934,ename="MILLER",hiredate="1982-01-23",
+>     job="CLERK",mgr=7782,sal=1300.0},
+>    {comm=300.0,deptno=30,empno=7499,ename="ALLEN",hiredate="1981-02-20",
+>     job="SALESMAN",mgr=7698,sal=1600.0},
+>    {comm=0.0,deptno=10,empno=7782,ename="CLARK",hiredate="1981-06-09",
+>     job="MANAGER",mgr=7839,sal=2450.0},
+>    {comm=0.0,deptno=20,empno=7902,ename="FORD",hiredate="1981-12-03",
+>     job="ANALYST",mgr=7566,sal=3000.0},
+>    {comm=0.0,deptno=20,empno=7566,ename="JONES",hiredate="1981-02-04",
+>     job="MANAGER",mgr=7839,sal=2975.0},
+>    {comm=0.0,deptno=30,empno=7844,ename="TURNER",hiredate="1981-09-08",
+>     job="SALESMAN",mgr=7698,sal=1500.0},
+>    {comm=0.0,deptno=30,empno=7698,ename="BLAKE",hiredate="1981-01-05",
+>     job="MANAGER",mgr=7839,sal=2850.0},
+>    {comm=0.0,deptno=10,empno=7839,ename="KING",hiredate="1981-11-17",
+>     job="PRESIDENT",mgr=0,sal=5000.0},
+>    {comm=500.0,deptno=30,empno=7521,ename="WARD",hiredate="1981-02-22",
+>     job="SALESMAN",mgr=7698,sal=1250.0},
+>    {comm=0.0,deptno=20,empno=7876,ename="ADAMS",hiredate="1987-05-23",
+>     job="CLERK",mgr=7788,sal=1100.0},
+>    {comm=0.0,deptno=20,empno=7788,ename="SCOTT",hiredate="1987-04-19",
+>     job="ANALYST",mgr=7566,sal=3000.0},
+>    {comm=1400.0,deptno=30,empno=7654,ename="MARTIN",hiredate="1981-09-28",
+>     job="SALESMAN",mgr=7698,sal=1250.0}]
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgr:int, sal:real} bag
+
+(*) Empty summary table. (TODO: Use record type.)
+val summary =
+  from s in [{deptno = 0, c = 0, sum_sal = 0.0}]
+    where false;
+> val summary = [] : {c:int, deptno:int, sum_sal:real} list
+
+(* Compute the updated summary table. *)
+val summary2 =
+  from s in (*scott.*)summary
+    union
+      (from e in empsAdded
+        yield {e.deptno, c = 1, sum_sal = e.sal})
+    union
+      (from e in empsRemoved
+        yield {e.deptno, c = ~1, sum_sal = ~e.sal})
+    group s.deptno compute {c = sum over s.c, sum_sal = sum over s.sum_sal}
+    order deptno
+    where c <> 0;
+> val summary2 =
+>   [{c=~3,deptno=10,sum_sal=~8750.0},{c=~3,deptno=20,sum_sal=~8925.0},
+>    {c=~5,deptno=30,sum_sal=~8450.0}] : {c:int, deptno:int, sum_sal:real} list
+
+(* Commit. *)
+(*) TODO commit {scott with summary = summary2};
+
+val parents = [
+  ("earendil", "elrond"),
+  ("elrond", "arwen"),
+  ("elrond", "elladan"),
+  ("elrond", "elrohir")];
+> val parents =
+>   [("earendil","elrond"),("elrond","arwen"),("elrond","elladan"),
+>    ("elrond","elrohir")] : (string * string) list
+from (parent, child) in parents
+  where parent = "elrond";
+> val it =
+>   [{child="arwen",parent="elrond"},{child="elladan",parent="elrond"},
+>    {child="elrohir",parent="elrond"}] : {child:string, parent:string} list
+
+(*) TODO Fix the UnsupportedOperationException
+fun ancestors () =
+  from (x, y) in parents
+    union
+      (from (x, y) in parents,
+        (y2, z) in ancestors ()
+      where y = y2
+      yield (x, z));
+> java.lang.UnsupportedOperationException
+
+(* Morel "forwards" relation *)
+(* Relation defined using algebra. *)
+fun clerks () =
+  from e in scott.emps
+    where e.job = "CLERK";
+> val clerks = fn
+>   : unit
+>     ->
+>        {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>         job:string, mgr:int, sal:real} bag
+(* Query uses regular iteration. *)
+from e in clerks (),
+    d in scott.depts
+  where d.deptno = e.deptno
+    andalso d.loc = "DALLAS"
+  yield e.ename;
+> val it = ["SMITH","ADAMS"] : string bag
+
+(* Morel "backwards" relation *)
+(* Relation defined using a predicate. *)
+(* TODO enable when we have record types.
+fun isClerk e =
+  e.job = "CLERK";
+(*) Query uses a mixture of constrained and regular iteration.
+from e,
+    d in depts
+  where isClerk(e)
+    andalso d.deptno = e.deptno
+    andalso d.loc = "DALLAS"
+  yield e.name;
+["SMITH", "ADAMS"] : string list;
+*)
+
+(*) Recursively-defined predicate relation
+fun isAncestor (x, z) =
+  (x, z) elem parents
+    orelse (exists y
+      where isAncestor(x, y)
+        andalso (y, z) elem parents);
+> com.google.common.base.VerifyException: not found [isAncestor]
+
+from a
+  where isAncestor(a, "arwen");
+> stdIn:2.9-2.19 Error: unbound variable or constructor: isAncestor
+>   raised at: stdIn:2.9-2.19
+(*) TODO should return ["earendil", "elrond"] : string list
+
+from d
+  where isAncestor("earendil", d);
+> stdIn:2.9-2.19 Error: unbound variable or constructor: isAncestor
+>   raised at: stdIn:2.9-2.19
+(*) TODO should return ["elrond", "arwen", "elladan", "elrohir"] : string list
+
+(*) Recipe optimization
+from b, c
+  where b >= 0 andalso b <= 100       (*) number of banana cakes
+  andalso c >= 0 andalso c <= 100     (*) number of chocolate cakes
+  andalso 50 * b + 200 * c <= 40000   (*) flour
+  andalso 2 * b <= 60                 (*) bananas
+  andalso 75 * b + 150 * c <= 20000   (*) sugar
+  andalso 100 * b + 150 * c <= 5000   (*) butter
+  andalso 75 * c <= 5000              (*) cocoa
+  yield {b, c, profit = 400 * b + 450 * c}
+  order DESC profit
+  take 3;
+> val it =
+>   [{b=29,c=14,profit=17900},{b=30,c=13,profit=17850},{b=26,c=16,profit=17600}]
+>   : {b:int, c:int, profit:int} list
+
+(*) === GCD and LCM =================================================
+(* "INTERSECT ALL, EXCEPT ALL, and the arithmetic of fractions",
+   posted on 2025/06/03. *)
+fun factorize n =
+  let
+    fun factorize' n d =
+      if n < d then [] else
+      if n mod d = 0 then d :: (factorize' (n div d) d)
+      else factorize' n (d + 1)
+  in
+    factorize' n 2
+  end;
+> val factorize = fn : int -> int list
+
+fun product [] = 1
+  | product (x :: xs) = x * product xs;
+> val product = fn : int list -> int
+product [2, 3, 2];
+> val it = 12 : int
+
+factorize 120;
+> val it = [2,2,2,3,5] : int list
+product (factorize 120);
+> val it = 120 : int
+
+(*) Greatest Common Divisor (GCD)
+fun gcd (m, n) =
+  from f in factorize m
+    intersect (factorize n)
+    compute product over f;
+> val gcd = fn : int * int -> int
+
+(*) Least Common Multiple (LCM)
+fun lcm (m, n) =
+  let
+    val m_factors = factorize m
+    val n_factors = factorize n
+  in
+    from f in m_factors
+      union (n_factors)
+      except (from f in m_factors
+        intersect n_factors)
+    compute product over f
+  end;
+> val lcm = fn : int * int -> int
+
+fun lcm' (m, n) =
+  m * n div gcd (m, n);
+> val lcm' = fn : int * int -> int
+
+lcm (36, 120);
+> val it = 360 : int
+lcm' (36, 120);
+> val it = 360 : int
+gcd (36, 120);
+> val it = 12 : int
+
+(*) === Query.md ====================================================
+Sys.set ("output", "tabular");
+> val it = () : unit
+Sys.set ("lineWidth", 65);
+> val it = () : unit
+
+from e in scott.emps
+  where e.deptno = 10
+  yield {e.ename, e.job};
+> ename  job
+> ------ ---------
+> CLARK  MANAGER
+> KING   PRESIDENT
+> MILLER CLERK
+>
+> val it : {ename:string, job:string} bag
+
+from e in scott.emps,
+    d in scott.depts on e.deptno = d.deptno
+  where e.deptno = 10
+  yield {d.dname, e.ename, e.job};
+> dname      ename  job
+> ---------- ------ ---------
+> ACCOUNTING CLARK  MANAGER
+> ACCOUNTING KING   PRESIDENT
+> ACCOUNTING MILLER CLERK
+>
+> val it : {dname:string, ename:string, job:string} bag
+
+(* Query over a list of integers. *)
+from i in [1, 2, 3, 4, 5]
+  where i mod 2 = 0;
+> val it = [2,4] : int list
+
+(* Query over a list of (string, int) pairs. *)
+from (name, age) in [("shaggy", 17), ("scooby", 7)]
+  yield {s = name ^ " is " ^ Int.toString(age) ^ "."};
+> s
+> -------------
+> shaggy is 17.
+> scooby is 7.
+>
+> val it : {s:string} list
+
+(* If there are multiple scans, the query generates a cartesian product: *)
+from i in [2, 3],
+  s in ["ab", "cde"];
+> i s
+> - ---
+> 2 ab
+> 2 cde
+> 3 ab
+> 3 cde
+>
+> val it : {i:int, s:string} list
+
+(* If you want to add a join condition, you can append an on clause: *)
+from e in scott.emps,
+    d in scott.depts on e.deptno = d.deptno
+  where e.job = "MANAGER"
+  yield {e.ename, d.dname};
+> dname      ename
+> ---------- -----
+> RESEARCH   JONES
+> SALES      BLAKE
+> ACCOUNTING CLARK
+>
+> val it : {dname:string, ename:string} bag
+
+(*) If you want scans later in a query, use the join step.
+val clients =
+  [{cname = "Apple", contact = 7654, city = "BOSTON"},
+   {cname = "Disney", contact = 7499, city = "BOSTON"},
+   {cname = "Ford", contact = 7521, city = "BOSTON"},
+   {cname = "IBM", contact = 7654, city = "BOSTON"}];
+> city   cname  contact
+> ------ ------ -------
+> BOSTON Apple  7654
+> BOSTON Disney 7499
+> BOSTON Ford   7521
+> BOSTON IBM    7654
+>
+> val clients : {city:string, cname:string, contact:int} list
+
+from c in clients
+  where c.city = "BOSTON"
+  join e in scott.emps on c.contact = e.empno,
+      d in scott.depts on e.deptno = d.deptno
+  yield {c.cname, e.ename, d.dname};
+> cname  dname ename
+> ------ ----- ------
+> Apple  SALES MARTIN
+> Disney SALES ALLEN
+> Ford   SALES WARD
+> IBM    SALES MARTIN
+>
+> val it : {cname:string, dname:string, ename:string} bag
+
+(* Define the shipments data set; each shipment has one or
+   more nested items. *)
+val shipments =
+  [{id=1, shipping=10.0, items=[{product="soda", quantity=12},
+                                {product="beer", quantity=3}]},
+   {id=2, shipping=7.5, items=[{product="cider",quantity=4}]}];
+> val shipments =
+>   [
+>    {id=1,
+>     items=
+>     [{product="soda",quantity=12},{product="beer",quantity=3}],
+>     shipping=10.0},
+>    {id=2,items=[{product="cider",quantity=4}],shipping=7.5}]
+>   :
+>     {id:int, items:{product:string, quantity:int} list,
+>      shipping:real} list
+
+(* Iterate over the shipments and their items. *)
+from s in shipments,
+    i in s.items
+  yield {s.id, i.product, i.quantity};
+> id product quantity
+> -- ------- --------
+> 1  soda    12
+> 1  beer    3
+> 2  cider   4
+>
+> val it : {id:int, product:string, quantity:int} list
+
+(* Single-row scan. Iterate over a list of integers and compute whether
+   they are odd. *)
+from i in [1, 2, 3, 4, 5],
+    odd = (i mod 2 = 1);
+> i odd
+> - -----
+> 1 true
+> 2 false
+> 3 true
+> 4 false
+> 5 true
+>
+> val it : {i:int, odd:bool} list
+
+(* Equivalent using "in" and a singleton list. *)
+from i in [1, 2, 3, 4, 5],
+    odd in [(i mod 2 = 1)];
+> i odd
+> - -----
+> 1 true
+> 2 false
+> 3 true
+> 4 false
+> 5 true
+>
+> val it : {i:int, odd:bool} list
+
+(* Empty scan. In case you are wondering, yes, a query with
+   no scans is legal. It produces one row with zero fields. *)
+from;
+> val it = [()] : unit list
+
+(*) You can even feed that one row into a pipeline.
+from
+  where true
+  yield 1 + 2;
+> val it = [3] : int list
+
+from deptno in [10, 20],
+    emp in scott.emps on emp.deptno = deptno;
+> val it =
+>   [
+>    {deptno=10,
+>     emp=
+>     {comm=0.0,deptno=10,empno=7782,ename="CLARK",
+>      hiredate="1981-06-09",job="MANAGER",mgr=7839,sal=2450.0}},
+>    {deptno=10,
+>     emp=
+>     {comm=0.0,deptno=10,empno=7839,ename="KING",
+>      hiredate="1981-11-17",job="PRESIDENT",mgr=0,sal=5000.0}},
+>    {deptno=10,
+>     emp=
+>     {comm=0.0,deptno=10,empno=7934,ename="MILLER",
+>      hiredate="1982-01-23",job="CLERK",mgr=7782,sal=1300.0}},
+>    {deptno=20,
+>     emp=
+>     {comm=0.0,deptno=20,empno=7369,ename="SMITH",
+>      hiredate="1980-12-17",job="CLERK",mgr=7902,sal=800.0}},
+>    {deptno=20,
+>     emp=
+>     {comm=0.0,deptno=20,empno=7566,ename="JONES",
+>      hiredate="1981-02-04",job="MANAGER",mgr=7839,sal=2975.0}},
+>    {deptno=20,
+>     emp=
+>     {comm=0.0,deptno=20,empno=7788,ename="SCOTT",
+>      hiredate="1987-04-19",job="ANALYST",mgr=7566,sal=3000.0}},
+>    {deptno=20,
+>     emp=
+>     {comm=0.0,deptno=20,empno=7876,ename="ADAMS",
+>      hiredate="1987-05-23",job="CLERK",mgr=7788,sal=1100.0}},
+>    {deptno=20,
+>     emp=
+>     {comm=0.0,deptno=20,empno=7902,ename="FORD",
+>      hiredate="1981-12-03",job="ANALYST",mgr=7566,sal=3000.0}}]
+>   :
+>     {deptno:int,
+>      emp:{comm:real, deptno:int, empno:int, ename:string,
+>           hiredate:string, job:string, mgr:int, sal:real}} bag
+
+from deptno in [10, 20],
+    emp in scott.emps on emp.deptno = deptno
+  yield {deptno, emp.job, initial = String.sub(emp.ename, 1)};
+> deptno initial job
+> ------ ------- ---------
+> 10     L       MANAGER
+> 10     I       PRESIDENT
+> 10     I       CLERK
+> 20     M       CLERK
+> 20     O       MANAGER
+> 20     C       ANALYST
+> 20     D       CLERK
+> 20     O       ANALYST
+>
+> val it : {deptno:int, initial:char, job:string} bag
+
+(* Multiple fields. Current is a record. *)
+from i in [1, 2],
+    j in ["a", "b"]
+  yield current;
+> i j
+> - -
+> 1 a
+> 1 b
+> 2 a
+> 2 b
+>
+> val it : {i:int, j:string} list
+
+(* Single anonymous field. Current is an atom. *)
+from i in [1, 2, 3]
+  yield i mod 2
+  yield current;
+> val it = [1,0,1] : int list
+
+(* Single field named "dname". Current is an atom, but you
+   can also refer to the field by name. *)
+from d in scott.depts
+  yield d.dname
+  yield current;
+> val it = ["ACCOUNTING","RESEARCH","SALES","OPERATIONS"]
+>   : string bag
+
+from d in scott.depts
+  yield d.dname
+  yield dname;
+> val it = ["ACCOUNTING","RESEARCH","SALES","OPERATIONS"]
+>   : string bag
+
+(* Yield is a record expression with a single field.
+   Current is a record. *)
+from i in [1, 2, 3]
+  yield {j = i + 1}
+  yield current;
+> j
+> -
+> 2
+> 3
+> 4
+>
+> val it : {j:int} list
+
+(* Print the top 5 employees by salary, and their rank. *)
+from e in scott.emps
+  order DESC e.sal
+  take 5
+  yield {e.ename, e.sal, rank = ordinal + 1};
+> ename rank sal
+> ----- ---- ------
+> KING  1    5000.0
+> SCOTT 2    3000.0
+> FORD  3    3000.0
+> JONES 4    2975.0
+> BLAKE 5    2850.0
+>
+> val it : {ename:string, rank:int, sal:real} list
+
+from e in scott.emps
+  yield {e.ename, e.sal, rank = ordinal + 1};
+> stdIn:2.33-2.40 Error: cannot use 'ordinal' in unordered query
+>   raised at: stdIn:2.33-2.40
+
+(* Compute the set of distinct rolls of two dice. *)
+from i in [1, 2, 3, 4, 5, 6],
+    j in [1, 2, 3, 4, 5, 6]
+  yield i + j
+  distinct;
+> val it = [2,3,4,5,6,7,8,9,10,11,12] : int list
+
+(* Which job titles exist in department 10 but not in
+   department 20 or 30? *)
+from e in scott.emps
+  where e.deptno = 10
+  yield e.job
+  except distinct
+    (from e in scott.emps
+      where e.deptno = 20
+      yield e.job),
+    (from e in scott.emps
+      where e.deptno = 30
+      yield e.job);
+> val it = ["PRESIDENT"] : string bag
+
+(* I have two sodas and three candies and give my friend
+   one soda and two candies. What do I have left? *)
+from i in ["candy", "soda", "soda", "candy", "candy"]
+  except ["soda", "candy"];
+> val it = ["candy","candy","soda"] : string list
+
+(* Count employees and compute total salary for each
+   department. *)
+(* The "order deptno unorder" line is added for determinism across JDK versions. *)
+from e in scott.emps
+  group e.deptno
+    compute {count over (), sumSal = sum over e.sal}
+  order deptno unorder;
+> count deptno sumSal
+> ----- ------ -------
+> 3     10     8750.0
+> 5     20     10875.0
+> 6     30     9400.0
+>
+> val it : {count:int, deptno:int, sumSal:real} bag
+
+(* One group key and no compute expressions gives an
+   atomic result. *)
+(* The "order deptno unorder" line is added for determinism across JDK versions. *)
+from e in scott.emps
+  group e.deptno
+  order deptno unorder;
+> val it = [10,20,30] : int bag
+
+(* Empty group key and one compute expression gives an
+   atomic result. *)
+from e in scott.emps
+  group {} compute min over e.sal + e.comm;
+> val it = [800.0] : real bag
+
+(* Which job titles exist in department 10 and also in
+   departments 20 and 30? *)
+from e in scott.emps
+  where e.deptno = 10
+  yield e.job
+  intersect distinct
+    (from e in scott.emps
+      where e.deptno = 20
+      yield e.job),
+    (from e in scott.emps
+      where e.deptno = 30
+      yield e.job);
+> val it = ["CLERK","MANAGER"] : string bag
+
+(* I have two sodas and three candies, and my friend
+   has one soda, one donut, and four candies. What do we
+   have in common? *)
+from i in ["candy", "soda", "soda", "candy", "candy"]
+  intersect ["soda", "donut", "candy",
+             "donut", "candy", "candy"];
+> val it = ["candy","candy","candy","soda"] : string list
+
+(* Find the name of each department and the name of all
+   employees in those departments. *)
+from d in scott.depts
+  join e in scott.emps on e.deptno = d.deptno
+  yield {d.dname, e.ename};
+> dname      ename
+> ---------- ------
+> ACCOUNTING CLARK
+> ACCOUNTING KING
+> ACCOUNTING MILLER
+> RESEARCH   SMITH
+> RESEARCH   JONES
+> RESEARCH   SCOTT
+> RESEARCH   ADAMS
+> RESEARCH   FORD
+> SALES      ALLEN
+> SALES      WARD
+> SALES      MARTIN
+> SALES      BLAKE
+> SALES      TURNER
+> SALES      JAMES
+>
+> val it : {dname:string, ename:string} bag
+
+(* List employees ordered by salary (descending) then
+   name. *)
+from e in scott.emps
+  order (DESC e.sal, e.ename)
+  yield {e.ename, e.job, e.sal};
+> ename  job       sal
+> ------ --------- ------
+> KING   PRESIDENT 5000.0
+> FORD   ANALYST   3000.0
+> SCOTT  ANALYST   3000.0
+> JONES  MANAGER   2975.0
+> BLAKE  MANAGER   2850.0
+> CLARK  MANAGER   2450.0
+> ALLEN  SALESMAN  1600.0
+> TURNER SALESMAN  1500.0
+> MILLER CLERK     1300.0
+> MARTIN SALESMAN  1250.0
+> WARD   SALESMAN  1250.0
+> ADAMS  CLERK     1100.0
+> JAMES  CLERK     950.0
+> SMITH  CLERK     800.0
+>
+> val it : {ename:string, job:string, sal:real} list
+
+(* Record expressions are sorted lexicographically on field
+   name, that is, by job then by salary. Morel gives a
+   warning, in case you were expecting to sort on salary
+   first. *)
+from e in scott.emps
+  order {e.sal, e.job}
+  yield {e.ename, e.job, e.sal};
+> stdIn:2.9-2.23 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
+>   raised at: stdIn:2.9-2.23
+> ename  job       sal
+> ------ --------- ------
+> SCOTT  ANALYST   3000.0
+> FORD   ANALYST   3000.0
+> SMITH  CLERK     800.0
+> JAMES  CLERK     950.0
+> ADAMS  CLERK     1100.0
+> MILLER CLERK     1300.0
+> CLARK  MANAGER   2450.0
+> BLAKE  MANAGER   2850.0
+> JONES  MANAGER   2975.0
+> KING   PRESIDENT 5000.0
+> WARD   SALESMAN  1250.0
+> MARTIN SALESMAN  1250.0
+> TURNER SALESMAN  1500.0
+> ALLEN  SALESMAN  1600.0
+>
+> val it : {ename:string, job:string, sal:real} list
+
+(* Skip the first 3 rows of a collection. *)
+from i in [1, 2, 3, 4, 5, 6, 7]
+  skip 3;
+> val it = [4,5,6,7] : int list
+
+(* Return only the first 3 rows of a collection. *)
+from i in [1, 2, 3, 4, 5, 6, 7]
+  take 3;
+> val it = [1,2,3] : int list
+
+(* Define a table function that returns the even numbers
+   from a collection. *)
+fun evenNumbers (xs: int list) =
+  from x in xs
+    where x mod 2 = 0;
+> val evenNumbers = fn : int list -> int list
+
+(* Use the table function in a query. *)
+from i in [1, 2, 3, 4, 5, 6, 7]
+  through j in evenNumbers;
+> val it = [2,4,6] : int list
+
+(* Define a table function that returns the numbers from
+   a collection that are multiples of base. *)
+fun multiplesOf base (xs: int list) =
+  from x in xs
+    where x mod base = 0;
+> val multiplesOf = fn : int -> int list -> int list
+
+(* Use the table function to find multiples of 3. *)
+from i in [1, 2, 3, 4, 5, 6, 7]
+  through j in multiplesOf 3;
+> val it = [3,6] : int list
+
+(* Which job titles exist in departments 10, 20 and 30? *)
+from e in scott.emps
+  where e.deptno = 10
+  yield e.job
+  union distinct
+    (from e in scott.emps
+      where e.deptno = 20
+      yield e.job),
+    (from e in scott.emps
+      where e.deptno = 30
+      yield e.job);
+> val it = ["MANAGER","PRESIDENT","CLERK","ANALYST","SALESMAN"]
+>   : string bag
+
+(* I have two sodas and three candies, and my friend has
+   one soda and one candy. What do we have if we combine
+   our stashes? *)
+from i in ["candy", "soda", "soda", "candy", "candy"]
+  union ["soda", "candy"];
+> val it = ["candy","soda","soda","candy","candy","soda","candy"]
+>   : string list
+
+(* Find the top 3 employees by salary, as an unordered
+   collection. *)
+from e in scott.emps
+  order DESC e.sal
+  take 3
+  unorder
+  yield {e.ename, e.job, e.sal};
+> ename job       sal
+> ----- --------- ------
+> KING  PRESIDENT 5000.0
+> SCOTT ANALYST   3000.0
+> FORD  ANALYST   3000.0
+>
+> val it : {ename:string, job:string, sal:real} bag
+
+(* Find employees who work in department 20. *)
+from e in scott.emps
+  where e.deptno = 20
+  yield {e.ename, e.job};
+> ename job
+> ----- -------
+> SMITH CLERK
+> JONES MANAGER
+> SCOTT ANALYST
+> ADAMS CLERK
+> FORD  ANALYST
+>
+> val it : {ename:string, job:string} bag
+
+(* Create a new record from each employee with modified
+   fields. *)
+from e in scott.emps
+  yield {name = String.map Char.toUpper e.ename,
+      position = String.map Char.toLower e.job,
+      annualSalary = e.sal * 12.0};
+> annualSalary name   position
+> ------------ ------ ---------
+> 9600.0       SMITH  clerk
+> 19200.0      ALLEN  salesman
+> 15000.0      WARD   salesman
+> 35700.0      JONES  manager
+> 15000.0      MARTIN salesman
+> 34200.0      BLAKE  manager
+> 29400.0      CLARK  manager
+> 36000.0      SCOTT  analyst
+> 60000.0      KING   president
+> 18000.0      TURNER salesman
+> 13200.0      ADAMS  clerk
+> 11400.0      JAMES  clerk
+> 36000.0      FORD   analyst
+> 15600.0      MILLER clerk
+>
+> val it : {annualSalary:real, name:string, position:string} bag
+
+(* Return a list of strings describing each employee in
+   department 20. *)
+from e in scott.emps
+  where e.deptno = 20
+  yield e.ename ^ " is a " ^ e.job;
+> val it =
+>   ["SMITH is a CLERK","JONES is a MANAGER","SCOTT is a ANALYST",
+>    "ADAMS is a CLERK","FORD is a ANALYST"] : string bag
+
+(* Compute total number of employees and average salary. *)
+from e in scott.emps
+  compute {total = count over (),
+           sumSal = sum over e.sal,
+           minSal = min over e.sal,
+           maxSal = max over e.sal};
+> val it = {maxSal=5000.0,minSal=800.0,sumSal=29025.0,total=14}
+>   : {maxSal:real, minSal:real, sumSal:real, total:int}
+
+(* Compute total number of employees. *)
+from e in scott.emps
+  compute count over ();
+> val it = 14 : int
+
+(* Apply a custom function to the query results. *)
+fun analyzeResults (emps: {deptno: int, sal: real} bag) =
+  let
+    val {count, sumSal} =
+      from e in emps
+        compute {count over (), sumSal = sum over e.sal}
+    val avgSal = sumSal / real count
+  in
+    {employeeCount = count,
+      averageSalary = avgSal,
+      classification = if avgSal > 2000.0 then "High" else "Low"}
+  end;
+> val analyzeResults = fn
+>   : {deptno:int, sal:real} bag
+>     -> {averageSalary:real, classification:string,
+>         employeeCount:int}
+
+(* Use the custom function to analyze employees in department 10. *)
+from e in scott.emps
+  where e.deptno = 10
+  yield {e.deptno, e.sal}
+  into analyzeResults;
+> val it =
+>   {averageSalary=2916.6667,classification="High",employeeCount=3}
+>   : {averageSalary:real, classification:string, employeeCount:int}
+
+(* Check whether all employees earn more than $2000. *)
+forall e in scott.emps
+  require e.sal > 2000.0;
+> val it = false : bool
+
+(* Check whether all managers earn more than $2000. *)
+forall e in scott.emps
+  where e.job = "MANAGER"
+  require e.sal > 2000.0;
+> val it = true : bool
+
+(* Do any employees earn more than $3,000? *)
+exists e in scott.emps
+  where e.sal > 3000.0;
+> val it = true : bool
+
+(* Do all employees have a job title of clerk, manager or
+   president? *)
+forall e in scott.emps
+  require e.job elem ["CLERK", "MANAGER", "PRESIDENT"];
+> val it = false : bool
+
+(* Do all employees in department 10 have a job title of
+   clerk, manager or president? *)
+forall e in scott.emps
+  where e.deptno = 10
+  require e.job elem ["CLERK", "MANAGER", "PRESIDENT"];
+> val it = true : bool
+
+(* Are all employees in department 10 and have a job
+   title of clerk, manager or president? *)
+forall e in scott.emps
+  require e.deptno = 10
+    andalso e.job elem ["CLERK", "MANAGER", "PRESIDENT"];
+> val it = false : bool
+
+(*) === Coda ========================================================
+from message in ["the end"];
+> val it = ["the end"] : string list
+
+(*) End blog.smli

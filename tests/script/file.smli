@@ -1,0 +1,109 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * Tests for the file system ("file").
+ *)
+
+(*) The "file" value represents the file system, starting in the current
+(*) directory.
+file;
+> val it = {scott={},wordle={}} : {scott:{...}, wordle:{...}, ...}
+
+(*) A subdirectory.
+file.wordle;
+> val it = {answers=<relation>,words=<relation>}
+>   : {answers:{...} list, words:{...} list, ...}
+
+(*) Now we've gone into the directory, the type of 'file' has widened.
+file;
+> val it = {scott={},wordle={answers=<relation>,words=<relation>}}
+>   : {scott:{...}, wordle:{answers:{...} list, words:{...} list, ...}, ...}
+
+(*) A variable via which we can access relations.
+val s = file.scott;
+> val s =
+>   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
+>   : {bonuses:{...} list, depts:{...} list, emps:{...} list,
+>      salgrades:{...} list, ...}
+
+(*) Access two relations (emps, depts) simultaneously via a variable (s).
+from d in s.depts
+  join e in s.emps on d.deptno = e.deptno
+  group e.deptno compute count over ()
+  order deptno;
+> val it = [{count=3,deptno=10},{count=5,deptno=20},{count=6,deptno=30}]
+>   : {count:int, deptno:int} list
+
+file.scott.depts;
+> val it =
+>   [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
+>    {deptno=20,dname="RESEARCH",loc="DALLAS"},
+>    {deptno=30,dname="SALES",loc="CHICAGO"},
+>    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
+>   : {deptno:int, dname:string, loc:string} list
+
+(*) Since depts is a list of records, we can query it.
+from d in file.scott.depts
+ where d.dname elem ["ACCOUNTING", "SALES"]
+ compute sum over d.deptno;
+> val it = 40 : int
+
+from d in file.scott.depts
+join e in file.scott.emps on d.deptno = e.deptno
+group e.deptno compute count over ()
+order deptno;
+> val it = [{count=3,deptno=10},{count=5,deptno=20},{count=6,deptno=30}]
+>   : {count:int, deptno:int} list
+
+(*) Bonuses is empty (except the line defining the fields).
+val scott = file.scott;
+> val scott =
+>   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
+>   : {bonuses:{...} list, depts:{deptno:int, dname:string, loc:string} list,
+>      emps:
+>           {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>            job:string, mgrno:int, sal:real} list, salgrades:{...} list, ...}
+from b in scott.bonuses;
+> val it = [] : {bonus:real, ename:string, job:string, sal:real} list
+
+(*) The type of 'file' has widened further.
+file;
+> val it =
+>   {
+>    scott=
+>    {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>},
+>    wordle={answers=<relation>,words=<relation>}}
+>   : {
+>      scott:{bonuses:{bonus:real, ename:string, job:string, sal:real} list,
+>             depts:{deptno:int, dname:string, loc:string} list,
+>             emps:
+>                  {comm:real, deptno:int, empno:int, ename:string,
+>                   hiredate:string, job:string, mgrno:int, sal:real} list,
+>             salgrades:{...} list, ...},
+>      wordle:{answers:{...} list, words:{...} list, ...}, ...}
+
+file.scott;
+> val it =
+>   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
+>   : {bonuses:{bonus:real, ename:string, job:string, sal:real} list,
+>      depts:{deptno:int, dname:string, loc:string} list,
+>      emps:
+>           {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>            job:string, mgrno:int, sal:real} list, salgrades:{...} list, ...}
+
+(*) End file.smli
