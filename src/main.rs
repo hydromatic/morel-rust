@@ -17,35 +17,64 @@
 
 extern crate core;
 use crate::parser::ast::Ast;
-use crate::parser::parser::parse;
+use crate::shell::{Shell as ShellMain, ScriptTest};
 
 mod parser;
+mod shell;
 
 fn main() {
-    println!("Morel Rust Parser");
-    println!("A Standard ML interpreter with relational extensions");
+    let args: Vec<String> = std::env::args().collect();
 
-    // Test string and char literals to verify our format! fix
-    let test_cases = vec![
-        ("42", "Integer"),
-        ("\"hello world\"", "String"),
-        ("#\"c\"", "Character"),
-        ("true", "Boolean"),
-        ("()", "Unit"),
-    ];
-
-    for (example, description) in test_cases {
-        println!("\nParsing {} example: {}", description, example);
-
-        match std::panic::catch_unwind(|| parse(example)) {
-            Ok(node) => {
-                let mut output = String::new();
-                node.unparse(&mut output);
-                println!("Result: {}", output);
+    // Check if we're running script tests
+    if args.len() > 1 && args[1] == "test" {
+        let test_args = args[2..].to_vec();
+        match ScriptTest::main(test_args) {
+            Ok(()) => {
+                println!("All tests completed successfully");
+                std::process::exit(0);
             }
-            Err(_) => {
-                println!("Parse error");
+            Err(e) => {
+                eprintln!("Test error: {}", e);
+                std::process::exit(1);
             }
+        }
+    }
+
+    // Check if we're running a specific file
+    if args.len() > 1 && args[1] != "--" && !args[1].starts_with("--") {
+        let file_path = &args[1];
+        let shell_args = args[2..].to_vec();
+
+        let mut main = ShellMain::new(shell_args);
+        match main.run_file(file_path, std::io::stdout()) {
+            Ok(()) => {
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error running file: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Default: run interactive REPL
+    println!("Morel Rust - Standard ML interpreter with relational extensions");
+    println!("Type expressions to evaluate them, or 'quit' to exit.");
+
+    let shell_args = if args.len() > 1 && args[1] == "--" {
+        args[2..].to_vec()
+    } else {
+        args[1..].to_vec()
+    };
+
+    let mut main = ShellMain::new(shell_args);
+    match main.run(std::io::stdin(), std::io::stdout()) {
+        Ok(()) => {
+            println!("Goodbye!");
+        }
+        Err(e) => {
+            eprintln!("Shell error: {}", e);
+            std::process::exit(1);
         }
     }
 }

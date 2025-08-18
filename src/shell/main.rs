@@ -1,0 +1,320 @@
+// Licensed to Julian Hyde under one or more contributor license
+// agreements.  See the NOTICE file distributed with this work
+// for additional information regarding copyright ownership.
+// Julian Hyde licenses this file to you under the Apache
+// License, Version 2.0 (the "License"); you may not use this
+// file except in compliance with the License.  You may obtain a
+// copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.  See the License for the specific
+// language governing permissions and limitations under the
+// License.
+
+use crate::parser::ast::{Ast, Node};
+use crate::parser::parser::parse;
+use crate::shell::{utils, ShellResult};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use crate::shell::config::Config;
+use crate::shell::error::Error;
+
+/// Main shell for Morel - Standard ML REPL
+pub struct Shell {
+    config: Config,
+    environment: Environment,
+}
+
+/// Simple environment for storing bindings
+#[derive(Debug, Clone)]
+pub struct Environment {
+    bindings: HashMap<String, String>,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self {
+            bindings: HashMap::new(),
+        }
+    }
+}
+
+impl Environment {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn bind(&mut self, name: String, value: String) {
+        self.bindings.insert(name, value);
+    }
+
+    pub fn get(&self, name: &str) -> Option<&String> {
+        self.bindings.get(name)
+    }
+
+    pub fn clear(&mut self) {
+        self.bindings.clear();
+    }
+}
+
+impl Shell {
+    /// Create a new Main shell with given configuration
+    pub fn new(args: Vec<String>) -> Self {
+        let mut config = Config::default();
+
+        // Parse command line arguments
+        for arg in &args {
+            match arg.as_str() {
+                "--echo" => config.echo = true,
+                "--idempotent" => config.idempotent = true,
+                _ if arg.starts_with("--directory=") => {
+                    let dir = arg.strip_prefix("--directory=").unwrap();
+                    config.directory = Some(PathBuf::from(dir));
+                }
+                _ => {} // Ignore unknown arguments for now
+            }
+        }
+
+        // Set default directory to current working directory
+        if config.directory.is_none() {
+            config.directory = std::env::current_dir().ok();
+        }
+
+        Self {
+            config,
+            environment: Environment::new(),
+        }
+    }
+
+    /// Create Main with custom configuration
+    pub fn with_config(config: Config) -> Self {
+        Self {
+            config,
+            environment: Environment::new(),
+        }
+    }
+
+    /// Run the shell with given input/output streams
+    pub fn run<R: Read, W: Write>(&mut self, input: R, output: W) -> ShellResult<()> {
+        let mut reader = BufReader::new(input);
+        let mut writer = BufWriter::new(output);
+
+        if self.config.echo {
+            writeln!(writer, "Morel Rust - Standard ML interpreter with relational extensions")?;
+            writeln!(writer, "Type expressions to evaluate them, or 'quit' to exit.")?;
+        }
+
+        let mut line_buffer = String::new();
+        let mut statement_buffer = String::new();
+
+        loop {
+            if self.config.echo {
+                write!(writer, "- ")?;
+                writer.flush()?;
+            }
+
+            line_buffer.clear();
+            let bytes_read = reader.read_line(&mut line_buffer)?;
+
+            if bytes_read == 0 {
+                // EOF reached
+                break;
+            }
+
+            let line = line_buffer.trim();
+
+            // Handle special commands
+            if line == "quit" || line == "exit" {
+                break;
+            }
+
+            if line.is_empty() {
+                continue;
+            }
+
+            // Add line to statement buffer
+            statement_buffer.push_str(line);
+
+            // Check if we have a complete statement (ends with semicolon)
+            if statement_buffer.ends_with(';') {
+                // Remove the semicolon for processing
+                statement_buffer.pop();
+
+                if self.config.echo {
+                    writeln!(writer, "{};", statement_buffer)?;
+                }
+
+                match self.process_statement(&statement_buffer) {
+                    Ok(result) => {
+                        if !result.is_empty() {
+                            if self.config.idempotent {
+                                writeln!(writer, "{}", utils::prefix_lines(&result))?;
+                            } else {
+                                writeln!(writer, "{}", result)?;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Error: {}", e);
+                        if self.config.idempotent {
+                            writeln!(writer, "{}", utils::prefix_lines(&error_msg))?;
+                        } else {
+                            writeln!(writer, "{}", error_msg)?;
+                        }
+                    }
+                }
+
+                statement_buffer.clear();
+            } else if !statement_buffer.ends_with(' ') {
+                statement_buffer.push(' ');
+            }
+
+            writer.flush()?;
+        }
+
+        Ok(())
+    }
+
+    /// Process a single statement
+    fn process_statement(&mut self, statement: &str) -> ShellResult<String> {
+        // Try to parse the statement
+        match std::panic::catch_unwind(|| parse(statement)) {
+            Ok(node) => {
+                // Successfully parsed, now evaluate
+                self.evaluate_node(node)
+            }
+            Err(_) => {
+                Err(Error::ParseError(format!("Failed to parse: {}", statement)))
+            }
+        }
+    }
+
+    /// Evaluate a parsed AST node
+    fn evaluate_node(&mut self, node: Node) -> ShellResult<String> {
+        // For now, just unparse the node back to a string
+        // In a full implementation, this would actually evaluate the expression
+        let mut result = String::new();
+        node.unparse(&mut result);
+
+        // Simple evaluation simulation
+        match &node {
+            Node::Expr(expr) => {
+                // For expressions, show the type and value
+                Ok(format!("val it = {} : <type>", result))
+            }
+            Node::Decl(_) => {
+                // For declarations, show what was declared
+                Ok(result)
+            }
+        }
+    }
+
+    /// Run a script file
+    pub fn run_file<P: AsRef<Path>, W: Write>(
+        &mut self,
+        file_path: P,
+        output: W,
+    ) -> ShellResult<()> {
+        let content = utils::read_file_to_string(&file_path)
+            .map_err(|e| Error::IoError(e))?;
+
+        let processed_content = if self.config.idempotent {
+            utils::strip_out_lines(&content)
+        } else {
+            content
+        };
+
+        // Create a cursor from the string content
+        let cursor = std::io::Cursor::new(processed_content.as_bytes());
+        self.run(cursor, output)
+    }
+
+    /// Get the current environment
+    pub fn environment(&self) -> &Environment {
+        &self.environment
+    }
+
+    /// Get mutable access to the environment
+    pub fn environment_mut(&mut self) -> &mut Environment {
+        &mut self.environment
+    }
+}
+
+/// Shell implementation for use within scripts
+pub struct Shell2 {
+    main: Shell,
+}
+
+impl Shell2 {
+    pub fn new(main: Shell) -> Self {
+        Self { main }
+    }
+
+    /// Execute a use command (load a file)
+    pub fn use_file<P: AsRef<Path>, W: Write>(
+        &mut self,
+        file_path: P,
+        silent: bool,
+        output: W,
+    ) -> ShellResult<()> {
+        let path = file_path.as_ref();
+
+        if !silent {
+            // TODO: Write opening message to output
+        }
+
+        // Check if file exists
+        if !path.exists() {
+            return Err(Error::FileNotFound(format!(
+                "use failed: Io: openIn failed on {}, No such file or directory",
+                path.display()
+            )));
+        }
+
+        // Run the file
+        self.main.run_file(path, output)
+    }
+
+    /// Clear the environment
+    pub fn clear_env(&mut self) {
+        self.main.environment_mut().clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_main_creation() {
+        let args = vec!["--echo".to_string()];
+        let main = Shell::new(args);
+        assert!(main.config.echo);
+    }
+
+    #[test]
+    fn test_simple_expression() {
+        let mut main = Shell::new(vec![]);
+        let input = "42;";
+        let mut output = Vec::new();
+
+        let cursor = Cursor::new(input.as_bytes());
+        main.run(cursor, &mut output).unwrap();
+
+        let output_str = String::from_utf8(output).unwrap();
+        assert!(output_str.contains("42"));
+    }
+
+    #[test]
+    fn test_environment() {
+        let mut env = Environment::new();
+        env.bind("x".to_string(), "42".to_string());
+        assert_eq!(env.get("x"), Some(&"42".to_string()));
+    }
+}
