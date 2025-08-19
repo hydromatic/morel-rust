@@ -21,15 +21,17 @@ pub struct Config {
     pub idempotent: bool,
     pub directory: Option<std::path::PathBuf>,
     pub script_directory: Option<std::path::PathBuf>,
+    pub banner: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            echo: false,
-            idempotent: false,
+        Config {
+            echo: true,
+            idempotent: true,
             directory: None,
             script_directory: None,
+            banner: false,
         }
     }
 }

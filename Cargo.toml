@@ -26,6 +26,7 @@ name = "main"
 path = "src/main.rs"
 
 [dependencies]
-pest = "2.8.1"
-pest_derive = "2.8.1"
+pest = "2.1"
+pest_consume = "1.1"
 phf = { version = "0.12", features = ["macros"] }
+itertools = "0.14.0"

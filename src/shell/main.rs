@@ -15,14 +15,15 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::parser::ast::{Ast, Node};
-use crate::parser::parser::parse;
-use crate::shell::{utils, ShellResult};
+use crate::shell::config::Config;
+use crate::shell::error::Error;
+use crate::shell::{ShellResult, utils};
+use crate::syntax::ast::{MorelNode, StatementKind};
+use crate::syntax::parser::parse;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use crate::shell::config::Config;
-use crate::shell::error::Error;
+use crate::syntax::ast;
 
 /// Main shell for Morel - Standard ML REPL
 pub struct Shell {
@@ -100,13 +101,16 @@ impl Shell {
     }
 
     /// Run the shell with given input/output streams
-    pub fn run<R: Read, W: Write>(&mut self, input: R, output: W) -> ShellResult<()> {
+    pub fn run<R: Read, W: Write>(
+        &mut self,
+        input: R,
+        output: W,
+    ) -> ShellResult<()> {
         let mut reader = BufReader::new(input);
         let mut writer = BufWriter::new(output);
 
-        if self.config.echo {
-            writeln!(writer, "Morel Rust - Standard ML interpreter with relational extensions")?;
-            writeln!(writer, "Type expressions to evaluate them, or 'quit' to exit.")?;
+        if self.config.banner {
+            writeln!(writer, "{}", Self::banner().as_str())?;
         }
 
         let mut line_buffer = String::new();
@@ -129,9 +133,9 @@ impl Shell {
             let line = line_buffer.trim();
 
             // Handle special commands
-            if line == "quit" || line == "exit" {
-                break;
-            }
+            // if line == "quit" || line == "exit" {
+            //     break;
+            // }
 
             if line.is_empty() {
                 continue;
@@ -149,11 +153,16 @@ impl Shell {
                     writeln!(writer, "{};", statement_buffer)?;
                 }
 
+                // parse(statement)
                 match self.process_statement(&statement_buffer) {
                     Ok(result) => {
                         if !result.is_empty() {
                             if self.config.idempotent {
-                                writeln!(writer, "{}", utils::prefix_lines(&result))?;
+                                writeln!(
+                                    writer,
+                                    "{}",
+                                    utils::prefix_lines(&result)
+                                )?;
                             } else {
                                 writeln!(writer, "{}", result)?;
                             }
@@ -162,7 +171,11 @@ impl Shell {
                     Err(e) => {
                         let error_msg = format!("Error: {}", e);
                         if self.config.idempotent {
-                            writeln!(writer, "{}", utils::prefix_lines(&error_msg))?;
+                            writeln!(
+                                writer,
+                                "{}",
+                                utils::prefix_lines(&error_msg)
+                            )?;
                         } else {
                             writeln!(writer, "{}", error_msg)?;
                         }
@@ -180,34 +193,40 @@ impl Shell {
         Ok(())
     }
 
+    fn banner() -> String {
+        String::from(
+            "Morel Rust - Standard ML interpreter with relational extensions",
+        )
+    }
+
     /// Process a single statement
     fn process_statement(&mut self, statement: &str) -> ShellResult<String> {
         // Try to parse the statement
         match std::panic::catch_unwind(|| parse(statement)) {
             Ok(node) => {
                 // Successfully parsed, now evaluate
-                self.evaluate_node(node)
+                self.evaluate_node(node.unwrap())
             }
             Err(_) => {
-                Err(Error::ParseError(format!("Failed to parse: {}", statement)))
+                Err(Error::Parse(format!("Failed to parse: {}", statement)))
             }
         }
     }
 
     /// Evaluate a parsed AST node
-    fn evaluate_node(&mut self, node: Node) -> ShellResult<String> {
+    fn evaluate_node(&mut self, node: ast::Statement) -> ShellResult<String> {
         // For now, just unparse the node back to a string
         // In a full implementation, this would actually evaluate the expression
         let mut result = String::new();
         node.unparse(&mut result);
 
         // Simple evaluation simulation
-        match &node {
-            Node::Expr(expr) => {
+        match &node.kind {
+            StatementKind::Expr(expr) => {
                 // For expressions, show the type and value
                 Ok(format!("val it = {} : <type>", result))
             }
-            Node::Decl(_) => {
+            StatementKind::Decl(_) => {
                 // For declarations, show what was declared
                 Ok(result)
             }
@@ -220,8 +239,8 @@ impl Shell {
         file_path: P,
         output: W,
     ) -> ShellResult<()> {
-        let content = utils::read_file_to_string(&file_path)
-            .map_err(|e| Error::IoError(e))?;
+        let content =
+            utils::read_file_to_string(&file_path).map_err(|e| Error::Io(e))?;
 
         let processed_content = if self.config.idempotent {
             utils::strip_out_lines(&content)
@@ -246,13 +265,13 @@ impl Shell {
 }
 
 /// Shell implementation for use within scripts
-pub struct Shell2 {
-    main: Shell,
+pub struct Session {
+    shell: Shell,
 }
 
-impl Shell2 {
+impl Session {
     pub fn new(main: Shell) -> Self {
-        Self { main }
+        Self { shell: main }
     }
 
     /// Execute a use command (load a file)
@@ -277,12 +296,12 @@ impl Shell2 {
         }
 
         // Run the file
-        self.main.run_file(path, output)
+        self.shell.run_file(path, output)
     }
 
     /// Clear the environment
     pub fn clear_env(&mut self) {
-        self.main.environment_mut().clear();
+        self.shell.environment_mut().clear();
     }
 }
 

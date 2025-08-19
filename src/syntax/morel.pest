@@ -16,9 +16,9 @@
 // License.
 
 // Whitespace and comments
-WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+WHITESPACE = _{ " " | NEWLINE }
 COMMENT = _{ line_comment | block_comment }
-line_comment = _{ "(*)" ~ (!("\n" | "\r") ~ ANY)* ~ ("\n" | "\r" | EOI) }
+line_comment = _{ "(*)" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI) }
 block_comment = _{ "(*" ~ (block_comment | (!"*)" ~ ANY))* ~ "*)" }
 
 // Keywords
@@ -37,7 +37,9 @@ keywords = {
 
 // Top-level program
 program = { SOI ~ statement ~ EOI }
-statement = { expr | decl }
+statement = { decl | expr }
+statement_semicolon = { statement ~ ";" }
+statement_semicolon_list = { statement_semicolon+ }
 
 // Expressions with operator precedence (lowest to highest)
 expr = { expr_annotated }

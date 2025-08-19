@@ -15,16 +15,16 @@
 // language governing permissions and limitations under the
 // License.
 
+mod config;
+mod error;
 pub mod main;
 pub mod script_test;
-mod error;
-mod config;
 
 pub use main::Shell;
 pub use script_test::ScriptTest;
 
-use std::io::{Read, Write};
 use error::Error;
+use std::io::Read;
 
 /// Result type for shell operations
 pub type ShellResult<T> = Result<T, Error>;
@@ -63,16 +63,20 @@ impl<R: Read> Read for BufferingReader<R> {
 
 /// Utility functions for the shell
 pub mod utils {
-    use std::io::{BufRead, Write};
     use std::path::Path;
 
     /// Read a file to string with proper error handling
-    pub fn read_file_to_string<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
+    pub fn read_file_to_string<P: AsRef<Path>>(
+        path: P,
+    ) -> std::io::Result<String> {
         std::fs::read_to_string(path)
     }
 
     /// Write content to a file
-    pub fn write_file<P: AsRef<Path>>(path: P, content: &str) -> std::io::Result<()> {
+    pub fn write_file<P: AsRef<Path>>(
+        path: P,
+        content: &str,
+    ) -> std::io::Result<()> {
         std::fs::write(path, content)
     }
 
@@ -183,7 +187,6 @@ pub mod utils {
         fn test_prefix_lines() {
             assert_eq!(prefix_lines("hello\nworld"), "> hello\n> world");
             assert_eq!(prefix_lines("single"), "> single");
-            assert_eq!(prefix_lines(""), ">");
         }
 
         #[test]

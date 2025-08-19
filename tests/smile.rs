@@ -15,4 +15,16 @@
 // language governing permissions and limitations under the
 // License.
 
-field = { (ASCII_DIGIT | "." | "-")+ }
+use morel::shell::{ScriptTest, Shell};
+
+/// Runs an idempotent script as a test.
+fn run_script(file_name: &str) {
+    let shell = ScriptTest::default();
+    let result = shell.run(file_name);
+    result.expect("should work");
+}
+
+#[test]
+fn simple() {
+    run_script("tests/script/simple.smli");
+}

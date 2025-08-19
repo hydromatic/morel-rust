@@ -16,11 +16,10 @@
 // License.
 
 extern crate core;
-use crate::parser::ast::Ast;
-use crate::shell::{Shell as ShellMain, ScriptTest};
+use crate::shell::{ScriptTest, Shell as ShellMain};
 
-mod parser;
 mod shell;
+mod syntax;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

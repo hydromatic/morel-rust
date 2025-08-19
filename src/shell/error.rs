@@ -18,26 +18,26 @@
 /// Error types for shell operations
 #[derive(Debug)]
 pub enum Error {
-    IoError(std::io::Error),
-    ParseError(String),
-    CompileError(String),
-    RuntimeError(String),
+    Io(std::io::Error),
+    Parse(String),
+    Compile(String),
+    Runtime(String),
     FileNotFound(String),
 }
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Error::IoError(err)
+        Error::Io(err)
     }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::IoError(e) => write!(f, "IO Error: {}", e),
-            Error::ParseError(e) => write!(f, "Parse Error: {}", e),
-            Error::CompileError(e) => write!(f, "Compile Error: {}", e),
-            Error::RuntimeError(e) => write!(f, "Runtime Error: {}", e),
+            Error::Io(e) => write!(f, "IO Error: {}", e),
+            Error::Parse(e) => write!(f, "Parse Error: {}", e),
+            Error::Compile(e) => write!(f, "Compile Error: {}", e),
+            Error::Runtime(e) => write!(f, "Runtime Error: {}", e),
             Error::FileNotFound(e) => write!(f, "File not found: {}", e),
         }
     }

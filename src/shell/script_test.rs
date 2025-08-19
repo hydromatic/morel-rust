@@ -15,12 +15,11 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::shell::{utils, Shell, ShellResult};
-use std::fs::{self};
-use std::io::Write;
-use std::path::{Path, PathBuf};
 use crate::shell::config::Config;
 use crate::shell::error::Error;
+use crate::shell::{Shell, ShellResult, utils};
+use std::fs::{self};
+use std::path::{Path, PathBuf};
 
 /// Test runner for script files, equivalent to Java ScriptTest
 pub struct ScriptTest {
@@ -28,16 +27,9 @@ pub struct ScriptTest {
 }
 
 impl ScriptTest {
-    /// Create a new ScriptTest instance
-    pub fn new() -> Self {
-        Self { directory: None }
-    }
-
-    /// Create a ScriptTest with a specific directory
-    pub fn with_directory<P: AsRef<Path>>(directory: P) -> Self {
-        Self {
-            directory: Some(directory.as_ref().to_path_buf()),
-        }
+    /// Creates a ScriptTest
+    pub fn new(directory: Option<PathBuf>) -> Self {
+        Self { directory }
     }
 
     /// Get the test directory
@@ -45,51 +37,14 @@ impl ScriptTest {
         self.directory.as_deref()
     }
 
-    /// Run a single test file
-    pub fn test<P: AsRef<Path>>(&self, path: P) -> ShellResult<()> {
-        let path = path.as_ref();
-
-        // First try to find a custom test method
-        if let Some(method_result) = self.find_method(path) {
-            return method_result;
-        }
-
-        // Fall back to check_run
-        self.check_run(path)
-    }
-
-    /// Find a custom test method for the given path
-    fn find_method(&self, path: &Path) -> Option<ShellResult<()>> {
-        // Convert path to method name
-        // E.g. "script/simple.sml" -> "test_script_simple"
-        let path_str = path.to_string_lossy();
-        let method_name = format!(
-            "test_{}",
-            utils::to_camel_case(&path_str.replace('/', "_").replace(".sml", ""))
-        );
-
-        // For now, we don't have dynamic method dispatch in Rust like Java reflection
-        // In a full implementation, you could use a registry pattern or macros
-        match method_name.as_str() {
-            "testScriptSimple" => Some(self.test_script_simple()),
-            _ => None,
-        }
-    }
-
-    /// Custom test method for script/simple.sml
-    fn test_script_simple(&self) -> ShellResult<()> {
-        // Implementation would go here for specific test
-        // For now, delegate to check_run
-        self.check_run(Path::new("script/simple.sml"))
-    }
-
-    /// Main test runner - checks that a script runs and produces expected output
-    pub fn check_run<P: AsRef<Path>>(&self, path: P) -> ShellResult<()> {
+    /// Runs a single test file
+    pub fn run<P: AsRef<Path>>(&self, path: P) -> ShellResult<()> {
         let path = path.as_ref();
         let (in_file, out_file) = self.resolve_files(path)?;
 
         // Determine if this is an idempotent test (*.smli files)
-        let idempotent = path.to_string_lossy().ends_with(".smli") || path.to_str() == Some("-");
+        let idempotent = path.to_string_lossy().ends_with(".smli")
+            || path.to_str() == Some("-");
 
         // Create output directory if needed
         if let Some(parent) = out_file.parent() {
@@ -98,7 +53,8 @@ impl ScriptTest {
 
         // Set up configuration
         let mut config = Config {
-            echo: true,
+            echo: !idempotent,
+            banner: false,
             idempotent,
             directory: self.directory.clone(),
             script_directory: in_file.parent().map(|p| p.to_path_buf()),
@@ -113,11 +69,11 @@ impl ScriptTest {
         }
 
         // Create and run the shell
-        let mut main = Shell::with_config(config);
+        let mut shell = Shell::with_config(config);
 
         // Run the input file and capture output
         let mut output = Vec::new();
-        main.run_file(&in_file, &mut output)?;
+        shell.run_file(&in_file, &mut output)?;
 
         // Write output to file
         fs::write(&out_file, &output)?;
@@ -127,11 +83,10 @@ impl ScriptTest {
             in_file.clone()
         } else {
             let mut ref_path = in_file.clone();
-            ref_path.set_extension(
-                format!("{}.out",
-                    ref_path.extension().and_then(|s| s.to_str()).unwrap_or("")
-                )
-            );
+            ref_path.set_extension(format!(
+                "{}.out",
+                ref_path.extension().and_then(|s| s.to_str()).unwrap_or("")
+            ));
             ref_path
         };
 
@@ -143,7 +98,7 @@ impl ScriptTest {
         // Compare files
         let diff = utils::diff_files(&ref_file, &out_file)?;
         if !diff.is_empty() {
-            return Err(Error::RuntimeError(format!(
+            return Err(Error::Runtime(format!(
                 "Files differ: {} {}\n{}",
                 ref_file.display(),
                 out_file.display(),
@@ -180,15 +135,17 @@ impl ScriptTest {
         }
 
         // Default: look in resources (for now, just use relative path)
-        let in_file = PathBuf::from("src/test/resources").join(path);
-        let out_file = PathBuf::from("target/test-output").join(format!("{}.out", path.display()));
+        let in_file = PathBuf::from(path);
+        let out_file = PathBuf::from("target/test-output")
+            .join(format!("{}.out", path.display()));
 
         Ok((in_file, out_file))
     }
 
     /// Get all test files in the script directory
     pub fn find_test_files(&self) -> ShellResult<Vec<PathBuf>> {
-        let script_dir = self.directory
+        let script_dir = self
+            .directory
             .as_ref()
             .map(|d| d.join("script"))
             .unwrap_or_else(|| PathBuf::from("src/test/resources/script"));
@@ -221,7 +178,7 @@ impl ScriptTest {
         for file in &test_files {
             println!("Running test: {}", file.display());
 
-            match self.test(file) {
+            match self.run(file) {
                 Ok(()) => {
                     println!("  PASSED");
                 }
@@ -236,11 +193,15 @@ impl ScriptTest {
             println!("All {} tests passed!", test_files.len());
             Ok(())
         } else {
-            println!("{} out of {} tests failed:", failed_tests.len(), test_files.len());
+            println!(
+                "{} out of {} tests failed:",
+                failed_tests.len(),
+                test_files.len()
+            );
             for file in &failed_tests {
                 println!("  {}", file.display());
             }
-            Err(Error::RuntimeError(format!(
+            Err(Error::Runtime(format!(
                 "{} tests failed",
                 failed_tests.len()
             )))
@@ -261,11 +222,7 @@ impl ScriptTest {
             }
         }
 
-        let script_test = if let Some(dir) = directory {
-            ScriptTest::with_directory(dir)
-        } else {
-            ScriptTest::new()
-        };
+        let script_test = ScriptTest::new(directory);
 
         if test_files.is_empty() {
             // Run all tests
@@ -274,7 +231,7 @@ impl ScriptTest {
             // Run specific tests
             let mut failed = false;
             for file in test_files {
-                match script_test.test(&file) {
+                match script_test.run(&file) {
                     Ok(()) => {
                         println!("PASSED: {}", file.display());
                     }
@@ -286,7 +243,7 @@ impl ScriptTest {
             }
 
             if failed {
-                Err(Error::RuntimeError("Some tests failed".to_string()))
+                Err(Error::Runtime("Some tests failed".to_string()))
             } else {
                 Ok(())
             }
@@ -296,7 +253,7 @@ impl ScriptTest {
 
 impl Default for ScriptTest {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
@@ -306,17 +263,18 @@ mod tests {
 
     #[test]
     fn test_script_test_creation() {
-        let st = ScriptTest::new();
+        let st = ScriptTest::default();
         assert!(st.directory().is_none());
 
-        let st = ScriptTest::with_directory("/tmp");
+        let st = ScriptTest::new(Some(PathBuf::from("/tmp")));
         assert_eq!(st.directory(), Some(Path::new("/tmp")));
     }
 
     #[test]
     fn test_resolve_files() {
-        let st = ScriptTest::new();
-        let (in_file, out_file) = st.resolve_files(Path::new("test.sml")).unwrap();
+        let st = ScriptTest::default();
+        let (in_file, out_file) =
+            st.resolve_files(Path::new("test.sml")).unwrap();
 
         assert!(in_file.to_string_lossy().contains("test.sml"));
         assert!(out_file.to_string_lossy().contains("test.sml.out"));
@@ -324,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_find_test_files() {
-        let st = ScriptTest::new();
+        let st = ScriptTest::default();
         // This test will depend on actual test files being present
         let files = st.find_test_files().unwrap_or_default();
         // Just verify it doesn't crash
