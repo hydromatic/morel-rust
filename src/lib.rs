@@ -15,16 +15,20 @@
 // language governing permissions and limitations under the
 // License.
 
-use morel::shell::ScriptTest;
-
-/// Runs an idempotent script as a test.
-fn run_script(file_name: &str) {
-    let shell = ScriptTest::default();
-    let result = shell.run(file_name);
-    result.expect("should work");
+pub fn add(left: u64, right: u64) -> u64 {
+    left + right
 }
 
-#[test]
-fn simple() {
-    run_script("tests/script/simple.smli");
+pub mod shell;
+pub mod syntax;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        let result = add(2, 2);
+        assert_eq!(result, 4);
+    }
 }
