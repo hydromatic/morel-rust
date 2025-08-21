@@ -16,9 +16,13 @@
 // License.
 
 use crate::syntax::ast;
-use crate::syntax::ast::{DeclKind, ExprKind, Span, UnspannedExpr};
-use pest_consume::match_nodes;
+use crate::syntax::ast::{
+    ConBind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, Literal,
+    LiteralKind, Pat, PatField, PatKind, Span, Statement, StatementKind, Step,
+    StepKind, Type, TypeBind, TypeKind, ValBind,
+};
 use pest_consume::Parser;
+use pest_consume::match_nodes;
 use std::rc::Rc;
 
 type ParseInput<'input> = pest_consume::Node<'input, Rule, Rc<str>>;
@@ -31,7 +35,7 @@ pub type ParseResult<T> = Result<T, ParseError>;
 #[grammar = "src/syntax/morel.pest"]
 pub struct MorelParser;
 
-pub fn parse(input: &str) -> ParseResult<ast::Statement> {
+pub fn parse_statement(input: &str) -> ParseResult<Statement> {
     let rc_input_str = input.to_string().into();
     let nodes =
         MorelParser::parse_with_userdata(Rule::statement, input, rc_input_str)?;
@@ -40,16 +44,58 @@ pub fn parse(input: &str) -> ParseResult<ast::Statement> {
     ))
 }
 
+pub fn parse_program_single(input: &str) -> ParseResult<Statement> {
+    let rc_input_str = input.to_string().into();
+    let nodes = MorelParser::parse_with_userdata(
+        Rule::program_single,
+        input,
+        rc_input_str,
+    )?;
+    Ok(match_nodes!(<MorelParser>; nodes;
+        [program_single(s)] => s,
+    ))
+}
+
 fn input_to_span(input: ParseInput) -> Span {
     Span::make(input.user_data().clone(), input.as_pair().as_span())
 }
 
-fn spanned<E>(input: ParseInput, x: UnspannedExpr) -> ast::Expr {
-    ast::Expr::of(input_to_span(input), x)
+impl ExprKind<Expr> {
+    pub fn as_statement(&self, input: ParseInput) -> Statement {
+        Statement {
+            kind: StatementKind::Expr(self.clone()),
+            span: input_to_span(input),
+        }
+    }
+
+    pub fn wrap(&self, input: ParseInput) -> Expr {
+        self.spanned(&input_to_span(input))
+    }
 }
 
-fn spanned_union<E>(span1: Span, span2: Span, x: UnspannedExpr) -> ast::Expr {
-    ast::Expr::of(span1.union(&span2), x)
+impl DeclKind {
+    pub fn as_statement(&self, input: ParseInput) -> Statement {
+        Statement {
+            kind: StatementKind::Decl(self.clone()),
+            span: input_to_span(input),
+        }
+    }
+
+    pub fn wrap(&self, input: ParseInput) -> Decl {
+        self.spanned(&input_to_span(input))
+    }
+}
+
+impl PatKind {
+    pub fn wrap(&self, input: ParseInput) -> Pat {
+        self.spanned(&input_to_span(input))
+    }
+}
+
+impl StepKind {
+    pub fn wrap(&self, input: ParseInput) -> Step {
+        self.spanned(&input_to_span(input))
+    }
 }
 
 // #[pest_consume::parser(parser = MorelParser, rule = Rule)]
@@ -59,48 +105,667 @@ impl MorelParser {
         Ok(())
     }
 
-    fn statement(input: ParseInput) -> ParseResult<ast::Statement> {
+    fn ws(input: ParseInput) -> ParseResult<bool> {
+        Ok(true)
+    }
+
+    fn program_single(input: ParseInput) -> ParseResult<Statement> {
         Ok(match_nodes!(input.children();
-            [expr(e)] => e.to_statement(input_to_span(input)),
-            [decl(d)] => d.to_statement(input_to_span(input)),
+            [ws(ws), statement(s)] => s,
         ))
     }
 
-    fn expr(input: ParseInput) -> ParseResult<UnspannedExpr> {
+    fn statement(input: ParseInput) -> ParseResult<Statement> {
         Ok(match_nodes!(input.children();
-            [val_decl(d)] => todo!(),
+            [expr(e)] => e.kind.as_statement(input),
+            [decl(d)] => d.kind.as_statement(input),
         ))
     }
 
-    fn expr_annotated(input: ParseInput) -> ParseResult<UnspannedExpr> {
+    fn expr(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [val_decl(d)] => todo!(),
+            [expr_annotated(e)] => e,
         ))
     }
 
-    fn decl(input: ParseInput) -> ParseResult<DeclKind> {
+    fn expr_annotated(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [val_decl(d)] => todo!(),
+            [expr_implies(e)] => e,
+            [expr_implies(e), type_expr(t)] => ExprKind::Annotated(Box::new(e), Box::new(t)).wrap(input),
+        ))
+    }
+
+    fn expr_implies(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_orelse(e)] => e,
+            [expr_orelse(e1), expr_orelse(e2)] => {
+                ExprKind::Implies(Box::new(e1), Box::new(e2)).wrap(input)
+            },
+        ))
+    }
+
+    fn expr_orelse(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_andalso(e)] => e,
+            [expr_andalso(e1), expr_andalso(e2)] => {
+                ExprKind::OrElse(Box::new(e1), Box::new(e2)).wrap(input)
+            },
+        ))
+    }
+
+    fn expr_andalso(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_o(e)] => e,
+            [expr_o(e1), expr_o(e2)] => {
+                ExprKind::AndAlso(Box::new(e1), Box::new(e2)).wrap(input)
+            },
+        ))
+    }
+
+    fn expr_o(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_comp(e)] => e,
+            [expr_comp(e1), expr_comp(e2)] => {
+                ExprKind::Compose(Box::new(e1), Box::new(e2)).wrap(input)
+            },
+        ))
+    }
+
+    fn expr_comp(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_cons(e)] => e,
+            [expr_cons(e), expr_comp_op(op), expr_comp(e2)] => {
+                match op.as_str() {
+                    "=" => ExprKind::Equal(Box::new(e), Box::new(e2)).wrap(input),
+                    "<>" => ExprKind::NotEqual(Box::new(e), Box::new(e2)).wrap(input),
+                    "<" => ExprKind::LessThan(Box::new(e), Box::new(e2)).wrap(input),
+                    "<=" => ExprKind::LessThanOrEqual(Box::new(e), Box::new(e2)).wrap(input),
+                    ">" => ExprKind::GreaterThan(Box::new(e), Box::new(e2)).wrap(input),
+                    ">=" => ExprKind::GreaterThanOrEqual(Box::new(e), Box::new(e2)).wrap(input),
+                    "elem" => ExprKind::Elem(Box::new(e), Box::new(e2)).wrap(input),
+                    "notelem" => ExprKind::NotElem(Box::new(e), Box::new(e2)).wrap(input),
+                    _ => unreachable!("Unexpected comparison operator"),
+                }
+            },
+        ))
+    }
+
+    fn expr_comp_op(input: ParseInput) -> ParseResult<String> {
+        Ok(input.as_str().to_string())
+    }
+
+    fn expr_cons(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_additive(e)] => e,
+        ))
+    }
+
+    fn expr_additive(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_multiplicative(e)] => e,
+        ))
+    }
+
+    fn expr_multiplicative(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_over(e)] => e,
+        ))
+    }
+
+    fn expr_over(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_unary(e)] => e,
+            [expr_unary(e1), expr_cons(e2)] => {
+                ExprKind::Aggregate(Box::new(e1), Box::new(e2)).wrap(input)
+            }
+        ))
+    }
+
+    fn expr_unary(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_application(e)] => e,
+            [expr_unary(e)] => ExprKind::Negate(Box::new(e)).wrap(input),
+        ))
+    }
+
+    fn expr_application(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_postfix(e)] => e,
+        ))
+    }
+
+    fn expr_postfix(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [atom(e)] => e,
+        ))
+    }
+
+    fn atom(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [literal(l)] => ExprKind::Literal(l).wrap(input),
+            [identifier(i)] => ExprKind::Identifier(i).wrap(input),
+            [record_selector(r)] => ExprKind::RecordSelector(r).wrap(input),
+            [if_expr(e)] => e,
+            [case_expr(e)] => e,
+            [let_expr(e)] => e,
+            [fn_expr(e)] => e,
+            [from_expr(e)] => e,
+            [expr(e)] => e,
+        ))
+    }
+
+    fn named_expr(input: ParseInput) -> ParseResult<(String, Expr)> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), expr(e)] => (i, e),
+            [expr(e)] => ("".to_string(), e),
+        ))
+    }
+
+    fn if_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr(cond), expr(then_expr), expr(else_expr)] => {
+                ExprKind::If(Box::new(cond), Box::new(then_expr), Box::new(else_expr))
+                    .wrap(input)
+            },
+        ))
+    }
+
+    fn case_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr(e), case_arms(arms)] => {
+                ExprKind::Case(Box::new(e), arms).wrap(input)
+            },
+        ))
+    }
+
+    fn case_arms(input: ParseInput) -> ParseResult<Vec<(Pat, Expr)>> {
+        Ok(match_nodes!(input.children();
+            [case_arm(arms)..] => arms.collect(),
+        ))
+    }
+
+    fn case_arm(input: ParseInput) -> ParseResult<(Pat, Expr)> {
+        Ok(match_nodes!(input.children();
+            [pat(p), expr(e)] => (p, e),
+        ))
+    }
+
+    fn let_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [decl_list(decls), expr(e)] => {
+                ExprKind::Let(decls, Box::new(e)).wrap(input)
+            },
+        ))
+    }
+
+    fn decl_list(input: ParseInput) -> ParseResult<Vec<Decl>> {
+        Ok(match_nodes!(input.children();
+            [decl(decls)..] => decls.collect(),
+        ))
+    }
+
+    fn fn_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [match_list(matches)] => ExprKind::Fn(matches).wrap(input),
+        ))
+    }
+
+    fn match_list(input: ParseInput) -> ParseResult<Vec<(Pat, Expr)>> {
+        Ok(match_nodes!(input.children();
+            [match_(matches)..] => matches.collect(),
+        ))
+    }
+
+    fn match_(input: ParseInput) -> ParseResult<(Pat, Expr)> {
+        Ok(match_nodes!(input.children();
+            [pat(p), expr(e)] => (p, e),
+        ))
+    }
+
+    fn from_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [scan_list(scans), step_list(steps)] => {
+                let mut scans2: Vec<Step> = Vec::new();
+                scans2.extend(scans);
+                scans2.extend(steps);
+                ExprKind::From(scans2).wrap(input)
+            }
+        ))
+    }
+
+    fn scan_list(input: ParseInput) -> ParseResult<Vec<Step>> {
+        Ok(match_nodes!(input.children();
+            [first_scan(scan1), scan(scans)..] => {
+                let mut zz = vec! [scan1];
+                zz.extend(scans.collect::<Vec<_>>());
+                zz
+            },
+        ))
+    }
+
+    fn on(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr(e)] => e,
+        ))
+    }
+
+    fn first_scan(input: ParseInput) -> ParseResult<Step> {
+        Ok(match_nodes!(input.children();
+            [pat(p), expr(e)] => StepKind::Join(p, Box::new(e), None).wrap(input),
+        ))
+    }
+
+    fn scan(input: ParseInput) -> ParseResult<Step> {
+        Ok(match_nodes!(input.children();
+            [pat(p), expr(e), on(c)] => {
+                let span = p.span.union(&e.span).union(&c.span);
+                StepKind::Join(p, Box::new(e), Some(Box::new(c))).wrap(input)
+            },
+            [pat(p), expr(e)] => {
+                StepKind::Join(p, Box::new(e), None).wrap(input)
+            },
+        ))
+    }
+
+    fn step_list(input: ParseInput) -> ParseResult<Vec<Step>> {
+        Ok(match_nodes!(input.children();
+            [step(steps)..] => steps.collect(),
+        ))
+    }
+
+    fn step(input: ParseInput) -> ParseResult<Step> {
+        Ok(match_nodes!(input.children();
+            [join(j)] => j,
+        ))
+    }
+
+    fn join(input: ParseInput) -> ParseResult<Step> {
+        Ok(match_nodes!(input.children();
+            [pat(p), expr(e), on(c)] => {
+                StepKind::Join(p, Box::new(e), Some(Box::new(c))).wrap(input)
+            },
+        ))
+    }
+
+    fn compute(input: ParseInput) -> ParseResult<Vec<(String, Expr)>> {
+        Ok(match_nodes!(input.children();
+            [named_expr(exprs)..] => exprs.collect(),
+        ))
+    }
+
+    fn order(input: ParseInput) -> ParseResult<Vec<Expr>> {
+        Ok(match_nodes!(input.children();
+            [expr(exprs)..] => exprs.collect(),
+        ))
+    }
+
+    fn pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat_annotated(p)] => p,
+        ))
+    }
+
+    fn pat_annotated(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat_as(p)] => p,
+        ))
+    }
+
+    fn pat_as(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat_cons(p)] => p,
+        ))
+    }
+
+    fn pat_cons(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat_atom(p)] => p,
+        ))
+    }
+
+    fn pat_atom(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [wildcard_pat(p)] => p,
+            [id_pat(p)] => p,
+            [literal_pat(p)] => p,
+            [tuple_pat(p)] => p,
+            [record_pat(p)] => p,
+            [list_pat(p)] => p,
+            [constructor_pat(p)] => p,
+            [cons_pat(p)] => p,
+            [pat(p)] => p,
+        ))
+    }
+
+    fn wildcard_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(PatKind::Wildcard.spanned(&input_to_span(input)))
+    }
+
+    fn id_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => PatKind::Identifier(i).spanned(&input_to_span(input)),
+        ))
+    }
+
+    fn literal_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [literal(l)] => PatKind::Literal(l).spanned(&input_to_span(input)),
+        ))
+    }
+
+    fn tuple_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat(pats)..] => PatKind::Tuple(pats.collect()).spanned(&input_to_span(input)),
+        ))
+    }
+
+    fn record_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat_field(fields)..] => {
+                PatKind::Record(fields.collect(), false).wrap(input)
+            },
+            [pat_field(fields).., ellipsis(b)] => {
+                PatKind::Record(fields.collect(), b).wrap(input)
+            },
+        ))
+    }
+
+    fn ellipsis(input: ParseInput) -> ParseResult<bool> {
+        Ok(true)
+    }
+
+    fn pat_field(input: ParseInput) -> ParseResult<PatField> {
+        Ok(match_nodes!(input.children();
+            [anon_pat_field(f)] => f,
+            [labeled_pat_field(f)] => f,
+        ))
+    }
+
+    fn anon_pat_field(input: ParseInput) -> ParseResult<PatField> {
+        Ok(match_nodes!(input.children();
+            [pat(p)] => {
+                let span = input_to_span(input);
+                PatField::Anonymous(span, Box::new(p))
+            },
+        ))
+    }
+
+    fn labeled_pat_field(input: ParseInput) -> ParseResult<PatField> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), pat(p)] => {
+                let span = input_to_span(input);
+                PatField::Labeled(span, i, Box::new(p))
+            },
+        ))
+    }
+
+    fn list_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat(pats)..] => PatKind::List(pats.collect()).spanned(&input_to_span(input)),
+        ))
+    }
+
+    fn constructor_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => {
+                PatKind::Constructor(i, None).wrap(input)
+            },
+            [identifier(i), pat_atom(p)] => {
+                PatKind::Constructor(i, Some(Box::new(p))).wrap(input)
+            },
+        ))
+    }
+
+    fn cons_pat(input: ParseInput) -> ParseResult<Pat> {
+        Ok(match_nodes!(input.children();
+            [pat(p1), pat(p2)] => {
+                PatKind::Cons(Box::new(p1), Box::new(p2)).wrap(input)
+            },
+        ))
+    }
+
+    fn decl(input: ParseInput) -> ParseResult<Decl> {
+        Ok(match_nodes!(input.children();
+            [val_decl(d)] => d.wrap(input),
+            [fun_decl(d)] => d.wrap(input),
+            [type_decl(d)] => d.wrap(input),
+            [datatype_decl(d)] => d.wrap(input),
         ))
     }
 
     fn val_decl(input: ParseInput) -> ParseResult<DeclKind> {
-        todo!()
+        Ok(match_nodes!(input.children();
+            [rec(rec), val_bind(binds)..] => DeclKind::Val(rec, binds.collect()),
+            [val_bind(binds)..] => DeclKind::Val(false, binds.collect()),
+        ))
     }
 
-    fn literal(input: ParseInput) -> ParseResult<ast::Expr> {
-        todo!()
+    fn rec(input: ParseInput) -> ParseResult<bool> {
+        Ok(true)
     }
 
+    fn val_bind(input: ParseInput) -> ParseResult<ValBind> {
+        Ok(match_nodes!(input.children();
+            [pat(p), expr(e)] => ValBind::of(p, None, e),
+            [pat(p), type_expr(t), expr(e)] => ValBind::of(p, Some(t), e),
+        ))
+    }
+
+    fn fun_decl(input: ParseInput) -> ParseResult<DeclKind> {
+        Ok(match_nodes!(input.children();
+            [fun_bind(bind)] => DeclKind::Fun(vec![bind]),
+            [fun_bind(binds)..] => DeclKind::Fun(binds.collect()),
+        ))
+    }
+
+    fn fun_bind(input: ParseInput) -> ParseResult<FunBind> {
+        Ok(match_nodes!(input.children();
+            [identifier(name), match_list(matches)] =>
+            FunBind {span: input_to_span(input), name, matches},
+        ))
+    }
+
+    fn type_decl(input: ParseInput) -> ParseResult<DeclKind> {
+        Ok(match_nodes!(input.children();
+            [type_bind(bind)] => DeclKind::Type(vec![bind]),
+            [type_bind(binds)..] => DeclKind::Type(binds.collect()),
+        ))
+    }
+
+    fn type_bind(input: ParseInput) -> ParseResult<TypeBind> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), type_expr(t)] => {
+        let span = input_to_span(input);
+                TypeBind {span, type_vars: vec![], name: i, type_expr: t}
+            },
+            [type_vars(vars), identifier(i), type_expr(t)] => {
+        let span = input_to_span(input);
+                TypeBind {span, type_vars: vars, name: i, type_expr: t}
+            },
+        ))
+    }
+
+    fn datatype_decl(input: ParseInput) -> ParseResult<DeclKind> {
+        Ok(match_nodes!(input.children();
+            [datatype_bind(bind)] => DeclKind::Datatype(vec![bind]),
+            [datatype_bind(binds)..] => DeclKind::Datatype(binds.collect()),
+        ))
+    }
+
+    fn datatype_bind(input: ParseInput) -> ParseResult<DatatypeBind> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), con_bind(cons)..] => {
+        let span = input_to_span(input);
+                DatatypeBind {span, type_vars: vec![], name: i, constructors: cons.collect()}
+            },
+            [type_vars(vars), identifier(i), con_bind(cons)..] => {
+        let span = input_to_span(input);
+                DatatypeBind {span, type_vars: vars, name: i, constructors: cons.collect()}
+            },
+        ))
+    }
+
+    fn con_bind(input: ParseInput) -> ParseResult<ConBind> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => {
+                let span = input_to_span(input);
+        ConBind {span, name: i, type_expr: None}
+                },
+            [identifier(i), type_expr(t)] => {
+                let span = input_to_span(input);
+        ConBind {span, name: i, type_expr: Some(t)}
+                },
+        ))
+    }
+
+    fn type_expr(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [type_fn(t)] => t,
+        ))
+    }
+
+    fn type_fn(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [type_tuple(t)] => t,
+        ))
+    }
+
+    fn type_tuple(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [type_app(t)] => t,
+        ))
+    }
+
+    fn type_app(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [type_atom(t)] => t,
+        ))
+    }
+
+    fn type_atom(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [type_var(t)] => t,
+            [type_con(t)] => t,
+            [type_expr(t)] => t,
+        ))
+    }
+
+    fn type_var(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => TypeKind::Var(i).spanned(&input_to_span(input)),
+        ))
+    }
+
+    fn type_con(input: ParseInput) -> ParseResult<Type> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => TypeKind::Con(i).spanned(&input_to_span(input)),
+        ))
+    }
+
+    fn type_field(input: ParseInput) -> ParseResult<(String, Type)> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), type_expr(t)] => (i, t),
+        ))
+    }
+
+    fn type_vars(input: ParseInput) -> ParseResult<Vec<String>> {
+        Ok(match_nodes!(input.children();
+            [type_var(vars)..] => {
+                vars.map(|t| match t.kind {
+                    TypeKind::Var(v) => v,
+                    _ => "".to_string()
+                }).collect()
+            },
+        ))
+    }
+
+    fn literal(input: ParseInput) -> ParseResult<Literal> {
+        Ok(match_nodes!(input.children();
+            [numeric_literal(n)] => n,
+            [string_literal(s)] => s,
+            [char_literal(c)] => c,
+            [bool_literal(b)] => b,
+            [unit_literal(u)] => u,
+        ))
+    }
+
+    fn numeric_literal(input: ParseInput) -> ParseResult<Literal> {
+        Ok(match_nodes!(input.children();
+            [scientific_literal(n)] => n,
+            [real_literal(n)] => n,
+            [negative_integer_literal(n)] => n,
+            [non_negative_integer_literal(n)] => n,
+        ))
+    }
+
+    fn non_negative_integer_literal(input: ParseInput) -> ParseResult<Literal> {
+        let value = String::from(input.as_str());
+        Ok(LiteralKind::Int(value).spanned(&input_to_span(input)))
+    }
+
+    fn negative_integer_literal(input: ParseInput) -> ParseResult<Literal> {
+        let value = String::from(input.as_str());
+        Ok(LiteralKind::Int(value).spanned(&input_to_span(input)))
+    }
+
+    fn real_literal(input: ParseInput) -> ParseResult<Literal> {
+        let value = String::from(input.as_str());
+        Ok(LiteralKind::Real(value).spanned(&input_to_span(input)))
+    }
+
+    fn scientific_literal(input: ParseInput) -> ParseResult<Literal> {
+        let value = String::from(input.as_str());
+        Ok(LiteralKind::Real(value).spanned(&input_to_span(input)))
+    }
+
+    fn string_literal(input: ParseInput) -> ParseResult<Literal> {
+        let s = input.as_str();
+        let value = String::from(&s[1..s.len() - 1]);
+        Ok(LiteralKind::String(value).spanned(&input_to_span(input)))
+    }
+
+    fn char_literal(input: ParseInput) -> ParseResult<Literal> {
+        let s = input.as_str();
+        let value = String::from(&s[2..s.len() - 1]);
+        Ok(LiteralKind::Char(value).spanned(&input_to_span(input)))
+    }
+
+    fn bool_literal(input: ParseInput) -> ParseResult<Literal> {
+        let value = input.as_str() == "true";
+        Ok(LiteralKind::Bool(value).spanned(&input_to_span(input)))
+    }
+
+    fn unit_literal(input: ParseInput) -> ParseResult<Literal> {
+        Ok(LiteralKind::Unit.spanned(&input_to_span(input)))
+    }
+
+    fn identifier(input: ParseInput) -> ParseResult<String> {
+        Ok(match_nodes!(input.children();
+            [quoted_identifier(i)] => i,
+            [unquoted_identifier(i)] => i,
+        ))
+    }
+
+    fn unquoted_identifier(input: ParseInput) -> ParseResult<String> {
+        Ok(input.as_str().to_string())
+    }
+
+    fn quoted_identifier(input: ParseInput) -> ParseResult<String> {
+        let s = input.as_str();
+        Ok(s[1..s.len() - 1].replace("``", "`"))
+    }
+
+    fn record_selector(input: ParseInput) -> ParseResult<String> {
+        Ok(input.as_str().to_string())
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::syntax::ast;
     use crate::syntax::ast::MorelNode;
-    use crate::syntax::parser::Rule;
-    use pest::iterators::Pair;
+    use crate::syntax::parser::{Rule, parse_program_single, parse_statement};
     use pest::Parser;
+    use pest::iterators::Pair;
 
     /// Test fixture.
     struct Fixture {
@@ -108,15 +773,19 @@ mod test {
     }
 
     impl Fixture {
-        fn assert_build(&self, matcher: impl Fn(&str)) {
-            use super::MorelParser;
-
-            let result = MorelParser::parse(Rule::statement, self.s.as_str());
-            let expr = ast::build_statement(
-                result.expect("should parse").next().unwrap(),
-            );
+        fn assert_statement(&self, matcher: impl Fn(&str)) {
+            let expr =
+                parse_statement(self.s.as_str()).expect("parse should succeed");
             let mut s = String::new();
-            expr.unparse(&mut s);
+            expr.kind.unparse(&mut s);
+            matcher(&s);
+        }
+
+        fn assert_statement2(&self, matcher: impl Fn(&str)) {
+            let expr = parse_program_single(self.s.as_str())
+                .expect("parse should succeed");
+            let mut s = String::new();
+            expr.kind.unparse(&mut s);
             matcher(&s);
         }
     }
@@ -136,25 +805,29 @@ mod test {
         }
 
         pub(crate) fn assert_parse(&self, rule: Rule) {
-            self.assert_parse_as(rule, self.s.as_str())
+            self.assert_parse_as(rule, &vec![self.s.clone()])
         }
 
-        pub(crate) fn assert_parse_as(&self, rule: Rule, expected: &str) {
+        pub(crate) fn assert_parse_as(
+            &self,
+            rule: Rule,
+            expected: &Vec<String>,
+        ) {
             use super::MorelParser;
             use pest::Parser;
 
             let result = MorelParser::parse(rule, self.s.as_str());
             let file = result.expect("parse should succeed").next().unwrap();
-            let matcher = &has_str(is(expected));
-            let mut count = 0;
+            let mut actuals: Vec<String> = vec![];
             for line in file.into_inner() {
-                matcher(&line);
-                count = count + 1;
+                actuals.push(line.as_str().to_string());
             }
-            assert_eq!(
-                count, 1,
-                "Expected exactly one match for [{}], got [{}]",
-                self.s, count
+            assert!(
+                expected.eq(&actuals),
+                "For [{}], expected parse to yield {:?}, got {:?}",
+                self.s,
+                expected,
+                actuals
             );
         }
     }
@@ -237,13 +910,13 @@ mod test {
         ml("\"a string\"").assert_parse(Rule::literal);
         ml("#\"a\"").assert_parse(Rule::literal);
         ml("not a number").fail();
-        ml("(* block comment *)  1;")
-            .assert_parse(Rule::statement_semicolon_list);
+
+        let vec1 = vec!["1;".to_string(), "".to_string()];
+        ml("(* block comment *)  1;").assert_parse_as(Rule::program, &vec1);
         ml("(*\n * block comment\n *)\n1;")
-            .assert_parse(Rule::statement_semicolon_list);
-        ml("(*) line comment\n1;").assert_parse(Rule::statement_semicolon_list);
-        ml("1; (* comment *)")
-            .assert_parse_as(Rule::statement_semicolon_list, "1;");
+            .assert_parse_as(Rule::program, &vec1);
+        ml("(*) line comment\n1;").assert_parse_as(Rule::program, &vec1);
+        ml("1; (* comment *)").assert_parse_as(Rule::program, &vec1);
     }
 
     #[test]
@@ -257,7 +930,7 @@ mod test {
 
     #[test]
     fn test_parse_build() {
-        ml("1").assert_build(&is("1"));
-        ml("val x = 5").assert_build(&is("val x = 5"));
+        ml("1").assert_statement(&is("1"));
+        ml("val x = 5").assert_statement(&is("val x = 5"));
     }
 }

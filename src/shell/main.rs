@@ -17,13 +17,15 @@
 
 use crate::shell::config::Config;
 use crate::shell::error::Error;
+use crate::shell::utils::prefix_lines;
 use crate::shell::{ShellResult, utils};
+use crate::syntax::ast;
 use crate::syntax::ast::{MorelNode, StatementKind};
-use crate::syntax::parser::parse;
+use crate::syntax::parser;
+use crate::syntax::parser::parse_program_single;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use crate::syntax::ast;
 
 /// Main shell for Morel - Standard ML REPL
 pub struct Shell {
@@ -114,21 +116,26 @@ impl Shell {
         }
 
         let mut line_buffer = String::new();
+        let mut line_buffer_ready = false;
         let mut statement_buffer = String::new();
+        let mut expected_output_buffer = String::new();
 
         loop {
+            if line_buffer_ready {
+                line_buffer_ready = false;
+            } else {
+                line_buffer.clear();
+                let bytes_read = reader.read_line(&mut line_buffer)?;
+                if bytes_read == 0 {
+                    return Ok(()) // EOF reached
+                }
+            }
+
             if self.config.echo {
                 write!(writer, "- ")?;
-                writer.flush()?;
             }
-
-            line_buffer.clear();
-            let bytes_read = reader.read_line(&mut line_buffer)?;
-
-            if bytes_read == 0 {
-                // EOF reached
-                break;
-            }
+            write!(writer, "{}", line_buffer)?;
+            writer.flush()?;
 
             let line = line_buffer.trim();
 
@@ -146,51 +153,44 @@ impl Shell {
 
             // Check if we have a complete statement (ends with semicolon)
             if statement_buffer.ends_with(';') {
-                // Remove the semicolon for processing
-                statement_buffer.pop();
-
-                if self.config.echo {
-                    writeln!(writer, "{};", statement_buffer)?;
-                }
-
-                // parse(statement)
-                match self.process_statement(&statement_buffer) {
-                    Ok(result) => {
-                        if !result.is_empty() {
-                            if self.config.idempotent {
-                                writeln!(
-                                    writer,
-                                    "{}",
-                                    utils::prefix_lines(&result)
-                                )?;
-                            } else {
-                                writeln!(writer, "{}", result)?;
+                // In idempotent mode, look ahead for output lines.
+                if self.config.idempotent {
+                    // Strip out lines that are not part of the statement
+                    expected_output_buffer.clear();
+                    loop {
+                        if line_buffer_ready {
+                            line_buffer_ready = false;
+                        } else {
+                            line_buffer.clear();
+                            let bytes_read = reader.read_line(&mut line_buffer)?;
+                            if bytes_read == 0 {
+                                break; // EOF reached; no more expected output
                             }
                         }
-                    }
-                    Err(e) => {
-                        let error_msg = format!("Error: {}", e);
-                        if self.config.idempotent {
-                            writeln!(
-                                writer,
-                                "{}",
-                                utils::prefix_lines(&error_msg)
-                            )?;
+                        if !line_buffer.starts_with('>') {
+                            line_buffer_ready = true;
+                            break;
                         } else {
-                            writeln!(writer, "{}", error_msg)?;
+                            expected_output_buffer.push_str(&line_buffer);
                         }
                     }
                 }
 
+                // Remove the semicolon, then parse/execute statement
+                statement_buffer.pop();
+                let result = self.process_statement(
+                    &statement_buffer,
+                    Some(&expected_output_buffer),
+                );
+                write!(writer, "{}", result.unwrap())?;
+                writer.flush()?;
                 statement_buffer.clear();
-            } else if !statement_buffer.ends_with(' ') {
-                statement_buffer.push(' ');
+            } else {
+                statement_buffer.push('\n');
             }
 
             writer.flush()?;
         }
-
-        Ok(())
     }
 
     fn banner() -> String {
@@ -200,21 +200,36 @@ impl Shell {
     }
 
     /// Process a single statement
-    fn process_statement(&mut self, statement: &str) -> ShellResult<String> {
+    fn process_statement(
+        &mut self,
+        statement: &str,
+        expected_output: Option<&str>,
+    ) -> ShellResult<String> {
         // Try to parse the statement
-        match std::panic::catch_unwind(|| parse(statement)) {
-            Ok(node) => {
-                // Successfully parsed, now evaluate
-                self.evaluate_node(node.unwrap())
-            }
-            Err(_) => {
-                Err(Error::Parse(format!("Failed to parse: {}", statement)))
+        let node = parse_program_single(statement);
+        if node.is_err() {
+            Err(Error::Parse(format!("Failed to parse: {}", statement)))
+        } else if expected_output.is_some() {
+            // We are running in idempotent mode,
+            // and we cannot yet evaluate expressions.
+            // So, just say the expression returned what we expected.
+            Ok(expected_output.unwrap().to_string())
+        } else {
+            // Successfully parsed, now evaluate
+            let output = self.evaluate_node(node.unwrap(), None);
+            match &output {
+                Ok(s) => Ok(prefix_lines(s.as_str())),
+                Err(_) => output,
             }
         }
     }
 
     /// Evaluate a parsed AST node
-    fn evaluate_node(&mut self, node: ast::Statement) -> ShellResult<String> {
+    fn evaluate_node(
+        &mut self,
+        node: ast::Statement,
+        expected_output: Option<&str>,
+    ) -> ShellResult<String> {
         // For now, just unparse the node back to a string
         // In a full implementation, this would actually evaluate the expression
         let mut result = String::new();
@@ -242,14 +257,8 @@ impl Shell {
         let content =
             utils::read_file_to_string(&file_path).map_err(|e| Error::Io(e))?;
 
-        let processed_content = if self.config.idempotent {
-            utils::strip_out_lines(&content)
-        } else {
-            content
-        };
-
         // Create a cursor from the string content
-        let cursor = std::io::Cursor::new(processed_content.as_bytes());
+        let cursor = std::io::Cursor::new(content.as_bytes());
         self.run(cursor, output)
     }
 

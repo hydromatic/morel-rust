@@ -85,8 +85,20 @@ pub mod utils {
         ref_file: P,
         out_file: P,
     ) -> std::io::Result<String> {
-        let ref_content = read_file_to_string(ref_file)?;
-        let out_content = read_file_to_string(out_file)?;
+        let ref_path = ref_file.as_ref();
+        let out_path = out_file.as_ref();
+        let ref_content = read_file_to_string(ref_path)?;
+        let out_content = read_file_to_string(out_path)?;
+
+        use similar::TextDiff;
+        let text_diff = TextDiff::from_lines(&ref_content, &out_content);
+        print!(
+            "{}",
+            text_diff
+                .unified_diff()
+                .context_radius(10)
+                .header(ref_path.to_str().unwrap(), out_path.to_str().unwrap())
+        );
 
         if ref_content == out_content {
             Ok(String::new())

@@ -36,10 +36,11 @@ keywords = {
 }
 
 // Top-level program
-program = { SOI ~ statement ~ EOI }
-statement = { decl | expr }
+program = { SOI ~ (WHITE_SPACE | COMMENT)* ~ statement_semicolon+ ~ EOI }
+program_single = { ws? ~ statement }
 statement_semicolon = { statement ~ ";" }
-statement_semicolon_list = { statement_semicolon+ }
+statement = { decl | expr }
+ws = { (WHITESPACE | COMMENT)* }
 
 // Expressions with operator precedence (lowest to highest)
 expr = { expr_annotated }
@@ -52,14 +53,10 @@ expr_orelse = { expr_andalso ~ ("orelse" ~ expr_andalso)* }
 
 expr_andalso = { expr_o ~ ("andalso" ~ expr_o)* }
 
-expr_o = { expr_relational ~ ("o" ~ expr_relational)* }
+expr_o = { expr_comp ~ ("o" ~ expr_comp)* }
 
-expr_relational = {
-    expr_cons ~ (
-        ("=" | "<>" | "<" | ">" | "<=" | ">=" | "elem" | "notelem") ~
-        expr_cons
-    )*
-}
+expr_comp = { expr_cons ~ (expr_comp_op ~ expr_comp)? }
+expr_comp_op = { "=" | "<>" | "<" | ">" | "<=" | ">=" | "elem" | "notelem" }
 
 expr_cons = { expr_additive ~ ("::" ~ expr_additive | "@" ~ expr_additive)* }
 
@@ -76,9 +73,7 @@ expr_application = { expr_postfix ~ expr_postfix* }
 expr_postfix = { atom ~ ("." ~ identifier)* }
 
 atom = {
-    // Literals
     literal |
-    // Identifiers and special constructs
     identifier |
     record_selector |
     "current" |
@@ -91,12 +86,11 @@ atom = {
     "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" |
     // Records
     "{" ~ (named_expr ~ ("," ~ named_expr)*)? ~ "}" |
-    // Control structures
     if_expr |
     case_expr |
     let_expr |
     fn_expr |
-    // Relational expressions
+    // TODO: forall, exists
     from_expr
 }
 
@@ -116,26 +110,48 @@ case_arm = { pat ~ "=>" ~ expr }
 let_expr = { "let" ~ decl_list ~ "in" ~ expr ~ "end" }
 decl_list = { decl ~ (";" ~ decl)* }
 
-fn_expr = { "fn" ~ fun_matches }
-fun_matches = { fun_match ~ ("|" ~ fun_match)* }
-fun_match = { pat ~ "=>" ~ expr }
+fn_expr = { "fn" ~ match_list }
+match_list = { match_ ~ ("|" ~ match_)* }
+match_ = { pat ~ "=>" ~ expr }
 
 // Relational expressions (simplified)
 from_expr = {
-    "from" ~ from_items ~
-    ("where" ~ expr)? ~
-    ("group" ~ group_list)? ~
-    ("compute" ~ compute_list)? ~
-    ("order" ~ order_list)? ~
-    ("yield" ~ expr)?
+    "from" ~ scan_list? ~ step_list?
 }
 
-from_items = { from_item ~ ("," ~ from_item)* }
-from_item = { pat ~ "in" ~ expr }
+scan_list = { scan ~ ("," ~ scan)* }
+first_scan = { pat ~ "in" ~ expr }
+scan = { pat ~ "in" ~ expr ~ on? }
+
+step_list = { step* }
+step = {
+    join |
+    into_ |
+    compute |
+    distinct |
+    except |
+    intersect |
+    union |
+    unorder |
+    require |
+    skip |
+    take
+}
 
 group_list = { named_expr ~ ("," ~ named_expr)* }
-compute_list = { named_expr ~ ("," ~ named_expr)* }
-order_list = { expr ~ ("," ~ expr)* }
+join = { "join" ~ pat ~ "in" ~ expr ~ on? }
+on = { "on" ~ expr }
+into_ = { "into" ~ pat ~ "in" ~ expr }
+distinct = { "distinct" }
+compute = { "compute" ~ expr }
+unorder = { "unorder" ~ expr }
+require = { "require" ~ expr }
+except = { "except" ~ "all"? ~ expr ~ ("," ~ expr)* }
+union = { "union" ~ "all"? ~ expr ~ ("," ~ expr)* }
+intersect = { "intersect" ~ "all"? ~ expr ~ ("," ~ expr)* }
+order = { "order" ~ expr }
+skip = { "skip" ~ expr }
+take = { "take" ~ expr }
 
 // Patterns (fixed left-recursion)
 pat = { pat_annotated }
@@ -153,7 +169,7 @@ pat_atom = {
     tuple_pat |
     record_pat |
     list_pat |
-    con_pat |
+    constructor_pat |
     "(" ~ pat ~ ")"
 }
 
@@ -161,10 +177,15 @@ wildcard_pat = { "_" }
 id_pat = { identifier }
 literal_pat = { literal }
 tuple_pat = { "(" ~ pat ~ ("," ~ pat)+ ~ ")" }
-record_pat = { "{" ~ (pat_field ~ ("," ~ pat_field)*)? ~ ("," ~ "...")? ~ "}" }
-pat_field = { identifier ~ ("=" ~ pat)? }
+record_pat = { "{" ~ (pat_field ~ ("," ~ pat_field)* ~ ("," ~ ellipsis)? | ellipsis?) ~ "}" }
 list_pat = { "[" ~ (pat ~ ("," ~ pat)*)? ~ "]" }
-con_pat = { identifier ~ pat_atom? }
+constructor_pat = { identifier ~ pat_atom? }
+cons_pat = { pat ~ "::" ~ pat }
+
+pat_field = { labeled_pat_field | anon_pat_field }
+labeled_pat_field = { identifier ~ "=" ~ pat }
+anon_pat_field = { pat }
+ellipsis = { "..." }
 
 // Declarations
 decl = {
@@ -174,11 +195,12 @@ decl = {
     datatype_decl
 }
 
-val_decl = { "val" ~ ("rec")? ~ val_bind ~ ("and" ~ val_bind)* }
+val_decl = { "val" ~ rec? ~ val_bind ~ ("and" ~ val_bind)* }
 val_bind = { pat ~ (":" ~ type_expr)? ~ "=" ~ expr }
+rec = { "rec" }
 
 fun_decl = { "fun" ~ fun_bind ~ ("and" ~ fun_bind)* }
-fun_bind = { identifier ~ fun_matches }
+fun_bind = { identifier ~ match_list }
 
 type_decl = { "type" ~ type_bind ~ ("and" ~ type_bind)* }
 type_bind = { type_vars? ~ identifier ~ "=" ~ type_expr }

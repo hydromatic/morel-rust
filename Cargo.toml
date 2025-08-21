@@ -30,3 +30,4 @@ pest = "2.1"
 pest_consume = "1.1"
 phf = { version = "0.12", features = ["macros"] }
 itertools = "0.14.0"
+similar = "2.7.0"
