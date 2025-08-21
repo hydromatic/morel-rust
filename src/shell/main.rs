@@ -15,13 +15,14 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::utils::prefix_lines;
-use crate::shell::{ShellResult, utils};
 use crate::syntax::ast;
 use crate::syntax::ast::{MorelNode, StatementKind};
 use crate::syntax::parser::parse_statement;
+use rustc_version::version;
 use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -73,6 +74,7 @@ impl Shell {
         // Parse command line arguments
         for arg in &args {
             match arg.as_str() {
+                "--banner" => config.banner = true,
                 "--echo" => config.echo = true,
                 "--idempotent" => config.idempotent = true,
                 _ if arg.starts_with("--directory=") => {
@@ -113,6 +115,7 @@ impl Shell {
 
         if self.config.banner {
             writeln!(writer, "{}", Self::banner().as_str())?;
+            writer.flush()?;
         }
 
         let mut line_buffer = String::new();
@@ -124,16 +127,18 @@ impl Shell {
             if line_buffer_ready {
                 line_buffer_ready = false;
             } else {
+                if self.config.echo {
+                    write!(writer, "- ")?;
+                    writer.flush()?;
+                }
+
                 line_buffer.clear();
                 let bytes_read = reader.read_line(&mut line_buffer)?;
                 if bytes_read == 0 {
-                    return Ok(()) // EOF reached
+                    return Ok(()); // EOF reached
                 }
             }
 
-            if self.config.echo {
-                write!(writer, "- ")?;
-            }
             write!(writer, "{}", line_buffer)?;
             writer.flush()?;
 
@@ -156,7 +161,8 @@ impl Shell {
                             line_buffer_ready = false;
                         } else {
                             line_buffer.clear();
-                            let bytes_read = reader.read_line(&mut line_buffer)?;
+                            let bytes_read =
+                                reader.read_line(&mut line_buffer)?;
                             if bytes_read == 0 {
                                 break; // EOF reached; no more expected output
                             }
@@ -188,8 +194,11 @@ impl Shell {
     }
 
     fn banner() -> String {
-        String::from(
-            "Morel Rust - Standard ML interpreter with relational extensions",
+        let rustc_version = version().unwrap();
+        format!(
+            "morel-rust version {} (rust version {})",
+            env!("CARGO_PKG_VERSION"),
+            rustc_version.to_string()
         )
     }
 
@@ -219,23 +228,16 @@ impl Shell {
     }
 
     /// Evaluates a parsed AST node.
-    fn evaluate_node(
-        &mut self,
-        node: ast::Statement,
-    ) -> ShellResult<String> {
+    fn evaluate_node(&mut self, node: ast::Statement) -> ShellResult<String> {
         // For now, just unparse the node back to a string. In a full
         // implementation, this would actually evaluate the expression.
         let mut result = String::new();
         node.unparse(&mut result);
 
         match &node.kind {
-            StatementKind::Expr(expr) => {
+            StatementKind::Expr(_expr) => {
                 // For expressions, show the type and value
                 Ok(format!("val it = {} : <type>", result))
-            }
-            StatementKind::Decl(_) => {
-                // For declarations, show what was declared
-                Ok(result)
             }
         }
     }

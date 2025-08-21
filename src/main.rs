@@ -56,15 +56,13 @@ fn main() {
         }
     }
 
-    // Default: run interactive REPL
-    println!("Morel Rust - Standard ML interpreter with relational extensions");
-    println!("Type expressions to evaluate them, or 'quit' to exit.");
-
-    let shell_args = if args.len() > 1 && args[1] == "--" {
-        args[2..].to_vec()
-    } else {
-        args[1..].to_vec()
+    let mut x = &args[1..];
+    if args.len() > 1 && args[1] == "--" {
+        x = &args[2..];
     };
+    let mut shell_args = x.to_vec();
+    shell_args.insert(0, "--echo".to_string());
+    shell_args.insert(0, "--banner".to_string());
 
     let mut main = ShellMain::new(shell_args);
     match main.run(std::io::stdin(), std::io::stdout()) {
