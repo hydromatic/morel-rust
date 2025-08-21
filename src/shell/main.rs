@@ -21,9 +21,9 @@ use crate::shell::utils::prefix_lines;
 use crate::shell::{ShellResult, utils};
 use crate::syntax::ast;
 use crate::syntax::ast::{MorelNode, StatementKind};
-use crate::syntax::parser;
-use crate::syntax::parser::parse_program_single;
+use crate::syntax::parser::parse_statement;
 use std::collections::HashMap;
+use std::fs::read_to_string;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -138,12 +138,6 @@ impl Shell {
             writer.flush()?;
 
             let line = line_buffer.trim();
-
-            // Handle special commands
-            // if line == "quit" || line == "exit" {
-            //     break;
-            // }
-
             if line.is_empty() {
                 continue;
             }
@@ -199,16 +193,16 @@ impl Shell {
         )
     }
 
-    /// Process a single statement
+    /// Processes a single statement.
     fn process_statement(
         &mut self,
-        statement: &str,
+        code: &str,
         expected_output: Option<&str>,
     ) -> ShellResult<String> {
         // Try to parse the statement
-        let node = parse_program_single(statement);
-        if node.is_err() {
-            Err(Error::Parse(format!("Failed to parse: {}", statement)))
+        let statement = parse_statement(code);
+        if statement.is_err() {
+            Err(Error::Parse(format!("Failed to parse: {}", code)))
         } else if expected_output.is_some() {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions.
@@ -216,7 +210,7 @@ impl Shell {
             Ok(expected_output.unwrap().to_string())
         } else {
             // Successfully parsed, now evaluate
-            let output = self.evaluate_node(node.unwrap(), None);
+            let output = self.evaluate_node(statement.unwrap());
             match &output {
                 Ok(s) => Ok(prefix_lines(s.as_str())),
                 Err(_) => output,
@@ -224,18 +218,16 @@ impl Shell {
         }
     }
 
-    /// Evaluate a parsed AST node
+    /// Evaluates a parsed AST node.
     fn evaluate_node(
         &mut self,
         node: ast::Statement,
-        expected_output: Option<&str>,
     ) -> ShellResult<String> {
-        // For now, just unparse the node back to a string
-        // In a full implementation, this would actually evaluate the expression
+        // For now, just unparse the node back to a string. In a full
+        // implementation, this would actually evaluate the expression.
         let mut result = String::new();
         node.unparse(&mut result);
 
-        // Simple evaluation simulation
         match &node.kind {
             StatementKind::Expr(expr) => {
                 // For expressions, show the type and value
@@ -248,32 +240,31 @@ impl Shell {
         }
     }
 
-    /// Run a script file
+    /// Runs a script file.
     pub fn run_file<P: AsRef<Path>, W: Write>(
         &mut self,
         file_path: P,
         output: W,
     ) -> ShellResult<()> {
-        let content =
-            utils::read_file_to_string(&file_path).map_err(|e| Error::Io(e))?;
+        let content = read_to_string(&file_path).map_err(|e| Error::Io(e))?;
 
         // Create a cursor from the string content
         let cursor = std::io::Cursor::new(content.as_bytes());
         self.run(cursor, output)
     }
 
-    /// Get the current environment
+    /// Returns the current environment.
     pub fn environment(&self) -> &Environment {
         &self.environment
     }
 
-    /// Get mutable access to the environment
+    /// Returns the environment, mutable.
     pub fn environment_mut(&mut self) -> &mut Environment {
         &mut self.environment
     }
 }
 
-/// Shell implementation for use within scripts
+/// Shell implementation for use within scripts.
 pub struct Session {
     shell: Shell,
 }
@@ -283,7 +274,7 @@ impl Session {
         Self { shell: main }
     }
 
-    /// Execute a use command (load a file)
+    /// Executes a `use` command (load a file).
     pub fn use_file<P: AsRef<Path>, W: Write>(
         &mut self,
         file_path: P,
@@ -308,7 +299,7 @@ impl Session {
         self.shell.run_file(path, output)
     }
 
-    /// Clear the environment
+    /// Clears the environment.
     pub fn clear_env(&mut self) {
         self.shell.environment_mut().clear();
     }

@@ -63,16 +63,10 @@ impl<R: Read> Read for BufferingReader<R> {
 
 /// Utility functions for the shell
 pub mod utils {
+    use std::fs::read_to_string;
     use std::path::Path;
 
-    /// Read a file to string with proper error handling
-    pub fn read_file_to_string<P: AsRef<Path>>(
-        path: P,
-    ) -> std::io::Result<String> {
-        std::fs::read_to_string(path)
-    }
-
-    /// Write content to a file
+    /// Writes content to a file.
     pub fn write_file<P: AsRef<Path>>(
         path: P,
         content: &str,
@@ -80,15 +74,15 @@ pub mod utils {
         std::fs::write(path, content)
     }
 
-    /// Compare two files and return diff as string (simplified version)
+    /// Compares two files and returns the difference as a string.
     pub fn diff_files<P: AsRef<Path>>(
         ref_file: P,
         out_file: P,
     ) -> std::io::Result<String> {
         let ref_path = ref_file.as_ref();
         let out_path = out_file.as_ref();
-        let ref_content = read_file_to_string(ref_path)?;
-        let out_content = read_file_to_string(out_path)?;
+        let ref_content = read_to_string(ref_path)?;
+        let out_content = read_to_string(out_path)?;
 
         use similar::TextDiff;
         let text_diff = TextDiff::from_lines(&ref_content, &out_content);
@@ -110,7 +104,7 @@ pub mod utils {
         }
     }
 
-    /// Prefix each line with "> " for idempotent output
+    /// Prefixes each line with "> ", for output in idempotent mode.
     pub fn prefix_lines(s: &str) -> String {
         let mut result = String::new();
         for line in s.lines() {
@@ -127,70 +121,6 @@ pub mod utils {
         result
     }
 
-    /// Strip output lines (lines starting with "> ") for idempotent processing
-    pub fn strip_out_lines(input: &str) -> String {
-        let mut result = String::new();
-        let mut in_comment = false;
-
-        for line in input.lines() {
-            if line.starts_with("(*") && line.ends_with("*)") {
-                // Single line comment, include it
-                result.push_str(line);
-                result.push('\n');
-            } else if line.starts_with("(*") {
-                // Start of multi-line comment
-                in_comment = true;
-                result.push_str(line);
-                result.push('\n');
-            } else if line.ends_with("*)") && in_comment {
-                // End of multi-line comment
-                in_comment = false;
-                result.push_str(line);
-                result.push('\n');
-            } else if in_comment {
-                // Inside multi-line comment
-                result.push_str(line);
-                result.push('\n');
-            } else if line.starts_with("> ") || line == ">" {
-                // Skip output lines
-                continue;
-            } else {
-                // Regular input line
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-
-        // Remove trailing newline if present
-        if result.ends_with('\n') {
-            result.pop();
-        }
-        result
-    }
-
-    /// Convert filename to test method name (camelCase)
-    pub fn to_camel_case(s: &str) -> String {
-        let mut result = String::new();
-        let mut capitalize_next = false;
-
-        for c in s.chars() {
-            match c {
-                '_' | '/' | '\\' | '.' => {
-                    capitalize_next = true;
-                }
-                _ => {
-                    if capitalize_next {
-                        result.extend(c.to_uppercase());
-                        capitalize_next = false;
-                    } else {
-                        result.push(c.to_lowercase().next().unwrap_or(c));
-                    }
-                }
-            }
-        }
-        result
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -199,19 +129,6 @@ pub mod utils {
         fn test_prefix_lines() {
             assert_eq!(prefix_lines("hello\nworld"), "> hello\n> world");
             assert_eq!(prefix_lines("single"), "> single");
-        }
-
-        #[test]
-        fn test_strip_out_lines() {
-            let input = "> output\ninput\n> more output\nmore input";
-            let expected = "input\nmore input";
-            assert_eq!(strip_out_lines(input), expected);
-        }
-
-        #[test]
-        fn test_to_camel_case() {
-            assert_eq!(to_camel_case("test_script_simple"), "testScriptSimple");
-            assert_eq!(to_camel_case("script/simple.sml"), "scriptSimpleSml");
         }
     }
 }

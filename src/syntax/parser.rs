@@ -15,14 +15,13 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::syntax::ast;
 use crate::syntax::ast::{
     ConBind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, Literal,
     LiteralKind, Pat, PatField, PatKind, Span, Statement, StatementKind, Step,
     StepKind, Type, TypeBind, TypeKind, ValBind,
 };
-use pest_consume::Parser;
 use pest_consume::match_nodes;
+use pest_consume::Parser;
 use std::rc::Rc;
 
 type ParseInput<'input> = pest_consume::Node<'input, Rule, Rc<str>>;
@@ -35,16 +34,11 @@ pub type ParseResult<T> = Result<T, ParseError>;
 #[grammar = "src/syntax/morel.pest"]
 pub struct MorelParser;
 
+/// Parses a Morel statement and returns its AST.
+///
+/// The statement may be preceded by whitespace and/or comments;
+/// the statement must end with a semicolon.
 pub fn parse_statement(input: &str) -> ParseResult<Statement> {
-    let rc_input_str = input.to_string().into();
-    let nodes =
-        MorelParser::parse_with_userdata(Rule::statement, input, rc_input_str)?;
-    Ok(match_nodes!(<MorelParser>; nodes;
-        [statement(e)] => e,
-    ))
-}
-
-pub fn parse_program_single(input: &str) -> ParseResult<Statement> {
     let rc_input_str = input.to_string().into();
     let nodes = MorelParser::parse_with_userdata(
         Rule::program_single,
@@ -53,6 +47,16 @@ pub fn parse_program_single(input: &str) -> ParseResult<Statement> {
     )?;
     Ok(match_nodes!(<MorelParser>; nodes;
         [program_single(s)] => s,
+    ))
+}
+
+/// Parses a statement (without preceding whitespace or trailing semicolon).
+fn parse_bare_statement(input: &str) -> ParseResult<Statement> {
+    let rc_input_str = input.to_string().into();
+    let nodes =
+        MorelParser::parse_with_userdata(Rule::statement, input, rc_input_str)?;
+    Ok(match_nodes!(<MorelParser>; nodes;
+        [statement(e)] => e,
     ))
 }
 
@@ -763,9 +767,9 @@ impl MorelParser {
 #[cfg(test)]
 mod test {
     use crate::syntax::ast::MorelNode;
-    use crate::syntax::parser::{Rule, parse_program_single, parse_statement};
-    use pest::Parser;
+    use crate::syntax::parser::{parse_statement, Rule};
     use pest::iterators::Pair;
+    use pest::Parser;
 
     /// Test fixture.
     struct Fixture {
@@ -782,7 +786,7 @@ mod test {
         }
 
         fn assert_statement2(&self, matcher: impl Fn(&str)) {
-            let expr = parse_program_single(self.s.as_str())
+            let expr = parse_statement(self.s.as_str())
                 .expect("parse should succeed");
             let mut s = String::new();
             expr.kind.unparse(&mut s);
