@@ -21,7 +21,7 @@ use crate::shell::{Shell, ShellResult, utils};
 use std::fs::{self};
 use std::path::{Path, PathBuf};
 
-/// Test runner for script files, equivalent to Java ScriptTest
+/// Test runner for script files, equivalent to Java ScriptTest.
 pub struct ScriptTest {
     directory: Option<PathBuf>,
 }

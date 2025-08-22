@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-/// Error types for shell operations
+/// Error types for shell operations.
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),

@@ -26,10 +26,10 @@ pub use script_test::ScriptTest;
 use error::Error;
 use std::io::Read;
 
-/// Result type for shell operations
+/// Result type for shell operations.
 pub type ShellResult<T> = Result<T, Error>;
 
-/// Buffer for capturing output that can be flushed
+/// Buffer for capturing output that can be flushed.
 pub struct BufferingReader<R: Read> {
     reader: R,
     buffer: String,
