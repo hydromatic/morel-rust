@@ -17,11 +17,7 @@
 #
 name: Rust
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,9 +29,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --verbose
     - name: Check formatting
       run: cargo fmt --all -- --check
+    - name: Doc
+      run: cargo doc
     - name: Run tests
       run: cargo test --verbose
