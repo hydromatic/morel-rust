@@ -150,8 +150,11 @@ impl Shell {
             // Add line to statement buffer
             statement_buffer.push_str(line);
 
-            // Check if we have a complete statement (ends with semicolon)
-            if statement_buffer.ends_with(';') {
+            // If we have a complete statement (last line ends with a semicolon
+            // and not inside a comment), execute it.
+            if statement_buffer.ends_with(';')
+                && comment_depth(statement_buffer.as_str()) == 0
+            {
                 // In idempotent mode, look ahead for output lines.
                 if self.config.idempotent {
                     // Strip out lines that are not part of the statement
@@ -266,6 +269,46 @@ impl Shell {
     }
 }
 
+/// Returns the level comment nesting the end of the string.
+///
+/// Examples:
+/// * Depth 0: `(* comment *)`
+/// * Depth 1: `(* comment (* nested *)`
+/// * Depth 1: `(*) line comment`
+/// * Depth 0: `(*) line comment\n`
+/// * Depth -1: `code; *)`
+fn comment_depth(code: &str) -> i32 {
+    let mut depth = 0;
+    let mut buf = [' '; 3]; // cyclic buffer
+    let n = 3;
+    let mut i = n;
+    let mut in_line_comment = false;
+    for c in code.chars() {
+        if buf[i % n] == '(' && c == '*' {
+            // We say "(*", which is a block comment.
+            // (It may turn out to be "(*)", a line comment.)
+            depth += 1;
+        } else if buf[i % n] == '*' && c == ')' {
+            if buf[(i - 1) % n] == '(' {
+                // We saw "(*)", which is a line comment.
+                // We already increased the depth, when we saw "(*".
+                // Now we set a flag to decrease the depth when we next see a
+                // newline.
+                in_line_comment = true;
+            } else {
+                // We saw "*)", which closes a block comment.
+                depth -= 1;
+            }
+        } else if c == '\n' && in_line_comment {
+            depth -= 1;
+            in_line_comment = false;
+        }
+        i = i + 1;
+        buf[i % n] = c;
+    }
+    depth
+}
+
 /// Shell implementation for use within scripts.
 pub struct Session {
     shell: Shell,
@@ -337,5 +380,15 @@ mod tests {
         let mut env = Environment::new();
         env.bind("x".to_string(), "42".to_string());
         assert_eq!(env.get("x"), Some(&"42".to_string()));
+    }
+
+    #[test]
+    fn test_comment_depth() {
+        assert_eq!(comment_depth("(* comment *)"), 0);
+        assert_eq!(comment_depth("(* comment (* nested *)"), 1);
+        assert_eq!(comment_depth("code; *)"), -1);
+        assert_eq!(comment_depth("(* (* nested (* deeper *) *) *)"), 0);
+        assert_eq!(comment_depth("(*) line comment"), 1);
+        assert_eq!(comment_depth("(*) line comment\n"), 0);
     }
 }
