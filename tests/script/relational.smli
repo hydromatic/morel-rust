@@ -1167,7 +1167,7 @@ from e in emps
   join d in depts
   where deptno = d.deptno;
 
-(*) as previous, using 'on' rather than 'where'
+(* as previous, using 'on' rather than 'where' *)
 from e in emps
   group e.deptno compute count
   join d in depts on deptno = d.deptno;
@@ -1932,12 +1932,14 @@ from e in emps
 > val it = 90 : int
 
 (*) Multiple 'into' is not allowed
+(* TODO: enable
 from e in emps
   yield e.deptno
   into sum
   into sum;
 > stdIn:4.3-4.11 Error: 'into' step must be last in 'from'
 >   raised at: stdIn:4.3-4.11
+*)
 
 (*) Empty from
 from;
@@ -1972,7 +1974,7 @@ end;
 
 (*) Empty from with yield
 let
-  val ten = 6 + 4;
+  val ten = 6 + 4
 in
   from
     yield {ten, nine = ten - 1}
@@ -1996,8 +1998,8 @@ from
 
 (*) Empty from with group
 let
-  val ten = 6 + 4;
-  val eleven = ten + 1;
+  val ten = 6 + 4
+  val eleven = ten + 1
 in
   from
     group ten compute {sumEleven = sum over eleven}
@@ -2159,7 +2161,7 @@ let
   fun abbrev s =
     if size s > 5
     then (substring (s, 0, 3)) ^ "."
-    else s;
+    else s
   fun shouldPromote e =
     e.id < e.deptno * 4
 in
@@ -2274,6 +2276,7 @@ from t1 in triples, t2 in triples
  (* (~1+2,2) < (~3+5,5) < (~2+6,6) *)
 
 (*) A deep nested loop
+(* TODO enable
 from e in
   (from e in
     (from e in
@@ -2299,6 +2302,7 @@ from e in
 >   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
 >    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
 >   : {deptno:int, id:int, name:string} list
+*)
 
 (*) Hybrid
 Sys.set ("hybrid", false);

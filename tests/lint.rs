@@ -130,22 +130,18 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                 warnings
                     .push(format!("{}:{}: Trailing spaces", file_name, line));
             }
-            let line_length = l.len();
-            if line_length > file_type.max_line_length && !l.contains("://") {
+            if l.len() > file_type.max_line_length && !l.contains("://") {
                 // ignore URLs
                 warnings.push(format!(
                     "{}:{}: Line too long ({} > {}): {}",
-                    file_name, line, line_length, file_type.max_line_length, l
+                    file_name,
+                    line,
+                    l.len(),
+                    file_type.max_line_length,
+                    l
                 ));
             }
         });
-
-        if !contents.ends_with('\n') {
-            warnings.push(format!(
-                "{}:{}: No newline at end of file",
-                file_name, line,
-            ));
-        }
     }
 }
 

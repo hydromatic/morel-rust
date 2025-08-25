@@ -83,6 +83,26 @@ true;
 > val it = {1=1,2=2,3=3,5=5,6=6,7=7,8=8,9=9,10=10,11=11}
 >   : {1:int, 2:int, 3:int, 5:int, 6:int, 7:int, 8:int, 9:int, 10:int, 11:int}
 
+(*) Comments
+1;
+> val it = 1 : int
+(* That was a line comment. This is a block comment. *)
+2;
+> val it = 2 : int
+(* This is a (* nested *) comment
+   that spans
+   multiple lines. *)
+3;
+> val it = 3 : int
+(* This is a (* nested (* nested *) comment. *) *)
+4;
+> val it = 4 : int
+(* If a block comment
+   contains a (*) comment close *) in a line comment
+   then it is ignored. *)
+5;
+> val it = 5 : int
+
 (*) All the characters
 Sys.set ("printLength", 300);
 > val it = () : unit
@@ -160,6 +180,50 @@ String.size "\^@";
 String.implode [#"\t", #"a", #"\128", #"b"];
 > val it = "\ta\128b" : string
 
+(*) Lists and precedence
+1 :: 2 :: [3];
+> val it = [1,2,3] : int list
+[1 + 2, 3 * 4];
+> val it = [3,12] : int list
+([3] @ [4]) :: [[5]];
+> val it = [[3,4],[5]] : int list list
+1 :: 2 :: [3] @ [4];
+> val it = [1,2,3,4] : int list
+["a" ^ "b", "c" ^ "d" ^ "e"];
+> val it = ["ab","cde"] : string list
+
+(* `andalso` has higher precedence (2) than `orelse` (1). *)
+false andalso true orelse true;
+> val it = true : bool
+false andalso (true orelse true);
+> val it = false : bool
+(false andalso true) orelse true;
+> val it = true : bool
+
+(* unary minus `~` has higher precedence (8.5) than application (8),
+   lower precedence than '.' (9). *)
+fun succ n = n + 1;
+> val succ = fn : int -> int
+(* TODO add '~succ 3;', which should be parse error *)
+~(succ 3);
+> val it = ~4 : int
+succ (~ 3);
+> val it = ~2 : int
+succ ~ 3;
+> error
+{a=3, b=4}.a;
+> val it = 3 : int
+~{a=3, b=4}.a;
+> val it = ~3 : int
+
+(*) Functions
+fun f (a,b,c) = if a then b else c;
+> val f = fn : bool * 'a * 'a -> 'a
+fun f (a,b,c,d,e) = if a then b else (if c then d else e);
+> val f = fn : bool * 'a * bool * 'a * 'a -> 'a
+fun f (a,b,c,d,e) = if a then b else if c then d else e;
+> val f = fn : bool * 'a * bool * 'a * 'a -> 'a
+
 (*) Identifiers
 val x = 1
 and x' = 2
@@ -175,6 +239,18 @@ and Abc_ = 7;
 > val ABC123 = 5 : int
 > val Abc_123 = 6 : int
 > val Abc_ = 7 : int
+
+(*) Identifiers whose prefix is a keyword
+val if_ = 1
+and then_ = 2
+and inz = 3
+and off = 4
+and o' = 5;
+> val if_ = 1 : int
+> val then_ = 2 : int
+> val inz = 3 : int
+> val off = 4 : int
+> val o' = 5 : int
 
 fun foo x
   x'
@@ -306,7 +382,7 @@ let
     | in_ e (h :: t) = e = h orelse in_ e t
 in
   (in_ 3 [1,2,3], in_ 4 [1,2,3])
-end;
+end; (*) workaround bug
 *)
 
 (*) Succeeds when parentheses are added
@@ -335,9 +411,9 @@ end;
 
 (*) Closure
 let
-  fun f x = 1 + x;
-  val x = f 2;
-  fun f y = x + y;
+  fun f x = 1 + x; (*)
+  val x = f 2; (*)
+  fun f y = x + y; (*)
   val x = 10
 in
   f x
@@ -346,9 +422,9 @@ end;
 
 (*) As "Closure", but each 'fun' is replaced with a lambda.
 let
-  val f = fn x => 1 + x;
-  val x = f 2;
-  val f = fn y => x + y;
+  val f = fn x => 1 + x; (*)
+  val x = f 2; (*)
+  val f = fn y => x + y; (*)
   val x = 10
 in
   f x
@@ -377,9 +453,9 @@ end;
 
 (*) Similar to "Closure", but a simpler expression.
 let
-  val x = 1;
-  fun f y = x + y;
-  val x = 10;
+  val x = 1; (*)
+  fun f y = x + y; (*)
+  val x = 10; (*)
 in
   f x
 end;
@@ -388,8 +464,8 @@ end;
 (*) Similar to "Closure", but the two occurrences of 'x'
 (*) have different data types, so that the bug is more obvious.
 let
-  val x = "abc";
-  fun g y = size x + y;
+  val x = "abc"; (*)
+  fun g y = size x + y; (*)
   val x = 10
 in
   g x
@@ -398,8 +474,8 @@ end;
 
 (*) As previous, but converting 'fun' to a lambda.
 let
-  val x = "abc";
-  val g = fn y => size x + y;
+  val x = "abc"; (*)
+  val g = fn y => size x + y; (*)
   val x = 10
 in
   g x

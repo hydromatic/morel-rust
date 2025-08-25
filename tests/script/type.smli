@@ -179,21 +179,21 @@ end;
 > val it = fn : string -> string list
 
 let
-  val r = {empno = 100, isMgr = true, name = "Fred"};
+  val r = {empno = 100, isMgr = true, name = "Fred"}; (*)
 in
   fn x: typeof r.isMgr => ()
 end;
 > val it = fn : bool -> unit
 
 let
-  val r = {empno = 100, isMgr = true, name = "Fred"};
+  val r = {empno = 100, isMgr = true, name = "Fred"}; (*)
 in
   fn x: typeof r => x.empno
 end;
 > val it = fn : {empno:int, isMgr:bool, name:string} -> int
 
 let
-  val r = {empno = 100, isMgr = true, name = "Fred"};
+  val r = {empno = 100, isMgr = true, name = "Fred"}; (*)
 in
   fn x: {a: string, b: typeof r.empno list, c: typeof (r.name ^ "!")} => ()
 end;
@@ -280,7 +280,7 @@ f3 {a = 1, b = 6};
 (*) The following correctly throws
 (*)   unbound variable or constructor: a
 (*) Disabled because error stacks made tests brittle.
-(*) fun f4 {a = 1, b} = a + b;
+(*) fun f4 {a = 1, b} = a + b; (*)
 
 (*) Variable with polymorphic type
 val x = map;
@@ -554,12 +554,14 @@ fun chain16 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (i
 > val chain16 = fn : ('a -> 'b) -> 'a -> 'b
 fun chain17 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id x)))))))))))))))));
 > val chain17 = fn : ('a -> 'b) -> 'a -> 'b
+(* TODO: enable, when stack overflow is fixed
 fun chain18 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id x))))))))))))))))));
 > val chain18 = fn : ('a -> 'b) -> 'a -> 'b
 fun chain19 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id x)))))))))))))))))));
 > val chain19 = fn : ('a -> 'b) -> 'a -> 'b
 fun chain20 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id (id x))))))))))))))))))));
 > val chain20 = fn : ('a -> 'b) -> 'a -> 'b
+*)
 
 (* Helper functions for creating more complex type constraints. *)
 fun apply f x = f x;

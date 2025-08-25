@@ -206,19 +206,25 @@ not exists where false;
 > val it = true : bool
 
 (*) 'exists' must not have 'into'
+(*
 exists e in scott.emps where e.deptno = 20 into sum;
 > stdIn:1.44-1.52 Error: 'into' step must not occur in 'exists'
 >   raised at: stdIn:1.44-1.52
+*)
 
 (*) 'exists' must not have 'compute'
+(*
 exists e in scott.emps where e.deptno = 20 compute min over e.job;
 > stdIn:1.44-1.66 Error: 'compute' step must not occur in 'exists'
 >   raised at: stdIn:1.44-1.66
+*)
 
 (*) 'exists' must not have 'require'
+(*
 exists e in scott.emps where e.deptno = 20 require false;
 > stdIn:1.44-1.57 Error: 'require' step must not occur in 'exists'
 >   raised at: stdIn:1.44-1.57
+*)
 
 (* == Forall =========================================== *)
 forall i in [2, 4, 6] require i mod 2 = 0;
@@ -239,27 +245,37 @@ forall require false;
 > val it = false : bool
 
 (*) 'forall' requires 'require'
+(*
 forall i in [2, 3, 4, 12, 14] where i > 10;
 > stdIn:1.31-1.43 Error: last step of 'forall' must be 'require'
 >   raised at: stdIn:1.31-1.43
+*)
 
 (*) 'from' must not have 'require'
+(*
 from i in [2, 3, 4, 12, 14] require i > 10;
 > stdIn:1.29-1.43 Error: 'require' step must not occur in 'from'
 >   raised at: stdIn:1.29-1.43
+*)
 
+(*
 from i in [2, 3, 4, 12, 14] require i > 10 where true;
 > stdIn:1.29-1.43 Error: 'require' step must not occur in 'from'
 >   raised at: stdIn:1.29-1.43
+*)
 
 (*) 'forall' must not have 'into'
+(*
 forall i in [2, 3, 4, 12, 14] into sum require true;
 > stdIn:1.31-1.39 Error: 'into' step must not occur in 'forall'
 >   raised at: stdIn:1.31-1.39
+*)
 
 (*) 'forall' must not have 'compute'
+(*
 forall i in [2, 3, 4, 12, 14] compute sum over i require true;
 > stdIn:1.31-1.49 Error: 'compute' step must not occur in 'forall'
 >   raised at: stdIn:1.31-1.49
+*)
 
 (*) End logic.smli

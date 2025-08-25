@@ -1599,14 +1599,14 @@ from e in clerks (),
 (* TODO enable when we have record types.
 fun isClerk e =
   e.job = "CLERK";
-(*) Query uses a mixture of constrained and regular iteration.
+(* Query uses a mixture of constrained and regular iteration. *)
 from e,
     d in depts
   where isClerk(e)
     andalso d.deptno = e.deptno
     andalso d.loc = "DALLAS"
   yield e.name;
-["SMITH", "ADAMS"] : string list;
+> val it = ["SMITH","ADAMS"] : string list
 *)
 
 (*) Recursively-defined predicate relation

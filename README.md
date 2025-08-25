@@ -24,7 +24,7 @@ License.
 
 # Morel
 
-A functional query language
+A functional query language.
 
 ### Download and build
 
@@ -46,8 +46,8 @@ morel-rust version 0.1.0 (rust version 1.89.0)
 
 Type control+D to exit the shell.
 
-(The shell does not do much yet, besides echoing the input.
-That will change as we port [the parser](#1), type-checker, and
+(The shell only checks whether the input is syntactically
+valid. We will do more as we port the type-checker and
 executor from [Morel Java](morel).)
 
 ## More information

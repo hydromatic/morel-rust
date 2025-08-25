@@ -159,8 +159,8 @@ fn arg =>
    empty. *)
 let
   over o4
-  val inst o4 = fn NONE => [] | SOME x => [x];
-  val inst o4 = fn a_list => List.null a_list;
+  val inst o4 = fn NONE => [] | SOME x => [x]
+  val inst o4 = fn a_list => List.null a_list
 in
   o4 (SOME 1)
 end;
@@ -168,8 +168,8 @@ end;
 
 let
   over o4
-  val inst o4 = fn NONE => [] | SOME x => [x];
-  val inst o4 = fn a_list => List.null a_list;
+  val inst o4 = fn NONE => [] | SOME x => [x]
+  val inst o4 = fn a_list => List.null a_list
 in
   o4 [["abc", "def"], []]
 end;
@@ -177,8 +177,8 @@ end;
 
 let
   over o4
-  val inst o4 = fn NONE => [] | SOME x => [x];
-  val inst o4 = fn a_list => List.null a_list;
+  val inst o4 = fn NONE => [] | SOME x => [x]
+  val inst o4 = fn a_list => List.null a_list
 in
   o4 (SOME (1, "abc"))
 end;
@@ -186,8 +186,8 @@ end;
 
 let
   over o4
-  val inst o4 = fn NONE => [] | SOME x => [x];
-  val inst o4 = fn a_list => List.null a_list;
+  val inst o4 = fn NONE => [] | SOME x => [x]
+  val inst o4 = fn a_list => List.null a_list
 in
   o4 (SOME (1, false))
 end;

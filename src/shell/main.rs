@@ -214,7 +214,12 @@ impl Shell {
         // Try to parse the statement
         let statement = parse_statement(code);
         if statement.is_err() {
-            Err(Error::Parse(format!("Failed to parse: {}", code)))
+            let string = statement.unwrap_err().to_string();
+            println!("Failed to parse: {}, err {}", code, string);
+            Err(Error::Parse(format!(
+                "Failed to parse: {}, err {}",
+                code, string,
+            )))
         } else if expected_output.is_some() {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions.
@@ -241,6 +246,10 @@ impl Shell {
             StatementKind::Expr(_expr) => {
                 // For expressions, show the type and value
                 Ok(format!("val it = {} : <type>", result))
+            }
+            StatementKind::Decl(_) => {
+                // For declarations, show what was declared
+                Ok(result)
             }
         }
     }

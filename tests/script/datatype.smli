@@ -230,15 +230,15 @@ Cons (Empty, Cons (Node (true, Nil), Nil));
 datatype ('a, 'b) pair = Pair of 'a * 'b;
 > datatype ('a,'b) pair = Pair of 'a * 'b
 (* disabled; should throw
-datatype 'a, 'b pair = Pair of 'a * 'b; (*) not valid
+datatype 'a, 'b pair = Pair of 'a * 'b; (* not valid *)
 *)
 datatype 'a single = Single of 'a;
 > datatype 'a single = Single of 'a
 datatype ('a) single = Single of 'a;
 > datatype 'a single = Single of 'a
 (* disabled; should throw
-datatype () void = Void of unit; (*) not valid
-datatype () void = Void; (*) not valid
+datatype () void = Void of unit; (* not valid *)
+datatype () void = Void; (* not valid *)
 *)
 datatype void = Void;
 > datatype void = Void
