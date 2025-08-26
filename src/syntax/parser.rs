@@ -405,7 +405,7 @@ impl MorelParser {
     fn record_expr(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
             [] => {
-                ExprKind::Record(None, vec! []).wrap(input)
+                ExprKind::Record(None, vec![]).wrap(input)
             },
             [record_body(b)] => {
                 ExprKind::Record(b.0, b.1).wrap(input)
@@ -588,19 +588,19 @@ impl MorelParser {
 
     fn step(input: ParseInput) -> ParseResult<Vec<Step>> {
         Ok(match_nodes!(input.children();
-            [_distinct(_)] => vec! [StepKind::Distinct.wrap(input)],
-            [except(s)] => vec! [s],
-            [group(s)] => vec! [s],
-            [intersect(s)] => vec! [s],
+            [_distinct(_)] => vec![StepKind::Distinct.wrap(input)],
+            [except(s)] => vec![s],
+            [group(s)] => vec![s],
+            [intersect(s)] => vec![s],
             [join(steps)] => steps,
-            [order(s)] => vec! [s],
-            [skip(s)] => vec! [s],
-            [take(s)] => vec! [s],
-            [through(s)] => vec! [s],
-            [union(s)] => vec! [s],
-            [_unorder(_)] => vec! [StepKind::Unorder.wrap(input)],
-            [where_(s)] => vec! [s],
-            [yield_(s)] => vec! [s],
+            [order(s)] => vec![s],
+            [skip(s)] => vec![s],
+            [take(s)] => vec![s],
+            [through(s)] => vec![s],
+            [union(s)] => vec![s],
+            [_unorder(_)] => vec![StepKind::Unorder.wrap(input)],
+            [where_(s)] => vec![s],
+            [yield_(s)] => vec![s],
         ))
     }
 

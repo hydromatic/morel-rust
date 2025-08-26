@@ -112,6 +112,8 @@ impl CommentFormat {
 /// Appends a warning if not.
 fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     let file_type = FileType::for_file(file_name);
+    let vec_space = concat!("{}{}", "vec!", " ");
+    let vec_paren = concat!("{}{}", "vec!", "(");
     if file_type.header.is_some() {
         let contents = fs::read_to_string(file_name).unwrap();
         if !contents.starts_with(file_type.header.unwrap().as_str()) {
@@ -139,6 +141,12 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                     l.len(),
                     file_type.max_line_length,
                     l
+                ));
+            }
+            if l.contains(vec_space) || l.contains(vec_paren) {
+                warnings.push(format!(
+                    "{}:{}: Use `vec![]` rather than {} or {}",
+                    file_name, line, vec_space, vec_paren
                 ));
             }
         });
