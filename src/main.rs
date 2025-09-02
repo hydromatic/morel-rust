@@ -18,6 +18,7 @@
 extern crate core;
 use crate::shell::{ScriptTest, Shell as ShellMain};
 
+mod compile;
 mod shell;
 mod syntax;
 

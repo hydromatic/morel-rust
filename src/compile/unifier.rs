@@ -15,6 +15,14 @@
 // language governing permissions and limitations under the
 // License.
 
+#![allow(dead_code)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::inherent_to_string)]
+#![allow(clippy::extra_unused_lifetimes)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::nonminimal_bool)]
+#![allow(clippy::collapsible_if)]
+
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::cmp::{PartialEq, max};
@@ -22,19 +30,19 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::iter::zip;
-use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Instant;
 
 /// Trait for things that behave like terms.
 trait TermLike {
     fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term;
+    #[allow(dead_code)]
     fn apply(&self, map: &IndexMap<Rc<Var>, Term>) -> Term;
     fn as_term(&self) -> Term;
 }
 
 /// Trait for things that can be created from a [Term].
-/// Implementations include [Sequence], [Variable].
+/// Implementations include [Sequence], [Rc<Var>].
 trait FromTerm {
     fn from_term(term: &Term) -> Self;
 }
@@ -134,11 +142,18 @@ impl Display for Term {
 /// and disjoint from Op id values.
 #[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct Var {
-    name: String,
-    id: i32,
+    pub(crate) name: String,
+    pub(crate) id: i32,
 }
 
 impl Var {
+    pub fn new(name: &str, id: i32) -> Self {
+        Self {
+            name: name.to_string(),
+            id,
+        }
+    }
+
     fn to_string(&self) -> String {
         self.name.clone()
     }
@@ -178,8 +193,8 @@ impl FromTerm for Rc<Var> {
 ///
 /// Its id is unique within a Unifier.
 #[derive(Debug, Clone, PartialEq)]
-struct Op {
-    name: String,
+pub struct Op {
+    pub name: String,
     arity: Option<usize>,
     id: i32,
 }
@@ -187,8 +202,8 @@ struct Op {
 /// A Sequence is an operator with a list of terms.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sequence {
-    op: Rc<Op>,
-    terms: Vec<Term>,
+    pub op: Rc<Op>,
+    pub terms: Vec<Term>,
 }
 
 impl Sequence {
@@ -262,8 +277,8 @@ impl<'a> Display for Sequence {
 
 /// Substitution.
 #[derive(Debug, Clone)]
-struct Substitution {
-    substitutions: IndexMap<Rc<Var>, Term>,
+pub struct Substitution {
+    pub substitutions: IndexMap<Rc<Var>, Term>,
 }
 
 impl Substitution {
@@ -365,7 +380,7 @@ impl Display for Substitution {
 
 /// Why unification failed.
 #[derive(Debug)]
-struct UnificationFailure {
+pub struct UnificationFailure {
     reason: String,
 }
 
@@ -376,7 +391,7 @@ impl fmt::Display for UnificationFailure {
 }
 
 /// Tracer trait.
-trait Tracer {
+pub trait Tracer {
     fn on_conflict(&self, left: &Sequence, right: &Sequence);
     fn on_sequence(&self, left: &Sequence, right: &Sequence);
     fn on_cycle(&self, left: &Var, right: &Term);
@@ -392,7 +407,7 @@ trait Tracer {
 }
 
 /// Tracer that does nothing.
-struct NullTracer;
+pub struct NullTracer;
 
 impl Tracer for NullTracer {
     fn on_conflict(&self, _left: &Sequence, _right: &Sequence) {
@@ -472,7 +487,7 @@ struct MutableConstraint {
 ///
 /// Implements the Martelli-Montanari unification algorithm.
 #[derive(Clone)]
-struct Unifier<'a> {
+pub struct Unifier {
     /// Assists with the generation of unique names by recording the lowest
     /// ordinal, for a given prefix, for which a name has not yet been
     /// generated.
@@ -485,7 +500,6 @@ struct Unifier<'a> {
     op_by_name: HashMap<String, Rc<Op>>,
     var_list: Vec<Rc<Var>>,
     op_list: Vec<Rc<Op>>,
-    _phantom: PhantomData<&'a ()>,
     occurs: bool,
 }
 
@@ -735,8 +749,8 @@ impl Kind {
     }
 }
 
-impl Unifier<'_> {
-    fn new(occurs: bool) -> Self {
+impl Unifier {
+    pub fn new(occurs: bool) -> Self {
         Self {
             occurs,
             name_map: HashMap::new(),
@@ -744,12 +758,11 @@ impl Unifier<'_> {
             op_by_name: HashMap::new(),
             var_list: Vec::new(),
             op_list: Vec::new(),
-            _phantom: PhantomData,
         }
     }
 
     /// Looks up or creates a new operator with the given name.
-    fn op(&mut self, name: &str, arity: Option<usize>) -> Rc<Op> {
+    pub(crate) fn op(&mut self, name: &str, arity: Option<usize>) -> Rc<Op> {
         match self.op_by_name.get(name) {
             Some(index) => index.clone(),
             None => {
@@ -797,7 +810,7 @@ impl Unifier<'_> {
     /// The first variable is at position 0, is named "T0", and has id -1.
     /// The second variable is at position 1, is named "T1", and has id -2.
     /// And so forth.
-    fn variable(&mut self) -> Rc<Var> {
+    pub fn variable(&mut self) -> Rc<Var> {
         let ordinal = self.var_list.len();
         let name = self.new_name("T", ordinal).clone();
         let var = Rc::new(Var {
@@ -835,7 +848,7 @@ impl Unifier<'_> {
     }
 
     /// Creates a Sequence.
-    fn apply(&self, op: Rc<Op>, terms: Vec<Term>) -> Sequence {
+    pub fn apply(&self, op: Rc<Op>, terms: Vec<Term>) -> Sequence {
         assert!(op.arity.is_none_or(|x| { x == terms.len() }));
         Sequence {
             op: op.clone(),
@@ -844,17 +857,17 @@ impl Unifier<'_> {
     }
 
     /// Creates a Sequence with one operand.
-    fn apply1(&self, op: Rc<Op>, term0: Term) -> Sequence {
+    pub fn apply1(&self, op: Rc<Op>, term0: Term) -> Sequence {
         self.apply(op, vec![term0])
     }
 
     /// Creates a Sequence with two operands.
-    fn apply2(&self, op: Rc<Op>, term0: Term, term1: Term) -> Sequence {
+    pub fn apply2(&self, op: Rc<Op>, term0: Term, term1: Term) -> Sequence {
         self.apply(op, vec![term0, term1])
     }
 
     /// Creates a Sequence with three operands.
-    fn apply3(
+    pub fn apply3(
         &self,
         op: Rc<Op>,
         term0: Term,
@@ -865,7 +878,7 @@ impl Unifier<'_> {
     }
 
     /// Creates an Atom (a Sequence with zero operands).
-    fn atom(&self, op: Rc<Op>) -> Sequence {
+    pub(crate) fn atom(&self, op: Rc<Op>) -> Sequence {
         Sequence {
             op: op.clone(),
             terms: vec![],
@@ -881,7 +894,7 @@ impl Unifier<'_> {
         Substitution { substitutions }
     }
 
-    fn unify(
+    pub(crate) fn unify(
         &self,
         term_pairs: &[(Term, Term)],
         tracer: &dyn Tracer,
@@ -1010,11 +1023,11 @@ impl Unifier<'_> {
 // Turn off standard naming conventions for test variables
 #[allow(non_snake_case)]
 #[derive(Clone)]
-pub struct UnifierTest<'a> {
-    unifier: Box<Unifier<'a>>,
+pub struct UnifierTest {
+    unifier: Box<Unifier>,
 }
 
-impl<'a> UnifierTest<'a> {
+impl UnifierTest {
     pub(crate) fn with_occurs(&self, check_cycle: bool) -> Self {
         if check_cycle == self.unifier.occurs {
             self.clone()
@@ -1022,15 +1035,11 @@ impl<'a> UnifierTest<'a> {
             UnifierTest::new(check_cycle)
         }
     }
-}
 
-impl<'a> UnifierTest<'a> {
     pub fn var(&mut self, name: &str) -> Term {
         Term::Variable(self.unifier.variable_with_name(name))
     }
-}
 
-impl<'a> UnifierTest<'a> {
     fn new(occurs: bool) -> Self {
         Self {
             unifier: Box::new(Unifier::new(occurs)),
@@ -1191,7 +1200,7 @@ impl<'a> UnifierTest<'a> {
 mod tests {
     use super::*;
 
-    fn create() -> UnifierTest<'static> {
+    fn create() -> UnifierTest {
         UnifierTest::new(false)
     }
 
@@ -1683,7 +1692,7 @@ mod tests {
 
     #[test]
     fn test_overload() {
-        let z = create();
+        let _z = create();
         /*
         let mut pairs = Vec::new();
         let int_atom = z.unifier.atom("int");

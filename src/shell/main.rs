@@ -15,18 +15,32 @@
 // language governing permissions and limitations under the
 // License.
 
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::to_string_in_format_args)]
+#![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::useless_format)]
+#![allow(clippy::redundant_closure)]
+
+use crate::compile::type_env::{
+    EmptyTypeEnv, FunTypeEnv, TypeEnv, TypeSchemeResolver,
+};
+use crate::compile::type_resolver::TypeResolver;
+use crate::compile::unifier::Term;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::utils::prefix_lines;
+use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast;
-use crate::syntax::ast::{MorelNode, StatementKind};
-use crate::syntax::parser::parse_statement;
+use crate::syntax::ast::StatementKind;
+use crate::syntax::parser::{parse_statement, parse_type_scheme};
+use phf::phf_map;
 use rustc_version::version;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::fs::read_to_string;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// Main shell for Morel - Standard ML REPL.
 pub struct Shell {
@@ -67,7 +81,7 @@ impl Environment {
 }
 
 impl Shell {
-    /// Create a new Main shell with given configuration
+    /// Creates a new Main shell with the given configuration.
     pub fn new(args: Vec<String>) -> Self {
         let mut config = Config::default();
 
@@ -96,7 +110,7 @@ impl Shell {
         }
     }
 
-    /// Create Main with custom configuration
+    /// Creates Main with custom configuration.
     pub fn with_config(config: Config) -> Self {
         Self {
             config,
@@ -104,7 +118,7 @@ impl Shell {
         }
     }
 
-    /// Run the shell with given input/output streams
+    /// Runs the shell with given input/output streams.
     pub fn run<R: Read, W: Write>(
         &mut self,
         input: R,
@@ -220,27 +234,74 @@ impl Shell {
                 "Failed to parse: {}, err {}",
                 code, string,
             )))
-        } else if expected_output.is_some() {
+        } else if expected_output.is_some()
+            && !expected_output.unwrap().starts_with(">type")
+        {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions.
             // So, just say the expression returned what we expected.
             Ok(expected_output.unwrap().to_string())
+        } else if expected_output.is_some() {
+            // We are running in idempotent mode,
+            // and we cannot yet evaluate expressions,
+            // but we can deduce their type.
+            let _expected_type =
+                strip_prefix(">type ", expected_output.unwrap()).trim();
+            let output = self.deduce_type(statement.unwrap());
+            match &output {
+                Ok(s) => Ok(prefix_lines(">type", s.as_str())),
+                Err(_) => output,
+            }
         } else {
             // Successfully parsed, now evaluate
             let output = self.evaluate_node(statement.unwrap());
             match &output {
-                Ok(s) => Ok(prefix_lines(s.as_str())),
+                Ok(s) => Ok(prefix_lines(">", s.as_str())),
                 Err(_) => output,
             }
         }
+    }
+
+    /// Deduces a statement's type. The statement is represented by an AST node.
+    fn deduce_type(&mut self, node: ast::Statement) -> ShellResult<String> {
+        let mut type_resolver = TypeResolver::new();
+        let empty_type_env = EmptyTypeEnv {};
+        let resolve =
+            |id: &str, t: &mut dyn TypeSchemeResolver| -> Option<Term> {
+                if let Some(x) = BUILT_IN_TYPES.get(id) {
+                    let type_scheme = parse_type_scheme(x).unwrap();
+                    Some(Term::Variable(t.deduce_type_scheme(&type_scheme)))
+                } else {
+                    None
+                }
+            };
+        let type_env = FunTypeEnv {
+            parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
+            resolve: Rc::new(resolve),
+        };
+
+        let resolved = type_resolver.deduce_type(&type_env, &node);
+
+        // For now, just unparse the node back to a string. In a full
+        // implementation, this would actually evaluate the expression.
+        let mut type_string = String::new();
+        {
+            let type_map = &resolved.type_map;
+            let closure = |id: i32, name: &str| {
+                let s = type_map.get_type(id).unwrap().to_string();
+                type_string.push_str(&format!("{} : {}\n", name, s));
+            };
+            resolved.decl.for_each_id_pat(closure);
+        }
+        let result = format!("{}", type_string);
+        Ok(result)
     }
 
     /// Evaluates a parsed AST node.
     fn evaluate_node(&mut self, node: ast::Statement) -> ShellResult<String> {
         // For now, just unparse the node back to a string. In a full
         // implementation, this would actually evaluate the expression.
-        let mut result = String::new();
-        node.unparse(&mut result);
+        let result = format!("{}", &node.kind);
 
         match &node.kind {
             StatementKind::Expr(_expr) => {
@@ -312,7 +373,7 @@ fn comment_depth(code: &str) -> i32 {
             depth -= 1;
             in_line_comment = false;
         }
-        i = i + 1;
+        i += 1;
         buf[i % n] = c;
     }
     depth
@@ -401,3 +462,33 @@ mod tests {
         assert_eq!(comment_depth("(*) line comment\n"), 0);
     }
 }
+
+/// Built-in values (mainly operators) and their types.
+///
+/// The types are held as strings and are parsed (and converted to terms)
+/// on demand. This is a win when there are a lot of built-in operators.
+static BUILT_IN_TYPES: phf::Map<&'static str, &'static str> = phf_map! {
+    /* lint: sort until '}' */
+    "NONE" => "forall 1 'a option",
+    "SOME" => "forall 1 'a -> 'a option",
+    "false" => "bool",
+    "nil" => "forall 1 'a list",
+    "op *" => "int * int -> int",
+    "op +" => "int * int -> int",
+    "op -" => "int * int -> int",
+    "op /" => "real * real -> real",
+    "op ::" => "forall 1 'a * 'a list -> 'a list",
+    "op <" => "forall 1 'a * 'a -> bool",
+    "op <=" => "forall 1 'a * 'a -> bool",
+    "op <>" => "forall 1 'a * 'a -> bool",
+    "op =" => "forall 1 'a * 'a -> bool",
+    "op >" => "forall 1 'a * 'a -> bool",
+    "op >=" => "forall 1 'a * 'a -> bool",
+    "op andalso" => "bool * bool -> bool",
+    "op div" => "int * int -> int",
+    "op if" => "forall 1 bool * 'a * 'a -> 'a",
+    "op implies" => "bool * bool -> bool",
+    "op mod" => "int * int -> int",
+    "op orelse" => "bool * bool -> bool",
+    "true" => "bool",
+};

@@ -27,17 +27,17 @@ pub struct ScriptTest {
 }
 
 impl ScriptTest {
-    /// Creates a ScriptTest
+    /// Creates a ScriptTest.
     pub fn new(directory: Option<PathBuf>) -> Self {
         Self { directory }
     }
 
-    /// Get the test directory
+    /// Gets the test directory.
     pub fn directory(&self) -> Option<&Path> {
         self.directory.as_deref()
     }
 
-    /// Runs a single test file
+    /// Runs a single test file.
     pub fn run<P: AsRef<Path>>(&self, path: P) -> ShellResult<()> {
         let path = path.as_ref();
         let (in_file, out_file) = self.resolve_files(path)?;
@@ -61,11 +61,11 @@ impl ScriptTest {
         };
 
         // Adjust directory for specific tests
-        if path.to_string_lossy().contains("/file.") {
-            if let Some(mut dir) = config.directory.clone() {
-                dir.push("data");
-                config.directory = Some(dir);
-            }
+        if path.to_string_lossy().contains("/file.")
+            && let Some(mut dir) = config.directory.clone()
+        {
+            dir.push("data");
+            config.directory = Some(dir);
         }
 
         // Create and run the shell
@@ -109,7 +109,7 @@ impl ScriptTest {
         Ok(())
     }
 
-    /// Resolve input and output file paths
+    /// Resolves input and output file paths.
     fn resolve_files(&self, path: &Path) -> ShellResult<(PathBuf, PathBuf)> {
         let path_str = path.to_string_lossy();
 
@@ -142,7 +142,7 @@ impl ScriptTest {
         Ok((in_file, out_file))
     }
 
-    /// Get all test files in the script directory
+    /// Gets all test files in the script directory.
     pub fn find_test_files(&self) -> ShellResult<Vec<PathBuf>> {
         let script_dir = self
             .directory
@@ -159,10 +159,10 @@ impl ScriptTest {
             let entry = entry?;
             let path = entry.path();
 
-            if let Some(ext) = path.extension() {
-                if ext == "sml" || ext == "smli" {
-                    files.push(path);
-                }
+            if let Some(ext) = path.extension()
+                && (ext == "sml" || ext == "smli")
+            {
+                files.push(path);
             }
         }
 
@@ -170,7 +170,7 @@ impl ScriptTest {
         Ok(files)
     }
 
-    /// Run all tests in the script directory
+    /// Runs all tests in the script directory.
     pub fn run_all_tests(&self) -> ShellResult<()> {
         let test_files = self.find_test_files()?;
         let mut failed_tests = Vec::new();
@@ -208,9 +208,9 @@ impl ScriptTest {
         }
     }
 
-    /// Main entry point for command-line usage
+    /// Main entry point for command-line usage.
     pub fn main(args: Vec<String>) -> ShellResult<()> {
-        let mut directory: Option<PathBuf> = None;
+        let mut directory = None;
         let mut test_files = Vec::new();
 
         // Parse arguments

@@ -15,4 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+pub mod type_env;
+pub mod type_resolver;
+mod types;
 pub mod unifier;

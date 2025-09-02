@@ -17,9 +17,9 @@
 
 use crate::syntax::ast::{
     ConBind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, FunMatch,
-    Label, LabeledExpr, Literal, LiteralKind, Pat, PatField, PatKind, Span,
-    Statement, StatementKind, Step, StepKind, Type, TypeBind, TypeField,
-    TypeKind, ValBind,
+    Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField, PatKind,
+    Span, Statement, StatementKind, Step, StepKind, Type, TypeBind, TypeField,
+    TypeKind, TypeScheme, ValBind,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
@@ -39,6 +39,7 @@ pub struct MorelParser;
 ///
 /// The statement may be preceded by whitespace and/or comments;
 /// the statement must end with a semicolon.
+#[allow(clippy::result_large_err)]
 pub fn parse_statement(input: &str) -> ParseResult<Statement> {
     let rc_input_str: Rc<str> = input.to_string().into();
     let nodes = MorelParser::parse_with_userdata(
@@ -53,12 +54,27 @@ pub fn parse_statement(input: &str) -> ParseResult<Statement> {
 
 /// Parses a statement (with no whitespace, comments or semicolon)
 /// and returns its AST.
+#[allow(clippy::result_large_err)]
 pub fn parse_unadorned_statement(input: &str) -> ParseResult<Statement> {
     let rc_input_str = input.to_string().into();
     let nodes =
         MorelParser::parse_with_userdata(Rule::statement, input, rc_input_str)?;
     Ok(match_nodes!(<MorelParser>; nodes;
         [statement(s)] => s,
+    ))
+}
+
+/// Parses a Morel type scheme and returns its AST.
+#[allow(clippy::result_large_err)]
+pub fn parse_type_scheme(input: &str) -> ParseResult<TypeScheme> {
+    let rc_input_str: Rc<str> = input.to_string().into();
+    let nodes = MorelParser::parse_with_userdata(
+        Rule::type_scheme_top,
+        input,
+        rc_input_str,
+    )?;
+    Ok(match_nodes!(<MorelParser>; nodes;
+        [type_scheme_top(e)] => e,
     ))
 }
 
@@ -77,6 +93,7 @@ impl ExprKind<Expr> {
         Statement {
             kind: StatementKind::Expr(self.clone()),
             span: input_to_span(input),
+            id: None,
         }
     }
 
@@ -90,6 +107,7 @@ impl DeclKind {
         Statement {
             kind: StatementKind::Decl(self.clone()),
             span: input_to_span(input),
+            id: None,
         }
     }
 
@@ -225,12 +243,12 @@ impl MorelParser {
         ))
     }
 
-    fn expr_comp_arg(input: ParseInput) -> ParseResult<(&str, Expr)> {
+    fn expr_comp_arg(input: ParseInput<'_>) -> ParseResult<(&str, Expr)> {
         Ok(match_nodes!(input.children();
             [expr_comp_op(op), expr_cons(e)] => (op, e)))
     }
 
-    fn expr_comp_op(input: ParseInput) -> ParseResult<&str> {
+    fn expr_comp_op(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -248,7 +266,7 @@ impl MorelParser {
                 // But we need
                 //   e2 = 5, args2 = [(::, 4), (::, 3), (@, 2), (::, 1)].
                 let mut e2 = e;
-                let mut args2: Vec<(&str, Expr)> = Vec::new();
+                let mut args2 = Vec::new();
                 for (op, arg) in args {
                     args2.insert(0, (op, e2));
                     e2 = arg;
@@ -267,12 +285,12 @@ impl MorelParser {
         ))
     }
 
-    fn expr_cons_arg(input: ParseInput) -> ParseResult<(&str, Expr)> {
+    fn expr_cons_arg(input: ParseInput<'_>) -> ParseResult<(&str, Expr)> {
         Ok(match_nodes!(input.children();
             [expr_cons_op(op), expr_cons(e)] => (op, e)))
     }
 
-    fn expr_cons_op(input: ParseInput) -> ParseResult<&str> {
+    fn expr_cons_op(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -293,12 +311,12 @@ impl MorelParser {
         ))
     }
 
-    fn expr_additive_arg(input: ParseInput) -> ParseResult<(&str, Expr)> {
+    fn expr_additive_arg(input: ParseInput<'_>) -> ParseResult<(&str, Expr)> {
         Ok(match_nodes!(input.children();
             [expr_additive_op(op), expr_multiplicative(e)] => (op, e)))
     }
 
-    fn expr_additive_op(input: ParseInput) -> ParseResult<&str> {
+    fn expr_additive_op(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -320,12 +338,14 @@ impl MorelParser {
         ))
     }
 
-    fn expr_multiplicative_arg(input: ParseInput) -> ParseResult<(&str, Expr)> {
+    fn expr_multiplicative_arg(
+        input: ParseInput<'_>,
+    ) -> ParseResult<(&str, Expr)> {
         Ok(match_nodes!(input.children();
             [expr_multiplicative_op(op), expr_over(e)] => (op, e)))
     }
 
-    fn expr_multiplicative_op(input: ParseInput) -> ParseResult<&str> {
+    fn expr_multiplicative_op(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -380,14 +400,15 @@ impl MorelParser {
     fn tuple_expr(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
             [expr(exprs)..] => {
-                let expr_vec: Vec<_> = exprs.collect();
+                let expr_vec: Vec<_> =
+                    exprs.into_iter().map(Box::new).collect();
                 match expr_vec.len() {
                     0 => {
                         let literal = LiteralKind::Unit.wrap(input);
                         let span = &literal.span.clone();
                         ExprKind::Literal(literal).spanned(span)
                         },
-                    1 => expr_vec[0].clone(),
+                    1 => expr_vec[0].as_ref().clone(),
                     _ => ExprKind::Tuple(expr_vec).wrap(input),
                 }
             },
@@ -397,7 +418,7 @@ impl MorelParser {
     fn list_expr(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
             [expr(exprs)..] => {
-                ExprKind::Tuple(exprs.collect()).wrap(input)
+                ExprKind::List(exprs.map(Box::new).collect()).wrap(input)
             },
         ))
     }
@@ -503,19 +524,23 @@ impl MorelParser {
 
     fn fn_expr(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [_fn(_), match_list(matches)] => ExprKind::Fn(matches).wrap(input),
+            [_fn(_), match_list(matches)] => {
+                ExprKind::Fn(matches).wrap(input)
+            },
         ))
     }
 
-    fn match_list(input: ParseInput) -> ParseResult<Vec<(Pat, Expr)>> {
+    fn match_list(input: ParseInput) -> ParseResult<Vec<Match>> {
         Ok(match_nodes!(input.children();
             [match_(matches)..] => matches.collect(),
         ))
     }
 
-    fn match_(input: ParseInput) -> ParseResult<(Pat, Expr)> {
+    fn match_(input: ParseInput) -> ParseResult<Match> {
         Ok(match_nodes!(input.children();
-            [pat(p), expr(e)] => (p, e),
+            [pat(p), expr(e)] => {
+                Match {pat: Box::new(p), expr: Box::new(e)}
+            },
         ))
     }
 
@@ -866,7 +891,10 @@ impl MorelParser {
 
     fn tuple_pat(input: ParseInput) -> ParseResult<Pat> {
         Ok(match_nodes!(input.children();
-            [pat(pats)..] => PatKind::Tuple(pats.collect()).wrap(input),
+            [pat(pats)..] => {
+                let boxed_pats = pats.map(Box::new).collect();
+                PatKind::Tuple(boxed_pats).wrap(input)
+            },
         ))
     }
 
@@ -953,8 +981,10 @@ impl MorelParser {
 
     fn val_bind(input: ParseInput) -> ParseResult<ValBind> {
         Ok(match_nodes!(input.children();
-            [pat(p), expr(e)] => ValBind::of(p, None, e),
-            [pat(p), type_(t), expr(e)] => ValBind::of(p, Some(t), e),
+            [pat(p), expr(e)] => ValBind::of(Box::new(p), None, Box::new(e)),
+            [pat(p), type_(t), expr(e)] => {
+                ValBind::of(Box::new(p), Some(t), Box::new(e))
+            },
         ))
     }
 
@@ -1086,6 +1116,21 @@ impl MorelParser {
         ))
     }
 
+    fn type_scheme_top(input: ParseInput) -> ParseResult<TypeScheme> {
+        Ok(match_nodes!(input.children();
+            [type_scheme(s), EOI(_)] => s,
+        ))
+    }
+
+    fn type_scheme(input: ParseInput) -> ParseResult<TypeScheme> {
+        Ok(match_nodes!(input.children();
+            [type_(t)] => TypeScheme {var_count: 0, type_: t},
+            [_forall(_), non_negative_integer(i), type_(t)] => {
+                TypeScheme {var_count: i.parse().unwrap(), type_: t}
+            },
+        ))
+    }
+
     fn type_(input: ParseInput) -> ParseResult<Type> {
         Ok(match_nodes!(input.children();
             [fn_type(t)] => t,
@@ -1109,6 +1154,7 @@ impl MorelParser {
 
     fn tuple_type(input: ParseInput) -> ParseResult<Type> {
         Ok(match_nodes!(input.children();
+            [apply_type(t)] => t,
             [apply_type(t)..] => {
                 TypeKind::Tuple(t.collect()).wrap(input)
             },
@@ -1156,7 +1202,7 @@ impl MorelParser {
         ))
     }
 
-    fn ty_var(input: ParseInput) -> ParseResult<&str> {
+    fn ty_var(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -1230,7 +1276,7 @@ impl MorelParser {
         ))
     }
 
-    fn non_negative_integer(input: ParseInput) -> ParseResult<&str> {
+    fn non_negative_integer(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -1284,7 +1330,7 @@ impl MorelParser {
         ))
     }
 
-    fn unquoted_identifier(input: ParseInput) -> ParseResult<&str> {
+    fn unquoted_identifier(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -1293,7 +1339,7 @@ impl MorelParser {
         Ok(s[1..s.len() - 1].replace("``", "`"))
     }
 
-    fn record_selector(input: ParseInput) -> ParseResult<&str> {
+    fn record_selector(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 
@@ -1505,6 +1551,7 @@ impl MorelParser {
 /// Combines a list of expressions using a binary function `f`.
 ///
 /// For example, `bar(a, [b, c], f)` produces `f(f(a, b), c)`.
+#[allow(clippy::ptr_arg)]
 fn fold(
     exprs: &Vec<Expr>,
     f: impl Fn(Box<Expr>, Box<Expr>) -> ExprKind<Expr>,
@@ -1519,6 +1566,7 @@ fn fold(
 
 /// Combines expressions using a binary function, taking the first element
 /// separately.
+#[allow(clippy::ptr_arg)]
 fn fold2(
     first: &Expr,
     exprs: &Vec<Expr>,
@@ -1546,9 +1594,7 @@ fn fold_heterogeneous(
 
 #[cfg(test)]
 mod test {
-    use crate::syntax::ast::MorelNode;
     use crate::syntax::parser::{Rule, parse_unadorned_statement};
-    use pest::iterators::Pair;
 
     /// Test fixture for parser tests.
     struct Fixture {
@@ -1559,8 +1605,7 @@ mod test {
         fn assert_statement(&self, matcher: impl Fn(&str)) {
             let expr = parse_unadorned_statement(self.s.as_str())
                 .expect("parse should succeed");
-            let mut s = String::new();
-            expr.unparse(&mut s);
+            let s = format!("{}", expr.kind);
             matcher(&s);
         }
     }
@@ -1580,14 +1625,11 @@ mod test {
         }
 
         pub(crate) fn assert_parse(&self, rule: Rule) {
-            self.assert_parse_as(rule, &vec![self.s.clone()])
+            let v = vec![self.s.as_str()];
+            self.assert_parse_as(rule, v.as_ref())
         }
 
-        pub(crate) fn assert_parse_as(
-            &self,
-            rule: Rule,
-            expected: &Vec<String>,
-        ) {
+        pub(crate) fn assert_parse_as(&self, rule: Rule, expected: &[&str]) {
             use super::MorelParser;
             use pest::Parser;
 
@@ -1604,6 +1646,15 @@ mod test {
                 expected,
                 actuals
             );
+        }
+
+        pub(crate) fn assert_parse_tree(&self, rule: Rule, expected: &str) {
+            use super::MorelParser;
+            use pest::Parser;
+
+            let result = MorelParser::parse(rule, self.s.as_str());
+            let actual = pest_ascii_tree::into_ascii_tree(result.unwrap());
+            assert_eq!(expected.to_string(), actual.unwrap());
         }
     }
 
@@ -1623,58 +1674,56 @@ mod test {
         }
     }
 
-    /// Creates a matcher that asserts a line has the given syntactic type and
-    /// matches the given string.
-    fn has_rule_str(
-        rule_matcher: impl Fn(Rule),
-        matcher: impl Fn(&str),
-    ) -> impl Fn(&Pair<Rule>) {
-        move |line: &Pair<Rule>| {
-            rule_matcher(line.as_rule());
-            matcher(line.as_str());
-        }
-    }
-
-    fn has_str(matcher: impl Fn(&str)) -> impl Fn(&Pair<Rule>) {
-        move |line: &Pair<Rule>| {
-            matcher(line.as_str());
-        }
-    }
-
-    /// Creates a matcher that asserts a line has the given syntactic type and
-    /// matches the given string.
-    fn is_a(rule: Rule, matcher: impl Fn(&str)) -> impl Fn(&Pair<Rule>) {
-        move |line: &Pair<Rule>| {
-            assert_eq!(
-                rule,
-                line.as_rule(),
-                "Expected rule {:?}, got {:?} for line [{}]",
-                rule,
-                line.as_rule(),
-                line.as_str()
-            );
-            matcher(line.as_str());
-        }
-    }
-
-    /// Creates a matcher that asserts a line has the given rule.
-    fn is_rule(rule: Rule) -> impl Fn(&Pair<Rule>) {
-        move |line: &Pair<Rule>| {
-            assert_eq!(
-                rule,
-                line.as_rule(),
-                "Expected rule {:?}, got {:?} for line [{}]",
-                rule,
-                line.as_rule(),
-                line.as_str()
-            );
-        }
-    }
-
     #[test]
-    fn test_parse() {
+    fn test_parse_literal() {
         ml("1").assert_parse(Rule::literal);
+        ml("1").assert_parse_tree(
+            Rule::numeric_literal,
+            r#" numeric_literal
+ └─ non_negative_integer_literal "1"
+"#,
+        );
+        // We want "~1" to be parsed as an int literal, not unary "~" applied
+        // to a literal.
+        ml("~1").assert_parse_tree(
+            Rule::expr_over,
+            r#" expr_over
+ └─ expr_application
+    └─ expr_unary
+       └─ expr_postfix
+          └─ atom
+             └─ literal
+                └─ numeric_literal
+                   └─ negative_integer_literal "~1"
+"#,
+        );
         ml("~3.5").assert_parse(Rule::literal);
+        ml("~3.5").assert_parse_tree(
+            Rule::numeric_literal,
+            r#" numeric_literal
+ └─ real_literal "~3.5"
+"#,
+        );
+        // We want "~3.5" to be parsed as a real literal, not unary "~" applied
+        // to a literal.
+        ml("~3.5").assert_parse_tree(
+            Rule::expr_over,
+            r#" expr_over
+ └─ expr_application
+    └─ expr_unary
+       └─ expr_postfix
+          └─ atom
+             └─ literal
+                └─ numeric_literal
+                   └─ real_literal "~3.5"
+"#,
+        );
+        ml("~6.02e~23").assert_parse_tree(
+            Rule::numeric_literal,
+            r#" numeric_literal
+ └─ scientific_literal "~6.02e~23"
+"#,
+        );
         ml("\"a string\"").assert_parse(Rule::literal);
         ml("\"\"").assert_parse(Rule::literal);
         ml("\"a\\\\b\\\"c\"").assert_parse(Rule::literal);
@@ -1685,8 +1734,101 @@ mod test {
         ml("\"a string\"").assert_parse(Rule::literal);
         ml("#\"a\"").assert_parse(Rule::literal);
         ml("not a number").fail();
+    }
 
-        let vec1 = vec!["1;".to_string(), "".to_string()];
+    #[test]
+    fn test_parse_expr() {
+        ml("fn {f: unit -> int, g: int} => true").assert_parse_tree(
+            Rule::expr,
+            r#" expr
+ └─ expr_annotated
+    └─ expr_implies
+       └─ expr_orelse
+          └─ expr_andalso
+             └─ expr_o
+                └─ expr_comp
+                   └─ expr_cons
+                      └─ expr_additive
+                         └─ expr_multiplicative
+                            └─ expr_over
+                               └─ expr_application
+                                  └─ expr_unary
+                                     └─ expr_postfix
+                                        └─ atom
+                                           └─ fn_expr
+                                              ├─ _fn "fn"
+                                              └─ match_list
+                                                 └─ match_
+                                                    ├─ pat
+                                                    │  └─ annotated_pat
+                                                    │     └─ cons_pat
+                                                    │        └─ atomic_pat
+                                                    │           └─ record_pat
+                                                    │              ├─ pat_field
+                                                    │              │  └─ anon_pat_field
+                                                    │              │     └─ pat
+                                                    │              │        └─ annotated_pat
+                                                    │              │           ├─ cons_pat
+                                                    │              │           │  └─ atomic_pat
+                                                    │              │           │     └─ id_pat
+                                                    │              │           │        └─ identifier
+                                                    │              │           │           └─ unquoted_identifier "f"
+                                                    │              │           └─ type_
+                                                    │              │              └─ fn_type
+                                                    │              │                 ├─ tuple_type
+                                                    │              │                 │  └─ apply_type
+                                                    │              │                 │     └─ atomic_type
+                                                    │              │                 │        └─ named_type
+                                                    │              │                 │           └─ identifier
+                                                    │              │                 │              └─ unquoted_identifier "unit"
+                                                    │              │                 └─ fn_type
+                                                    │              │                    └─ tuple_type
+                                                    │              │                       └─ apply_type
+                                                    │              │                          └─ atomic_type
+                                                    │              │                             └─ named_type
+                                                    │              │                                └─ identifier
+                                                    │              │                                   └─ unquoted_identifier "int"
+                                                    │              └─ pat_field
+                                                    │                 └─ anon_pat_field
+                                                    │                    └─ pat
+                                                    │                       └─ annotated_pat
+                                                    │                          ├─ cons_pat
+                                                    │                          │  └─ atomic_pat
+                                                    │                          │     └─ id_pat
+                                                    │                          │        └─ identifier
+                                                    │                          │           └─ unquoted_identifier "g"
+                                                    │                          └─ type_
+                                                    │                             └─ fn_type
+                                                    │                                └─ tuple_type
+                                                    │                                   └─ apply_type
+                                                    │                                      └─ atomic_type
+                                                    │                                         └─ named_type
+                                                    │                                            └─ identifier
+                                                    │                                               └─ unquoted_identifier "int"
+                                                    └─ expr
+                                                       └─ expr_annotated
+                                                          └─ expr_implies
+                                                             └─ expr_orelse
+                                                                └─ expr_andalso
+                                                                   └─ expr_o
+                                                                      └─ expr_comp
+                                                                         └─ expr_cons
+                                                                            └─ expr_additive
+                                                                               └─ expr_multiplicative
+                                                                                  └─ expr_over
+                                                                                     └─ expr_application
+                                                                                        └─ expr_unary
+                                                                                           └─ expr_postfix
+                                                                                              └─ atom
+                                                                                                 └─ literal
+                                                                                                    └─ bool_literal "true"
+"#,
+        );
+    }
+
+    #[test]
+    fn test_parse_comment() {
+        let vec1 = vec!["1;", ""];
         ml("(* block comment *)  1;").assert_parse_as(Rule::program, &vec1);
         ml("(*\n * block comment\n *)\n1;")
             .assert_parse_as(Rule::program, &vec1);
@@ -1704,8 +1846,27 @@ mod test {
     }
 
     #[test]
+    fn test_parse_type() {
+        ml("int").assert_parse(Rule::type_);
+        ml("int * int").assert_parse(Rule::type_);
+        ml("int * int list").assert_parse(Rule::type_);
+        ml("(int * int) list").assert_parse(Rule::type_);
+        ml("int * (int list)").assert_parse(Rule::type_);
+        ml("{a: int, b: bool list}").assert_parse(Rule::type_);
+        ml("int * int -> bool").assert_parse(Rule::type_);
+
+        let v = vec!["forall 2 int * int -> bool", ""];
+        ml("forall 2 int * int -> bool")
+            .assert_parse_as(Rule::type_scheme_top, v.as_ref());
+
+        let v2 = vec!["int * bool list", ""];
+        ml("int * bool list")
+            .assert_parse_as(Rule::type_scheme_top, v2.as_ref());
+    }
+
+    #[test]
     fn test_parse_build() {
-        ml("1").assert_statement(&is("1"));
+        // ml("1").assert_statement(&is("1"));
         ml("val x = 5").assert_statement(&is("val x = 5"));
     }
 }

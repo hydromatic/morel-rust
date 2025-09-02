@@ -19,6 +19,187 @@
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 
+(*) Type tests
+#"h";
+>type it : char
+"hello";
+>type it : string
+1;
+>type it : int
+~1.0;
+>type it : real
+6.02e~23;
+>type it : real
+~6.02e~23;
+>type it : real
+~6e~23;
+>type it : real
+6e~23;
+>type it : real
+6E~23;
+>type it : real
+6E23;
+>type it : real
+();
+>type it : unit
+true;
+>type it : bool
+false;
+>type it : bool
+(1);
+>type it : int
+(1, true);
+>type it : int * bool
+(false, 1, (true, false));
+>type it : bool * int * (bool * bool)
+(false, 1, (true, "a"), 2);
+>type it : bool * int * (bool * string) * int
+[1,2];
+>type it : int list
+[[1,2]];
+>type it : int list list
+[(1,2)];
+>type it : (int * int) list
+(1, [2]);
+>type it : int * int list
+(1, [2], 3);
+>type it : int * int list * int
+{a=1, b="two"};
+>type it : {a:int, b:string}
+fn () => 3;
+>type it : unit -> int
+fn () => fn () => 4;
+>type it : unit -> unit -> int
+(fn () => 5, fn () => 6);
+>type it : (unit -> int) * (unit -> int)
+fn () => (5, fn () => 6);
+>type it : unit -> int * (unit -> int)
+fn x: int => true;
+>type it : int -> bool
+fn (x: int, y: string) => (true, [1]);
+>type it : int * string -> bool * int list
+{f = fn () => 0, g = 1};
+>type it : {f:unit -> int, g:int}
+fn {f: unit -> int, g: int} => true;
+>type it : {f:unit -> int, g:int} -> bool
+fn x => fn f => f x;
+>type it : 'a -> ('a -> 'b) -> 'b
+fn (x, y) => x andalso y;
+>type it : bool * bool -> bool
+fn (x, y) => x orelse y;
+>type it : bool * bool -> bool
+fn (x, y) => x implies y;
+>type it : bool * bool -> bool
+fn (x, y) => x < y;
+>type it : 'a * 'a -> bool
+fn (x, y) => x <= y;
+>type it : 'a * 'a -> bool
+fn (x, y) => x > y;
+>type it : 'a * 'a -> bool
+fn (x, y) => x >= y;
+>type it : 'a * 'a -> bool
+fn (x, y) => x = y;
+>type it : 'a * 'a -> bool
+fn (x, y) => x <> y;
+>type it : 'a * 'a -> bool
+fn (x, y) => x + y;
+>type it : int * int -> int
+fn (x, y) => x - y;
+>type it : int * int -> int
+fn (x, y) => x mod y;
+>type it : int * int -> int
+fn (x, y) => x div y;
+>type it : int * int -> int
+fn (x, y) => x / y;
+>type it : real * real -> real
+fn (x, y) => x * y;
+>type it : int * int -> int
+fn NONE => 0;
+>type it : 'a option -> int
+fn (SOME x) => 0;
+>type it : 'a option -> int
+fn (SOME x) => x + 1;
+>type it : int option -> int
+fn nil => 0;
+>type it : 'a list -> int
+fn (h :: t) => 0;
+>type it : 'a list -> int
+fn ("hello" :: t) => 0;
+>type it : string list -> int
+val x = 1;
+>type x : int
+val (x, y) = (1, true);
+>type x : int
+>type y : bool
+val {x, y} = {y = 1, x = true};
+>type x : bool
+>type y : int
+
+val x = 1
+and y = ("hello", "world");
+>type x : int
+>type y : string * string
+
+let
+  val x = 1
+in
+  [x]
+end;
+>type it : int list
+
+let
+  val ((x, y), z) = ((1, 2), 3)
+in
+  [x + y + z]
+end;
+>type it : int list
+
+if 1 < 2 then [3] else [4];
+>type it : int list
+
+case (1, true) of
+  (1, false) => 0
+| (n, true) => n + 1
+| _ => ~1;
+>type it : int
+
+let
+  val rec fact =
+    fn n => if n = 0 then 1 else n * (fact (n - 1))
+in
+  fact 5
+end;
+>type it : int
+
+let
+  val SOME x = (SOME "hello")
+in
+  x
+end;
+>type it : string
+
+let
+  val foo =
+    fn SOME s => s
+     | NONE => "none"
+in
+  foo (SOME "hello")
+end;
+>type it : string
+
+val rec len =
+  fn nil => 0
+   | (h :: t) => 1 + (len t);
+>type len : 'a list -> int
+
+val rec len =
+  fn nil => 0;
+>type len : 'a list -> int
+
+fun len nil = 0
+  | len (h :: t) = 1 + (len t);
+>type len : 'a list -> int
+
 (*) Literals
 1;
 > val it = 1 : int

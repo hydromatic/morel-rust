@@ -16,7 +16,7 @@
 // License.
 
 use crate::syntax::ast;
-use std::fmt::Write;
+use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 
 /// A location in the source text.
@@ -70,18 +70,32 @@ impl Span {
         self.start = self.start.min(other.start);
         self.end = self.end.max(other.end);
     }
+
+    /// Sums the spans of elements.
+    pub fn sum<T>(elements: &[T], extract: fn(&T) -> Span) -> Option<Span> {
+        let mut span = None;
+        for p in elements {
+            let span2 = extract(p);
+            span = match span {
+                None => Some(span2),
+                Some(span1) => Some(span1.union(&span2)),
+            }
+        }
+        span
+    }
 }
 
 /// Trait possessed by all abstract syntax tree (AST) nodes.
 pub trait MorelNode {
-    /// Returns the string representation of the AST node.
-    fn unparse(&self, s: &mut String);
-
     /// Returns the span.
     fn span(&self) -> &Span;
 
     /// Returns a copy of the AST node with a new span.
     fn with_span(&self, span: &Span) -> Self;
+
+    /// Returns the unique id of this node.
+    /// This id is used to retrieve the node's type after unification.
+    fn id(&self) -> Option<i32>;
 }
 
 /// Abstract syntax tree (AST) of a statement (expression or declaration).
@@ -89,25 +103,23 @@ pub trait MorelNode {
 pub struct Statement {
     pub kind: StatementKind,
     pub span: Span,
+    pub id: Option<i32>,
 }
 
 impl MorelNode for Statement {
-    fn unparse(&self, s: &mut String) {
-        match &self.kind {
-            StatementKind::Expr(x) => x.spanned(&self.span).unparse(s),
-            StatementKind::Decl(x) => x.spanned(&self.span).unparse(s),
-        }
-    }
-
     fn span(&self) -> &Span {
         &self.span
     }
 
     fn with_span(&self, span: &Span) -> Self {
         Statement {
-            kind: self.kind.clone(),
             span: span.clone(),
+            ..self.clone()
         }
+    }
+
+    fn id(&self) -> Option<i32> {
+        self.id
     }
 }
 
@@ -118,11 +130,41 @@ pub enum StatementKind {
     Decl(DeclKind),
 }
 
+impl Display for StatementKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            StatementKind::Expr(e) => write!(f, "{}", e),
+            StatementKind::Decl(d) => write!(f, "{}", d),
+        }
+    }
+}
+
 /// Abstract syntax tree (AST) of an expression.
 #[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind<Expr>,
     pub span: Span,
+    pub id: Option<i32>,
+}
+
+impl Expr {
+    #[allow(dead_code)]
+    fn from_statement(statement: &Statement) -> Self {
+        match &statement.kind {
+            StatementKind::Expr(e) => Expr {
+                kind: e.clone(),
+                span: statement.span.clone(),
+                id: statement.id,
+            },
+            _ => panic!("expected expression"),
+        }
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.kind, f)
+    }
 }
 
 /// Kind of expression.
@@ -163,13 +205,13 @@ pub enum ExprKind<SubExpr> {
 
     // Control structures
     If(Box<SubExpr>, Box<SubExpr>, Box<SubExpr>),
-    Case(Box<SubExpr>, Vec<(Pat, SubExpr)>),
+    Case(Box<SubExpr>, Vec<Match>),
     Let(Vec<Decl>, Box<SubExpr>),
-    Fn(Vec<(Pat, Expr)>),
+    Fn(Vec<Match>),
 
     // Constructors for data structures
-    Tuple(Vec<Expr>), // e.g. `(x, y, z)`
-    List(Vec<Expr>),  // e.g. `[x, y, z]`
+    Tuple(Vec<Box<Expr>>), // e.g. `(x, y, z)`
+    List(Vec<Box<Expr>>),  // e.g. `[x, y, z]`
     Record(Option<Box<Expr>>, Vec<LabeledExpr>), // e.g. `{r with x = 1, y}`
 
     // Relational expressions
@@ -186,6 +228,7 @@ impl ExprKind<Expr> {
         Expr {
             kind: self.clone(),
             span: span.clone(),
+            id: None,
         }
     }
 
@@ -223,6 +266,116 @@ impl ExprKind<Expr> {
     }
 }
 
+impl Display for ExprKind<Expr> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            ExprKind::Identifier(name) => write!(f, "{}", name),
+            ExprKind::Literal(lit) => write!(f, "{}", lit),
+            ExprKind::RecordSelector(name) => write!(f, ".{}", name),
+            ExprKind::Current => write!(f, "current"),
+            ExprKind::Ordinal => write!(f, "ordinal"),
+            ExprKind::Plus(lhs, rhs) => write!(f, "({} + {})", lhs, rhs),
+            ExprKind::Minus(lhs, rhs) => write!(f, "({} - {})", lhs, rhs),
+            ExprKind::Times(lhs, rhs) => write!(f, "({} * {})", lhs, rhs),
+            ExprKind::Divide(lhs, rhs) => write!(f, "({} / {})", lhs, rhs),
+            ExprKind::Div(lhs, rhs) => write!(f, "({} div {})", lhs, rhs),
+            ExprKind::Mod(lhs, rhs) => write!(f, "({} mod {})", lhs, rhs),
+            ExprKind::Caret(lhs, rhs) => write!(f, "({} ^ {})", lhs, rhs),
+            ExprKind::Compose(lhs, rhs) => write!(f, "({} o {})", lhs, rhs),
+            ExprKind::Equal(lhs, rhs) => write!(f, "({} = {})", lhs, rhs),
+            ExprKind::NotEqual(lhs, rhs) => write!(f, "({} <> {})", lhs, rhs),
+            ExprKind::LessThan(lhs, rhs) => write!(f, "({} < {})", lhs, rhs),
+            ExprKind::LessThanOrEqual(lhs, rhs) => {
+                write!(f, "({} <= {})", lhs, rhs)
+            }
+            ExprKind::GreaterThan(lhs, rhs) => write!(f, "({} > {})", lhs, rhs),
+            ExprKind::GreaterThanOrEqual(lhs, rhs) => {
+                write!(f, "({} >= {})", lhs, rhs)
+            }
+            ExprKind::Elem(lhs, rhs) => write!(f, "({} elem {})", lhs, rhs),
+            ExprKind::NotElem(lhs, rhs) => {
+                write!(f, "({} notelem {})", lhs, rhs)
+            }
+            ExprKind::AndAlso(lhs, rhs) => {
+                write!(f, "({} andalso {})", lhs, rhs)
+            }
+            ExprKind::OrElse(lhs, rhs) => write!(f, "({} orelse {})", lhs, rhs),
+            ExprKind::Implies(lhs, rhs) => {
+                write!(f, "({} implies {})", lhs, rhs)
+            }
+            ExprKind::Aggregate(lhs, rhs) => {
+                write!(f, "({} over {})", lhs, rhs)
+            }
+            ExprKind::Cons(lhs, rhs) => write!(f, "({} :: {})", lhs, rhs),
+            ExprKind::Append(lhs, rhs) => write!(f, "({} @ {})", lhs, rhs),
+            ExprKind::Negate(e) => write!(f, "-{}", e),
+            ExprKind::Apply(fx, arg) => write!(f, "{} {}", fx, arg),
+            ExprKind::If(cond, then_, else_) => {
+                write!(f, "if {} then {} else {}", cond, then_, else_)
+            }
+            ExprKind::Case(e, arms) => {
+                write!(f, "case {} of ", e)?;
+                for (i, match_) in arms.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{} => {}", match_.pat, match_.expr)?;
+                }
+                Ok(())
+            }
+            ExprKind::Let(decls, body) => {
+                write!(f, "let ")?;
+                for decl in decls {
+                    write!(f, "{}; ", decl)?;
+                }
+                write!(f, "in {}", body)
+            }
+            ExprKind::Fn(arms) => {
+                write!(f, "fn ")?;
+                for (i, match_) in arms.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{} => {}", match_.pat, match_.expr)?;
+                }
+                Ok(())
+            }
+            ExprKind::Tuple(elems) => {
+                let elems_str = elems
+                    .iter()
+                    .map(|e| format!("{}", e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", elems_str)
+            }
+            ExprKind::List(elems) => {
+                let elems_str = elems
+                    .iter()
+                    .map(|e| format!("{}", e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "[{}]", elems_str)
+            }
+            ExprKind::Record(base, fields) => {
+                let mut s = String::new();
+                if let Some(b) = base {
+                    s.push_str(&format!("{} with ", b));
+                }
+                let fields_str = fields
+                    .iter()
+                    .map(|f| format!("{}", f.expr))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{{{}}}", s + &fields_str)
+            }
+            ExprKind::From(steps) => write!(f, "from {:?}", steps),
+            ExprKind::Exists(steps) => write!(f, "exists {:?}", steps),
+            ExprKind::Forall(steps) => write!(f, "forall {:?}", steps),
+            ExprKind::Annotated(e, typ) => write!(f, "{}: {}", e, typ),
+        }
+    }
+}
+
 /// Abstract syntax tree (AST) of a literal.
 ///
 /// Used in expressions and patterns, via [`ExprKind::Literal`] and
@@ -231,6 +384,13 @@ impl ExprKind<Expr> {
 pub struct Literal {
     pub kind: LiteralKind,
     pub span: Span,
+    pub id: Option<i32>,
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.kind, f)
+    }
 }
 
 /// Kind of literal.
@@ -248,7 +408,22 @@ impl LiteralKind {
     pub fn spanned(&self, span_: &Span) -> Literal {
         let kind = self.clone();
         let span = span_.clone();
-        Literal { kind, span }
+        let id = None;
+        Literal { kind, span, id }
+    }
+}
+
+impl Display for LiteralKind {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match &self {
+            LiteralKind::Int(s) => write!(f, "{}", s)?,
+            LiteralKind::Real(s) => write!(f, "{}", s)?,
+            LiteralKind::String(s) => write!(f, "\"{}\"", s)?,
+            LiteralKind::Char(s) => write!(f, "'{}'", s)?,
+            LiteralKind::Bool(b) => write!(f, "{}", b)?,
+            LiteralKind::Unit => write!(f, "()")?,
+        };
+        Ok(())
     }
 }
 
@@ -279,6 +454,13 @@ impl LabeledExpr {
     pub fn new(label: Option<Label>, expr: Box<Expr>) -> Self {
         LabeledExpr { label, expr }
     }
+}
+
+/// Match in a `case` or `fn` expression.
+#[derive(Debug, Clone)]
+pub struct Match {
+    pub pat: Box<Pat>,
+    pub expr: Box<Expr>,
 }
 
 /// Abstract syntax tree (AST) of a step in a query.
@@ -328,6 +510,41 @@ impl StepKind {
 pub struct Pat {
     pub kind: PatKind,
     pub span: Span,
+    pub id: Option<i32>,
+}
+
+impl Pat {
+    /// Calls a given function for each atomic identifier in this pattern.
+    pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(i32, &str)) {
+        match &self.kind {
+            PatKind::Identifier(name) => {
+                (*consumer)(self.id.unwrap(), name.as_str())
+            }
+            PatKind::Tuple(pats) => {
+                pats.iter().for_each(|p| p.for_each_id_pat(consumer))
+            }
+            PatKind::Record(pat_fields, _) => {
+                for field in pat_fields {
+                    match field {
+                        PatField::Labeled(_, _, p) => {
+                            p.for_each_id_pat(consumer)
+                        }
+                        PatField::Anonymous(_, p) => {
+                            p.for_each_id_pat(consumer)
+                        }
+                        PatField::Ellipsis(_) => {}
+                    }
+                }
+            }
+            _ => todo!("{}", self.kind),
+        }
+    }
+}
+
+impl Display for Pat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.kind, f)
+    }
 }
 
 /// Kind of pattern.
@@ -342,7 +559,7 @@ pub enum PatKind {
     As(String, Box<Pat>),
     Constructor(String, Option<Box<Pat>>), // e.g. `Empty` or `Leaf x`
     Literal(Literal),
-    Tuple(Vec<Pat>),
+    Tuple(Vec<Box<Pat>>),
     List(Vec<Pat>),
     Record(Vec<PatField>, bool),
     Cons(Box<Pat>, Box<Pat>), // e.g. `x :: xs`
@@ -350,11 +567,11 @@ pub enum PatKind {
 }
 
 impl PatKind {
-    pub fn spanned(&self, span: &Span) -> Pat {
-        Pat {
-            kind: self.clone(),
-            span: span.clone(),
-        }
+    pub fn spanned(&self, span_: &Span) -> Pat {
+        let kind = self.clone();
+        let span = span_.clone();
+        let id = None;
+        Pat { kind, span, id }
     }
 
     pub fn wrap2(self, e1: &Expr, e2: &Expr) -> Pat {
@@ -363,6 +580,43 @@ impl PatKind {
 
     pub fn wrap3(self, e1: &Expr, e2: &Expr, e3: &Expr) -> Pat {
         self.spanned(&e1.span.union(&e2.span).union(&e3.span))
+    }
+}
+
+impl Display for PatKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            PatKind::Identifier(name) => write!(f, "{}", name),
+            PatKind::Literal(lit) => write!(f, "{:?}", lit),
+            PatKind::Annotated(pat, typ) => write!(f, "{}: {}", pat, typ),
+            PatKind::Tuple(pats) => {
+                let pats_str = pats
+                    .iter()
+                    .map(|p| format!("{}", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", pats_str)
+            }
+            PatKind::Record(fields, ellipsis) => {
+                let fields_str = fields
+                    .iter()
+                    .map(|field| match field {
+                        PatField::Labeled(_, name, pat) => {
+                            format!("{} = {}", name, pat)
+                        }
+                        PatField::Anonymous(_, pat) => format!("{}", pat),
+                        PatField::Ellipsis(_) => "...".to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if *ellipsis {
+                    write!(f, "{{{}, ...}}", fields_str)
+                } else {
+                    write!(f, "{{{}}}", fields_str)
+                }
+            }
+            _ => write!(f, "<unknown pat>"),
+        }
     }
 }
 
@@ -381,9 +635,38 @@ pub enum PatField {
 pub struct Decl {
     pub kind: DeclKind,
     pub span: Span,
+    pub id: Option<i32>,
 }
 
-impl Decl {}
+impl Decl {
+    pub(crate) fn for_each_id_pat(&self, mut p0: impl FnMut(i32, &str)) {
+        match &self.kind {
+            DeclKind::Val(_rec, _inst, val_binds) => {
+                for val_bind in val_binds {
+                    val_bind.pat.for_each_id_pat(&mut p0)
+                }
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn from_statement(statement: &Statement) -> Self {
+        match &statement.kind {
+            StatementKind::Decl(d) => Decl {
+                span: statement.span.clone(),
+                kind: d.clone(),
+                id: statement.id,
+            },
+            _ => panic!("expected declaration"),
+        }
+    }
+}
+
+impl Display for Decl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.kind, f)
+    }
+}
 
 /// Kind of declaration.
 #[derive(Debug, Clone)]
@@ -400,6 +683,37 @@ impl DeclKind {
         Decl {
             kind: self.clone(),
             span: span.clone(),
+            id: None,
+        }
+    }
+}
+
+impl Display for DeclKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeclKind::Val(rec, inst, binds) => {
+                write!(f, "val ")?;
+                if *rec {
+                    write!(f, "rec ")?;
+                }
+                if *inst {
+                    write!(f, "inst ")?;
+                }
+                fmt_list(f, binds, " and ")
+            }
+            DeclKind::Fun(funs) => {
+                write!(f, "fun ")?;
+                fmt_list(f, funs, " | ")
+            }
+            DeclKind::Over(name) => write!(f, "over {}", name),
+            DeclKind::Type(types) => {
+                write!(f, "type ")?;
+                fmt_list(f, types, "; ")
+            }
+            DeclKind::Datatype(datatypes) => {
+                write!(f, "datatype ")?;
+                fmt_list(f, datatypes, "; ")
+            }
         }
     }
 }
@@ -407,20 +721,30 @@ impl DeclKind {
 /// Value binding.
 #[derive(Debug, Clone)]
 pub struct ValBind {
-    pub pat: Pat,
-    pub type_annotation: Option<Type>,
-    pub expr: Expr,
+    pub pat: Box<Pat>,
+    pub type_annotation: Option<Box<Type>>,
+    pub expr: Box<Expr>,
 }
 
 impl ValBind {
     /// Creates a value binding with the given pattern, type annotation, and
     /// expression.
-    pub fn of(pat: Pat, type_annotation: Option<Type>, expr: Expr) -> Self {
+    pub fn of(
+        pat: Box<Pat>,
+        type_annotation: Option<Type>,
+        expr: Box<Expr>,
+    ) -> Self {
         ValBind {
             pat,
-            type_annotation,
+            type_annotation: type_annotation.map(Box::new),
             expr,
         }
+    }
+}
+
+impl Display for ValBind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} = {}", self.pat, self.expr)
     }
 }
 
@@ -433,6 +757,21 @@ pub struct FunBind {
     pub span: Span,
     pub name: String,
     pub matches: Vec<FunMatch>,
+}
+
+impl Display for FunBind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fun {} {}",
+            self.name,
+            self.matches
+                .iter()
+                .map(|m| format!("{}", m))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        )
+    }
 }
 
 /// Function match.
@@ -448,6 +787,18 @@ pub struct FunMatch {
     pub expr: Box<Expr>,
 }
 
+impl Display for FunMatch {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let pats_str = self
+            .pats
+            .iter()
+            .map(|p| format!("{}", p))
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "{}: {} = {}", self.name, pats_str, self.expr)
+    }
+}
+
 /// Type binding.
 #[derive(Debug, Clone)]
 pub struct TypeBind {
@@ -455,6 +806,12 @@ pub struct TypeBind {
     pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
+}
+
+impl Display for TypeBind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.name, self.type_)
+    }
 }
 
 /// Datatype binding.
@@ -466,6 +823,18 @@ pub struct DatatypeBind {
     pub constructors: Vec<ConBind>,
 }
 
+impl Display for DatatypeBind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let constructors_str = self
+            .constructors
+            .iter()
+            .map(|c| format!("{}", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "{}: {}", self.name, constructors_str)
+    }
+}
+
 /// Constructor binding.
 #[derive(Debug, Clone)]
 pub struct ConBind {
@@ -474,11 +843,65 @@ pub struct ConBind {
     pub type_: Option<Type>,
 }
 
+impl Display for ConBind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}",
+            self.name,
+            match &self.type_ {
+                Some(t) => format!(": {}", t),
+                None => "".to_string(),
+            }
+        )
+    }
+}
+
 /// Abstract syntax tree (AST) of a type.
 #[derive(Debug, Clone)]
 pub struct Type {
     pub kind: TypeKind,
     pub span: Span,
+    pub id: Option<i32>,
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            TypeKind::Unit => write!(f, "()"),
+            TypeKind::Id(name) => write!(f, "{}", name),
+            TypeKind::Var(name) => write!(f, "{}", name),
+            TypeKind::Con(name) => write!(f, "{}", name),
+            TypeKind::Fn(t1, t2) => write!(f, "({} -> {})", t1, t2),
+            TypeKind::Tuple(types) => {
+                let types_str = types
+                    .iter()
+                    .map(|t| format!("{}", t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", types_str)
+            }
+            TypeKind::Record(fields) => {
+                let fields_str = fields
+                    .iter()
+                    .map(|field| {
+                        format!("{}: {}", field.label.name, field.type_)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{{{}}}", fields_str)
+            }
+            TypeKind::App(args, t) => {
+                let args_str = args
+                    .iter()
+                    .map(|a| format!("{}", a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{}<{}>", t, args_str)
+            }
+            TypeKind::Expression(expr) => write!(f, "<expr:{}>", expr),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -490,6 +913,9 @@ pub enum TypeKind {
     Fn(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
     Record(Vec<TypeField>),
+    /// `App(args, t)` applies a parameterized type.
+    /// For example, `int list` applies the `list` parameterized
+    /// type to `int`.
     App(Vec<Type>, Box<Type>),
     Expression(Box<Expr>),
 }
@@ -499,8 +925,31 @@ impl TypeKind {
         Type {
             kind: self.clone(),
             span: span.clone(),
+            id: None,
         }
     }
+}
+
+impl Eq for TypeKind {}
+
+impl PartialEq for TypeKind {
+    fn eq(&self, other: &Self) -> bool {
+        use TypeKind::*;
+        match (self, other) {
+            (Unit, Unit) => true,
+            (Id(a), Id(b)) => a == b,
+            (Var(a), Var(b)) => a == b,
+            (Con(a), Con(b)) => a == b,
+            (Fn(a, c), Fn(b, d)) => a.kind == b.kind && c.kind == d.kind,
+            _ => false, // TODO
+        }
+    }
+}
+
+/// Type scheme.
+pub struct TypeScheme {
+    pub var_count: usize,
+    pub type_: Type,
 }
 
 /// Type field in record types.
@@ -511,109 +960,70 @@ pub struct TypeField {
 }
 
 impl MorelNode for Expr {
-    fn unparse(&self, s: &mut String) {
-        match &self.kind {
-            ExprKind::Identifier(name) => s.push_str(name),
-            ExprKind::Literal(value) => value.unparse(s),
-            _ => s.push_str("<expr>"), // TODO: implement for all variants
-        }
-    }
-
     fn span(&self) -> &Span {
         &self.span
     }
 
     fn with_span(&self, span: &Span) -> Self {
         Expr {
-            kind: self.kind.clone(),
             span: span.clone(),
+            ..self.clone()
         }
+    }
+
+    fn id(&self) -> Option<i32> {
+        self.id
     }
 }
 
 impl MorelNode for Literal {
-    fn unparse(&self, s: &mut String) {
-        match &self.kind {
-            LiteralKind::Int(value) => s.push_str(value),
-            LiteralKind::Real(value) => s.push_str(value),
-            LiteralKind::String(value) => write!(s, "\"{}\"", value).unwrap(),
-            LiteralKind::Char(value) => write!(s, "#\"{}\"", value).unwrap(),
-            LiteralKind::Bool(value) => {
-                s.push_str(if *value { "true" } else { "false" })
-            }
-            LiteralKind::Unit => s.push_str("()"),
-        }
-    }
-
     fn span(&self) -> &Span {
         &self.span
     }
 
     fn with_span(&self, span: &Span) -> Self {
         Literal {
-            kind: self.kind.clone(),
             span: span.clone(),
+            ..self.clone()
         }
+    }
+
+    fn id(&self) -> Option<i32> {
+        self.id
     }
 }
 
 impl MorelNode for Decl {
-    fn unparse(&self, s: &mut String) {
-        match &self.kind {
-            DeclKind::Val(rec, inst, binds) => {
-                s.push_str("val ");
-                if let Some(first_bind) = binds.first() {
-                    if *rec {
-                        s.push_str("rec ");
-                    }
-                    first_bind.pat.unparse(s);
-                    if let Some(ref type_annotation) =
-                        first_bind.type_annotation
-                    {
-                        s.push_str(": ");
-                        match &type_annotation.kind {
-                            TypeKind::Con(name) => s.push_str(name),
-                            _ => s.push_str("<type>"),
-                        }
-                    }
-                    s.push_str(" = ");
-                    first_bind.expr.unparse(s);
-                }
-            }
-            _ => s.push_str("<decl>"),
-        }
-    }
-
     fn span(&self) -> &Span {
         &self.span
     }
 
     fn with_span(&self, span: &Span) -> Self {
         Decl {
-            kind: self.kind.clone(),
             span: span.clone(),
+            ..self.clone()
         }
+    }
+
+    fn id(&self) -> Option<i32> {
+        self.id
     }
 }
 
 impl MorelNode for Pat {
-    fn unparse(&self, s: &mut String) {
-        match &self.kind {
-            PatKind::Identifier(name) => s.push_str(name),
-            PatKind::Wildcard => s.push('_'),
-            _ => s.push_str("<pat>"),
-        }
-    }
-
     fn span(&self) -> &Span {
         &self.span
     }
 
     fn with_span(&self, span: &Span) -> Self {
         Pat {
-            kind: self.kind.clone(),
             span: span.clone(),
+            ..self.clone()
         }
+    }
+
+    fn id(&self) -> Option<i32> {
+        self.id
     }
 }
 
@@ -623,17 +1033,13 @@ impl Type {
             return self.clone();
         }
         Type {
-            kind: self.kind.clone(),
             span: span.clone(),
+            ..self.clone()
         }
     }
 }
 
 impl MorelNode for Type {
-    fn unparse(&self, s: &mut String) {
-        todo!()
-    }
-
     fn span(&self) -> &Span {
         &self.span
     }
@@ -641,4 +1047,23 @@ impl MorelNode for Type {
     fn with_span(&self, span: &Span) -> Self {
         self.with_span(span)
     }
+
+    fn id(&self) -> Option<i32> {
+        self.id
+    }
+}
+
+/// Formats a collection with a separator, handling the enumeration pattern.
+fn fmt_list<T: Display>(
+    f: &mut Formatter<'_>,
+    items: &[T],
+    separator: &str,
+) -> std::fmt::Result {
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            write!(f, "{}", separator)?;
+        }
+        write!(f, "{}", item)?;
+    }
+    Ok(())
 }

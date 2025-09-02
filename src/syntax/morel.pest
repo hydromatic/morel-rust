@@ -206,7 +206,7 @@ expr_application = { expr_unary+ }
 
 // Precedence 8.5: unary ~
 expr_unary = { expr_unary_op* ~ expr_postfix }
-expr_unary_op = { "~" }
+expr_unary_op = { !literal ~ "~" }
 
 // Precedence 9: postfix .field
 expr_postfix = { atom ~ ("." ~ label)* }
@@ -401,6 +401,15 @@ composite_type = { "(" ~ type_ ~ ("," ~ type_)+ ~ ")" }
 type_field = { label ~ ":" ~ type_ }
 type_vars = { type_var | "(" ~ type_var ~ ("," ~ type_var)* ~ ")" }
 type_var = { ty_var }
+
+// Type schemes are part of Standard ML's type system but not part of its
+// syntax. We have them here so that you we store the type of built-in
+// functions as static strings. For example, `List.length` has type `forall 1
+// 'a list -> int`, and `List.map` has type `forall 2 ('a -> 'b) -> 'a list ->
+// 'b list`. The rule is used directly but is not part of the Morel language.
+type_scheme = { (_forall ~ non_negative_integer)? ~ type_ }
+
+type_scheme_top = { SOI ~ type_scheme ~ EOI }
 
 // -- Literals --------------------------------------------
 // Literals are used in expressions, patterns.

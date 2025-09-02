@@ -61,7 +61,7 @@ impl<R: Read> Read for BufferingReader<R> {
     }
 }
 
-/// Utility functions for the shell
+/// Utility functions for the shell.
 pub mod utils {
     use std::fs::read_to_string;
     use std::path::Path;
@@ -104,18 +104,47 @@ pub mod utils {
         }
     }
 
-    /// Prefixes each line with "> ", for output in idempotent mode.
-    pub fn prefix_lines(s: &str) -> String {
+    /// Adds a prefix to each line, for output in idempotent mode.
+    ///
+    /// For example, `prefix_lines(">", "abc\nde\n")`
+    /// returns `"> abc\n>\n> de\n"`. Note that there is no space after the ">"
+    /// in "\n>\n" because we do not want trailing spaces on empty lines.
+    pub fn prefix_lines(prefix: &str, s: &str) -> String {
         let mut result = String::new();
         for line in s.lines() {
             if line.is_empty() {
-                result.push_str(">\n");
+                result.push_str(&format!("{}\n", prefix));
             } else {
-                result.push_str(&format!("> {}\n", line));
+                result.push_str(&format!("{} {}\n", prefix, line));
             }
         }
-        // Remove trailing newline if present
-        if result.ends_with('\n') {
+        // Remove trailing newline if input string did not end with one.
+        if !s.ends_with('\n') && result.ends_with('\n') {
+            result.pop();
+        }
+        result
+    }
+
+    /// Removes a prefix from the start of every line.
+    pub fn strip_prefix(prefix: &str, s: &str) -> String {
+        let mut result = String::new();
+        let (prefix_min, prefix_max) = if prefix.ends_with(' ') {
+            (prefix.trim_end().to_string(), prefix)
+        } else {
+            (format!("{} ", prefix), prefix)
+        };
+        for line in s.lines() {
+            if let Some(stripped) = line.strip_prefix(prefix_max) {
+                result.push_str(stripped);
+            } else if line == prefix_min {
+                // nothing
+            } else {
+                result.push_str(line);
+            }
+            result.push('\n');
+        }
+        // Remove trailing newline if input string did not end with one.
+        if !s.ends_with('\n') && result.ends_with('\n') {
             result.pop();
         }
         result
@@ -127,8 +156,34 @@ pub mod utils {
 
         #[test]
         fn test_prefix_lines() {
-            assert_eq!(prefix_lines("hello\nworld"), "> hello\n> world");
-            assert_eq!(prefix_lines("single"), "> single");
+            assert_eq!(prefix_lines(">", "hello\nworld"), "> hello\n> world");
+            assert_eq!(prefix_lines(">", "single"), "> single");
+
+            // Empty lines get the prefix with no trailing spaces
+            assert_eq!(prefix_lines(">", "abc\n\nde\n"), "> abc\n>\n> de\n");
+            assert_eq!(
+                prefix_lines(">", "\nabc\n\n\nde"),
+                ">\n> abc\n>\n>\n> de"
+            );
+
+            // Different prefix
+            assert_eq!(
+                prefix_lines("> >", "\nabc\n\n\nde"),
+                "> >\n> > abc\n> >\n> >\n> > de"
+            );
+        }
+
+        #[test]
+        fn test_strip_prefix() {
+            assert_eq!(strip_prefix("> ", "> abc\n> de\n"), "abc\nde\n");
+            assert_eq!(strip_prefix("> ", "> abc\n> de"), "abc\nde");
+            // Some lines don't have the prefix.
+            assert_eq!(strip_prefix("> ", "> a\nb\n> c\n"), "a\nb\nc\n");
+            // Some lines consist only of a prefix with no trailing spaces.
+            assert_eq!(strip_prefix("> ", ">"), "");
+            assert_eq!(strip_prefix("> ", ">\n"), "\n");
+            assert_eq!(strip_prefix("> ", "> \n"), "\n");
+            assert_eq!(strip_prefix("> ", "> a\n>\nb\n> c\n"), "a\n\nb\nc\n");
         }
     }
 }
