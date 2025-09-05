@@ -16,7 +16,7 @@
 // License.
 
 use phf::{Map, Set, phf_map, phf_set};
-use std::{fs, vec};
+use std::fs;
 
 #[test]
 fn lint() {
@@ -127,8 +127,33 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         let contents = fs::read_to_string(file_name).unwrap();
         let mut line = 0;
         let mut in_raw_string = false;
+        let mut sort_until = None;
+        let mut previous_lines: Vec<(&str, usize)> = Vec::new();
         contents.lines().for_each(|l| {
             line += 1;
+            if let Some(u) = sort_until {
+                if l.contains(u) {
+                    sort_until = None;
+                    previous_lines.clear();
+                } else {
+                    if !previous_lines.is_empty()
+                        && l < previous_lines.last().unwrap().0
+                    {
+                        let mut target_line = 0;
+                        for i in (0..previous_lines.len()).rev() {
+                            if l > previous_lines[i].0 {
+                                target_line = previous_lines[i].1;
+                                break;
+                            }
+                        }
+                        warnings.push(format!(
+                            "{}:{}: Line out of order; move to line {}",
+                            file_name, line, target_line
+                        ));
+                    }
+                    previous_lines.push((l, line));
+                }
+            }
             if l.ends_with(' ') {
                 warnings
                     .push(format!("{}:{}: Trailing spaces", file_name, line));
@@ -158,6 +183,22 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                     "{}:{}: Use `vec![]` rather than {} or {}",
                     file_name, line, vec_space, vec_paren
                 ));
+            }
+            if l.contains("lint: sort until")
+                && !l.contains("\"lint: sort until")
+            {
+                if let Some(start) = l.find('\'')
+                    && let Some(end) = l.rfind('\'')
+                    && start < end
+                {
+                    sort_until = Some(&l[start + 1..end]);
+                    previous_lines.clear();
+                } else {
+                    warnings.push(format!(
+                        "{}:{}: Malformed 'sort until' directive",
+                        file_name, line,
+                    ));
+                }
             }
         });
     }
