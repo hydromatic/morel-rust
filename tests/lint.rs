@@ -16,7 +16,7 @@
 // License.
 
 use phf::{Map, Set, phf_map, phf_set};
-use std::fs;
+use std::{fs, vec};
 
 #[test]
 fn lint() {
@@ -32,7 +32,7 @@ fn lint() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings = Vec::new();
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .for_each(|l| {
@@ -126,13 +126,23 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     if file_type.text {
         let contents = fs::read_to_string(file_name).unwrap();
         let mut line = 0;
+        let mut in_raw_string = false;
         contents.lines().for_each(|l| {
             line += 1;
             if l.ends_with(' ') {
                 warnings
                     .push(format!("{}:{}: Trailing spaces", file_name, line));
             }
-            if l.len() > file_type.max_line_length && !l.contains("://") {
+            if l.contains("r#\"") {
+                in_raw_string = true;
+            }
+            if l.contains("\"#") {
+                in_raw_string = false;
+            }
+            if l.len() > file_type.max_line_length
+                && !l.contains("://")
+                && !in_raw_string
+            {
                 // ignore URLs
                 warnings.push(format!(
                     "{}:{}: Line too long ({} > {}): {}",
