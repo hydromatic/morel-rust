@@ -15,6 +15,6 @@
 // language governing permissions and limitations under the
 // License.
 
+// lint: sort until '^$' erase 'pub '
 pub mod ast;
-#[allow(clippy::module_inception)]
 pub mod parser;

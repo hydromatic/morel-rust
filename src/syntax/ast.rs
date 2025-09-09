@@ -16,7 +16,7 @@
 // License.
 
 use crate::syntax::ast;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::rc::Rc;
 
 /// A location in the source text.
@@ -88,7 +88,7 @@ impl Span {
 /// Trait possessed by all abstract syntax tree (AST) nodes.
 pub trait MorelNode {
     /// Returns the span.
-    fn span(&self) -> &Span;
+    fn span(&self) -> Span;
 
     /// Returns a copy of the AST node with a new span.
     fn with_span(&self, span: &Span) -> Self;
@@ -107,8 +107,8 @@ pub struct Statement {
 }
 
 impl MorelNode for Statement {
-    fn span(&self) -> &Span {
-        &self.span
+    fn span(&self) -> Span {
+        self.span.clone()
     }
 
     fn with_span(&self, span: &Span) -> Self {
@@ -131,7 +131,7 @@ pub enum StatementKind {
 }
 
 impl Display for StatementKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
             StatementKind::Expr(e) => write!(f, "{}", e),
             StatementKind::Decl(d) => write!(f, "{}", d),
@@ -162,12 +162,13 @@ impl Expr {
 }
 
 impl Display for Expr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         std::fmt::Display::fmt(&self.kind, f)
     }
 }
 
 /// Kind of expression.
+#[allow(clippy::vec_box)]
 #[derive(Debug, Clone)]
 pub enum ExprKind<SubExpr> {
     Literal(Literal),
@@ -200,8 +201,9 @@ pub enum ExprKind<SubExpr> {
     Cons(Box<SubExpr>, Box<SubExpr>),     // '::'
     Append(Box<SubExpr>, Box<SubExpr>),   // '@'
 
-    Negate(Box<SubExpr>),              // unary negation
-    Apply(Box<SubExpr>, Box<SubExpr>), // apply function to argument
+    Negate(Box<SubExpr>), // unary negation
+    /// `Apply(f, a)` represents `f a`, applying a function to an argument.
+    Apply(Box<SubExpr>, Box<SubExpr>),
 
     // Control structures
     If(Box<SubExpr>, Box<SubExpr>, Box<SubExpr>),
@@ -267,11 +269,11 @@ impl ExprKind<Expr> {
 }
 
 impl Display for ExprKind<Expr> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
             ExprKind::Identifier(name) => write!(f, "{}", name),
             ExprKind::Literal(lit) => write!(f, "{}", lit),
-            ExprKind::RecordSelector(name) => write!(f, ".{}", name),
+            ExprKind::RecordSelector(name) => write!(f, "#{}", name),
             ExprKind::Current => write!(f, "current"),
             ExprKind::Ordinal => write!(f, "ordinal"),
             ExprKind::Plus(lhs, rhs) => write!(f, "({} + {})", lhs, rhs),
@@ -388,7 +390,7 @@ pub struct Literal {
 }
 
 impl Display for Literal {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         std::fmt::Display::fmt(&self.kind, f)
     }
 }
@@ -414,7 +416,7 @@ impl LiteralKind {
 }
 
 impl Display for LiteralKind {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match &self {
             LiteralKind::Int(s) => write!(f, "{}", s)?,
             LiteralKind::Real(s) => write!(f, "{}", s)?,
@@ -542,7 +544,7 @@ impl Pat {
 }
 
 impl Display for Pat {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         std::fmt::Display::fmt(&self.kind, f)
     }
 }
@@ -552,6 +554,7 @@ impl Display for Pat {
 /// A few names have evolved from Morel-Java.
 /// `Constructor` is equivalent to `class ConPat` or `class Con0Pat`;
 /// `Cons` is equivalent to `class ConsPat` in Morel-Java.
+#[allow(clippy::vec_box)]
 #[derive(Debug, Clone)]
 pub enum PatKind {
     Wildcard,
@@ -584,7 +587,7 @@ impl PatKind {
 }
 
 impl Display for PatKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
             PatKind::Identifier(name) => write!(f, "{}", name),
             PatKind::Literal(lit) => write!(f, "{:?}", lit),
@@ -663,7 +666,7 @@ impl Decl {
 }
 
 impl Display for Decl {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         std::fmt::Display::fmt(&self.kind, f)
     }
 }
@@ -689,7 +692,7 @@ impl DeclKind {
 }
 
 impl Display for DeclKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             DeclKind::Val(rec, inst, binds) => {
                 write!(f, "val ")?;
@@ -740,10 +743,14 @@ impl ValBind {
             expr,
         }
     }
+
+    pub fn span(&self) -> Span {
+        self.pat.span.union(&self.expr.span)
+    }
 }
 
 impl Display for ValBind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} = {}", self.pat, self.expr)
     }
 }
@@ -760,7 +767,7 @@ pub struct FunBind {
 }
 
 impl Display for FunBind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
             "fun {} {}",
@@ -788,7 +795,7 @@ pub struct FunMatch {
 }
 
 impl Display for FunMatch {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let pats_str = self
             .pats
             .iter()
@@ -809,7 +816,7 @@ pub struct TypeBind {
 }
 
 impl Display for TypeBind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}: {}", self.name, self.type_)
     }
 }
@@ -824,7 +831,7 @@ pub struct DatatypeBind {
 }
 
 impl Display for DatatypeBind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let constructors_str = self
             .constructors
             .iter()
@@ -844,7 +851,7 @@ pub struct ConBind {
 }
 
 impl Display for ConBind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
             "{}{}",
@@ -866,7 +873,7 @@ pub struct Type {
 }
 
 impl Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> FmtResult {
         match &self.kind {
             TypeKind::Unit => write!(f, "()"),
             TypeKind::Id(name) => write!(f, "{}", name),
@@ -960,8 +967,8 @@ pub struct TypeField {
 }
 
 impl MorelNode for Expr {
-    fn span(&self) -> &Span {
-        &self.span
+    fn span(&self) -> Span {
+        self.span.clone()
     }
 
     fn with_span(&self, span: &Span) -> Self {
@@ -977,8 +984,8 @@ impl MorelNode for Expr {
 }
 
 impl MorelNode for Literal {
-    fn span(&self) -> &Span {
-        &self.span
+    fn span(&self) -> Span {
+        self.span.clone()
     }
 
     fn with_span(&self, span: &Span) -> Self {
@@ -994,15 +1001,15 @@ impl MorelNode for Literal {
 }
 
 impl MorelNode for Decl {
-    fn span(&self) -> &Span {
-        &self.span
-    }
-
     fn with_span(&self, span: &Span) -> Self {
         Decl {
             span: span.clone(),
             ..self.clone()
         }
+    }
+
+    fn span(&self) -> Span {
+        self.span.clone()
     }
 
     fn id(&self) -> Option<i32> {
@@ -1011,8 +1018,8 @@ impl MorelNode for Decl {
 }
 
 impl MorelNode for Pat {
-    fn span(&self) -> &Span {
-        &self.span
+    fn span(&self) -> Span {
+        self.span.clone()
     }
 
     fn with_span(&self, span: &Span) -> Self {
@@ -1040,8 +1047,8 @@ impl Type {
 }
 
 impl MorelNode for Type {
-    fn span(&self) -> &Span {
-        &self.span
+    fn span(&self) -> Span {
+        self.span.clone()
     }
 
     fn with_span(&self, span: &Span) -> Self {
@@ -1058,7 +1065,7 @@ fn fmt_list<T: Display>(
     f: &mut Formatter<'_>,
     items: &[T],
     separator: &str,
-) -> std::fmt::Result {
+) -> FmtResult {
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
             write!(f, "{}", separator)?;

@@ -57,7 +57,9 @@ impl ScriptTest {
             banner: false,
             idempotent,
             directory: self.directory.clone(),
-            script_directory: in_file.parent().map(|p| p.to_path_buf()),
+            script_directory: in_file
+                .parent()
+                .map(std::path::Path::to_path_buf),
         };
 
         // Adjust directory for specific tests
@@ -144,11 +146,10 @@ impl ScriptTest {
 
     /// Gets all test files in the script directory.
     pub fn find_test_files(&self) -> ShellResult<Vec<PathBuf>> {
-        let script_dir = self
-            .directory
-            .as_ref()
-            .map(|d| d.join("script"))
-            .unwrap_or_else(|| PathBuf::from("src/test/resources/script"));
+        let script_dir = self.directory.as_ref().map_or_else(
+            || PathBuf::from("src/test/resources/script"),
+            |d| d.join("script"),
+        );
 
         if !script_dir.exists() {
             return Ok(Vec::new());

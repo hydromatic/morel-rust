@@ -26,10 +26,36 @@ name = "main"
 path = "src/main.rs"
 
 [dependencies]
+# lint: sort until '^$'
 indexmap = "2.11.0"
 pest = "2.1"
 pest_ascii_tree = "0.1.0"
 pest_consume = "1.1"
 phf = { version = "0.12", features = ["macros"] }
+regex = "1.11.2"
 rustc_version = "0.4"
 similar = "2.7.0"
+
+[lints.rust]
+# lint: sort until '^$' where '^[a-z]'
+unused_imports = "deny"
+unused_mut = "deny"
+unused_variables = "deny"
+
+[lints.clippy]
+# lint: sort until '^$' where '^[a-z]'
+#clone_on_ref_ptr = "deny"
+#enum_glob_use = "deny"
+explicit_iter_loop = "deny"
+map_unwrap_or = "deny"
+mut_mut = "deny"
+#needless_pass_by_value = "deny"
+#redundant_clone = "deny"
+redundant_closure_for_method_calls = "deny"
+single_match_else = "deny"
+too_many_arguments = "allow"
+unnecessary_mut_passed = "deny"
+unnecessary_unwrap = "deny"
+#use_self = "deny"
+useless_conversion = "deny"
+wildcard_imports = "deny"

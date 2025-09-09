@@ -763,19 +763,18 @@ impl Unifier {
 
     /// Looks up or creates a new operator with the given name.
     pub(crate) fn op(&mut self, name: &str, arity: Option<usize>) -> Rc<Op> {
-        match self.op_by_name.get(name) {
-            Some(index) => index.clone(),
-            None => {
-                let id = self.name_map.entry(name.to_string()).or_insert(0);
-                let op = Rc::new(Op {
-                    name: name.to_string(),
-                    arity,
-                    id: *id as i32,
-                });
-                self.op_list.push(op.clone());
-                self.op_by_name.insert(name.to_string(), op.clone());
-                op
-            }
+        if let Some(index) = self.op_by_name.get(name) {
+            index.clone()
+        } else {
+            let id = self.name_map.entry(name.to_string()).or_insert(0);
+            let op = Rc::new(Op {
+                name: name.to_string(),
+                arity,
+                id: *id as i32,
+            });
+            self.op_list.push(op.clone());
+            self.op_by_name.insert(name.to_string(), op.clone());
+            op
         }
     }
 
@@ -812,33 +811,32 @@ impl Unifier {
     /// And so forth.
     pub fn variable(&mut self) -> Rc<Var> {
         let ordinal = self.var_list.len();
-        let name = self.new_name("T", ordinal).clone();
+        let name = self.new_name("T", ordinal);
         let var = Rc::new(Var {
             name: name.to_string(),
             id: -(ordinal as i32 + 1),
         });
         self.var_list.push(var.clone());
         self.name_map.insert(name.to_string(), 1);
-        self.var_by_name.insert(name.to_string(), var.clone());
+        self.var_by_name.insert(name, var.clone());
         var
     }
 
     /// Creates a variable with a given name, or returns the existing variable
     /// with that name.
     fn variable_with_name(&mut self, name: &str) -> Rc<Var> {
-        match self.var_by_name.get(name) {
-            Some(var) => var.clone(),
-            None => {
-                let ordinal = self.var_list.len();
-                let var = Rc::new(Var {
-                    name: name.to_string(),
-                    id: -(ordinal as i32 + 1),
-                });
-                self.var_list.push(var.clone());
-                self.name_map.insert(name.to_string(), 1);
-                self.var_by_name.insert(name.to_string(), var.clone());
-                var
-            }
+        if let Some(var) = self.var_by_name.get(name) {
+            var.clone()
+        } else {
+            let ordinal = self.var_list.len();
+            let var = Rc::new(Var {
+                name: name.to_string(),
+                id: -(ordinal as i32 + 1),
+            });
+            self.var_list.push(var.clone());
+            self.name_map.insert(name.to_string(), 1);
+            self.var_by_name.insert(name.to_string(), var.clone());
+            var
         }
     }
 
@@ -850,10 +848,7 @@ impl Unifier {
     /// Creates a Sequence.
     pub fn apply(&self, op: Rc<Op>, terms: Vec<Term>) -> Sequence {
         assert!(op.arity.is_none_or(|x| { x == terms.len() }));
-        Sequence {
-            op: op.clone(),
-            terms: terms.clone(),
-        }
+        Sequence { op, terms }
     }
 
     /// Creates a Sequence with one operand.
@@ -879,10 +874,7 @@ impl Unifier {
 
     /// Creates an Atom (a Sequence with zero operands).
     pub(crate) fn atom(&self, op: Rc<Op>) -> Sequence {
-        Sequence {
-            op: op.clone(),
-            terms: vec![],
-        }
+        Sequence { op, terms: vec![] }
     }
 
     /// Creates a substitution from a variable to a term.

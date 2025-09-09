@@ -24,7 +24,7 @@ pub use main::Shell;
 pub use script_test::ScriptTest;
 
 use error::Error;
-use std::io::Read;
+use std::io::{Read, Result as IoResult};
 
 /// Result type for shell operations.
 pub type ShellResult<T> = Result<T, Error>;
@@ -51,7 +51,7 @@ impl<R: Read> BufferingReader<R> {
 }
 
 impl<R: Read> Read for BufferingReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         let bytes_read = self.reader.read(buf)?;
         if bytes_read > 0 {
             let s = String::from_utf8_lossy(&buf[..bytes_read]);
@@ -63,22 +63,20 @@ impl<R: Read> Read for BufferingReader<R> {
 
 /// Utility functions for the shell.
 pub mod utils {
-    use std::fs::read_to_string;
+    use std::fs::{read_to_string, write};
+    use std::io::Result as IoResult;
     use std::path::Path;
 
     /// Writes content to a file.
-    pub fn write_file<P: AsRef<Path>>(
-        path: P,
-        content: &str,
-    ) -> std::io::Result<()> {
-        std::fs::write(path, content)
+    pub fn write_file<P: AsRef<Path>>(path: P, content: &str) -> IoResult<()> {
+        write(path, content)
     }
 
     /// Compares two files and returns the difference as a string.
     pub fn diff_files<P: AsRef<Path>>(
         ref_file: P,
         out_file: P,
-    ) -> std::io::Result<String> {
+    ) -> IoResult<String> {
         let ref_path = ref_file.as_ref();
         let out_path = out_file.as_ref();
         let ref_content = read_to_string(ref_path)?;

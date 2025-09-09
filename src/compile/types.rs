@@ -187,7 +187,7 @@ impl PrimitiveType {
         }
     }
 
-    pub fn from_str(name: &str) -> Option<PrimitiveType> {
+    pub fn parse_name(name: &str) -> Option<PrimitiveType> {
         match name {
             "bool" => Some(PrimitiveType::Bool),
             "char" => Some(PrimitiveType::Char),

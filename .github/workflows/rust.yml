@@ -34,7 +34,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Clippy
-      run: cargo clippy -- -D unused-imports
+      run: cargo clippy --message-format=short -- -D warnings -A dead_code
     - name: Check formatting
       run: cargo fmt --all -- --check
     - name: Doc

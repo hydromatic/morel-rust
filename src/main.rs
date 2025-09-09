@@ -17,6 +17,8 @@
 
 extern crate core;
 use crate::shell::{ScriptTest, Shell as ShellMain};
+use std::io::{stdin, stdout};
+use std::process::exit;
 
 mod compile;
 mod shell;
@@ -31,11 +33,11 @@ fn main() {
         match ScriptTest::main(test_args) {
             Ok(()) => {
                 println!("All tests completed successfully");
-                std::process::exit(0);
+                exit(0);
             }
             Err(e) => {
                 eprintln!("Test error: {}", e);
-                std::process::exit(1);
+                exit(1);
             }
         }
     }
@@ -46,13 +48,13 @@ fn main() {
         let shell_args = args[2..].to_vec();
 
         let mut main = ShellMain::new(shell_args);
-        match main.run_file(file_path, std::io::stdout()) {
+        match main.run_file(file_path, stdout()) {
             Ok(()) => {
-                std::process::exit(0);
+                exit(0);
             }
             Err(e) => {
                 eprintln!("Error running file: {}", e);
-                std::process::exit(1);
+                exit(1);
             }
         }
     }
@@ -66,13 +68,13 @@ fn main() {
     shell_args.insert(0, "--banner".to_string());
 
     let mut main = ShellMain::new(shell_args);
-    match main.run(std::io::stdin(), std::io::stdout()) {
+    match main.run(stdin(), stdout()) {
         Ok(()) => {
             println!("Goodbye!");
         }
         Err(e) => {
             eprintln!("Shell error: {}", e);
-            std::process::exit(1);
+            exit(1);
         }
     }
 }

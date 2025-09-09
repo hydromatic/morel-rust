@@ -154,12 +154,16 @@ pub struct SimpleTypeEnv {
     pub bindings: HashMap<String, Term>,
 }
 
+/// Type alias for the resolver function to reduce complexity.
+pub type ResolverFn =
+    Rc<dyn Fn(&str, &mut dyn TypeSchemeResolver) -> Option<Term>>;
+
 /// Simple type environment backed by a function from names to terms.
 /// delegating to a parent.
 #[derive(Clone)]
 pub struct FunTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
-    pub resolve: Rc<dyn Fn(&str, &mut dyn TypeSchemeResolver) -> Option<Term>>,
+    pub resolve: ResolverFn,
 }
 
 pub trait TypeSchemeResolver {

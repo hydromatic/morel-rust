@@ -73,7 +73,7 @@ impl TypeMap {
                 type_map: self,
                 var_map: BTreeMap::new(),
             };
-            return Some(c.term_type(term).clone());
+            return Some(c.term_type(term));
         }
         None
     }
@@ -91,7 +91,7 @@ impl<'a> TermToTypeConverter<'a> {
             Term::Sequence(sequence) => match sequence.op.name.as_str() {
                 "bool" | "char" | "int" | "real" | "string" | "unit" => {
                     let primitive_type =
-                        PrimitiveType::from_str(&sequence.op.name).unwrap();
+                        PrimitiveType::parse_name(&sequence.op.name).unwrap();
                     Box::new(Type::Primitive(primitive_type))
                 }
                 "fn" => {
@@ -128,9 +128,10 @@ impl<'a> TermToTypeConverter<'a> {
                 }
                 _ => todo!("{:?}", term),
             },
-            Term::Variable(v) => match self.type_map.var_term_map.get(v) {
-                Some(term) => self.term_type(term),
-                _ => {
+            Term::Variable(v) => {
+                if let Some(term) = self.type_map.var_term_map.get(v) {
+                    self.term_type(term)
+                } else {
                     let id = self.var_map.len();
                     self.var_map
                         .entry(v.id)
@@ -139,7 +140,7 @@ impl<'a> TermToTypeConverter<'a> {
                         })
                         .clone()
                 }
-            },
+            }
         }
     }
 }
@@ -287,9 +288,9 @@ impl TypeResolver {
     ) -> Decl {
         match &decl.kind {
             DeclKind::Val(rec, inst, val_binds) => {
-                let kind = &self
-                    .deduce_val_decl_type(env, *rec, *inst, val_binds, term_map)
-                    .clone();
+                let kind = &self.deduce_val_decl_type(
+                    env, *rec, *inst, val_binds, term_map,
+                );
                 Decl {
                     kind: kind.clone(),
                     span: decl.span.clone(),
@@ -461,7 +462,7 @@ impl TypeResolver {
         let mut map0 = Vec::new();
 
         // First pass: create variables for each binding
-        for b in val_binds.iter() {
+        for b in val_binds {
             map0.push((b, OnceCell::new()));
         }
 
@@ -530,7 +531,7 @@ impl TypeResolver {
     fn deduce_expr_type<'a>(
         &mut self,
         env: &dyn TypeEnv,
-        expr: Box<Expr>,
+        expr: &Expr,
         v: &'a Rc<Var>,
     ) -> Box<Expr> {
         match &expr.kind {
@@ -553,12 +554,12 @@ impl TypeResolver {
                 } else {
                     self.deduce_expr_type(
                         env,
-                        expr_list.first().unwrap().clone(),
+                        expr_list.first().unwrap(),
                         &v_element,
                     );
                     for expr in expr_list.iter().skip(1) {
                         let v2 = self.variable();
-                        self.deduce_expr_type(env, expr.clone(), &v2);
+                        self.deduce_expr_type(env, expr, &v2);
                         self.equiv(&Term::Variable(v2), &v_element.clone());
                     }
                 }
@@ -569,7 +570,7 @@ impl TypeResolver {
                 let mut terms: BTreeMap<String, Term> = BTreeMap::new();
                 for labeled_expr in labeled_expr_list {
                     let v2 = self.variable();
-                    self.deduce_expr_type(env, labeled_expr.expr.clone(), &v2);
+                    self.deduce_expr_type(env, &labeled_expr.expr, &v2);
                     if let Some(label) = &labeled_expr.label {
                         terms.insert(label.name.clone(), Term::Variable(v2));
                     } else {
@@ -586,7 +587,7 @@ impl TypeResolver {
                 let mut expr_list2 = Vec::new();
                 for e in expr_list {
                     let v2 = self.variable();
-                    let e2 = self.deduce_expr_type(env, e.clone(), &v2);
+                    let e2 = self.deduce_expr_type(env, e, &v2);
                     expr_list2.push(e2);
                     terms.push(Term::Variable(v2));
                 }
@@ -627,7 +628,7 @@ impl TypeResolver {
                     decl_list2.push(decl2);
                 }
                 let env2 = env.bind_all(term_map.as_ref());
-                let expr2 = self.deduce_expr_type(&*env2, expr.clone(), v);
+                let expr2 = self.deduce_expr_type(&*env2, expr, v);
                 let x = ExprKind::Let(decl_list2, expr2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -639,7 +640,7 @@ impl TypeResolver {
             }
             ExprKind::Case(e, match_list) => {
                 let v_e = self.unifier.variable();
-                let e2 = self.deduce_expr_type(env, e.clone(), &v_e);
+                let e2 = self.deduce_expr_type(env, e, &v_e);
                 let mut label_names = BTreeSet::new();
 
                 if let Some(sequence) = self.variable_to_sequence(&v_e)
@@ -780,7 +781,7 @@ impl TypeResolver {
 
                 let pat2 = self.deduce_pat_type(
                     env,
-                    match_.pat.clone(),
+                    &match_.pat,
                     &mut term_map,
                     &arg_variable,
                 );
@@ -788,7 +789,7 @@ impl TypeResolver {
                 let env2 = env.bind_all(&term_map);
                 let exp2 = self.deduce_expr_type(
                     &*env2,
-                    match_.expr.clone(),
+                    &match_.expr,
                     result_variable,
                 );
 
@@ -821,7 +822,7 @@ impl TypeResolver {
             self.fn_term(&v_rec, &v_field, &v_arg);
             self.reg_expr(&arg.kind, &arg.span, arg.id, &v_arg)
         } else {
-            self.deduce_expr_type(env, arg, &v_arg)
+            self.deduce_expr_type(env, &arg, &v_arg)
         };
 
         let fun2 = if let ExprKind::RecordSelector(name) = &fun.kind {
@@ -866,7 +867,7 @@ impl TypeResolver {
         _v_arg: &Rc<Var>,
         _v: &Rc<Var>,
     ) -> Box<Expr> {
-        self.deduce_expr_type(env, fun, v_fun)
+        self.deduce_expr_type(env, &fun, v_fun)
     }
 
     fn deduce_record_selector_type(
@@ -958,8 +959,8 @@ impl TypeResolver {
     ) -> (Box<Pat>, Box<Pat>) {
         let v_arg0 = self.variable();
         let v_arg1 = self.variable();
-        let left2 = self.deduce_pat_type(env, left, term_map, &v_arg0);
-        let right2 = self.deduce_pat_type(env, right, term_map, &v_arg1);
+        let left2 = self.deduce_pat_type(env, &left, term_map, &v_arg0);
+        let right2 = self.deduce_pat_type(env, &right, term_map, &v_arg1);
 
         let term_fn = env
             .get(op, self)
@@ -989,10 +990,10 @@ impl TypeResolver {
     ) -> Match {
         let mut term_map = Vec::new();
         let pat = match_.pat.clone();
-        let pat2 = self.deduce_pat_type(env, pat, &mut term_map, &v_param);
+        let pat2 = self.deduce_pat_type(env, &pat, &mut term_map, &v_param);
         let env2 = env.bind_all(&term_map);
         let expr = match_.expr.clone();
-        let expr2 = self.deduce_expr_type(&*env2, expr, &v_result);
+        let expr2 = self.deduce_expr_type(&*env2, &expr, &v_result);
         Match {
             pat: pat2,
             expr: expr2,
@@ -1134,7 +1135,7 @@ impl TypeResolver {
                     terms.push(Term::Variable(v2));
                 }
                 let op = self.unifier.op(&name, Some(terms.len()));
-                let sequence = self.unifier.apply(op.clone(), terms);
+                let sequence = self.unifier.apply(op, terms);
                 self.equiv(&Term::Sequence(sequence), v)
             }
             Type::Fn(param_type, result_type) => {
@@ -1161,7 +1162,7 @@ impl TypeResolver {
                     let label = PROGRESSIVE_LABEL.to_string();
                     map.insert(label, Term::Variable(v2));
                 }
-                for (label, t) in arg_name_types.iter() {
+                for (label, t) in arg_name_types {
                     let v2 = self.variable();
                     self.type_term(t, &subst, &v2);
                     map.insert(label.clone(), Term::Variable(v2));
@@ -1226,7 +1227,7 @@ impl TypeResolver {
                     .name
                     .split(':')
                     .skip(1) // Skip "record" prefix
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect();
                 Some(fields)
             }
@@ -1337,8 +1338,8 @@ impl TypeResolver {
         term_map: &mut Vec<(String, Term)>,
         v: &Rc<Var>,
     ) -> ValBind {
-        let pat = self.deduce_pat_type(env, val_bind.pat.clone(), term_map, &v);
-        let expr = self.deduce_expr_type(env, val_bind.expr.clone(), &v);
+        let pat = self.deduce_pat_type(env, &val_bind.pat, term_map, &v);
+        let expr = self.deduce_expr_type(env, &val_bind.expr, &v);
         ValBind {
             pat,
             expr,
@@ -1360,7 +1361,7 @@ impl TypeResolver {
     fn deduce_pat_type(
         &mut self,
         env: &dyn TypeEnv,
-        pat: Box<Pat>,
+        pat: &Pat,
         term_map: &mut Vec<(String, Term)>,
         v: &Rc<Var>,
     ) -> Box<Pat> {
@@ -1375,8 +1376,8 @@ impl TypeResolver {
                     // If the identifier is in the environment, we assume that
                     // it is a constructor (such as `SOME` or `nil`).
                     let kind = PatKind::Constructor(name.clone(), None);
-                    let pat2 = Box::new(kind.spanned(pat.span()));
-                    return self.deduce_pat_type(env, pat2, term_map, v);
+                    let pat2 = Box::new(kind.spanned(&pat.span()));
+                    return self.deduce_pat_type(env, &pat2, term_map, v);
                 }
                 term_map.push((name.clone(), Term::Variable(v.clone())));
                 self.reg_pat(&pat.kind, &pat.span, pat.id, &v)
@@ -1398,7 +1399,7 @@ impl TypeResolver {
                     let v_arg = self.unifier.variable();
                     let v_fun = self.term_to_variable(&term);
                     self.fn_term(&v_arg, v, &v_fun);
-                    Some(self.deduce_pat_type(env, a.clone(), term_map, &v_arg))
+                    Some(self.deduce_pat_type(env, a, term_map, &v_arg))
                 } else {
                     self.equiv(&term, v);
                     None
@@ -1419,7 +1420,7 @@ impl TypeResolver {
                 self.reg_pat(&x, &pat.span, pat.id, &v)
             }
             PatKind::Annotated(pat, type_) => {
-                let pat2 = self.deduce_pat_type(env, pat.clone(), term_map, &v);
+                let pat2 = self.deduce_pat_type(env, pat, term_map, &v);
                 let type2 = self.deduce_type_type(env, type_, &v);
                 self.reg_pat(
                     &PatKind::Annotated(pat2.clone(), type2),
@@ -1433,20 +1434,19 @@ impl TypeResolver {
                 let unit_literal = LiteralKind::Unit.spanned(&pat.span);
                 let pat2 =
                     Box::new(PatKind::Literal(unit_literal).spanned(&pat.span));
-                self.deduce_pat_type(env, pat2, term_map, &v)
+                self.deduce_pat_type(env, &pat2, term_map, &v)
             }
             PatKind::Tuple(pat_list) if pat_list.len() == 1 => {
                 // A pattern in parentheses is not a tuple.
                 let p = pat_list.first().unwrap().clone();
-                self.deduce_pat_type(env, p, term_map, &v)
+                self.deduce_pat_type(env, &p, term_map, &v)
             }
             PatKind::Tuple(pat_list) => {
                 let mut pat_list2 = Vec::new();
                 let mut terms = Vec::new();
                 for pat in pat_list {
                     let v2 = self.variable();
-                    let pat2 =
-                        self.deduce_pat_type(env, pat.clone(), term_map, &v2);
+                    let pat2 = self.deduce_pat_type(env, pat, term_map, &v2);
                     pat_list2.push(pat2);
                     terms.push(Term::Variable(v2));
                 }
@@ -1473,12 +1473,8 @@ impl TypeResolver {
                     match field {
                         PatField::Labeled(span, name, pat) => {
                             let v2 = self.variable();
-                            let pat2 = self.deduce_pat_type(
-                                env,
-                                pat.clone(),
-                                term_map,
-                                &v2,
-                            );
+                            let pat2 =
+                                self.deduce_pat_type(env, pat, term_map, &v2);
                             fields2.push(PatField::Labeled(
                                 span.clone(),
                                 name.clone(),
@@ -1488,12 +1484,8 @@ impl TypeResolver {
                         }
                         PatField::Anonymous(span, pat) => {
                             let v2 = self.variable();
-                            let pat2 = self.deduce_pat_type(
-                                env,
-                                pat.clone(),
-                                term_map,
-                                &v2,
-                            );
+                            let pat2 =
+                                self.deduce_pat_type(env, pat, term_map, &v2);
                             let name = self.implicit_pat_label(pat);
                             fields2.push(PatField::Labeled(
                                 span.clone(),
@@ -1522,15 +1514,13 @@ impl TypeResolver {
     /// Derives an implicit label from a pattern; logs a warning and returns a
     /// fake label if that is not possible.
     fn implicit_pat_label(&mut self, pat: &Pat) -> String {
-        match implicit_pat_label_opt(pat) {
-            Some(label) => label,
-            None => {
-                let message =
-                    format!("cannot derive label for pattern {}", pat);
-                let span = pat.span.clone();
-                self.warnings.push(Warning { span, message });
-                "implicit".to_string()
-            }
+        if let Some(label) = implicit_pat_label_opt(pat) {
+            label
+        } else {
+            let message = format!("cannot derive label for pattern {}", pat);
+            let span = pat.span.clone();
+            self.warnings.push(Warning { span, message });
+            "implicit".to_string()
         }
     }
 }
@@ -1634,7 +1624,7 @@ impl<'a> TypeToTermConverter<'a> {
                 }
             }
             TypeKind::Id(name) => {
-                let p = PrimitiveType::from_str(name).unwrap();
+                let p = PrimitiveType::parse_name(name).unwrap();
                 self.type_resolver.primitive_term(&p, &v);
                 self.type_resolver.reg_type(
                     &type_node.kind,

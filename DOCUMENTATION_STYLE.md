@@ -19,7 +19,7 @@ License.
 {% endcomment %}
 -->
 
-# Documentation Style Guide
+# Style Guide
 
 ## Comments
 - All comments must end with a period.
@@ -60,19 +60,12 @@ return Err("Failed to parse expression: unexpected token 'let' at line 42."
     .into());
 ```
 
-## Test Documentation
-- Use descriptive `snake_case` names.
-- Explain the scenario and expected outcome.
-
-```rust
-#[test]
-fn test_parse_fails_with_unclosed_parenthesis() {
-    // Arrange: Create expression with unclosed parenthesis.
-    // Act: Parse the expression.
-    // Assert: Verify parsing fails with appropriate error.
-}
-```
-
 ## Commit Messages
 - Use imperative mood: "Add parser support".
 - Capitalize first letter, keep under 72 characters.
+
+## Code structure
+- Use 4 spaces for indentation.
+- Consolidate `impl` blocks for the same type within the same file.
+- Reduce uses of qualified names by adding imports;
+  if duplicate names are used in the same file, consider adding aliases.

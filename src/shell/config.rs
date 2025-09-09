@@ -17,21 +17,23 @@
 
 /// Configuration for the Morel shell.
 pub struct Config {
+    // lint: sort until '^ *}'
+    pub banner: bool,
+    pub directory: Option<std::path::PathBuf>,
     pub echo: bool,
     pub idempotent: bool,
-    pub directory: Option<std::path::PathBuf>,
     pub script_directory: Option<std::path::PathBuf>,
-    pub banner: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
+            // lint: sort until '^ *}'
+            banner: false,
+            directory: None,
             echo: true,
             idempotent: true,
-            directory: None,
             script_directory: None,
-            banner: false,
         }
     }
 }

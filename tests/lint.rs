@@ -16,6 +16,8 @@
 // License.
 
 use phf::{Map, Set, phf_map, phf_set};
+use regex::Regex;
+use std::collections::HashMap;
 use std::fs;
 
 #[test]
@@ -114,6 +116,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     let file_type = FileType::for_file(file_name);
     let vec_space = concat!("{}{}", "vec!", " ");
     let vec_paren = concat!("{}{}", "vec!", "(");
+    let impl_regex = Regex::new("^ *impl ").unwrap();
     if file_type.header.is_some() {
         let contents = fs::read_to_string(file_name).unwrap();
         if !contents.starts_with(file_type.header.unwrap().as_str()) {
@@ -127,22 +130,28 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         let contents = fs::read_to_string(file_name).unwrap();
         let mut line = 0;
         let mut in_raw_string = false;
-        let mut sort_until = None;
-        let mut previous_lines: Vec<(&str, usize)> = Vec::new();
+        let mut sort: Option<Sort> = None;
+        let mut impl_lines: HashMap<String, usize> = HashMap::new();
         contents.lines().for_each(|l| {
             line += 1;
-            if let Some(u) = sort_until {
-                if l.contains(u) {
-                    sort_until = None;
-                    previous_lines.clear();
+            if let Some(ref mut s) = sort {
+                let l2 = if let Some(erase) = &s.erase {
+                    erase.replace_all(l, "").to_string()
                 } else {
-                    if !previous_lines.is_empty()
-                        && l < previous_lines.last().unwrap().0
+                    l.to_string()
+                };
+                if s.until.is_match(l) {
+                    sort = None;
+                } else if s.where_.is_none()
+                    || s.where_.as_ref().unwrap().is_match(l)
+                {
+                    if !s.previous_lines.is_empty()
+                        && l2 < s.previous_lines.last().unwrap().0
                     {
                         let mut target_line = 0;
-                        for i in (0..previous_lines.len()).rev() {
-                            if l > previous_lines[i].0 {
-                                target_line = previous_lines[i].1;
+                        for i in (0..s.previous_lines.len()).rev() {
+                            if l2 > s.previous_lines[i].0 {
+                                target_line = s.previous_lines[i].1;
                                 break;
                             }
                         }
@@ -151,7 +160,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                             file_name, line, target_line
                         ));
                     }
-                    previous_lines.push((l, line));
+                    s.previous_lines.push((l2, line));
                 }
             }
             if l.ends_with(' ') {
@@ -184,24 +193,127 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                     file_name, line, vec_space, vec_paren
                 ));
             }
+            if impl_regex.is_match(l)
+                && let Some(previous_line) =
+                    impl_lines.insert(l.to_string(), line)
+            {
+                warnings.push(format!(
+                    "{}:{}: Duplicate `impl` block (previously on line {})",
+                    file_name, line, previous_line
+                ));
+            }
             if l.contains("lint: sort until")
                 && !l.contains("\"lint: sort until")
             {
-                if let Some(start) = l.find('\'')
-                    && let Some(end) = l.rfind('\'')
-                    && start < end
-                {
-                    sort_until = Some(&l[start + 1..end]);
-                    previous_lines.clear();
-                } else {
-                    warnings.push(format!(
-                        "{}:{}: Malformed 'sort until' directive",
-                        file_name, line,
-                    ));
+                match Sort::parse(l) {
+                    Ok(s) => {
+                        sort = Some(s);
+                    }
+                    Err(()) => {
+                        sort = None;
+                        warnings.push(format!(
+                            "{}:{}: Malformed 'sort until' directive: {}",
+                            file_name, line, l
+                        ));
+                    }
                 }
             }
         });
     }
+}
+
+struct Sort {
+    until: Regex,
+    erase: Option<Regex>,
+    where_: Option<Regex>,
+    previous_lines: Vec<(String, usize)>,
+}
+
+impl Sort {
+    fn parse(l: &str) -> Result<Sort, ()> {
+        let indent = Self::leading_spaces(l);
+
+        if let Some(start) = l.find('\'')
+            && let l2 = &l[start + 1..]
+            && let Some(end) = l2.find('\'')
+        {
+            let pattern = &l2[..end];
+            let until = match compile_pattern(pattern, &indent) {
+                Some(p) => p,
+                None => return Err(()),
+            };
+
+            let mut erase = None;
+            if let Some(start) = l.find(" erase \'")
+                && let l2 = &l[start + " erase \'".len()..]
+                && let Some(end) = l2.find('\'')
+            {
+                match compile_pattern(&l2[..end], &indent) {
+                    Some(re) => {
+                        erase = Some(re);
+                    }
+                    None => return Err(()),
+                }
+            }
+
+            let mut where_ = None;
+            if let Some(start) = l.find(" where \'")
+                && let l2 = &l[start + " where \'".len()..]
+                && let Some(end) = l2.find('\'')
+            {
+                match compile_pattern(&l2[..end], &indent) {
+                    Some(re) => {
+                        where_ = Some(re);
+                    }
+                    None => return Err(()),
+                }
+            }
+
+            Ok(Sort {
+                until,
+                erase,
+                where_,
+                previous_lines: Vec::new(),
+            })
+        } else {
+            Err(())
+        }
+    }
+
+    fn leading_spaces(s: &str) -> String {
+        for (i, c) in s.chars().enumerate() {
+            if c != ' ' {
+                return s[..i].to_string();
+            }
+        }
+        s.to_string()
+    }
+}
+
+/// Converts a string to a regular expression.
+///
+/// If "##" occurs in the string, it is replaced with a string that matches the
+/// beginning of the line with a number of spaces equal to the current
+/// indentation. "#" is replaced by the indentation of the enclosing block. The
+/// following applies the sort to the lines "A::B => {" and "A::C => {".
+///
+/// ```rust
+///     match {
+///         // sort until '#}' where '##A::'
+///         A::B => {
+///         },
+///         A::C => {
+///         },
+///     }
+/// ```
+fn compile_pattern(pattern: &str, mut indent: &str) -> Option<Regex> {
+    let mut p = pattern.replace("##", format!("^{}", indent).as_str());
+    indent = indent.strip_prefix("    ").unwrap_or(indent);
+    p = p.replace("#", format!("^{}", indent).as_str());
+    Some(
+        Regex::new(p.as_str())
+            .expect(format!("bad pattern {}", pattern).as_str()),
+    )
 }
 
 /// Describes whether a file is text, and its required header, if any.

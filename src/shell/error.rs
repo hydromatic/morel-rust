@@ -15,24 +15,28 @@
 // language governing permissions and limitations under the
 // License.
 
+use std::error::Error as StdError;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::io::Error as IoError;
+
 /// Error types for shell operations.
 #[derive(Debug)]
 pub enum Error {
-    Io(std::io::Error),
+    Io(IoError),
     Parse(String),
     Compile(String),
     Runtime(String),
     FileNotFound(String),
 }
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
+impl From<IoError> for Error {
+    fn from(err: IoError) -> Self {
         Error::Io(err)
     }
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Error::Io(e) => write!(f, "IO Error: {}", e),
             Error::Parse(e) => write!(f, "Parse Error: {}", e),
@@ -43,4 +47,4 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl StdError for Error {}

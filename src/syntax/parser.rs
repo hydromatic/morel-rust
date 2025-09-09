@@ -134,7 +134,6 @@ impl StepKind {
     }
 }
 
-// #[pest_consume::parser(parser = MorelParser, rule = Rule)]
 #[pest_consume::parser(parser = MorelParser)]
 impl MorelParser {
     fn statement_plus(input: ParseInput) -> ParseResult<Statement> {
@@ -1608,10 +1607,8 @@ mod test {
             let s = format!("{}", expr.kind);
             matcher(&s);
         }
-    }
 
-    impl Fixture {
-        pub(crate) fn fail(&self) {
+        fn fail(&self) {
             use super::MorelParser;
             use pest::Parser;
 
