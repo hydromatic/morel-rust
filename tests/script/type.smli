@@ -16,6 +16,8 @@
  * language governing permissions and limitations under the
  * License.
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (*) Record and tuple are equivalent.
 {1 = "a", 2 = true};

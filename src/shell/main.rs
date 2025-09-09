@@ -21,37 +21,41 @@
 #![allow(clippy::useless_format)]
 #![allow(clippy::redundant_closure)]
 
-use crate::compile::type_env::{
-    EmptyTypeEnv, FunTypeEnv, TypeEnv, TypeSchemeResolver,
-};
-use crate::compile::type_resolver::TypeResolver;
-use crate::compile::unifier::Term;
+use crate::compile::compiler::Compiler;
+use crate::compile::type_env::Binding;
+use crate::compile::type_resolver::Resolved;
+use crate::eval::code::Effect;
+use crate::eval::session::Config as SessionConfig;
+use crate::eval::session::Session;
+use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
+use crate::shell::prop::Mode;
 use crate::shell::utils::{prefix_lines, strip_prefix};
-use crate::syntax::ast;
-use crate::syntax::ast::StatementKind;
-use crate::syntax::parser::{parse_statement, parse_type_scheme};
+use crate::syntax::ast::{Span, Statement};
+use crate::syntax::parser::parse_statement;
 use phf::phf_map;
 use rustc_version::version;
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fs::read_to_string;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// Main shell for Morel - Standard ML REPL.
 pub struct Shell {
-    config: Config,
+    pub(crate) config: Config,
     environment: Environment,
+    session: Rc<RefCell<Session>>,
 }
 
 /// Simple environment for storing bindings.
 #[derive(Debug, Clone)]
 pub struct Environment {
-    bindings: HashMap<String, String>,
+    bindings: HashMap<String, Val>,
 }
 
 impl Default for Environment {
@@ -67,11 +71,21 @@ impl Environment {
         Self::default()
     }
 
-    pub fn bind(&mut self, name: String, value: String) {
-        self.bindings.insert(name, value);
+    pub fn bind(&mut self, name: String, value: &Val) {
+        self.bindings.insert(name, value.clone());
     }
 
-    pub fn get(&self, name: &str) -> Option<&String> {
+    pub fn bind_all(&self, _bindings: &[Binding]) -> Self {
+        let mut env = Self::new();
+        for b in _bindings {
+            if b.value.is_some() {
+                env.bind(b.id.name.clone(), b.value.as_ref().unwrap());
+            }
+        }
+        env
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Val> {
         self.bindings.get(name)
     }
 
@@ -81,40 +95,55 @@ impl Environment {
 }
 
 impl Shell {
+    pub(crate) fn set_prop(
+        &mut self,
+        prop: &str,
+        val: Val,
+    ) -> Result<(), Error> {
+        match prop {
+            "mode" => {
+                self.config.mode = val.as_string().parse().ok();
+                Ok(())
+            }
+            _ => todo!(),
+        }
+    }
+
     /// Creates a new Main shell with the given configuration.
     pub fn new(args: Vec<String>) -> Self {
         let mut config = Config::default();
+        let mut session_config = SessionConfig::default();
 
         // Parse command line arguments
         for arg in &args {
             match arg.as_str() {
-                "--banner" => config.banner = true,
-                "--echo" => config.echo = true,
-                "--idempotent" => config.idempotent = true,
+                "--banner" => config.banner = Some(true),
+                "--echo" => config.echo = Some(true),
+                "--idempotent" => config.idempotent = Some(true),
                 _ if arg.starts_with("--directory=") => {
                     let dir = arg.strip_prefix("--directory=").unwrap();
-                    config.directory = Some(PathBuf::from(dir));
+                    session_config.directory =
+                        Some(Rc::new(PathBuf::from(dir)));
                 }
                 _ => {} // Ignore unknown arguments for now
             }
         }
 
         // Set default directory to current working directory
-        if config.directory.is_none() {
-            config.directory = std::env::current_dir().ok();
+        if session_config.directory.is_none() {
+            session_config.directory =
+                Some(Rc::new(std::env::current_dir().ok().unwrap()));
         }
 
-        Self {
-            config,
-            environment: Environment::new(),
-        }
+        Self::with_config(config)
     }
 
-    /// Creates Main with custom configuration.
+    /// Creates a Shell with a custom configuration.
     pub fn with_config(config: Config) -> Self {
         Self {
             config,
             environment: Environment::new(),
+            session: Rc::new(RefCell::new(Session::new())),
         }
     }
 
@@ -127,7 +156,7 @@ impl Shell {
         let mut reader = BufReader::new(input);
         let mut writer = BufWriter::new(output);
 
-        if self.config.banner {
+        if self.config.banner.unwrap() {
             writeln!(writer, "{}", Self::banner().as_str())?;
             writer.flush()?;
         }
@@ -141,7 +170,7 @@ impl Shell {
             if line_buffer_ready {
                 line_buffer_ready = false;
             } else {
-                if self.config.echo {
+                if self.config.echo.unwrap() {
                     write!(writer, "- ")?;
                     writer.flush()?;
                 }
@@ -161,16 +190,16 @@ impl Shell {
                 continue;
             }
 
-            // Add line to statement buffer
+            // Add a line to the statement buffer
             statement_buffer.push_str(line);
 
-            // If we have a complete statement (last line ends with a semicolon
-            // and not inside a comment), execute it.
+            // If we have a complete statement (the last line ends with a
+            // semicolon and is not inside a comment), execute it.
             if statement_buffer.ends_with(';')
                 && comment_depth(statement_buffer.as_str()) == 0
             {
                 // In idempotent mode, look ahead for output lines.
-                if self.config.idempotent {
+                if self.config.idempotent.unwrap() {
                     // Strip out lines that are not part of the statement
                     expected_output_buffer.clear();
                     loop {
@@ -193,7 +222,7 @@ impl Shell {
                     }
                 }
 
-                // Remove the semicolon, then parse/execute statement
+                // Remove the semicolon, then parse/execute the statement
                 statement_buffer.pop();
                 let result = self.process_statement(
                     &statement_buffer,
@@ -226,61 +255,67 @@ impl Shell {
         expected_output: Option<&str>,
     ) -> ShellResult<String> {
         // Try to parse the statement
-        let statement = parse_statement(code);
-        if statement.is_err() {
-            let string = statement.unwrap_err().to_string();
-            println!("Failed to parse: {}, err {}", code, string);
-            Err(Error::Parse(format!(
-                "Failed to parse: {}, err {}",
-                code, string,
-            )))
-        } else if expected_output.is_some()
+        let statement = match parse_statement(code) {
+            Err(e) => {
+                let string = e.to_string();
+                println!("Failed to parse: {}, err {}", code, string);
+                return Err(Error::Parse(format!(
+                    "Failed to parse: {}, err {}",
+                    code, string,
+                )));
+            }
+            Ok(statement) => statement,
+        };
+
+        // Mode for just this statement.
+        let mut statement_mode = self.config.mode.unwrap();
+
+        // When we're in parse or validate mode, how do we execute a statement
+        // to change mode? This block solves the conundrum.
+        if matches!(self.config.mode, Some(Mode::Parse) | Some(Mode::Validate))
+            && format!("{}", statement.kind.clone())
+                == r#"set ("mode", "evaluate")"#
+        {
+            statement_mode = Mode::Evaluate;
+        }
+
+        if matches!(statement_mode, Mode::Parse | Mode::Validate)
+            && expected_output.is_some()
             && !expected_output.unwrap().starts_with(">type")
         {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions.
             // So, just say the expression returned what we expected.
-            Ok(expected_output.unwrap().to_string())
-        } else if expected_output.is_some() {
+            return Ok(expected_output.unwrap().to_string());
+        }
+
+        if matches!(statement_mode, Mode::Validate | Mode::Evaluate)
+            && expected_output.is_some()
+            && expected_output.unwrap().starts_with(">type")
+        {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions,
             // but we can deduce their type.
             let _expected_type =
                 strip_prefix(">type ", expected_output.unwrap()).trim();
-            let output = self.deduce_type(statement.unwrap());
-            match &output {
+            let output = self.deduce_type(&statement);
+            return match &output {
                 Ok(s) => Ok(prefix_lines(">type", s.as_str())),
                 Err(_) => output,
-            }
-        } else {
-            // Successfully parsed, now evaluate
-            let output = self.evaluate_node(statement.unwrap());
-            match &output {
-                Ok(s) => Ok(prefix_lines(">", s.as_str())),
-                Err(_) => output,
-            }
+            };
+        }
+
+        // Successfully parsed, now evaluate
+        let resolved = self.session.borrow_mut().deduce_type_inner(&statement);
+        let output = self.evaluate_node(resolved);
+        match &output {
+            Ok(s) => Ok(prefix_lines(">", s.as_str())),
+            Err(_) => output,
         }
     }
 
-    /// Deduces a statement's type. The statement is represented by an AST node.
-    fn deduce_type(&mut self, node: ast::Statement) -> ShellResult<String> {
-        let mut type_resolver = TypeResolver::new();
-        let empty_type_env = EmptyTypeEnv {};
-        let resolve =
-            |id: &str, t: &mut dyn TypeSchemeResolver| -> Option<Term> {
-                if let Some(x) = BUILT_IN_TYPES.get(id) {
-                    let type_scheme = parse_type_scheme(x).unwrap();
-                    Some(Term::Variable(t.deduce_type_scheme(&type_scheme)))
-                } else {
-                    None
-                }
-            };
-        let type_env = FunTypeEnv {
-            parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
-            resolve: Rc::new(resolve),
-        };
-
-        let resolved = type_resolver.deduce_type(&type_env, &node);
+    fn deduce_type(&mut self, node: &Statement) -> ShellResult<String> {
+        let resolved = self.session.borrow_mut().deduce_type_inner(node);
 
         // For now, just unparse the node back to a string. In a full
         // implementation, this would actually evaluate the expression.
@@ -298,21 +333,48 @@ impl Shell {
     }
 
     /// Evaluates a parsed AST node.
-    fn evaluate_node(&mut self, node: ast::Statement) -> ShellResult<String> {
-        // For now, just unparse the node back to a string. In a full
-        // implementation, this would actually evaluate the expression.
-        let result = format!("{}", &node.kind);
+    fn evaluate_node(&mut self, resolved: Resolved) -> ShellResult<String> {
+        let compiler = Compiler::new(&resolved.type_map);
+        let compiled_statement = compiler.compile_statement(
+            &self.environment,
+            &resolved.decl,
+            None,
+            &HashSet::new(),
+        );
+        let mut result = String::new();
+        let mut bindings = Vec::new();
+        // Collect effects from evaluation
+        let mut effects = Vec::new();
+        let session = self.session.borrow();
+        compiled_statement.eval(
+            &session,
+            self,
+            &self.environment,
+            &mut effects,
+            &resolved.type_map,
+        );
+        drop(session); // Release the borrow before applying effects
 
-        match &node.kind {
-            StatementKind::Expr(_expr) => {
-                // For expressions, show the type and value
-                Ok(format!("val it = {} : <type>", result))
-            }
-            StatementKind::Decl(_) => {
-                // For declarations, show what was declared
-                Ok(result)
+        // Apply effects
+        for effect in effects {
+            match effect {
+                Effect::EmitLine(line) => {
+                    result.push_str(&line);
+                    result.push('\n');
+                }
+                Effect::SetShellProp(prop, val) => {
+                    let _ = self.set_prop(&prop, val);
+                }
+                Effect::SetSessionProp(prop, val) => {
+                    let mut session = self.session.borrow_mut();
+                    let _ = session.set_prop(&prop, val);
+                }
+                Effect::AddBinding(binding) => {
+                    bindings.push(binding);
+                }
             }
         }
+        Ok(result)
     }
 
     /// Runs a script file.
@@ -324,7 +386,7 @@ impl Shell {
         let content = read_to_string(&file_path).map_err(|e| Error::Io(e))?;
 
         // Create a cursor from the string content
-        let cursor = std::io::Cursor::new(content.as_bytes());
+        let cursor = Cursor::new(content.as_bytes());
         self.run(cursor, output)
     }
 
@@ -379,45 +441,13 @@ fn comment_depth(code: &str) -> i32 {
     depth
 }
 
-/// Shell implementation for use within scripts.
-pub struct Session {
-    shell: Shell,
+pub enum MorelError {
+    Runtime(BuiltInExn, Span),
+    Other,
 }
 
-impl Session {
-    pub fn new(main: Shell) -> Self {
-        Self { shell: main }
-    }
-
-    /// Executes a `use` command (load a file).
-    pub fn use_file<P: AsRef<Path>, W: Write>(
-        &mut self,
-        file_path: P,
-        silent: bool,
-        output: W,
-    ) -> ShellResult<()> {
-        let path = file_path.as_ref();
-
-        if !silent {
-            // TODO: Write opening message to output
-        }
-
-        // Check if file exists
-        if !path.exists() {
-            return Err(Error::FileNotFound(format!(
-                "use failed: File not found: {}",
-                path.display(),
-            )));
-        }
-
-        // Run the file
-        self.shell.run_file(path, output)
-    }
-
-    /// Clears the environment.
-    pub fn clear_env(&mut self) {
-        self.shell.environment_mut().clear();
-    }
+pub enum BuiltInExn {
+    Bind,
 }
 
 #[cfg(test)]
@@ -429,7 +459,7 @@ mod tests {
     fn test_main_creation() {
         let args = vec!["--echo".to_string()];
         let main = Shell::new(args);
-        assert!(main.config.echo);
+        assert!(main.config.echo.unwrap());
     }
 
     #[test]
@@ -448,8 +478,9 @@ mod tests {
     #[test]
     fn test_environment() {
         let mut env = Environment::new();
-        env.bind("x".to_string(), "42".to_string());
-        assert_eq!(env.get("x"), Some(&"42".to_string()));
+        let val = crate::eval::val::Val::String("42".to_string());
+        env.bind("x".to_string(), &val);
+        assert_eq!(env.get("x"), Some(&val));
     }
 
     #[test]
@@ -467,10 +498,11 @@ mod tests {
 ///
 /// The types are held as strings and are parsed (and converted to terms)
 /// on demand. This is a win when there are a lot of built-in operators.
-static BUILT_IN_TYPES: phf::Map<&'static str, &'static str> = phf_map! {
-    /* lint: sort until '}' */
+pub static BUILT_IN_TYPES: phf::Map<&'static str, &'static str> = phf_map! {
+    // lint: sort until '^}$'
     "NONE" => "forall 1 'a option",
     "SOME" => "forall 1 'a -> 'a option",
+    "Sys" => "{set: string * string -> unit}",
     "false" => "bool",
     "nil" => "forall 1 'a list",
     "op *" => "int * int -> int",
@@ -490,5 +522,6 @@ static BUILT_IN_TYPES: phf::Map<&'static str, &'static str> = phf_map! {
     "op implies" => "bool * bool -> bool",
     "op mod" => "int * int -> int",
     "op orelse" => "bool * bool -> bool",
+    "set" => "string * string -> unit",
     "true" => "bool",
 };

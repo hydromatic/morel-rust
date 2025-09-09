@@ -15,6 +15,9 @@
 // language governing permissions and limitations under the
 // License.
 
+// lint: sort until '^$' erase 'pub '
+pub mod compiler;
+mod pretty;
 pub mod type_env;
 pub mod type_resolver;
 mod types;

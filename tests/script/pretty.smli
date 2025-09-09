@@ -18,6 +18,8 @@
  *
  * Pretty-printing and output modes
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (* -------------------------------------------------------------
  * [MOREL-259] Tabular mode

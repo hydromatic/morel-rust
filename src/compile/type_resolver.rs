@@ -77,6 +77,33 @@ impl TypeMap {
         }
         None
     }
+
+    /// Ensures that a type is closed.
+    pub fn ensure_closed(&self, _type_: Type) -> Type {
+        todo!()
+    }
+}
+
+pub trait Typed {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>>;
+}
+
+impl Typed for Expr {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>> {
+        type_map.get_type(self.id?)
+    }
+}
+
+impl Typed for ValBind {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>> {
+        self.expr.get_type(type_map)
+    }
+}
+
+impl Typed for Pat {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>> {
+        type_map.get_type(self.id?)
+    }
 }
 
 struct TermToTypeConverter<'a> {
@@ -410,6 +437,7 @@ impl TypeResolver {
             ),
             type_annotation,
             expr,
+            overload_pat: None,
         }
     }
 
@@ -1355,6 +1383,7 @@ impl TypeResolver {
             LiteralKind::Char(_) => PrimitiveType::Char,
             LiteralKind::Bool(_) => PrimitiveType::Bool,
             LiteralKind::Unit => PrimitiveType::Unit,
+            LiteralKind::Fn(_) => todo!("Implement Fn literal type"),
         }
     }
 

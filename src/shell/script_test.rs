@@ -15,26 +15,31 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::eval::session::Config as SessionConfig;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::{Shell, ShellResult, utils};
 use std::fs::{self};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// Test runner for script files, equivalent to Java ScriptTest.
 pub struct ScriptTest {
-    directory: Option<PathBuf>,
+    config: SessionConfig,
 }
 
 impl ScriptTest {
     /// Creates a ScriptTest.
-    pub fn new(directory: Option<PathBuf>) -> Self {
-        Self { directory }
+    pub fn new(config: SessionConfig) -> Self {
+        Self { config }
     }
 
     /// Gets the test directory.
     pub fn directory(&self) -> Option<&Path> {
-        self.directory.as_deref()
+        match &self.config.directory {
+            None => None,
+            Some(d) => Some(d.as_path()),
+        }
     }
 
     /// Runs a single test file.
@@ -46,32 +51,35 @@ impl ScriptTest {
         let idempotent = path.to_string_lossy().ends_with(".smli")
             || path.to_str() == Some("-");
 
-        // Create output directory if needed
+        // Create the output directory if needed
         if let Some(parent) = out_file.parent() {
             fs::create_dir_all(parent)?;
         }
 
         // Set up configuration
-        let mut config = Config {
-            echo: !idempotent,
-            banner: false,
-            idempotent,
-            directory: self.directory.clone(),
-            script_directory: in_file
-                .parent()
-                .map(std::path::Path::to_path_buf),
+        let shell_config = Config {
+            echo: Some(!idempotent),
+            banner: Some(false),
+            idempotent: Some(idempotent),
+            ..Config::default()
         };
+
+        let mut session_config = SessionConfig::default();
+        if let Some(p) = in_file.parent().map(Path::to_path_buf) {
+            session_config.script_directory = Some(Rc::new(p));
+        }
 
         // Adjust directory for specific tests
         if path.to_string_lossy().contains("/file.")
-            && let Some(mut dir) = config.directory.clone()
+            && let Some(dir) = session_config.directory.clone()
         {
-            dir.push("data");
-            config.directory = Some(dir);
+            let mut new_dir = (*dir).clone();
+            new_dir.push("data");
+            session_config.directory = Some(Rc::new(new_dir));
         }
 
         // Create and run the shell
-        let mut shell = Shell::with_config(config);
+        let mut shell = Shell::with_config(shell_config);
 
         // Run the input file and capture output
         let mut output = Vec::new();
@@ -129,8 +137,8 @@ impl ScriptTest {
             return Ok((in_file, out_file));
         }
 
-        if let Some(dir) = &self.directory {
-            // Relative to specified directory
+        if let Some(dir) = &self.directory() {
+            // Relative to the specified directory
             let in_file = dir.join(path);
             let out_file = dir.join(format!("{}.out", path.display()));
             return Ok((in_file, out_file));
@@ -146,7 +154,7 @@ impl ScriptTest {
 
     /// Gets all test files in the script directory.
     pub fn find_test_files(&self) -> ShellResult<Vec<PathBuf>> {
-        let script_dir = self.directory.as_ref().map_or_else(
+        let script_dir = self.directory().as_ref().map_or_else(
             || PathBuf::from("src/test/resources/script"),
             |d| d.join("script"),
         );
@@ -211,19 +219,19 @@ impl ScriptTest {
 
     /// Main entry point for command-line usage.
     pub fn main(args: Vec<String>) -> ShellResult<()> {
-        let mut directory = None;
         let mut test_files = Vec::new();
+        let mut config = SessionConfig::default();
 
         // Parse arguments
         for arg in &args {
             if let Some(dir) = arg.strip_prefix("--directory=") {
-                directory = Some(PathBuf::from(dir));
+                config.directory = Some(Rc::new(PathBuf::from(dir)));
             } else if !arg.starts_with("--") {
                 test_files.push(PathBuf::from(arg));
             }
         }
 
-        let script_test = ScriptTest::new(directory);
+        let script_test = ScriptTest::new(config);
 
         if test_files.is_empty() {
             // Run all tests
@@ -254,7 +262,7 @@ impl ScriptTest {
 
 impl Default for ScriptTest {
     fn default() -> Self {
-        Self::new(None)
+        Self::new(SessionConfig::default())
     }
 }
 
@@ -265,9 +273,11 @@ mod tests {
     #[test]
     fn test_script_test_creation() {
         let st = ScriptTest::default();
-        assert!(st.directory().is_none());
+        assert_eq!(st.directory(), None);
 
-        let st = ScriptTest::new(Some(PathBuf::from("/tmp")));
+        let mut config = SessionConfig::default();
+        config.directory = Some(Rc::new(PathBuf::from("/tmp")));
+        let st = ScriptTest::new(config);
         assert_eq!(st.directory(), Some(Path::new("/tmp")));
     }
 

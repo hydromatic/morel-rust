@@ -18,6 +18,8 @@
  *
  * Tests for the file system ("file").
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (*) The "file" value represents the file system, starting in the current
 (*) directory.

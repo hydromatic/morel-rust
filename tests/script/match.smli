@@ -18,6 +18,8 @@
  *
  * Pattern matching
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (*) Warning: match nonexhaustive
 fun f 1 = 0;

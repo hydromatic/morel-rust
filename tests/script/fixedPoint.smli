@@ -21,6 +21,8 @@
  * State adjacency data is based upon
  * https://writeonly.wordpress.com/2009/03/20/adjacency-list-of-states-of-the-united-states-us/
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("printLength", 64);
 > val it = () : unit
 

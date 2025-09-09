@@ -18,6 +18,8 @@
  *
  * Algebraic types ("datatype").
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("printDepth", ~1);
 > val it = () : unit
 

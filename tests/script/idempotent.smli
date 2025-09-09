@@ -18,6 +18,8 @@
  *
  * Tests the "idempotent mode" for test scripts.
  *)
+set("mode", "validate");
+> val it = () : unit
 
 "a string";
 > val it = "a string" : string

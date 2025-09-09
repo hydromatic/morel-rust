@@ -21,6 +21,8 @@
  * choosing the optimal guess given the information from previous
  * guesses.
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printLength", 64);

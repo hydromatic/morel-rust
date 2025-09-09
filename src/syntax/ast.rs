@@ -15,8 +15,12 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::compiler::BuiltInFunction;
+use crate::compile::type_env::Id;
+use crate::eval::val::Val;
 use crate::syntax::ast;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::ops::Deref;
 use std::rc::Rc;
 
 /// A location in the source text.
@@ -398,6 +402,7 @@ impl Display for Literal {
 /// Kind of literal.
 #[derive(Debug, Clone)]
 pub enum LiteralKind {
+    Fn(BuiltInFunction),
     Int(String),
     Real(String),
     String(String),
@@ -424,6 +429,7 @@ impl Display for LiteralKind {
             LiteralKind::Char(s) => write!(f, "'{}'", s)?,
             LiteralKind::Bool(b) => write!(f, "{}", b)?,
             LiteralKind::Unit => write!(f, "()")?,
+            LiteralKind::Fn(built_in) => write!(f, "{:?}", built_in)?,
         };
         Ok(())
     }
@@ -516,6 +522,31 @@ pub struct Pat {
 }
 
 impl Pat {
+    /// Returns the name of this pattern, if it is an identifier or `as`,
+    /// otherwise None.
+    pub fn name(&self) -> Option<String> {
+        match &self.kind {
+            PatKind::Identifier(name) | PatKind::As(name, _) => {
+                Some(name.clone())
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn bind_recurse(
+        &self,
+        val: &Val,
+        consumer: &mut dyn FnMut(Box<Pat>, &Val),
+    ) {
+        match &self.kind {
+            PatKind::Identifier(_name) => {
+                consumer(Box::new(self.clone()), val);
+            }
+            _ => {
+                todo!("{}", self.kind);
+            }
+        }
+    }
     /// Calls a given function for each atomic identifier in this pattern.
     pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(i32, &str)) {
         match &self.kind {
@@ -642,6 +673,62 @@ pub struct Decl {
 }
 
 impl Decl {
+    /// Invokes an action for each top-level binding.
+    ///
+    /// If a recursive val has multiple arms, each of those arms is a binding.
+    /// If any of the arms binds a composite pattern, it is wrapped in an `as`.
+    /// Consider:
+    ///
+    /// ```sml
+    /// val w = 1
+    /// and (x, y) = (2, 3)
+    /// ```
+    ///
+    /// Translation introduces an extra `as` binding, `z`, to capture the
+    /// composite pattern:
+    ///
+    /// ```sml
+    /// val w = 1
+    /// and (x, y) as z = (2, 3)
+    /// ```
+    ///
+    /// `z` is marked *skipped* and the sub-bindings appear in the output.
+    /// Thus, the output is
+    ///
+    /// ```text
+    /// val w = 1 : int
+    /// val x = 2 : int
+    /// val y = 3 : int
+    /// ```
+    pub(crate) fn for_each_binding<F>(&self, action: &mut F)
+    where
+        F: FnMut(&Pat, &Expr, &Option<Id>, &Span),
+    {
+        match &self.kind {
+            DeclKind::Val(_rec, _inst, val_binds) => {
+                for b in val_binds {
+                    call(action, b);
+                }
+            }
+            DeclKind::NonRecVal(b) => call(action, b.deref()),
+            DeclKind::RecVal(binds) => {
+                for b in binds {
+                    call(action, b);
+                }
+            }
+            _ => {
+                // Other kinds of declaration don't have bindings.
+            }
+        }
+
+        fn call<F>(action: &mut F, b: &ValBind)
+        where
+            F: FnMut(&Pat, &Expr, &Option<Id>, &Span),
+        {
+            action(b.pat.as_ref(), b.expr.as_ref(), &b.overload_pat, &b.span())
+        }
+    }
+
     pub(crate) fn for_each_id_pat(&self, mut p0: impl FnMut(i32, &str)) {
         match &self.kind {
             DeclKind::Val(_rec, _inst, val_binds) => {
@@ -675,6 +762,10 @@ impl Display for Decl {
 #[derive(Debug, Clone)]
 pub enum DeclKind {
     Val(bool, bool, Vec<ValBind>),
+    /// Simplified variant of `Val`, present in Core, not syntax.
+    NonRecVal(Box<ValBind>),
+    /// Simplified variant of `Val`, present in Core, not syntax.
+    RecVal(Vec<ValBind>),
     Fun(Vec<FunBind>),
     Over(String),
     Type(Vec<TypeBind>),
@@ -704,6 +795,11 @@ impl Display for DeclKind {
                 }
                 fmt_list(f, binds, " and ")
             }
+            DeclKind::NonRecVal(bind) => write!(f, "val {}", bind),
+            DeclKind::RecVal(binds) => {
+                write!(f, "val rec ")?;
+                fmt_list(f, binds, " and ")
+            }
             DeclKind::Fun(funs) => {
                 write!(f, "fun ")?;
                 fmt_list(f, funs, " | ")
@@ -727,6 +823,8 @@ pub struct ValBind {
     pub pat: Box<Pat>,
     pub type_annotation: Option<Box<Type>>,
     pub expr: Box<Expr>,
+    /// TODO: This should be introduced when we translate Ast to Core.
+    pub overload_pat: Option<Id>,
 }
 
 impl ValBind {
@@ -741,6 +839,7 @@ impl ValBind {
             pat,
             type_annotation: type_annotation.map(Box::new),
             expr,
+            overload_pat: None,
         }
     }
 

@@ -15,24 +15,39 @@
 // language governing permissions and limitations under the
 // License.
 
-#![allow(dead_code)]
+use crate::compile::types::Type;
+use crate::shell::prop::Output;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+/// Prints values prettily.
+pub struct Pretty;
+
+impl Pretty {
+    pub(crate) fn new(
+        _p1: i32,
+        _p2: Output,
+        _p3: i32,
+        _p4: i32,
+        _p5: i32,
+    ) -> Self {
+        todo!()
+    }
+
+    pub(crate) fn pretty(&self, _p0: &mut str, _p1: Type, _p2: &()) {
+        todo!()
+    }
 }
 
-pub mod compile;
-pub mod eval;
-pub mod shell;
-pub mod syntax;
+/// Wrapper that indicates that a value should be printed with its type.
+///
+/// For example:
+///
+/// ```sml
+/// val name = value : type
+/// ```
+pub struct TypedVal;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+impl TypedVal {
+    pub(crate) fn new(_p0: String, _p1: &Option<TypedVal>, _p2: Type) -> Self {
+        todo!()
     }
 }

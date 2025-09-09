@@ -18,6 +18,8 @@
  *
  * Tests queries that are to execute mostly in Calcite.
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("printLength", 64);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);

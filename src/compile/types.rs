@@ -156,6 +156,10 @@ impl Type {
             _ => todo!(),
         }
     }
+
+    pub fn contains_progressive(&self) -> bool {
+        false // TODO
+    }
 }
 
 impl Display for Type {

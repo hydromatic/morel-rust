@@ -18,6 +18,8 @@
  *
  * Tests type aliases, i.e. types declared using the 'type' keyword.
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (*) Type alias
 type myInt = int;

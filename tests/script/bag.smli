@@ -18,6 +18,8 @@
  *
  * Bags vs lists, and relational operators between the two
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printDepth", 6);

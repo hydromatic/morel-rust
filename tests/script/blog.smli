@@ -20,6 +20,8 @@
  * web site, documentation, and blog posts. Just, you know, to keep
  * us honest.
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("printDepth", ~1);
 > val it = () : unit
 Sys.set ("lineWidth", 78);

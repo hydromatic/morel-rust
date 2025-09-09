@@ -21,6 +21,7 @@ use std::io::{stdin, stdout};
 use std::process::exit;
 
 mod compile;
+mod eval;
 mod shell;
 mod syntax;
 

@@ -16,6 +16,8 @@
  * language governing permissions and limitations under the
  * License.
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printLength", 999);

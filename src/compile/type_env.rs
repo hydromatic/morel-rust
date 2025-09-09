@@ -15,9 +15,13 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::types::Type;
 use crate::compile::unifier::{Term, Var};
-use crate::syntax::ast::TypeScheme;
+use crate::eval::code::Code;
+use crate::eval::val::Val;
+use crate::syntax::ast::{Expr, Pat, PatKind, TypeScheme};
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::rc::Rc;
 
 /// Environment for type resolution, mapping names to terms.
@@ -159,7 +163,7 @@ pub type ResolverFn =
     Rc<dyn Fn(&str, &mut dyn TypeSchemeResolver) -> Option<Term>>;
 
 /// Simple type environment backed by a function from names to terms.
-/// delegating to a parent.
+/// Delegates to a parent.
 #[derive(Clone)]
 pub struct FunTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
@@ -185,5 +189,80 @@ impl TypeEnvBuilder {
 
     pub fn build(self) -> Rc<dyn TypeEnv> {
         self.env
+    }
+}
+
+/// Identifier. A pattern that just consists of a name. It maps to
+/// a [PatKind::Identifier] or [PatKind::As].
+///
+/// The following declaration binds patterns `w`, `x`, `y`, and `z`:
+///
+/// ```sml
+/// val (w, x) as y = (1, 2)
+/// and z = 3
+/// ```
+#[derive(Debug, Clone)]
+pub struct Id {
+    pub name: String,
+    pub ordinal: usize,
+    // pub type_: Box<Type>,
+}
+
+/// Binding of a name to a type and a value.
+///
+/// Used in [crate::shell::Environment].
+#[derive(Debug, Clone)]
+pub struct Binding {
+    pub id: Box<Id>,
+    // pub term: Term,
+    pub overload_id: Option<String>,
+    pub value: Option<Val>,
+}
+
+impl Binding {
+    pub(crate) fn get_type(&self) -> Box<Type> {
+        todo!()
+    }
+
+    pub(crate) fn of_code(_p0: &PatKind, _p1: Code) -> Binding {
+        todo!()
+    }
+
+    pub(crate) fn inst_of(_x1: &Pat, _x10: &Expr) -> Self {
+        todo!()
+    }
+
+    pub(crate) fn inst_of_val(_x1: Pat, _x2: Pat, _x10: &Val) -> Self {
+        todo!()
+    }
+
+    pub(crate) fn of(x1: Pat, val: &Val) -> Self {
+        Binding {
+            id: Box::new(Id {
+                name: match x1.kind {
+                    PatKind::Identifier(name) => name.clone(),
+                    PatKind::As(name, _pat) => name.clone(),
+                    _ => panic!("Not an identifier or as pattern"),
+                },
+                ordinal: 0,
+                // type_: Box::new(Type::Var("a".to_string())), // Placeholder
+            }),
+            value: Some(val.clone()),
+            overload_id: None,
+        }
+    }
+
+    pub(crate) fn inst(_p0: Pat, _p1: Option<&str>, _p2: Expr) -> Self {
+        todo!()
+    }
+}
+
+impl Display for Binding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(ref v) = self.value {
+            write!(f, "{}: {}", self.id.name, v)
+        } else {
+            write!(f, "{}: none", self.id.name)
+        }
     }
 }

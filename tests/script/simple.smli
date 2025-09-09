@@ -16,7 +16,11 @@
  * language governing permissions and limitations under the
  * License.
  *)
+set("mode", "validate");
+> val it = () : unit
 Sys.set ("lineWidth", 78);
+> val it = () : unit
+set("mode", "evaluate");
 > val it = () : unit
 
 (*) Type tests
@@ -48,6 +52,10 @@ false;
 >type it : bool
 (1);
 >type it : int
+
+set("mode", "validate");
+>val it : unit = ()
+
 (1, true);
 >type it : int * bool
 (false, 1, (true, false));
@@ -199,6 +207,8 @@ val rec len =
 fun len nil = 0
   | len (h :: t) = 1 + (len t);
 >type len : 'a list -> int
+
+set("mode", "evaluate");
 
 (*) Literals
 1;

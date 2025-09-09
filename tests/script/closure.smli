@@ -18,6 +18,8 @@
  *
  * Expressions that use recursion, function values, and closure.
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (*) Simple factorial function
 let

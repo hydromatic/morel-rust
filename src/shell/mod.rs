@@ -15,9 +15,11 @@
 // language governing permissions and limitations under the
 // License.
 
-mod config;
-mod error;
+// lint: sort until '^$' erase 'pub '
+pub mod config;
+pub mod error;
 pub mod main;
+pub mod prop;
 pub mod script_test;
 
 pub use main::Shell;

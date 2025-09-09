@@ -18,6 +18,8 @@
  *
  * Miscellaneous stuff - often test cases for bugs
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (* -------------------------------------------------------------
  * [MOREL-251] Add function `Sys.clearEnv ()`

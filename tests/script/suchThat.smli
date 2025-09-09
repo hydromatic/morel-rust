@@ -20,6 +20,8 @@
  * (Originally, such queries used a 'suchthat' keyword, but that keyword
  * has since been removed.)
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (* ------------------------------------------------------ *)
 (* Convert predicates into ranges. *)

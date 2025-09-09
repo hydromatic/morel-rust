@@ -18,6 +18,8 @@
  *
  * Tests for logical expressions.
  *)
+set("mode", "validate");
+> val it = () : unit
 
 val emps = scott.emps;
 > val emps = <relation>

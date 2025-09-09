@@ -15,24 +15,17 @@
 // language governing permissions and limitations under the
 // License.
 
-#![allow(dead_code)]
+// lint: sort until '^$' erase 'pub '
+pub mod code;
+pub mod session;
+pub mod val;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-pub mod compile;
-pub mod eval;
-pub mod shell;
-pub mod syntax;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+// pub mod compiler;
+// pub mod context;
+// pub mod env;
+// pub mod eval;
+// pub mod eval_env;
+// pub mod eval_session;
+// pub mod eval_state;
+// pub mod eval_types;
+// pub mod expr;

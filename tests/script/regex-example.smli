@@ -21,6 +21,8 @@
  * Code and text is based upon sections 3.2 and 3.3 of "Seminaïve Evaluation for
  * a Higher-Order Functional Language" (Arntzenius, Krishnaswami, 2020).
  *)
+set("mode", "validate");
+> val it = () : unit
 
 (* "chars" splits a string into a list of (index, character) pairs. *)
 fun chars s =
