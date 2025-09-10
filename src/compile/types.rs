@@ -98,7 +98,7 @@ impl Type {
         right: u8,
     ) -> std::fmt::Result {
         match self {
-            Type::Primitive(p) => f.write_str(p.to_str()),
+            Type::Primitive(p) => f.write_str(p.as_str()),
             Type::Fn(param, result) => {
                 const OP: Op = Op::FN;
                 if left > OP.left || right > OP.right {
@@ -180,7 +180,7 @@ pub enum PrimitiveType {
 }
 
 impl PrimitiveType {
-    pub fn to_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match &self {
             PrimitiveType::Unit => "unit",
             PrimitiveType::Bool => "bool",
@@ -236,13 +236,13 @@ impl TypeVariable {
 
 /// Operator definition. Includes left and right precedence, and the opening,
 /// closing, and separator strings to use when printing a list.
-struct Op {
-    left: u8,
-    right: u8,
-    open: &'static str,
-    close: &'static str,
-    sep: &'static str,
-    always_surround: bool,
+pub struct Op {
+    pub left: u8,
+    pub right: u8,
+    pub open: &'static str,
+    pub close: &'static str,
+    pub sep: &'static str,
+    pub always_surround: bool,
 }
 
 impl Op {
@@ -267,15 +267,15 @@ impl Op {
 
     /// The list operator has a low precedence. An example is `(int, string)`
     /// that appears before the type application `(int, string) tree`.
-    const LIST: Op = Op::new(1, 1, "(", ", ", ")", true);
+    pub const LIST: Op = Op::new(16, 17, "(", ", ", ")", true);
 
     /// The function arrow "->" is right-associative and has a lower precedence
     /// than the tuple constructor "*".
-    const FN: Op = Op::new(13, 12, "(", " -> ", ")", false);
+    pub const FN: Op = Op::new(13, 12, "(", " -> ", ")", false);
 
     /// The tuple constructor "*" or product type operator is left-associative
     /// and has a lower precedence than type-application.
-    const TUPLE: Op = Op::new(14, 15, "(", " * ", ")", false);
+    pub const TUPLE: Op = Op::new(14, 15, "(", " * ", ")", false);
 
     /// The type-application operator is right-associative and has a
     /// high precedence. An example is `int option list`:
@@ -284,20 +284,8 @@ impl Op {
     /// [SOME 0];
     /// val it = [SOME 0] : int option list
     /// ```
-    const APPLY: Op = Op::new(16, 17, "", " ", "", false);
+    pub const APPLY: Op = Op::new(16, 17, "", " ", "", false);
 }
-
-/// Type constructor precedence, from low to high, is the function
-/// arrow (`->`), product types (`*`), and type application (e.g.
-/// `int list`).
-///
-/// [FN_LEFT] is less than [FN_RIGHT] because `->` is right-associative
-/// (i.e. `a -> b -> c` means `a -> (b -> c)`, not `(a -> b) -> c`). Most
-/// other operators are left-associative.
-const FN_LEFT: u8 = 13;
-const FN_RIGHT: u8 = 12;
-const TUPLE_LEFT: u8 = 14;
-const TUPLE_RIGHT: u8 = 15;
 
 #[cfg(test)]
 mod tests {

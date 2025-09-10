@@ -95,6 +95,7 @@ impl Environment {
 }
 
 impl Shell {
+    #[allow(clippy::needless_pass_by_value)] // Val is small
     pub(crate) fn set_prop(
         &mut self,
         prop: &str,
@@ -102,7 +103,7 @@ impl Shell {
     ) -> Result<(), Error> {
         match prop {
             "mode" => {
-                self.config.mode = val.as_string().parse().ok();
+                self.config.mode = val.expect_string().parse().ok();
                 Ok(())
             }
             _ => todo!(),
@@ -110,12 +111,12 @@ impl Shell {
     }
 
     /// Creates a new Main shell with the given configuration.
-    pub fn new(args: Vec<String>) -> Self {
+    pub fn new(args: &[String]) -> Self {
         let mut config = Config::default();
         let mut session_config = SessionConfig::default();
 
         // Parse command line arguments
-        for arg in &args {
+        for arg in args {
             match arg.as_str() {
                 "--banner" => config.banner = Some(true),
                 "--echo" => config.echo = Some(true),
@@ -307,7 +308,7 @@ impl Shell {
 
         // Successfully parsed, now evaluate
         let resolved = self.session.borrow_mut().deduce_type_inner(&statement);
-        let output = self.evaluate_node(resolved);
+        let output = self.evaluate_node(&resolved);
         match &output {
             Ok(s) => Ok(prefix_lines(">", s.as_str())),
             Err(_) => output,
@@ -333,7 +334,7 @@ impl Shell {
     }
 
     /// Evaluates a parsed AST node.
-    fn evaluate_node(&mut self, resolved: Resolved) -> ShellResult<String> {
+    fn evaluate_node(&mut self, resolved: &Resolved) -> ShellResult<String> {
         let compiler = Compiler::new(&resolved.type_map);
         let compiled_statement = compiler.compile_statement(
             &self.environment,
@@ -458,13 +459,14 @@ mod tests {
     #[test]
     fn test_main_creation() {
         let args = vec!["--echo".to_string()];
-        let main = Shell::new(args);
+        let main = Shell::new(&args);
         assert!(main.config.echo.unwrap());
     }
 
     #[test]
     fn test_simple_expression() {
-        let mut main = Shell::new(vec![]);
+        let args = Vec::new();
+        let mut main = Shell::new(&args);
         let input = "42;";
         let mut output = Vec::new();
 

@@ -15,39 +15,867 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::types::Type;
-use crate::shell::prop::Output;
+use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
+use crate::eval::val::Val;
+use crate::shell::prop::Output as PropOutput;
+use std::collections::HashMap;
+use std::fmt::Write;
+use std::iter::zip;
 
 /// Prints values prettily.
-pub struct Pretty;
+pub struct Pretty {
+    line_width: i32,
+    output: PropOutput,
+    print_length: i32,
+    print_depth: i32,
+    string_depth: i32,
+    newline: char,
+}
 
-impl Pretty {
-    pub(crate) fn new(
-        _p1: i32,
-        _p2: Output,
-        _p3: i32,
-        _p4: i32,
-        _p5: i32,
-    ) -> Self {
-        todo!()
+impl Type {
+    fn is_collection(&self) -> bool {
+        match &self {
+            Type::List(_) => true,
+            Type::Data(name, _) => name == "bag",
+            _ => false,
+        }
     }
 
-    pub(crate) fn pretty(&self, _p0: &mut str, _p1: Type, _p2: &()) {
-        todo!()
+    fn is_progressive(&self) -> bool {
+        match self {
+            Type::Record(progressive, _) => *progressive,
+            _ => false,
+        }
+    }
+
+    fn arg(&self, index: usize) -> Option<&Type> {
+        match self {
+            Type::List(inner) if index == 0 => Some(inner),
+            Type::Data(_name, args) => args.get(index),
+            _ => None,
+        }
+    }
+
+    fn moniker(&self) -> String {
+        match &self {
+            Type::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
+            Type::Alias(_, _, _) => "alias".to_string(),
+            Type::List(_) => "list".to_string(),
+            Type::Record(_, _) => "record".to_string(),
+            Type::Tuple(_) => "tuple".to_string(),
+            Type::Fn(_, _) => "function".to_string(),
+            Type::Data(name, _) => name.clone(),
+            Type::Forall(_, _) => "forall".to_string(),
+            _ => todo!("{:?}", self),
+        }
+    }
+
+    /// Removes any "forall" qualifier of a type, and renumbers the remaining
+    /// type
+    /// variables.
+    ///
+    /// Examples:
+    /// - `forall 'a. 'a list` → `'a list`
+    /// - `forall 'a 'b. 'b list` → `'a list`
+    /// - `forall 'a 'b 'c. 'c * 'a -> {x:'a, y:'c}` → `'a * 'b -> {x:'b,
+    ///   y:'a}`
+    pub fn unqualified(&self) -> Type {
+        let mut current_type = self;
+
+        // Strip all forall qualifiers
+        while let Type::Forall(inner_type, _size) = current_type {
+            current_type = inner_type;
+        }
+
+        // If no forall was stripped, return original
+        if std::ptr::eq(current_type, self) {
+            return self.clone();
+        }
+
+        // Renumber type variables:
+        //   'b list -> 'a list
+        //   ('b * 'a * 'b)  ->  ('a * 'b * 'a)
+        //   ('a * 'c * 'a)  ->  ('a * 'b * 'a)
+
+        let mut renumberer = TypeVarRenumberer::new();
+        renumberer.visit(current_type)
     }
 }
 
-/// Wrapper that indicates that a value should be printed with its type.
-///
-/// For example:
-///
-/// ```sml
-/// val name = value : type
-/// ```
-pub struct TypedVal;
+static BOOL: Type = Type::Primitive(PrimitiveType::Bool);
 
-impl TypedVal {
-    pub(crate) fn new(_p0: String, _p1: &Option<TypedVal>, _p2: Type) -> Self {
-        todo!()
+impl Pretty {
+    pub fn new(
+        line_width: i32,
+        output: PropOutput,
+        print_length: i32,
+        print_depth: i32,
+        string_depth: i32,
+    ) -> Self {
+        Self {
+            line_width,
+            output,
+            print_length,
+            print_depth,
+            string_depth,
+            newline: '\n',
+        }
+    }
+
+    /// Prints a value to a buffer.
+    pub fn pretty(
+        &self,
+        buf: &mut String,
+        type_: &Type,
+        value: &Val,
+    ) -> Result<(), std::fmt::Error> {
+        let line_end = if self.line_width < 0 {
+            -1
+        } else {
+            buf.len() as i32 + self.line_width
+        };
+        self.pretty1(buf, 0, &mut [line_end], 0, type_, value, 0, 0)
+    }
+
+    /// Prints a value to a buffer. If the first attempt goes beyond line_end,
+    /// back-tracks, adds a newline and indent, and tries again one time.
+    fn pretty_raw(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        value: &str,
+    ) -> Result<(), std::fmt::Error> {
+        self.pretty1(
+            buf,
+            indent,
+            line_end,
+            depth,
+            &BOOL,
+            &Val::Raw(value.to_string()),
+            0,
+            0,
+        )
+    }
+
+    /// Prints a value to a buffer. If the first attempt goes beyond line_end,
+    /// back-tracks, adds a newline and indent, and tries again one time.
+    fn pretty1(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        type_ref: &Type,
+        value: &Val,
+        left: u8,
+        right: u8,
+    ) -> Result<(), std::fmt::Error> {
+        let start = buf.len();
+        let end = line_end[0];
+
+        self.pretty2(
+            buf, indent, line_end, depth, type_ref, value, left, right,
+        )?;
+
+        if end >= 0 && buf.len() as i32 > end {
+            // Reset to start, remove trailing whitespace, add newline
+            buf.truncate(start);
+            while !buf.is_empty()
+                && (buf.ends_with(' ') || buf.ends_with(self.newline))
+            {
+                buf.pop();
+            }
+            if !buf.is_empty() {
+                buf.push(self.newline);
+            }
+
+            line_end[0] = if self.line_width < 0 {
+                -1
+            } else {
+                buf.len() as i32 + self.line_width
+            };
+            self.indent(buf, indent);
+            self.pretty2(
+                buf, indent, line_end, depth, type_ref, value, left, right,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn indent(&self, buf: &mut String, indent: usize) {
+        for _ in 0..indent {
+            buf.push(' ');
+        }
+    }
+
+    fn pretty2(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        type_ref: &Type,
+        value: &Val,
+        left: u8,
+        right: u8,
+    ) -> Result<(), std::fmt::Error> {
+        // Strip any alias
+        let mut current_type = type_ref;
+        while let Type::Alias(_, inner, _) = current_type {
+            current_type = inner;
+        }
+
+        match value {
+            Val::Typed(b) => {
+                let (name, v2, t2) = &**b;
+                let mut buf2 = String::from("val ");
+                append_id(&mut buf2, name.as_str());
+
+                if self.custom_print(buf, indent, line_end, depth, t2, v2)? {
+                    line_end[0] = -1; // no limit
+                    self.pretty_raw(buf, indent, line_end, depth, &buf2)?;
+                } else {
+                    buf2.push_str(" = ");
+                    self.pretty_raw(buf, indent, line_end, depth, &buf2)?;
+                    self.pretty1(
+                        buf,
+                        indent + 2,
+                        line_end,
+                        depth + 1,
+                        t2,
+                        v2,
+                        0,
+                        0,
+                    )?;
+                }
+                buf.push(' ');
+                self.pretty1(
+                    buf,
+                    indent + 2,
+                    line_end,
+                    depth,
+                    &BOOL,
+                    &Val::new_type(": ", &t2.unqualified()),
+                    0,
+                    0,
+                )?;
+                return Ok(());
+            }
+            Val::Named(b) => {
+                let (name, inner_value) = &**b;
+                append_id(buf, name);
+                buf.push('=');
+                self.pretty1(
+                    buf,
+                    indent,
+                    line_end,
+                    depth,
+                    current_type,
+                    inner_value,
+                    0,
+                    0,
+                )?;
+                return Ok(());
+            }
+            Val::Labeled(b) => {
+                let (label, type_) = &**b;
+                let mut prefix = String::new();
+                append_id(&mut prefix, label);
+                prefix.push(':');
+                self.pretty1(
+                    buf,
+                    indent,
+                    line_end,
+                    depth,
+                    current_type,
+                    &Val::new_type(&prefix, type_),
+                    0,
+                    0,
+                )?;
+                return Ok(());
+            }
+            Val::Type(b) => {
+                let (prefix, type_) = &**b;
+                return self.pretty_type(
+                    buf, indent, line_end, depth, prefix, type_, value, left,
+                    right,
+                );
+            }
+            _ => {}
+        }
+
+        if self.print_depth >= 0 && depth > self.print_depth {
+            buf.push('#');
+            return Ok(());
+        }
+
+        match current_type {
+            Type::Primitive(prim_type) => {
+                self.pretty_primitive(buf, prim_type, value)?;
+            }
+            Type::Fn(_, _) => {
+                buf.push_str("fn");
+            }
+            Type::List(element_type) => {
+                self.print_list(
+                    buf,
+                    indent,
+                    line_end,
+                    depth,
+                    element_type,
+                    value.expect_list(),
+                )?;
+            }
+            Type::Record(_progressive, arg_name_types) => {
+                let list = value.expect_list();
+                buf.push('{');
+                let start = buf.len();
+                for ((name, field_type), val2) in zip(arg_name_types, list) {
+                    if buf.len() > start {
+                        buf.push(',');
+                    }
+                    self.pretty1(
+                        buf,
+                        indent + 1,
+                        line_end,
+                        depth + 1,
+                        field_type,
+                        &Val::new_named(name, val2.clone()),
+                        0,
+                        0,
+                    )?;
+                }
+                buf.push('}');
+            }
+            Type::Tuple(arg_types) => {
+                let list = value.expect_list();
+                buf.push('(');
+                let start = buf.len();
+                for (element_type, element_value) in zip(arg_types, list) {
+                    if buf.len() > start {
+                        buf.push(',');
+                    }
+                    self.pretty1(
+                        buf,
+                        indent + 1,
+                        line_end,
+                        depth + 1,
+                        element_type,
+                        element_value,
+                        0,
+                        0,
+                    )?;
+                }
+                buf.push(')');
+            }
+            Type::Forall(type_, _size) => {
+                self.pretty2(
+                    buf,
+                    indent,
+                    line_end,
+                    depth + 1,
+                    type_,
+                    value,
+                    0,
+                    0,
+                )?;
+            }
+            Type::Data(name, arg_types) => {
+                self.pretty_data_type(
+                    buf, indent, line_end, depth, name, arg_types, value,
+                )?;
+            }
+            _ => todo!("{:?}", current_type),
+        }
+        Ok(())
+    }
+
+    fn custom_print(
+        &self,
+        buf: &mut String,
+        _indent: usize,
+        _line_end: &mut [i32],
+        _depth: i32,
+        type_ref: &Type,
+        value: &Val,
+    ) -> Result<bool, std::fmt::Error> {
+        if !matches!(self.output, PropOutput::Classic)
+            && self.can_print_tabular(type_ref)
+            && let Val::List(records) = value
+            && let Some(Type::Record(_, arg_name_types)) = type_ref.arg(0)
+        {
+            let headers: Vec<String> = arg_name_types.keys().cloned().collect();
+            let mut widths: Vec<usize> =
+                headers.iter().map(String::len).collect();
+
+            // Convert records to string representations
+            let mut string_records = Vec::new();
+            for record in records {
+                if let Val::List(fields) = record {
+                    let string_row: Vec<String> =
+                        fields.iter().map(|f| format!("{:?}", f)).collect();
+                    // Update column widths
+                    for (i, s) in string_row.iter().enumerate() {
+                        if i < widths.len() && widths[i] < s.len() {
+                            widths[i] = s.len();
+                        }
+                    }
+                    string_records.push(string_row);
+                }
+            }
+
+            self.row(buf, &headers, &widths, ' ');
+            let empty_row: Vec<String> =
+                headers.iter().map(|_| String::new()).collect();
+            self.row(buf, &empty_row, &widths, '-');
+            for record in &string_records {
+                self.row(buf, record, &widths, ' ');
+            }
+            buf.push(self.newline);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn can_print_tabular(&self, type_ref: &Type) -> bool {
+        type_ref.is_collection()
+            && type_ref
+                .arg(0)
+                .is_some_and(|arg| matches!(arg, Type::Record(_, _)))
+            && self.can_print_tabular2(type_ref.arg(0).unwrap())
+    }
+
+    fn can_print_tabular2(&self, type_ref: &Type) -> bool {
+        if let Type::Record(_, arg_name_types) = type_ref {
+            arg_name_types
+                .values()
+                .all(|t| matches!(t, Type::Primitive(_)))
+        } else {
+            false
+        }
+    }
+
+    fn row(
+        &self,
+        buf: &mut String,
+        values: &[String],
+        widths: &[usize],
+        pad: char,
+    ) {
+        let start = buf.len();
+        for (value, &width) in zip(values, widths) {
+            if buf.len() > start {
+                buf.push(' ');
+            }
+            let target_len = buf.len() + width;
+            buf.push_str(value);
+            self.pad_to(buf, target_len, pad);
+        }
+
+        // Remove trailing spaces
+        while buf.ends_with(' ') {
+            buf.pop();
+        }
+        buf.push(self.newline);
+    }
+
+    fn pad_to(&self, buf: &mut String, desired_length: usize, pad: char) {
+        while buf.len() < desired_length {
+            buf.push(pad);
+        }
+    }
+
+    fn pretty_primitive(
+        &self,
+        buf: &mut String,
+        prim_type: &PrimitiveType,
+        value: &Val,
+    ) -> Result<(), std::fmt::Error> {
+        match prim_type {
+            PrimitiveType::Unit => {
+                buf.push_str("()");
+            }
+            PrimitiveType::Char => {
+                if let Val::Char(c) = value {
+                    let s = char_to_string(*c);
+                    write!(buf, "#\"{}\"", s)?;
+                }
+            }
+            PrimitiveType::String => {
+                if let Val::String(s) = value {
+                    buf.push('"');
+                    if self.string_depth >= 0
+                        && s.len() > self.string_depth as usize
+                    {
+                        string_to_string_append(
+                            &s[..self.string_depth as usize],
+                            buf,
+                        );
+                        buf.push('#');
+                    } else {
+                        string_to_string_append(s, buf);
+                    }
+                    buf.push('"');
+                }
+            }
+            PrimitiveType::Int => {
+                let mut i = value.expect_int();
+                if i < 0 {
+                    if i == i32::MIN {
+                        buf.push_str("~2147483648");
+                        return Ok(());
+                    }
+                    buf.push('~');
+                    i = -i;
+                }
+                write!(buf, "{}", i)?;
+            }
+            PrimitiveType::Real => {
+                if let Val::Real(f) = value {
+                    write!(buf, "{}", f)?;
+                }
+            }
+            _ => {
+                write!(buf, "{}", value)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn pretty_data_type(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        name: &str,
+        args: &[Type],
+        value: &Val,
+    ) -> Result<(), std::fmt::Error> {
+        let list = value.expect_list();
+        if name == "vector" {
+            let arg_type = args.first().unwrap();
+            buf.push('#');
+            return self
+                .print_list(buf, indent, line_end, depth, arg_type, list);
+        }
+        if name == "bag" {
+            let arg_type = args.first().unwrap();
+            return self
+                .print_list(buf, indent, line_end, depth, arg_type, list);
+        }
+        let ty_con_name = list.first().unwrap().expect_string();
+        buf.push_str(&ty_con_name);
+        if let Some(arg) = list.get(1) {
+            // This is a parameterized constructor. (For example, NONE is
+            // not parameterized, SOME x is parameterized with x.)
+            buf.push(' ');
+            let need_parentheses = matches!(arg, Val::List(_));
+            if need_parentheses {
+                buf.push('(');
+            }
+            self.pretty2(
+                buf,
+                indent,
+                line_end,
+                depth + 1,
+                &Type::Primitive(PrimitiveType::String),
+                arg,
+                0,
+                0,
+            )?;
+            if need_parentheses {
+                buf.push(')');
+            }
+        }
+        Ok(())
+    }
+
+    fn pretty_type(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        prefix: &str,
+        type_ref: &Type,
+        type_val: &Val,
+        left: u8,
+        right: u8,
+    ) -> Result<(), std::fmt::Error> {
+        buf.push_str(if buf.ends_with(' ') {
+            prefix.trim_start()
+        } else {
+            prefix
+        });
+        let indent2 = indent + prefix.len();
+
+        match type_ref {
+            Type::Primitive(p) => {
+                self.pretty_raw(buf, indent2, line_end, depth, p.as_str())?;
+            }
+            Type::Tuple(arg_types) => {
+                if left > Op::TUPLE.left || right > Op::TUPLE.right {
+                    self.pretty_raw(buf, indent2, line_end, depth, "(")?;
+                    let _ = self.pretty1(
+                        buf, indent2, line_end, depth, type_ref, type_val, 0, 0,
+                    );
+                    self.pretty_raw(buf, indent2, line_end, depth, ")")?;
+                    return Ok(());
+                }
+                let start = buf.len();
+                for (i, arg_type) in arg_types.iter().enumerate() {
+                    if buf.len() > start {
+                        self.pretty_raw(buf, indent2, line_end, depth, " * ")?;
+                    }
+                    self.pretty1(
+                        buf,
+                        indent2,
+                        line_end,
+                        depth,
+                        &BOOL,
+                        &Val::new_type("", arg_type),
+                        if i == 0 { left } else { Op::TUPLE.right },
+                        if i == arg_types.len() - 1 {
+                            right
+                        } else {
+                            Op::TUPLE.left
+                        },
+                    )?;
+                }
+            }
+            Type::Record(progressive, arg_name_types) => {
+                buf.push('{');
+                let start = buf.len();
+                for (name, element_type) in arg_name_types {
+                    if buf.len() > start {
+                        buf.push_str(", ");
+                    }
+                    self.pretty1(
+                        buf,
+                        indent2 + 1,
+                        line_end,
+                        depth,
+                        &BOOL,
+                        &Val::new_labeled(name, element_type),
+                        0,
+                        0,
+                    )?;
+                }
+                if *progressive {
+                    if buf.len() > start {
+                        buf.push_str(", ");
+                    }
+                    self.pretty_raw(buf, indent2 + 1, line_end, depth, "...")?;
+                }
+                buf.push('}');
+            }
+            Type::Fn(param_type, result_type) => {
+                let v_param = Val::new_type("", param_type);
+                self.pretty1(
+                    buf, indent2, line_end, depth, &BOOL, &v_param, 0, 0,
+                )?;
+                let v_result = Val::new_type(" -> ", result_type);
+                self.pretty1(
+                    buf, indent2, line_end, depth, &BOOL, &v_result, 0, 0,
+                )?;
+            }
+            Type::List(element_type) => {
+                self.pretty_collection_type(
+                    buf,
+                    indent2,
+                    line_end,
+                    depth,
+                    type_ref,
+                    "list",
+                    element_type,
+                    left,
+                    right,
+                )?;
+            }
+            _ => {
+                write!(buf, "unknown type {:?}", type_ref)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn print_list(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        element_type: &Type,
+        list: &[Val],
+    ) -> Result<(), std::fmt::Error> {
+        buf.push('[');
+        let start = buf.len();
+        for (i, value) in list.iter().enumerate() {
+            if buf.len() > start {
+                buf.push(',');
+            }
+            if self.print_length >= 0 && i >= self.print_length as usize {
+                self.pretty_raw(buf, indent + 1, line_end, depth + 1, "...")?;
+                break;
+            } else {
+                self.pretty1(
+                    buf,
+                    indent + 1,
+                    line_end,
+                    depth + 1,
+                    element_type,
+                    value,
+                    0,
+                    0,
+                )?;
+            }
+        }
+        buf.push(']');
+        Ok(())
+    }
+
+    fn pretty_collection_type(
+        &self,
+        buf: &mut String,
+        indent2: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        type_: &Type,
+        type_name: &str,
+        element_type: &Type,
+        left: u8,
+        right: u8,
+    ) -> Result<(), std::fmt::Error> {
+        if left > Op::LIST.left || right > Op::LIST.right {
+            self.pretty_raw(buf, indent2, line_end, depth, "(")?;
+            self.pretty_collection_type(
+                buf,
+                indent2,
+                line_end,
+                depth,
+                type_,
+                type_name,
+                element_type,
+                0,
+                0,
+            )?;
+            self.pretty_raw(buf, indent2, line_end, depth, ")")?;
+            return Ok(());
+        }
+        self.pretty1(
+            buf,
+            indent2,
+            line_end,
+            depth,
+            type_,
+            &Val::new_type("", element_type),
+            left,
+            Op::LIST.left,
+        )?;
+        buf.push(' ');
+        buf.push_str(type_name);
+        Ok(())
+    }
+}
+
+// Helper functions (you'll need to implement these based on your string
+// utilities)
+fn append_id(buf: &mut String, id: &str) {
+    if id.contains('`') {
+        buf.push('`');
+        buf.push_str(&id.replace('`', "``"));
+        buf.push('`');
+    } else if id.contains(' ') {
+        buf.push('`');
+        buf.push_str(id);
+        buf.push('`');
+    } else {
+        buf.push_str(id);
+    }
+}
+
+fn char_to_string(c: char) -> String {
+    // Implementation from your string utilities
+    match c as u8 {
+        7 => "\\a".to_string(),
+        8 => "\\b".to_string(),
+        9 => "\\t".to_string(),
+        10 => "\\n".to_string(),
+        11 => "\\v".to_string(),
+        12 => "\\f".to_string(),
+        13 => "\\r".to_string(),
+        34 => "\\\"".to_string(),
+        92 => "\\\\".to_string(),
+        n if n < 32 => format!("\\^{}", (n + 64) as char),
+        n if n >= 127 => format!("\\{}", n),
+        _ => c.to_string(),
+    }
+}
+
+fn string_to_string_append(s: &str, buf: &mut String) {
+    for c in s.chars() {
+        buf.push_str(&char_to_string(c));
+    }
+}
+
+/// Visitor for renumbering type variables
+struct TypeVarRenumberer {
+    var_map: HashMap<usize, Type>,
+}
+
+impl TypeVarRenumberer {
+    fn new() -> Self {
+        Self {
+            var_map: HashMap::new(),
+        }
+    }
+
+    fn visit_list(&mut self, types: &[Type]) -> Vec<Type> {
+        types.iter().map(|t| self.visit(t)).collect()
+    }
+
+    fn visit(&mut self, type_ref: &Type) -> Type {
+        match type_ref {
+            Type::Variable(type_var) => {
+                // Get or create a renumbered type variable
+                let i = self.var_map.len();
+                self.var_map
+                    .entry(type_var.id)
+                    .or_insert_with(|| Type::Variable(TypeVariable::new(i)))
+                    .clone()
+            }
+            Type::List(inner) => Type::List(Box::new(self.visit(inner))),
+            Type::Tuple(arg_types) => {
+                Type::Tuple(self.visit_list(arg_types.as_slice()))
+            }
+            Type::Record(progressive, arg_name_types) => Type::Record(
+                *progressive,
+                arg_name_types
+                    .iter()
+                    .map(|(name, t)| (name.clone(), self.visit(t)))
+                    .collect(),
+            ),
+            Type::Fn(param_type, result_type) => Type::Fn(
+                Box::new(self.visit(param_type)),
+                Box::new(self.visit(result_type)),
+            ),
+            Type::Data(name, args) => {
+                Type::Data(name.clone(), self.visit_list(args.as_slice()))
+            }
+            Type::Alias(name, type_, args) => Type::Alias(
+                name.clone(),
+                Box::new(self.visit(type_)),
+                self.visit_list(args.as_slice()),
+            ),
+            Type::Forall(type_, size) => {
+                Type::Forall(Box::new(self.visit(type_)), *size)
+            }
+            // Primitive types don't contain type variables
+            Type::Primitive(_) => type_ref.clone(),
+            _ => todo!("{:?}", type_ref),
+        }
     }
 }

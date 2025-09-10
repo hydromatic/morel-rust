@@ -15,10 +15,20 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::types::Type;
+use crate::syntax::parser;
 use std::fmt::{Display, Formatter};
 
 /// Runtime value.
+///
+/// The [Typed], [Named], [Labeled], and [Type] variants are used to
+/// annotate values with additional information for pretty-printing.
+/// [Raw] is also used for pretty-printing.
+///
+/// Passing [Val] by value is OK because it is small.
+/// We box the arguments to [Typed] to keep it small.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::needless_pass_by_value)]
 pub enum Val {
     Unit,
     Bool(bool),
@@ -27,28 +37,79 @@ pub enum Val {
     Real(f32),
     String(String),
     List(Vec<Val>),
+
+    /// Wrapper that indicates that a value should be printed with its name
+    /// and type.
+    ///
+    /// For example:
+    ///
+    /// ```sml
+    /// val name = value : type
+    /// ```
+    Typed(Box<(String, Val, Type)>),
+
+    /// Wrapper that indicates that a value should be printed with its name.
+    ///
+    /// For example:
+    ///
+    /// ```sml
+    /// val name = value : type
+    /// ```
+    Named(Box<(String, Val)>),
+
+    Labeled(Box<(String, Type)>),
+    /// `Type(prefix, type_)`
+    Type(Box<(String, Type)>),
+    /// `Raw(value)` is printed to the output as-is, without any quoting.
+    Raw(String),
 }
 
 // REVIEW Should we use `Into` or `From` traits?
 impl Val {
-    pub(crate) fn as_bool(&self) -> bool {
+    /// Creates a new Type value with the given prefix and type.
+    pub fn new_type(prefix: &str, type_: &Type) -> Self {
+        Val::Type(Box::new((prefix.to_string(), type_.clone())))
+    }
+
+    /// Creates a new Typed value with the given name, value, and type.
+    pub fn new_typed(name: &str, value: Val, type_: &Type) -> Self {
+        Val::Typed(Box::new((name.to_string(), value, type_.clone())))
+    }
+
+    /// Creates a new Named value with the given name and value.
+    pub fn new_named(name: &str, value: Val) -> Self {
+        Val::Named(Box::new((name.to_string(), value)))
+    }
+
+    /// Creates a new Labeled value with the given label and type.
+    pub fn new_labeled(label: &str, type_: &Type) -> Self {
+        Val::Labeled(Box::new((label.to_string(), type_.clone())))
+    }
+    pub(crate) fn expect_bool(&self) -> bool {
         match &self {
             Val::Bool(b) => *b,
             _ => panic!("Not a bool"),
         }
     }
 
-    pub(crate) fn as_int(&self) -> i32 {
-        match &self {
+    pub(crate) fn expect_int(&self) -> i32 {
+        match self {
             Val::Int(i) => *i,
-            _ => panic!("Not an int"),
+            _ => panic!("Expected int"),
         }
     }
 
-    pub(crate) fn as_string(&self) -> String {
-        match &self {
+    pub(crate) fn expect_list(&self) -> &[Val] {
+        match self {
+            Val::List(list) => list,
+            _ => panic!("Expected list"),
+        }
+    }
+
+    pub(crate) fn expect_string(&self) -> String {
+        match self {
             Val::String(s) => s.clone(),
-            _ => panic!("Not an string"),
+            _ => panic!("Expected string"),
         }
     }
 }
@@ -56,12 +117,26 @@ impl Val {
 impl Display for Val {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
-            Val::Unit => write!(f, "()"),
             Val::Bool(b) => write!(f, "{}", b),
-            Val::Char(c) => write!(f, "{}", c),
-            Val::Int(i) => write!(f, "{}", i),
-            Val::Real(r) => write!(f, "{}", r),
-            Val::String(s) => write!(f, "\"{}\"", s),
+            Val::Char(c) => {
+                write!(f, "#\"{}\"", parser::string_to_string(&c.to_string()))
+            }
+            Val::Int(i) => {
+                if *i < 0 {
+                    let s = i.to_string();
+                    write!(f, "{}", s.replace("-", "~"))
+                } else {
+                    write!(f, "{}", i)
+                }
+            }
+            Val::Real(r) => {
+                if *r < 0.0 {
+                    write!(f, "-{}", -*r)
+                } else {
+                    write!(f, "{}", r)
+                }
+            }
+            Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),
             Val::List(l) => {
                 let mut first = true;
                 write!(f, "[")?;
@@ -69,12 +144,15 @@ impl Display for Val {
                     if first {
                         first = false;
                     } else {
-                        write!(f, ", ")?;
+                        write!(f, ",")?;
                     }
                     v.fmt(f)?;
                 }
                 write!(f, "]")
             }
+            Val::Raw(s) => write!(f, "{}", s),
+            Val::Unit => write!(f, "()"),
+            _ => todo!("{:?}", self),
         }
     }
 }

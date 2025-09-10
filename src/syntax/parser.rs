@@ -78,59 +78,67 @@ pub fn parse_type_scheme(input: &str) -> ParseResult<TypeScheme> {
     ))
 }
 
-fn input_to_span(input: ParseInput) -> Span {
+fn input_to_span(input: &ParseInput) -> Span {
     Span::make(input.user_data().clone(), input.as_pair().as_span())
 }
 
 impl LiteralKind {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Literal {
-        self.spanned(&input_to_span(input))
+        self.spanned(&input_to_span(&input))
     }
 }
 
 impl ExprKind<Expr> {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn as_statement(&self, input: ParseInput) -> Statement {
         Statement {
             kind: StatementKind::Expr(self.clone()),
-            span: input_to_span(input),
+            span: input_to_span(&input),
             id: None,
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Expr {
-        self.spanned(&input_to_span(input))
+        self.spanned(&input_to_span(&input))
     }
 }
 
 impl DeclKind {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn as_statement(&self, input: ParseInput) -> Statement {
         Statement {
             kind: StatementKind::Decl(self.clone()),
-            span: input_to_span(input),
+            span: input_to_span(&input),
             id: None,
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Decl {
-        self.spanned(&input_to_span(input))
+        self.spanned(&input_to_span(&input))
     }
 }
 
 impl PatKind {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Pat {
-        self.spanned(&input_to_span(input))
+        self.spanned(&input_to_span(&input))
     }
 }
 
 impl TypeKind {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Type {
-        self.spanned(&input_to_span(input))
+        self.spanned(&input_to_span(&input))
     }
 }
 
 impl StepKind {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Step {
-        self.spanned(&input_to_span(input))
+        self.spanned(&input_to_span(&input))
     }
 }
 
@@ -378,7 +386,7 @@ impl MorelParser {
     }
 
     fn expr_unary_op(input: ParseInput) -> ParseResult<Span> {
-        Ok(input_to_span(input))
+        Ok(input_to_span(&input))
     }
 
     fn expr_postfix(input: ParseInput) -> ParseResult<Expr> {
@@ -456,10 +464,10 @@ impl MorelParser {
     fn label(input: ParseInput) -> ParseResult<Label> {
         Ok(match_nodes!(input.children();
             [quoted_identifier(i)] => {
-                Label::new(i.as_str(), &input_to_span(input))
+                Label::new(i.as_str(), &input_to_span(&input))
             },
-            [unquoted_identifier(i)] => Label::new(i, &input_to_span(input)),
-            [non_negative_integer(i)] => Label::new(i, &input_to_span(input)),
+            [unquoted_identifier(i)] => Label::new(i, &input_to_span(&input)),
+            [non_negative_integer(i)] => Label::new(i, &input_to_span(&input)),
         ))
     }
 
@@ -856,7 +864,7 @@ impl MorelParser {
     }
 
     fn wildcard_pat(input: ParseInput) -> ParseResult<Pat> {
-        Ok(PatKind::Wildcard.spanned(&input_to_span(input)))
+        Ok(PatKind::Wildcard.spanned(&input_to_span(&input)))
     }
 
     fn id_pat(input: ParseInput) -> ParseResult<Pat> {
@@ -884,7 +892,7 @@ impl MorelParser {
 
     fn literal_pat(input: ParseInput) -> ParseResult<Pat> {
         Ok(match_nodes!(input.children();
-            [literal(l)] => PatKind::Literal(l).spanned(&input_to_span(input)),
+            [literal(l)] => PatKind::Literal(l).spanned(&input_to_span(&input)),
         ))
     }
 
@@ -922,7 +930,7 @@ impl MorelParser {
     fn anon_pat_field(input: ParseInput) -> ParseResult<PatField> {
         Ok(match_nodes!(input.children();
             [pat(p)] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 PatField::Anonymous(span, Box::new(p))
             },
         ))
@@ -931,7 +939,7 @@ impl MorelParser {
     fn labeled_pat_field(input: ParseInput) -> ParseResult<PatField> {
         Ok(match_nodes!(input.children();
             [identifier(i), pat(p)] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 PatField::Labeled(span, i.to_string(), Box::new(p))
             },
         ))
@@ -1015,7 +1023,7 @@ impl MorelParser {
             [fun_match(matches)..] => {
                 let matches: Vec<_> = matches.collect();
                 let name = matches[0].name.clone();
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 FunBind {span, name, matches}
             }
         ))
@@ -1026,14 +1034,14 @@ impl MorelParser {
             [identifier(i), pat(p).., type_(t), expr(e)] => {
                 let name = i.to_string();
                 let pats = p.collect::<Vec<_>>();
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 let type_ = Some(Box::new(t));
                 FunMatch {span, name, pats, type_, expr: Box::new(e)}
             },
             [identifier(i), pat(p).., expr(e)] => {
                 let name = i.to_string();
                 let pats = p.collect::<Vec<_>>();
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 FunMatch {span, name, pats, type_: None, expr: Box::new(e)}
             },
         ))
@@ -1059,12 +1067,12 @@ impl MorelParser {
     fn type_bind(input: ParseInput) -> ParseResult<TypeBind> {
         Ok(match_nodes!(input.children();
             [identifier(i), type_(t)] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 let name = i.to_string();
                 TypeBind {span, type_vars: vec![], name, type_: t}
             },
             [type_vars(vars), identifier(i), type_(t)] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 let name = i.to_string();
                 TypeBind {span, type_vars: vars, name, type_: t}
             },
@@ -1088,13 +1096,13 @@ impl MorelParser {
     fn datatype_bind(input: ParseInput) -> ParseResult<DatatypeBind> {
         Ok(match_nodes!(input.children();
             [identifier(i), con_bind(cons)..] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 let name = i.to_string();
                 let constructors = cons.collect();
                 DatatypeBind {span, type_vars: vec![], name, constructors}
             },
             [type_vars(vars), identifier(i), con_bind(cons)..] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 let name = i.to_string();
                 let constructors = cons.collect();
                 DatatypeBind {span, type_vars: vars, name, constructors}
@@ -1105,11 +1113,11 @@ impl MorelParser {
     fn con_bind(input: ParseInput) -> ParseResult<ConBind> {
         Ok(match_nodes!(input.children();
             [identifier(i)] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 ConBind {span, name: i.to_string(), type_: None}
             },
             [identifier(i), _of(_), type_(t)] => {
-                let span = input_to_span(input);
+                let span = input_to_span(&input);
                 ConBind {span, name: i.to_string(), type_: Some(t)}
             },
         ))
@@ -1165,7 +1173,7 @@ impl MorelParser {
             [atomic_type(t), named_type(types)..] => {
                 let type_vec: Vec<_> = types.collect();
                 if type_vec.is_empty() {
-                    t.with_span(&input_to_span(input))
+                    t.with_span(&input_to_span(&input))
                 } else {
                     type_vec.iter().fold(
                         t,
@@ -1233,7 +1241,7 @@ impl MorelParser {
                 let types: Vec<Type> = t.collect();
                 match types.len() {
                     0 => TypeKind::Unit.wrap(input),
-                    1 => types[0].with_span(&input_to_span(input)),
+                    1 => types[0].with_span(&input_to_span(&input)),
                     _ => TypeKind::Tuple(types).wrap(input),
                 }
             },
@@ -1281,39 +1289,37 @@ impl MorelParser {
 
     fn non_negative_integer_literal(input: ParseInput) -> ParseResult<Literal> {
         let value = String::from(input.as_str());
-        Ok(LiteralKind::Int(value).spanned(&input_to_span(input)))
+        Ok(LiteralKind::Int(value).spanned(&input_to_span(&input)))
     }
 
     fn negative_integer_literal(input: ParseInput) -> ParseResult<Literal> {
         let value = String::from(input.as_str());
-        Ok(LiteralKind::Int(value).spanned(&input_to_span(input)))
+        Ok(LiteralKind::Int(value).spanned(&input_to_span(&input)))
     }
 
     fn real_literal(input: ParseInput) -> ParseResult<Literal> {
         let value = String::from(input.as_str());
-        Ok(LiteralKind::Real(value).spanned(&input_to_span(input)))
+        Ok(LiteralKind::Real(value).spanned(&input_to_span(&input)))
     }
 
     fn scientific_literal(input: ParseInput) -> ParseResult<Literal> {
         let value = String::from(input.as_str());
-        Ok(LiteralKind::Real(value).spanned(&input_to_span(input)))
+        Ok(LiteralKind::Real(value).spanned(&input_to_span(&input)))
     }
 
     fn string_literal(input: ParseInput) -> ParseResult<Literal> {
-        let s = input.as_str();
-        let value = String::from(&s[1..s.len() - 1]);
-        Ok(LiteralKind::String(value).spanned(&input_to_span(input)))
+        let s = input.as_str().to_string();
+        Ok(LiteralKind::String(s).spanned(&input_to_span(&input)))
     }
 
     fn char_literal(input: ParseInput) -> ParseResult<Literal> {
-        let s = input.as_str();
-        let value = String::from(&s[2..s.len() - 1]);
-        Ok(LiteralKind::Char(value).spanned(&input_to_span(input)))
+        let s = input.as_str().to_string();
+        Ok(LiteralKind::Char(s).spanned(&input_to_span(&input)))
     }
 
     fn bool_literal(input: ParseInput) -> ParseResult<Literal> {
         let value = input.as_str() == "true";
-        Ok(LiteralKind::Bool(value).spanned(&input_to_span(input)))
+        Ok(LiteralKind::Bool(value).spanned(&input_to_span(&input)))
     }
 
     fn identifier_expr(input: ParseInput) -> ParseResult<Expr> {
@@ -1591,9 +1597,232 @@ fn fold_heterogeneous(
     })
 }
 
+/// Given quoted identifier `abc` returns abc. Converts any
+/// doubled back-ticks to a single back-tick. Assumes there are no single
+/// back-ticks.
+pub fn unquote_identifier(s: &str) -> Result<String, &'static str> {
+    if s.len() < 2 {
+        return Err("String must be at least 2 characters long");
+    }
+    if !s.starts_with('`') || !s.ends_with('`') {
+        return Err("String must be enclosed in back-ticks");
+    }
+
+    let inner = &s[1..s.len() - 1];
+    Ok(inner.replace("``", "`"))
+}
+
+/// Given quoted string "abc" returns abc; "\t" returns
+/// the tab character; "\^A" returns character 1; "\255"
+/// returns character 255.
+pub fn unquote_string(s: &str) -> Result<String, String> {
+    if s.len() < 2 {
+        return Err("String must be at least 2 characters long".to_string());
+    }
+    if !s.starts_with('"') || !s.ends_with('"') {
+        return Err("String must be enclosed in double quotes".to_string());
+    }
+
+    let inner = &s[1..s.len() - 1];
+    if !inner.contains('\\') {
+        // There are no escaped characters. Take the quick route.
+        return Ok(inner.to_string());
+    }
+
+    let mut parser = StringParser::new(inner);
+    let mut result = String::new();
+
+    while parser.i < parser.s.len() {
+        match parser.parse_char() {
+            Ok(c) => result.push(c),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(result)
+}
+
+/// Given quoted char literal #"a" returns a.
+pub fn unquote_char_literal(s: &str) -> Result<char, String> {
+    assert!(s.len() >= 3);
+    assert!(s.starts_with('#'));
+    assert!(s.ends_with('"'));
+
+    let inner = &s[2..s.len() - 1];
+    let mut parser = StringParser::new(inner);
+    let c = parser.parse_char()?;
+
+    if parser.i != inner.len() {
+        return Err("Error: character literal not length 1".to_string());
+    }
+    Ok(c)
+}
+
+/// Given string "a" returns a.
+pub fn from_string(s: &str) -> Option<char> {
+    if s.is_empty() {
+        return None;
+    }
+    let mut parser = StringParser::new(s);
+    parser.parse_char().ok()
+}
+
+/// Converts a character to how it appears in a character literal.
+///
+/// For example, 'a' becomes '"a"' and therefore `char_to_string('a')`
+/// returns "a". Character 0 becomes "\\^@".
+/// Character 255 becomes "\\255". Character 9 becomes "\t".
+///
+/// Inverse of `unquote_char_literal`.
+pub fn char_to_string(c: char) -> String {
+    match c as u8 {
+        7 => "\\a".to_string(),   // Alert (ASCII 0x07)
+        8 => "\\b".to_string(),   // Backspace (ASCII 0x08)
+        9 => "\\t".to_string(),   // Horizontal tab (ASCII 0x09)
+        10 => "\\n".to_string(),  // Linefeed or newline (ASCII 0x0A)
+        11 => "\\v".to_string(),  // Vertical tab (ASCII 0x0B)
+        12 => "\\f".to_string(),  // Form feed (ASCII 0x0C)
+        13 => "\\r".to_string(),  // Carriage return (ASCII 0x0D)
+        34 => "\\\"".to_string(), // Double-quote requires escape
+        92 => "\\\\".to_string(), // Backslash requires escape
+        n if n < 32 => {
+            // chr(0) = "\\^@", chr(1) = "\\^A", ..., chr(31) = "\\^_"
+            format!("\\^{}", (n + 64) as char)
+        }
+        n if n >= 127 => {
+            format!("\\{}", n)
+        }
+        _ => c.to_string(),
+    }
+}
+
+/// Converts an internal string to a string using Standard ML escapes,
+/// appending to a string.
+pub fn string_to_string_append(s: &str, buf: &mut String) {
+    for c in s.chars() {
+        buf.push_str(&char_to_string(c));
+    }
+}
+
+/// Converts an internal string to a string using Standard ML escapes.
+pub fn string_to_string(s: &str) -> String {
+    if !requires_escape(s) {
+        return s.to_string();
+    }
+    let mut result = String::new();
+    string_to_string_append(s, &mut result);
+    result
+}
+
+fn requires_escape(s: &str) -> bool {
+    s.chars().any(|c| {
+        let code = c as u32;
+        code < 32 || c == '"' || c == '\\' || code > 127
+    })
+}
+
+/// Appends an identifier. Encloses it in back-ticks if necessary.
+pub fn append_id(buf: &mut String, id: &str) {
+    if id.contains('`') {
+        buf.push('`');
+        buf.push_str(&id.replace('`', "``"));
+        buf.push('`');
+    } else if id.contains(' ') {
+        buf.push('`');
+        buf.push_str(id);
+        buf.push('`');
+    } else {
+        buf.push_str(id);
+    }
+}
+
+struct StringParser<'a> {
+    s: &'a str,
+    i: usize,
+}
+
+impl<'a> StringParser<'a> {
+    fn new(s: &'a str) -> Self {
+        StringParser { s, i: 0 }
+    }
+
+    /// Parses a single character in a string literal or character literal.
+    /// Advances i to the next character in the string.
+    fn parse_char(&mut self) -> Result<char, String> {
+        if self.i >= self.s.len() {
+            return Err("Unexpected end of string".to_string());
+        }
+
+        let chars: Vec<char> = self.s.chars().collect();
+        let c = chars[self.i];
+        self.i += 1;
+
+        if c != '\\' {
+            return Ok(c);
+        }
+
+        if self.i >= chars.len() {
+            return Err("illegal escape; no character after \\".to_string());
+        }
+
+        let c2 = chars[self.i];
+        self.i += 1;
+
+        match c2 {
+            '"' | '\\' => Ok(c2),
+            'a' => Ok('\u{0007}'), // Alert (ASCII 0x07)
+            'b' => Ok('\u{0008}'), // Backspace (ASCII 0x08)
+            't' => Ok('\t'),       // Horizontal tab (ASCII 0x09)
+            'n' => Ok('\n'),       // Linefeed or newline (ASCII 0x0A)
+            'v' => Ok('\u{000B}'), // Vertical tab (ASCII 0x0B)
+            'f' => Ok('\u{000C}'), // Form feed (ASCII 0x0C)
+            'r' => Ok('\r'),       // Carriage return (ASCII 0x0D)
+            '0'..='9' => {
+                if self.i + 2 <= chars.len() {
+                    let c3 = chars[self.i];
+                    let c4 = chars[self.i + 1];
+                    if c3.is_ascii_digit() && c4.is_ascii_digit() {
+                        self.i += 2;
+                        let d2 = (c2 as u8 - b'0') as u32;
+                        let d3 = (c3 as u8 - b'0') as u32;
+                        let d4 = (c4 as u8 - b'0') as u32;
+                        let code = d2 * 100 + d3 * 10 + d4;
+                        if code <= 255 {
+                            return Ok(code as u8 as char);
+                        }
+                    }
+                }
+                Err("illegal control escape; invalid digits".to_string())
+            }
+            '^' => {
+                if self.i >= chars.len() {
+                    return Err("illegal control escape; no character after ^"
+                        .to_string());
+                }
+                let c3 = chars[self.i];
+                self.i += 1;
+                if ('@'..='_').contains(&c3) {
+                    // Characters "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
+                    // are contiguous.
+                    Ok((c3 as u8 - b'@') as char)
+                } else {
+                    Err(concat!(
+                        "illegal control escape; must be one of ",
+                        "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
+                    )
+                    .to_string())
+                }
+            }
+            _ => Err("illegal escape; invalid character after \\".to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use crate::syntax::parser::{Rule, parse_unadorned_statement};
+    use crate::syntax::parser::{
+        Rule, append_id, char_to_string, parse_unadorned_statement,
+        unquote_identifier, unquote_string,
+    };
 
     /// Test fixture for parser tests.
     struct Fixture {
@@ -1865,5 +2094,42 @@ mod test {
     fn test_parse_build() {
         // ml("1").assert_statement(&is("1"));
         ml("val x = 5").assert_statement(&is("val x = 5"));
+    }
+
+    #[test]
+    fn test_unquote_identifier() {
+        assert_eq!(unquote_identifier("`abc`").unwrap(), "abc");
+        assert_eq!(unquote_identifier("`a``b`").unwrap(), "a`b");
+        assert!(unquote_identifier("abc").is_err());
+        assert!(unquote_identifier("`").is_err());
+    }
+
+    #[test]
+    fn test_unquote_string() {
+        assert_eq!(unquote_string("\"abc\"").unwrap(), "abc");
+        assert_eq!(unquote_string("\"\\t\"").unwrap(), "\t");
+        assert_eq!(unquote_string("\"\\^A\"").unwrap(), "\u{0001}");
+    }
+
+    #[test]
+    fn test_char_to_string() {
+        assert_eq!(char_to_string('a'), "a");
+        assert_eq!(char_to_string('\t'), "\\t");
+        assert_eq!(char_to_string('\u{0001}'), "\\^A");
+    }
+
+    #[test]
+    fn test_append_id() {
+        let mut buf = String::new();
+        append_id(&mut buf, "simple");
+        assert_eq!(buf, "simple");
+
+        buf.clear();
+        append_id(&mut buf, "with space");
+        assert_eq!(buf, "`with space`");
+
+        buf.clear();
+        append_id(&mut buf, "with`tick");
+        assert_eq!(buf, "`with``tick`");
     }
 }

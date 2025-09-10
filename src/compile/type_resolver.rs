@@ -644,7 +644,7 @@ impl TypeResolver {
             }
             ExprKind::Apply(left, right) => {
                 let (left2, right2) =
-                    self.deduce_apply_type(env, left.clone(), right.clone(), v);
+                    self.deduce_apply_type(env, &left, &right, v);
                 let apply2 = ExprKind::Apply(left2, right2);
                 self.reg_expr(&apply2, &expr.span, expr.id, v)
             }
@@ -832,8 +832,8 @@ impl TypeResolver {
     fn deduce_apply_type(
         &mut self,
         env: &dyn TypeEnv,
-        fun: Box<Expr>,
-        arg: Box<Expr>,
+        fun: &Expr,
+        arg: &Expr,
         v_result: &Rc<Var>,
     ) -> (Box<Expr>, Box<Expr>) {
         let v_fn = self.variable();
@@ -850,7 +850,7 @@ impl TypeResolver {
             self.fn_term(&v_rec, &v_field, &v_arg);
             self.reg_expr(&arg.kind, &arg.span, arg.id, &v_arg)
         } else {
-            self.deduce_expr_type(env, &arg, &v_arg)
+            self.deduce_expr_type(env, arg, &v_arg)
         };
 
         let fun2 = if let ExprKind::RecordSelector(name) = &fun.kind {
@@ -890,12 +890,12 @@ impl TypeResolver {
     fn deduce_apply_fn_type(
         &mut self,
         env: &dyn TypeEnv,
-        fun: Box<Expr>,
+        fun: &Expr,
         v_fun: &Rc<Var>,
         _v_arg: &Rc<Var>,
         _v: &Rc<Var>,
     ) -> Box<Expr> {
-        self.deduce_expr_type(env, &fun, v_fun)
+        self.deduce_expr_type(env, fun, v_fun)
     }
 
     fn deduce_record_selector_type(
@@ -933,7 +933,7 @@ impl TypeResolver {
             ])
             .spanned(&left.span),
         );
-        let (_fun, arg) = self.deduce_apply_type(env, fun, arg, &v);
+        let (_fun, arg) = self.deduce_apply_type(env, &fun, &arg, &v);
         if let ExprKind::Tuple(args) = arg.kind
             && args.len() == 2
         {
@@ -962,7 +962,7 @@ impl TypeResolver {
             ])
             .spanned(&a0.span),
         );
-        let (_fun, arg) = self.deduce_apply_type(env, fun, arg, &v);
+        let (_fun, arg) = self.deduce_apply_type(env, &fun, &arg, &v);
         if let ExprKind::Tuple(args) = arg.kind
             && args.len() == 3
         {
@@ -980,8 +980,8 @@ impl TypeResolver {
         &mut self,
         env: &dyn TypeEnv,
         op: &str,
-        left: Box<Pat>,
-        right: Box<Pat>,
+        left: &Pat,
+        right: &Pat,
         term_map: &mut Vec<(String, Term)>,
         v: &Rc<Var>,
     ) -> (Box<Pat>, Box<Pat>) {
@@ -1036,7 +1036,7 @@ impl TypeResolver {
     ) -> &'a Rc<Var> {
         match type_ {
             Type::Primitive(prim) => {
-                let _type_name = prim.to_str();
+                let _type_name = prim.as_str();
                 let op = self.unifier.op(_type_name, Some(0));
                 let sequence = &Term::Sequence(self.unifier.atom(op));
                 self.equiv(sequence, v)
@@ -1058,7 +1058,7 @@ impl TypeResolver {
         prim_type: &PrimitiveType,
         v: &'a Rc<Var>,
     ) -> &'a Rc<Var> {
-        let moniker = prim_type.to_str();
+        let moniker = prim_type.as_str();
         let op = self.unifier.op(moniker, Some(0));
         let sequence = self.unifier.atom(op);
         self.equiv(&Term::Sequence(sequence), v)
@@ -1107,7 +1107,7 @@ impl TypeResolver {
 
         let label = Self::record_label_from_set(&labels);
         let op = self.unifier.op(&label, Some(label_types.len()));
-        let sequence = self.unifier.apply(op, label_terms);
+        let sequence = self.unifier.apply(op, &label_terms);
         self.equiv(&Term::Sequence(sequence), v)
     }
 
@@ -1119,8 +1119,7 @@ impl TypeResolver {
         if types.is_empty() {
             self.primitive_term(&PrimitiveType::Unit, v)
         } else {
-            let sequence =
-                self.unifier.apply(self.tuple_op.clone(), types.to_vec());
+            let sequence = self.unifier.apply(self.tuple_op.clone(), types);
             self.equiv(&Term::Sequence(sequence), v)
         }
     }
@@ -1163,7 +1162,7 @@ impl TypeResolver {
                     terms.push(Term::Variable(v2));
                 }
                 let op = self.unifier.op(&name, Some(terms.len()));
-                let sequence = self.unifier.apply(op, terms);
+                let sequence = self.unifier.apply(op, &terms);
                 self.equiv(&Term::Sequence(sequence), v)
             }
             Type::Fn(param_type, result_type) => {
@@ -1208,7 +1207,7 @@ impl TypeResolver {
                     let label = Self::record_label_from_set(map.keys());
                     let op = self.unifier.op(label.as_str(), Some(map.len()));
                     let terms = map.values().cloned().collect::<Vec<_>>();
-                    let sequence = self.unifier.apply(op, terms);
+                    let sequence = self.unifier.apply(op, &terms);
                     self.equiv(&Term::Sequence(sequence), v)
                 }
             }
@@ -1438,12 +1437,7 @@ impl TypeResolver {
             }
             PatKind::Cons(left, right) => {
                 let (left2, right2) = self.deduce_pat_call2_type(
-                    env,
-                    "op ::",
-                    left.clone(),
-                    right.clone(),
-                    term_map,
-                    v,
+                    env, "op ::", left, right, term_map, v,
                 );
                 let x = PatKind::Cons(left2, right2);
                 self.reg_pat(&x, &pat.span, pat.id, &v)
@@ -1644,7 +1638,7 @@ impl<'a> TypeToTermConverter<'a> {
                         .type_resolver
                         .unifier
                         .op(name.as_str(), Some(terms.len()));
-                    let apply = self.type_resolver.unifier.apply(op, terms);
+                    let apply = self.type_resolver.unifier.apply(op, &terms);
                     self.type_resolver.equiv(&Term::Sequence(apply), &v);
                     let x = TypeKind::App(args2, t.clone());
                     self.type_resolver.reg_type(&x, &type_node.span, &v)

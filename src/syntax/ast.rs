@@ -425,8 +425,8 @@ impl Display for LiteralKind {
         match &self {
             LiteralKind::Int(s) => write!(f, "{}", s)?,
             LiteralKind::Real(s) => write!(f, "{}", s)?,
-            LiteralKind::String(s) => write!(f, "\"{}\"", s)?,
-            LiteralKind::Char(s) => write!(f, "'{}'", s)?,
+            LiteralKind::String(s) => write!(f, "{}", s)?,
+            LiteralKind::Char(s) => write!(f, "{}", s)?,
             LiteralKind::Bool(b) => write!(f, "{}", b)?,
             LiteralKind::Unit => write!(f, "()")?,
             LiteralKind::Fn(built_in) => write!(f, "{:?}", built_in)?,
@@ -964,7 +964,7 @@ impl Display for ConBind {
 }
 
 /// Abstract syntax tree (AST) of a type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Type {
     pub kind: TypeKind,
     pub span: Span,

@@ -31,7 +31,7 @@ fn main() {
     // Check if we're running script tests
     if args.len() > 1 && args[1] == "test" {
         let test_args = args[2..].to_vec();
-        match ScriptTest::main(test_args) {
+        match ScriptTest::main(&test_args) {
             Ok(()) => {
                 println!("All tests completed successfully");
                 exit(0);
@@ -48,7 +48,7 @@ fn main() {
         let file_path = &args[1];
         let shell_args = args[2..].to_vec();
 
-        let mut main = ShellMain::new(shell_args);
+        let mut main = ShellMain::new(&shell_args);
         match main.run_file(file_path, stdout()) {
             Ok(()) => {
                 exit(0);
@@ -68,7 +68,7 @@ fn main() {
     shell_args.insert(0, "--echo".to_string());
     shell_args.insert(0, "--banner".to_string());
 
-    let mut main = ShellMain::new(shell_args);
+    let mut main = ShellMain::new(&shell_args);
     match main.run(stdin(), stdout()) {
         Ok(()) => {
             println!("Goodbye!");

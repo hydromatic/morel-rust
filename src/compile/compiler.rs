@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::pretty::Pretty;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::{TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
@@ -22,12 +23,14 @@ use crate::eval::code::{Code, Codes, Effect, EvalEnv};
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::Shell;
+use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::Environment;
 use crate::syntax::ast::Pat;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind,
     PatKind, Span, TypeBind,
 };
+use crate::syntax::parser;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
@@ -166,7 +169,7 @@ impl<'a> Compiler<'a> {
                   _span: &Span| {
                 let code = self.compile_arg(&cx1, expr);
 
-                let matches = vec![(pat.clone(), code.clone())];
+                let matches = vec![(pat.clone(), (*code).clone())];
                 let code2 = Rc::new(Code::Constant(Val::Bool(false)));
                 match_codes.push(Code::Match(matches, code2));
 
@@ -354,6 +357,7 @@ impl<'a> Compiler<'a> {
 
     pub fn compile_with_context(&self, cx: &Context, expr: &Expr) -> Box<Code> {
         match &expr.kind {
+            // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Apply(f, a) => {
                 let f_code = self.inline(cx, f.clone());
                 if let ExprKind::Literal(literal) = &f_code.kind
@@ -365,6 +369,10 @@ impl<'a> Compiler<'a> {
                     return Codes::apply(*f, &boxed_codes);
                 }
                 todo!("{}", expr.kind)
+            }
+            ExprKind::List(args) => {
+                let codes = self.compile_arg_list(cx, args);
+                Codes::list(&codes)
             }
             ExprKind::Literal(literal) => Codes::constant(literal_val(literal)),
             /*
@@ -397,7 +405,17 @@ impl<'a> Compiler<'a> {
                             }
                         }
             */
-            _ => todo!("Implement {}", expr.kind),
+            ExprKind::Record(_, args) => {
+                let exprs: Vec<Box<Expr>> =
+                    args.iter().map(|le| le.expr.clone()).collect();
+                let codes = self.compile_arg_list(cx, &exprs);
+                Codes::list(&codes)
+            }
+            ExprKind::Tuple(args) => {
+                let codes = self.compile_arg_list(cx, args);
+                Codes::tuple(&codes)
+            }
+            _ => todo!("{:?}", expr.kind),
         }
     }
 
@@ -448,10 +466,14 @@ fn literal_val(literal: &Literal) -> Val {
             todo!("Implement Fn literal conversion")
         }
         LiteralKind::Bool(x) => Val::Bool(*x),
-        LiteralKind::Char(x) => Val::Char(x.parse().unwrap()),
-        LiteralKind::Int(x) => Val::Int(x.parse().unwrap()),
+        LiteralKind::Char(x) => {
+            Val::Char(parser::unquote_char_literal(x).unwrap())
+        }
+        LiteralKind::Int(x) => Val::Int(x.replace("~", "-").parse().unwrap()),
         LiteralKind::Real(x) => Val::Real(x.replace("~", "-").parse().unwrap()),
-        LiteralKind::String(x) => Val::String(x.clone()),
+        LiteralKind::String(x) => {
+            Val::String(parser::unquote_string(x).unwrap())
+        }
         LiteralKind::Unit => Val::Unit,
     }
 }
@@ -459,7 +481,7 @@ fn literal_val(literal: &Literal) -> Val {
 /// Something that needs to happen when a declaration is evaluated.
 ///
 /// Usually involves placing a type or value into the bindings that will
-/// make up the environment in which the next statement will be executed, and
+/// make up the environment in which the next statement will be executed and
 /// printing some text on the screen.
 trait Action {
     fn apply(&self, v: &mut EvalEnv);
@@ -480,21 +502,35 @@ impl Action for ValDeclAction {
                 ));
             }
             Ok(o) => {
+                let pretty = Self::get_pretty(&v.shell().unwrap().config);
                 self.pat.bind_recurse(&o, &mut |p2, v2| {
                     // Emit a line 'val <name> = <value> : <type>'. The
                     // pretty-printer ensures that the value is formatted
                     // correctly for its type, and lines are correctly wrapped
                     // and indented per the shell configuration.
                     let type_map = v.type_map().unwrap();
-                    v.emit_effect(Effect::EmitLine(format!(
-                        "val {} = {} : {}",
-                        p2.name().unwrap(),
-                        v2,
-                        type_map.get_type(p2.id.unwrap()).unwrap()
-                    )));
+                    let mut line = String::new();
+                    let id = p2.name().unwrap();
+                    let type_ = *type_map.get_type(p2.id.unwrap()).unwrap();
+                    let typed_val = Val::new_typed(&id, v2.clone(), &type_);
+                    let _ = pretty.pretty(&mut line, &type_, &typed_val);
+
+                    v.emit_effect(Effect::EmitLine(line));
                 });
             }
         }
+    }
+}
+
+impl ValDeclAction {
+    fn get_pretty(shell_config: &ShellConfig) -> Pretty {
+        Pretty::new(
+            shell_config.line_width.unwrap(),
+            shell_config.output.unwrap(),
+            shell_config.print_length.unwrap(),
+            shell_config.print_depth.unwrap(),
+            shell_config.string_depth.unwrap(),
+        )
     }
 }
 

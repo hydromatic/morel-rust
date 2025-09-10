@@ -556,19 +556,11 @@ impl<'a> Work<'a> {
     /// Applies substitution to all queues.
     fn sub_queues(&mut self, variable: &Rc<Var>, term: &Term) {
         // Process seq_seq_queue
-        self.process_queue(
-            variable,
-            term,
-            Kind::SeqSeq,
-            self.seq_seq_queue.clone(),
-        );
+        let seq_seq_queue = self.seq_seq_queue.clone();
+        self.process_queue(variable, term, Kind::SeqSeq, &seq_seq_queue);
         // Process var_any_queue
-        self.process_queue(
-            variable,
-            term,
-            Kind::VarAny,
-            self.var_any_queue.clone(),
-        );
+        let var_any_queue = self.var_any_queue.clone();
+        self.process_queue(variable, term, Kind::VarAny, &var_any_queue);
     }
 
     /// Processes a specific queue type.
@@ -580,7 +572,7 @@ impl<'a> Work<'a> {
         variable: &Rc<Var>,
         term: &Term,
         queue_kind: Kind,
-        queue_ref: Rc<RefCell<VecDeque<(L, R)>>>,
+        queue_ref: &Rc<RefCell<VecDeque<(L, R)>>>,
     ) {
         let mut items_to_add = Vec::new();
 
@@ -846,19 +838,23 @@ impl Unifier {
     }
 
     /// Creates a Sequence.
-    pub fn apply(&self, op: Rc<Op>, terms: Vec<Term>) -> Sequence {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn apply(&self, op: Rc<Op>, terms: &[Term]) -> Sequence {
         assert!(op.arity.is_none_or(|x| { x == terms.len() }));
-        Sequence { op, terms }
+        Sequence {
+            op,
+            terms: terms.to_vec(),
+        }
     }
 
     /// Creates a Sequence with one operand.
     pub fn apply1(&self, op: Rc<Op>, term0: Term) -> Sequence {
-        self.apply(op, vec![term0])
+        self.apply(op, &[term0])
     }
 
     /// Creates a Sequence with two operands.
     pub fn apply2(&self, op: Rc<Op>, term0: Term, term1: Term) -> Sequence {
-        self.apply(op, vec![term0, term1])
+        self.apply(op, &[term0, term1])
     }
 
     /// Creates a Sequence with three operands.
@@ -869,12 +865,15 @@ impl Unifier {
         term1: Term,
         term2: Term,
     ) -> Sequence {
-        self.apply(op, vec![term0, term1, term2])
+        self.apply(op, &[term0, term1, term2])
     }
 
     /// Creates an Atom (a Sequence with zero operands).
     pub(crate) fn atom(&self, op: Rc<Op>) -> Sequence {
-        Sequence { op, terms: vec![] }
+        Sequence {
+            op,
+            terms: Vec::new(),
+        }
     }
 
     /// Creates a substitution from a variable to a term.

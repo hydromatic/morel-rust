@@ -57,6 +57,7 @@ impl Session {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)] // Val is small
     pub(crate) fn set_prop(
         &mut self,
         prop: &str,
@@ -64,7 +65,7 @@ impl Session {
     ) -> Result<(), Error> {
         match prop {
             "hybrid" => {
-                self.config.hybrid = Some(val.as_bool());
+                self.config.hybrid = Some(val.expect_bool());
                 Ok(())
             }
             _ => todo!(),

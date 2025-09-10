@@ -46,11 +46,13 @@ pub enum Effect {
 /// Generated code that can be evaluated.
 #[derive(Clone)]
 pub enum Code {
-    Constant(Val),
-    Link(Rc<Option<Code>>),
-    Match(Vec<(Pat, Box<Code>)>, Rc<Code>),
+    // lint: sort until '^}$'
     ApplyE2(Eager2),
     ApplyEV2(EagerV2, Box<Code>, Box<Code>),
+    Constant(Val),
+    Link(Rc<Option<Code>>),
+    Match(Vec<(Pat, Code)>, Rc<Code>),
+    Tuple(Vec<Code>),
 }
 
 impl Code {
@@ -70,6 +72,13 @@ impl Code {
                 let v0 = code0.eval(v)?;
                 let v1 = code1.eval(v)?;
                 eager.apply(v, v0, v1)
+            }
+            Code::Tuple(codes) => {
+                let mut values = Vec::with_capacity(codes.capacity());
+                for code in codes {
+                    values.push(code.eval(v)?);
+                }
+                Ok(Val::List(values))
             }
         }
     }
@@ -100,6 +109,14 @@ impl Codes {
             },
             _ => todo!("{:?}", f),
         }
+    }
+
+    pub fn list(codes: &[Code]) -> Box<Code> {
+        Self::tuple(codes)
+    }
+
+    pub fn tuple(codes: &[Code]) -> Box<Code> {
+        Box::new(Code::Tuple(codes.to_vec()))
     }
 }
 
@@ -137,14 +154,41 @@ impl EvalEnv<'_> {
         }
     }
 
-    /// Returns the type map.
-    pub fn type_map(&self) -> Option<&TypeMap> {
+    /// Returns the root.
+    pub fn root(&self) -> Option<(&Session, &Shell, &TypeMap)> {
         match self {
             EvalEnv::Empty => None,
-            EvalEnv::Root(_session, _shell, _effects, type_map) => {
-                Some(type_map)
+            EvalEnv::Root(session, shell, _effects, type_map) => {
+                Some((session, shell, type_map))
             }
-            EvalEnv::Child(parent) => parent.type_map(),
+            EvalEnv::Child(parent) => parent.root(),
+        }
+    }
+
+    /// Returns the session.
+    pub fn session(&self) -> Option<&Session> {
+        if let Some((session, _shell, _type_map)) = self.root() {
+            Some(session)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the shell.
+    pub fn shell(&self) -> Option<&Shell> {
+        if let Some((_, shell, _type_map)) = self.root() {
+            Some(shell)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the type map.
+    pub fn type_map(&self) -> Option<&TypeMap> {
+        if let Some((_session, _shell, type_map)) = self.root() {
+            Some(type_map)
+        } else {
+            None
         }
     }
 }
@@ -174,14 +218,12 @@ pub enum EagerV2 {
 }
 
 impl EagerV2 {
-    pub(crate) fn implements(
-        &self,
-        map: &mut BTreeMap<u8, Impl>,
-        f: BuiltInFunction,
-    ) {
+    fn implements(&self, map: &mut BTreeMap<u8, Impl>, f: BuiltInFunction) {
         map.insert(f as u8, Impl::EV2(*self));
     }
 
+    // Passing Val by value is OK because it is small.
+    #[allow(clippy::needless_pass_by_value)]
     fn apply(
         &self,
         v: &mut EvalEnv,
@@ -190,7 +232,7 @@ impl EagerV2 {
     ) -> Result<Val, MorelError> {
         match &self {
             SysSet => {
-                let prop = a0.as_string();
+                let prop = a0.expect_string();
                 let val = a1;
                 v.emit_effect(Effect::SetShellProp(prop, val));
                 Ok(Val::Unit)
@@ -200,17 +242,15 @@ impl EagerV2 {
 }
 
 impl Eager2 {
+    // Passing Val by value is OK because it is small.
+    #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val, a1: Val) -> Val {
         match &self {
-            Eager2::IntPlus => Val::Int(a0.as_int() + a1.as_int()),
+            Eager2::IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
         }
     }
 
-    pub(crate) fn implements(
-        &self,
-        map: &mut BTreeMap<u8, Impl>,
-        f: BuiltInFunction,
-    ) {
+    fn implements(&self, map: &mut BTreeMap<u8, Impl>, f: BuiltInFunction) {
         map.insert(f as u8, Impl::E2(*self));
     }
 }
@@ -230,6 +270,6 @@ static BUILT_IN_VALUES: LazyLock<BTreeMap<u8, Impl>> = LazyLock::new(|| {
     map
 });
 
-pub fn built_in_to_applicable(b: BuiltInFunction) -> Option<Impl> {
+fn built_in_to_applicable(b: BuiltInFunction) -> Option<Impl> {
     BUILT_IN_VALUES.get(&(b as u8)).copied()
 }

@@ -53,9 +53,6 @@ false;
 (1);
 >type it : int
 
-set("mode", "validate");
->val it : unit = ()
-
 (1, true);
 >type it : int * bool
 (false, 1, (true, false));
@@ -208,8 +205,6 @@ fun len nil = 0
   | len (h :: t) = 1 + (len t);
 >type len : 'a list -> int
 
-set("mode", "evaluate");
-
 (*) Literals
 1;
 > val it = 1 : int
@@ -255,6 +250,8 @@ true;
 > val it = {1="a"} : {1:string}
 ("a");
 > val it = "a" : string
+set("mode", "validate");
+> val it = () : unit
 {1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11,a="a",a1="a1",a2="a2",a10="a10"};
 > val it =
 >   {1=1,2=2,3=3,4=4,5=5,6=6,7=7,8=8,9=9,10=10,11=11,a="a",a1="a1",a10="a10",

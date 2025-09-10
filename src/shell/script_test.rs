@@ -218,12 +218,12 @@ impl ScriptTest {
     }
 
     /// Main entry point for command-line usage.
-    pub fn main(args: Vec<String>) -> ShellResult<()> {
+    pub fn main(args: &[String]) -> ShellResult<()> {
         let mut test_files = Vec::new();
         let mut config = SessionConfig::default();
 
         // Parse arguments
-        for arg in &args {
+        for arg in args {
             if let Some(dir) = arg.strip_prefix("--directory=") {
                 config.directory = Some(Rc::new(PathBuf::from(dir)));
             } else if !arg.starts_with("--") {

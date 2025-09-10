@@ -20,5 +20,5 @@ pub mod compiler;
 mod pretty;
 pub mod type_env;
 pub mod type_resolver;
-mod types;
+pub mod types;
 pub mod unifier;
