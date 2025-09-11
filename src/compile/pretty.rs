@@ -282,7 +282,7 @@ impl Pretty {
             Val::Labeled(b) => {
                 let (label, type_) = &**b;
                 let mut prefix = String::new();
-                append_id(&mut prefix, label);
+                append_id(&mut prefix, &label.to_string());
                 prefix.push(':');
                 self.pretty1(
                     buf,
@@ -342,7 +342,7 @@ impl Pretty {
                         line_end,
                         depth + 1,
                         field_type,
-                        &Val::new_named(name, val2.clone()),
+                        &Val::new_named(&name.to_string(), val2.clone()),
                         0,
                         0,
                     )?;
@@ -406,7 +406,8 @@ impl Pretty {
             && let Val::List(records) = value
             && let Some(Type::Record(_, arg_name_types)) = type_ref.arg(0)
         {
-            let headers: Vec<String> = arg_name_types.keys().cloned().collect();
+            let headers: Vec<String> =
+                arg_name_types.keys().map(ToString::to_string).collect();
             let mut widths: Vec<usize> =
                 headers.iter().map(String::len).collect();
 

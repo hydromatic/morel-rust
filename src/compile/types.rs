@@ -28,7 +28,7 @@ pub enum Type {
     /// `Record(progressive, arg_name_types)` represents the type
     /// `{name0: arg0, ... nameN: argN}`. If `progressive`, the
     /// arguments may grow over time.
-    Record(bool, BTreeMap<String, Type>),
+    Record(bool, BTreeMap<Label, Type>),
 
     /// `List(element_type)` represents the type `element_type list`.
     List(Box<Type>),
@@ -231,6 +231,56 @@ impl TypeVariable {
         }
         s.push('\'');
         s.chars().rev().collect()
+    }
+}
+
+/// Label for a field in a record type.
+///
+/// Has a sort order that puts numeric fields first, in numeric order.
+#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq)]
+pub enum Label {
+    Ordinal(usize),
+    String(String),
+}
+
+impl Label {
+    /// Returns whether a collection of labels is the ordinal labels
+    /// \[1, 2, ... N\].
+    pub fn are_contiguous<I>(labels: I) -> bool
+    where
+        I: IntoIterator<Item = Label>,
+    {
+        let mut i: usize = 1;
+        for label in labels.into_iter() {
+            match label {
+                Label::Ordinal(j) if i == j => {
+                    i += 1;
+                }
+                _ => {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+impl<T: AsRef<str> + Into<String>> From<T> for Label {
+    /// Converts a string to a label. If the string is a natural number, it
+    /// becomes an [Ordinal], otherwise [String].
+    fn from(s: T) -> Label {
+        s.as_ref()
+            .parse::<usize>()
+            .map_or_else(|_| Label::String(s.as_ref().into()), Label::Ordinal)
+    }
+}
+
+impl Display for Label {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Label::String(s) => write!(f, "{}", s),
+            Label::Ordinal(i) => write!(f, "{}", i),
+        }
     }
 }
 

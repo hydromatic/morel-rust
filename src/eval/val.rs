@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::types::Label;
 use crate::compile::types::Type;
 use crate::syntax::parser;
 use std::fmt::{Display, Formatter};
@@ -57,7 +58,7 @@ pub enum Val {
     /// ```
     Named(Box<(String, Val)>),
 
-    Labeled(Box<(String, Type)>),
+    Labeled(Box<(Label, Type)>),
     /// `Type(prefix, type_)`
     Type(Box<(String, Type)>),
     /// `Raw(value)` is printed to the output as-is, without any quoting.
@@ -82,8 +83,8 @@ impl Val {
     }
 
     /// Creates a new Labeled value with the given label and type.
-    pub fn new_labeled(label: &str, type_: &Type) -> Self {
-        Val::Labeled(Box::new((label.to_string(), type_.clone())))
+    pub fn new_labeled(label: &Label, type_: &Type) -> Self {
+        Val::Labeled(Box::new((label.clone(), type_.clone())))
     }
     pub(crate) fn expect_bool(&self) -> bool {
         match &self {

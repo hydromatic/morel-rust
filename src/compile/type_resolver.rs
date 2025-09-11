@@ -22,19 +22,20 @@
 
 use crate::compile::type_env::{EmptyTypeEnv, TypeEnv, TypeSchemeResolver};
 use crate::compile::types;
+use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
 use crate::compile::unifier::{NullTracer, Op, Sequence, Term, Unifier, Var};
 use crate::syntax::ast::{
-    Decl, DeclKind, Expr, ExprKind, FunBind, LiteralKind, Match, MorelNode,
-    Pat, PatField, PatKind, Span, Statement, StatementKind, Type as AstType,
-    TypeField, TypeKind, TypeScheme, ValBind,
+    Decl, DeclKind, Expr, ExprKind, FunBind, LabeledExpr, LiteralKind, Match,
+    MorelNode, Pat, PatField, PatKind, Span, Statement, StatementKind,
+    Type as AstType, TypeField, TypeKind, TypeScheme, ValBind,
 };
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::zip;
 use std::rc::Rc;
-use types::{are_contiguous_integers, ordinal_names};
+use types::ordinal_names;
 
 /// A field of this name indicates that a record type is progressive.
 pub const PROGRESSIVE_LABEL: &str = "z$dummy";
@@ -147,9 +148,10 @@ impl<'a> TermToTypeConverter<'a> {
                 }
                 s if s.starts_with("record") => {
                     let labels = TypeResolver::field_list(sequence).unwrap();
-                    let mut fields = BTreeMap::<String, Type>::new();
+                    let mut fields = BTreeMap::<Label, Type>::new();
                     for (label, term) in zip(labels, sequence.terms.iter()) {
-                        fields.insert(label, *self.term_type(term));
+                        fields
+                            .insert(Label::from(label), *self.term_type(term));
                     }
                     Box::new(Type::Record(false, fields))
                 }
@@ -594,21 +596,42 @@ impl TypeResolver {
                 self.list_term(Term::Variable(v_element), v);
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
-            ExprKind::Record(_with_expr_opt, labeled_expr_list) => {
-                let mut terms: BTreeMap<String, Term> = BTreeMap::new();
+            ExprKind::Record(with_expr, labeled_expr_list) => {
+                // First, create a copy of expressions and their labels,
+                // sorted into the order that they will appear in the record
+                // type.
+                let mut label_expr_map: BTreeMap<Label, LabeledExpr> =
+                    BTreeMap::new();
                 for labeled_expr in labeled_expr_list {
-                    let v2 = self.variable();
-                    self.deduce_expr_type(env, &labeled_expr.expr, &v2);
-                    if let Some(label) = &labeled_expr.label {
-                        terms.insert(label.name.clone(), Term::Variable(v2));
+                    let label = if let Some(label_name) = &labeled_expr.label {
+                        Label::from(&label_name.name)
                     } else {
-                        // Anonymous field - generate ordinal name
-                        let ordinal = (terms.len() + 1).to_string();
-                        terms.insert(ordinal, Term::Variable(v2));
-                    }
+                        // Field has no label, so generate a temporary name.
+                        // FIXME The temporary name might overlap with later
+                        // explicit labels, and certain types of expressions
+                        // have an implicit label.
+                        let ordinal = label_expr_map.len() + 1;
+                        Label::Ordinal(ordinal)
+                    };
+                    label_expr_map.insert(label, labeled_expr.clone());
                 }
-                self.record_term(&terms, v);
-                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+
+                // Second, duplicate the record expression and its labels.
+                let mut label_terms: BTreeMap<Label, Term> = BTreeMap::new();
+                let mut labeled_expr_list2 = Vec::new();
+                for (label, labeled_expr) in &label_expr_map {
+                    let v2 = self.variable();
+                    let e2 =
+                        self.deduce_expr_type(env, &labeled_expr.expr, &v2);
+                    labeled_expr_list2.push(LabeledExpr {
+                        expr: e2,
+                        ..labeled_expr.clone()
+                    });
+                    label_terms.insert(label.clone(), Term::Variable(v2));
+                }
+                self.record_term(&label_terms, v);
+                let x = ExprKind::Record(with_expr.clone(), labeled_expr_list2);
+                self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Tuple(expr_list) => {
                 let mut terms = Vec::new();
@@ -780,6 +803,30 @@ impl TypeResolver {
             }
             _ => todo!("{:?}", expr.kind),
         }
+    }
+
+    fn deduce_field_type(
+        &mut self,
+        env: &dyn TypeEnv,
+        labeled_expr: &LabeledExpr,
+        label_terms: &mut BTreeMap<Label, Term>,
+        labeled_expr_list: &mut Vec<LabeledExpr>,
+    ) {
+        let v2 = self.variable();
+        let e2 = self.deduce_expr_type(env, &labeled_expr.expr, &v2);
+        if let Some(label_name) = &labeled_expr.label {
+            let label = Label::from(&label_name.name);
+            label_terms.insert(label, Term::Variable(v2));
+        } else {
+            // Anonymous field - generate ordinal name
+            let ordinal = label_terms.len() + 1;
+            let label = Label::Ordinal(ordinal);
+            label_terms.insert(label, Term::Variable(v2));
+        }
+        labeled_expr_list.push(LabeledExpr {
+            label: labeled_expr.label.clone(),
+            expr: e2,
+        });
     }
 
     fn deduce_match_list_type(
@@ -1094,18 +1141,19 @@ impl TypeResolver {
     /// Creates a term for a record type and associates it with a variable.
     fn record_term<'a>(
         &mut self,
-        label_types: &BTreeMap<String, Term>,
+        label_types: &BTreeMap<Label, Term>,
         v: &'a Rc<Var>,
     ) -> &'a Rc<Var> {
-        let labels: Vec<&String> = label_types.keys().collect();
-        assert!(labels.is_sorted());
+        assert!(label_types.keys().is_sorted());
         let label_terms = label_types.values().cloned().collect::<Vec<_>>();
 
-        if are_contiguous_integers(&labels) && label_types.len() != 1 {
+        if Label::are_contiguous(label_types.keys().cloned())
+            && label_types.len() != 1
+        {
             return self.tuple_term(&label_terms, v);
         }
 
-        let label = Self::record_label_from_set(&labels);
+        let label = Self::record_label_from_set(label_types.keys().cloned());
         let op = self.unifier.op(&label, Some(label_types.len()));
         let sequence = self.unifier.apply(op, &label_terms);
         self.equiv(&Term::Sequence(sequence), v)
@@ -1182,11 +1230,11 @@ impl TypeResolver {
                 self.tuple_term(&terms, v)
             }
             Type::Record(progressive, arg_name_types) => {
-                let mut map: BTreeMap<String, Term> = BTreeMap::new();
+                let mut map: BTreeMap<Label, Term> = BTreeMap::new();
                 if *progressive {
                     let v2 = self.variable();
                     self.primitive_term(&PrimitiveType::Unit, &v2);
-                    let label = PROGRESSIVE_LABEL.to_string();
+                    let label = Label::from(PROGRESSIVE_LABEL);
                     map.insert(label, Term::Variable(v2));
                 }
                 for (label, t) in arg_name_types {
@@ -1196,15 +1244,14 @@ impl TypeResolver {
                 }
                 if map.is_empty() {
                     self.primitive_term(&PrimitiveType::Unit, v)
-                } else if are_contiguous_integers::<&Vec<_>, &String>(
-                    &map.keys().cloned().collect(),
-                ) {
+                } else if Label::are_contiguous(map.keys().cloned()) {
                     self.tuple_term(
                         &map.values().cloned().collect::<Vec<_>>(),
                         v,
                     )
                 } else {
-                    let label = Self::record_label_from_set(map.keys());
+                    let label =
+                        Self::record_label_from_set(map.keys().cloned());
                     let op = self.unifier.op(label.as_str(), Some(map.len()));
                     let terms = map.values().cloned().collect::<Vec<_>>();
                     let sequence = self.unifier.apply(op, &terms);
@@ -1263,15 +1310,14 @@ impl TypeResolver {
     }
 
     /// Inverse of `field_list`. Creates a record label from field names.
-    fn record_label_from_set<I, S>(labels: I) -> String
+    fn record_label_from_set<I>(labels: I) -> String
     where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
+        I: IntoIterator<Item = Label>,
     {
         let mut s = "record".to_string();
         for label in labels {
             s.push(':');
-            s.push_str(label.as_ref());
+            s.push_str(&label.to_string());
         }
         s
     }
@@ -1491,7 +1537,7 @@ impl TypeResolver {
                 //
                 // we cannot deduce whether a 'c' field is allowed.
                 let mut fields2 = Vec::new();
-                let mut map = BTreeMap::new();
+                let mut map = BTreeMap::<Label, Term>::new();
                 for field in fields {
                     match field {
                         PatField::Labeled(span, name, pat) => {
@@ -1503,7 +1549,10 @@ impl TypeResolver {
                                 name.clone(),
                                 pat2,
                             ));
-                            map.insert(name.clone(), Term::Variable(v2));
+                            map.insert(
+                                Label::from(name.clone()),
+                                Term::Variable(v2),
+                            );
                         }
                         PatField::Anonymous(span, pat) => {
                             let v2 = self.variable();
@@ -1515,7 +1564,10 @@ impl TypeResolver {
                                 name.clone(),
                                 pat2,
                             ));
-                            map.insert(name.clone(), Term::Variable(v2));
+                            map.insert(
+                                Label::from(name.clone()),
+                                Term::Variable(v2),
+                            );
                         }
                         PatField::Ellipsis(_span) => {
                             // ignore
@@ -1669,15 +1721,17 @@ impl<'a> TypeToTermConverter<'a> {
             }
             TypeKind::Record(fields) => {
                 let mut fields2 = Vec::new();
-                let mut label_types = BTreeMap::new();
+                let mut label_types = BTreeMap::<Label, Term>::new();
                 for field in fields {
                     let v2 = self.type_resolver.variable();
                     fields2.push(TypeField {
                         label: field.label.clone(),
                         type_: *self.type_term(&field.type_, subst, &v2),
                     });
-                    label_types
-                        .insert(field.label.name.clone(), Term::Variable(v2));
+                    label_types.insert(
+                        Label::from(field.label.name.clone()),
+                        Term::Variable(v2),
+                    );
                 }
                 self.type_resolver.record_term(&label_types, &v);
                 self.type_resolver.reg_type(
