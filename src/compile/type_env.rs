@@ -210,7 +210,7 @@ pub struct Id {
 
 /// Binding of a name to a type and a value.
 ///
-/// Used in [crate::shell::Environment].
+/// Used in [crate::shell::main::Environment].
 #[derive(Debug, Clone)]
 pub struct Binding {
     pub id: Box<Id>,

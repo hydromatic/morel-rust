@@ -267,7 +267,7 @@ impl Label {
 
 impl<T: AsRef<str> + Into<String>> From<T> for Label {
     /// Converts a string to a label. If the string is a natural number, it
-    /// becomes an [Ordinal], otherwise [String].
+    /// becomes a [Label::Ordinal], otherwise a [Label::String].
     fn from(s: T) -> Label {
         s.as_ref()
             .parse::<usize>()

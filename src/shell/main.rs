@@ -22,6 +22,7 @@
 #![allow(clippy::redundant_closure)]
 
 use crate::compile::compiler::Compiler;
+use crate::compile::resolver::Resolver;
 use crate::compile::type_env::Binding;
 use crate::compile::type_resolver::Resolved;
 use crate::eval::code::Effect;
@@ -75,9 +76,9 @@ impl Environment {
         self.bindings.insert(name, value.clone());
     }
 
-    pub fn bind_all(&self, _bindings: &[Binding]) -> Self {
+    pub fn bind_all(&self, bindings: &[Binding]) -> Self {
         let mut env = Self::new();
-        for b in _bindings {
+        for b in bindings {
             if b.value.is_some() {
                 env.bind(b.id.name.clone(), b.value.as_ref().unwrap());
             }
@@ -335,10 +336,13 @@ impl Shell {
 
     /// Evaluates a parsed AST node.
     fn evaluate_node(&mut self, resolved: &Resolved) -> ShellResult<String> {
+        let resolver = Resolver::new(&resolved.type_map);
+        let decl = resolver.resolve_decl(&resolved.decl);
+
         let compiler = Compiler::new(&resolved.type_map);
         let compiled_statement = compiler.compile_statement(
             &self.environment,
-            &resolved.decl,
+            &decl,
             None,
             &HashSet::new(),
         );
@@ -509,7 +513,7 @@ mod tests {
 /// The types are held as strings and are parsed (and converted to terms)
 /// on demand. This is a win when there are a lot of built-in operators.
 pub static BUILT_IN_TYPES: phf::Map<&'static str, &'static str> = phf_map! {
-    // lint: sort until '^}$'
+    // lint: sort until '^};$'
     "NONE" => "forall 1 'a option",
     "SOME" => "forall 1 'a -> 'a option",
     "Sys" => "{set: string * string -> unit}",

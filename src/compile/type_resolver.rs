@@ -439,7 +439,6 @@ impl TypeResolver {
             ),
             type_annotation,
             expr,
-            overload_pat: None,
         }
     }
 
@@ -579,22 +578,25 @@ impl TypeResolver {
             }
             ExprKind::List(expr_list) => {
                 let v_element = self.variable();
-                if expr_list.is_empty() {
+                let x = if expr_list.is_empty() {
                     // Don't link v0 to anything. It becomes a type variable.
+                    expr.kind.clone()
                 } else {
-                    self.deduce_expr_type(
+                    let mut expr_list2 = Vec::new();
+                    expr_list2.push(self.deduce_expr_type(
                         env,
                         expr_list.first().unwrap(),
                         &v_element,
-                    );
+                    ));
                     for expr in expr_list.iter().skip(1) {
                         let v2 = self.variable();
-                        self.deduce_expr_type(env, expr, &v2);
+                        expr_list2.push(self.deduce_expr_type(env, expr, &v2));
                         self.equiv(&Term::Variable(v2), &v_element.clone());
                     }
-                }
+                    ExprKind::List(expr_list2)
+                };
                 self.list_term(Term::Variable(v_element), v);
-                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Record(with_expr, labeled_expr_list) => {
                 // First, create a copy of expressions and their labels,
@@ -1083,8 +1085,8 @@ impl TypeResolver {
     ) -> &'a Rc<Var> {
         match type_ {
             Type::Primitive(prim) => {
-                let _type_name = prim.as_str();
-                let op = self.unifier.op(_type_name, Some(0));
+                let type_name = prim.as_str();
+                let op = self.unifier.op(type_name, Some(0));
                 let sequence = &Term::Sequence(self.unifier.atom(op));
                 self.equiv(sequence, v)
             }

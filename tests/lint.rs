@@ -18,7 +18,7 @@
 use phf::{Map, Set, phf_map, phf_set};
 use regex::Regex;
 use std::collections::HashMap;
-use std::fs;
+use std::{fs, iter};
 
 #[test]
 fn lint() {
@@ -132,93 +132,104 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         let mut in_raw_string = false;
         let mut sort: Option<Sort> = None;
         let mut impl_lines: HashMap<String, usize> = HashMap::new();
-        contents.lines().for_each(|l| {
-            line += 1;
-            if let Some(ref mut s) = sort {
-                let l2 = if let Some(erase) = &s.erase {
-                    erase.replace_all(l, "").to_string()
-                } else {
-                    l.to_string()
-                };
-                if s.until.is_match(l) {
-                    sort = None;
-                } else if s.where_.is_none()
-                    || s.where_.as_ref().unwrap().is_match(l)
-                {
-                    if !s.previous_lines.is_empty()
-                        && l2 < s.previous_lines.last().unwrap().0
-                    {
-                        let mut target_line = 0;
-                        for i in (0..s.previous_lines.len()).rev() {
-                            if l2 > s.previous_lines[i].0 {
-                                target_line = s.previous_lines[i].1;
-                                break;
-                            }
-                        }
-                        warnings.push(format!(
-                            "{}:{}: Line out of order; move to line {}",
-                            file_name, line, target_line
-                        ));
-                    }
-                    s.previous_lines.push((l2, line));
-                }
-            }
-            if l.ends_with(' ') {
-                warnings
-                    .push(format!("{}:{}: Trailing spaces", file_name, line));
-            }
-            if l.contains("r#\"") {
-                in_raw_string = true;
-            }
-            if l.contains("\"#") {
-                in_raw_string = false;
-            }
-            if l.len() > file_type.max_line_length
-                && !l.contains("://")
-                && !in_raw_string
-            {
-                // ignore URLs
-                warnings.push(format!(
-                    "{}:{}: Line too long ({} > {}): {}",
-                    file_name,
-                    line,
-                    l.len(),
-                    file_type.max_line_length,
-                    l
-                ));
-            }
-            if l.contains(vec_space) || l.contains(vec_paren) {
-                warnings.push(format!(
-                    "{}:{}: Use `vec![]` rather than {} or {}",
-                    file_name, line, vec_space, vec_paren
-                ));
-            }
-            if impl_regex.is_match(l)
-                && let Some(previous_line) =
-                    impl_lines.insert(l.to_string(), line)
-            {
-                warnings.push(format!(
-                    "{}:{}: Duplicate `impl` block (previously on line {})",
-                    file_name, line, previous_line
-                ));
-            }
-            if l.contains("lint: sort until")
-                && !l.contains("\"lint: sort until")
-            {
-                match Sort::parse(l) {
-                    Ok(s) => {
-                        sort = Some(s);
-                    }
-                    Err(()) => {
+        contents
+            .lines()
+            .chain(iter::once("")) // add a blank line at the end
+            .for_each(|l| {
+                line += 1;
+                if let Some(ref mut s) = sort {
+                    let l2 = if let Some(erase) = &s.erase {
+                        erase.replace_all(l, "").to_string()
+                    } else {
+                        l.to_string()
+                    };
+                    if s.until.is_match(l) {
                         sort = None;
-                        warnings.push(format!(
-                            "{}:{}: Malformed 'sort until' directive: {}",
-                            file_name, line, l
-                        ));
+                    } else if s.where_.is_none()
+                        || s.where_.as_ref().unwrap().is_match(l)
+                    {
+                        if !s.previous_lines.is_empty()
+                            && l2 < s.previous_lines.last().unwrap().0
+                        {
+                            let mut target_line = 0;
+                            for p in s.previous_lines.iter().rev() {
+                                target_line = p.1;
+                                if l2 > p.0 {
+                                    break;
+                                }
+                            }
+                            warnings.push(format!(
+                                "{}:{}: Line out of order; move to line {}",
+                                file_name, line, target_line
+                            ));
+                        }
+                        s.previous_lines.push((l2, line));
                     }
                 }
-            }
-        });
+                if l.ends_with(' ') {
+                    warnings.push(format!(
+                        "{}:{}: Trailing spaces",
+                        file_name, line
+                    ));
+                }
+                if l.contains("r#\"") {
+                    in_raw_string = true;
+                }
+                if l.contains("\"#") {
+                    in_raw_string = false;
+                }
+                if l.len() > file_type.max_line_length
+                    && !l.contains("://")
+                    && !in_raw_string
+                {
+                    // ignore URLs
+                    warnings.push(format!(
+                        "{}:{}: Line too long ({} > {}): {}",
+                        file_name,
+                        line,
+                        l.len(),
+                        file_type.max_line_length,
+                        l
+                    ));
+                }
+                if l.contains(vec_space) || l.contains(vec_paren) {
+                    warnings.push(format!(
+                        "{}:{}: Use `vec![]` rather than {} or {}",
+                        file_name, line, vec_space, vec_paren
+                    ));
+                }
+                if impl_regex.is_match(l)
+                    && let Some(previous_line) =
+                        impl_lines.insert(l.to_string(), line)
+                {
+                    warnings.push(format!(
+                        "{}:{}: Duplicate `impl` block (previously on line {})",
+                        file_name, line, previous_line
+                    ));
+                }
+                if l.contains("lint: sort until")
+                    && !l.contains("\"lint: sort until")
+                {
+                    match Sort::parse(l) {
+                        Ok(s) => {
+                            sort = Some(s);
+                        }
+                        Err(()) => {
+                            sort = None;
+                            warnings.push(format!(
+                                "{}:{}: Malformed 'sort until' directive: {}",
+                                file_name, line, l
+                            ));
+                        }
+                    }
+                }
+            });
+        if sort.is_some() {
+            warnings.push(format!(
+                "{}:{}: Unterminated 'sort until' directive",
+                file_name, line
+            ));
+        }
     }
 }
 
@@ -299,7 +310,7 @@ impl Sort {
 ///
 /// ```rust
 ///     match {
-///         // sort until '#}' where '##A::'
+///         // lint: sort until '#}' where '##A::'
 ///         A::B => {
 ///         },
 ///         A::C => {

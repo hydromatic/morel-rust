@@ -42,20 +42,36 @@ unused_imports = "deny"
 unused_mut = "deny"
 unused_variables = "deny"
 
+[lints.rustdoc]
+# lint: sort until '^$' where '^[a-z]'
+bare_urls = "deny"                       # Bare URLs (should use proper links)
+broken_intra_doc_links = "deny"         # Broken links in docs
+invalid_codeblock_attributes = "deny"   # Invalid code block syntax
+invalid_html_tags = "deny"              # Invalid HTML in docs
+invalid_rust_codeblocks = "deny"        # Invalid Rust code examples
+private_intra_doc_links = "deny"        # Links to private items
+
 [lints.clippy]
 # lint: sort until '^$' where '^[a-z]'
+borrowed_box = "deny"
+box_collection = "deny"
+boxed_local = "deny"
 #clone_on_ref_ptr = "deny"
-#enum_glob_use = "deny"
+enum_glob_use = "deny"
 explicit_iter_loop = "deny"
 map_unwrap_or = "deny"
 mut_mut = "deny"
-#needless_pass_by_value = "deny"
+needless_pass_by_value = "deny"
 #redundant_clone = "deny"
 redundant_closure_for_method_calls = "deny"
+redundant_field_names = "deny"
+redundant_pattern_matching = "deny"
+single_component_path_imports = "deny"
 single_match_else = "deny"
 too_many_arguments = "allow"
 unnecessary_mut_passed = "deny"
 unnecessary_unwrap = "deny"
+used_underscore_binding = "deny"
 #use_self = "deny"
 useless_conversion = "deny"
 wildcard_imports = "deny"

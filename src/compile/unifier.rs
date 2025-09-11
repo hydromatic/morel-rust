@@ -42,7 +42,7 @@ trait TermLike {
 }
 
 /// Trait for things that can be created from a [Term].
-/// Implementations include [Sequence], [Rc<Var>].
+/// Implementations include [Sequence], [Rc]`<Var>`.
 trait FromTerm {
     fn from_term(term: &Term) -> Self;
 }

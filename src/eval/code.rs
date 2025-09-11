@@ -16,10 +16,10 @@
 // License.
 
 use crate::compile::compiler::BuiltInFunction;
+use crate::compile::core::Pat;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::main::{MorelError, Shell};
-use crate::syntax::ast::Pat;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -261,6 +261,7 @@ use crate::eval::code::EagerV2::SysSet;
 use std::sync::LazyLock;
 
 static BUILT_IN_VALUES: LazyLock<BTreeMap<u8, Impl>> = LazyLock::new(|| {
+    #[allow(clippy::enum_glob_use)]
     use BuiltInFunction::*;
 
     let mut map = BTreeMap::new();

@@ -22,12 +22,12 @@ use std::fmt::{Display, Formatter};
 
 /// Runtime value.
 ///
-/// The [Typed], [Named], [Labeled], and [Type] variants are used to
-/// annotate values with additional information for pretty-printing.
-/// [Raw] is also used for pretty-printing.
+/// The [Val::Typed], [Val::Named], [Val::Labeled], and [Val::Type] variants are
+/// used to annotate values with additional information for pretty-printing.
+/// [Val::Raw] is also used for pretty-printing.
 ///
 /// Passing [Val] by value is OK because it is small.
-/// We box the arguments to [Typed] to keep it small.
+/// We box the arguments to [Val::Typed] to keep it small.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::needless_pass_by_value)]
 pub enum Val {
@@ -38,6 +38,8 @@ pub enum Val {
     Real(f32),
     String(String),
     List(Vec<Val>),
+    /// Built-in function.
+    Fn(crate::compile::compiler::BuiltInFunction),
 
     /// Wrapper that indicates that a value should be printed with its name
     /// and type.
@@ -151,6 +153,7 @@ impl Display for Val {
                 }
                 write!(f, "]")
             }
+            Val::Fn(func) => write!(f, "{:?}", func),
             Val::Raw(s) => write!(f, "{}", s),
             Val::Unit => write!(f, "()"),
             _ => todo!("{:?}", self),

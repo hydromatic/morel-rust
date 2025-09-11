@@ -70,9 +70,8 @@ impl Type {
         }
     }
 
-    /// Removes any "forall" qualifier of a type, and renumbers the remaining
-    /// type
-    /// variables.
+    /// Removes any "forall" qualifier of a type and renumbers the remaining
+    /// type variables.
     ///
     /// Examples:
     /// - `forall 'a. 'a list` → `'a list`
@@ -87,21 +86,27 @@ impl Type {
             current_type = inner_type;
         }
 
-        // If no forall was stripped, return original
+        // If no forall was stripped, return the original
         if std::ptr::eq(current_type, self) {
             return self.clone();
         }
 
-        // Renumber type variables:
-        //   'b list -> 'a list
-        //   ('b * 'a * 'b)  ->  ('a * 'b * 'a)
-        //   ('a * 'c * 'a)  ->  ('a * 'b * 'a)
+        self.renumbered()
+    }
 
-        let mut renumberer = TypeVarRenumberer::new();
-        renumberer.visit(current_type)
+    /// Renumbers type variables.
+    ///
+    /// Examples:
+    //  - `'b list -> 'a list`
+    //  - `('b * 'a * 'b)  ->  ('a * 'b * 'a)`
+    //  - `('a * 'c * 'a)  ->  ('a * 'b * 'a)`
+    pub fn renumbered(&self) -> Type {
+        TypeVarRenumberer::new().visit(self)
     }
 }
 
+/// Boolean is used as a placeholder in several cases where we don't print the
+/// type but print (say) a raw string ":".
 static BOOL: Type = Type::Primitive(PrimitiveType::Bool);
 
 impl Pretty {
@@ -180,7 +185,7 @@ impl Pretty {
         )?;
 
         if end >= 0 && buf.len() as i32 > end {
-            // Reset to start, remove trailing whitespace, add newline
+            // Reset to start, remove trailing whitespace, add a newline
             buf.truncate(start);
             while !buf.is_empty()
                 && (buf.ends_with(' ') || buf.ends_with(self.newline))
@@ -257,7 +262,7 @@ impl Pretty {
                     line_end,
                     depth,
                     &BOOL,
-                    &Val::new_type(": ", &t2.unqualified()),
+                    &Val::new_type(": ", &t2.renumbered()),
                     0,
                     0,
                 )?;
@@ -696,6 +701,10 @@ impl Pretty {
                     right,
                 )?;
             }
+            Type::Variable(ty_var) => {
+                let s = ty_var.name();
+                self.pretty_raw(buf, indent2, line_end, depth, s.as_str())?;
+            }
             _ => {
                 write!(buf, "unknown type {:?}", type_ref)?;
             }
@@ -840,6 +849,35 @@ impl TypeVarRenumberer {
 
     fn visit(&mut self, type_ref: &Type) -> Type {
         match type_ref {
+            // lint: sort until '#}' where '##Type::'
+            Type::Alias(name, type_, args) => Type::Alias(
+                name.clone(),
+                Box::new(self.visit(type_)),
+                self.visit_list(args.as_slice()),
+            ),
+            Type::Data(name, args) => {
+                Type::Data(name.clone(), self.visit_list(args.as_slice()))
+            }
+            Type::Fn(param_type, result_type) => Type::Fn(
+                Box::new(self.visit(param_type)),
+                Box::new(self.visit(result_type)),
+            ),
+            Type::Forall(type_, size) => {
+                Type::Forall(Box::new(self.visit(type_)), *size)
+            }
+            Type::List(inner) => Type::List(Box::new(self.visit(inner))),
+            // Primitive types don't contain type variables
+            Type::Primitive(_) => type_ref.clone(),
+            Type::Record(progressive, arg_name_types) => Type::Record(
+                *progressive,
+                arg_name_types
+                    .iter()
+                    .map(|(name, t)| (name.clone(), self.visit(t)))
+                    .collect(),
+            ),
+            Type::Tuple(arg_types) => {
+                Type::Tuple(self.visit_list(arg_types.as_slice()))
+            }
             Type::Variable(type_var) => {
                 // Get or create a renumbered type variable
                 let i = self.var_map.len();
@@ -848,34 +886,6 @@ impl TypeVarRenumberer {
                     .or_insert_with(|| Type::Variable(TypeVariable::new(i)))
                     .clone()
             }
-            Type::List(inner) => Type::List(Box::new(self.visit(inner))),
-            Type::Tuple(arg_types) => {
-                Type::Tuple(self.visit_list(arg_types.as_slice()))
-            }
-            Type::Record(progressive, arg_name_types) => Type::Record(
-                *progressive,
-                arg_name_types
-                    .iter()
-                    .map(|(name, t)| (name.clone(), self.visit(t)))
-                    .collect(),
-            ),
-            Type::Fn(param_type, result_type) => Type::Fn(
-                Box::new(self.visit(param_type)),
-                Box::new(self.visit(result_type)),
-            ),
-            Type::Data(name, args) => {
-                Type::Data(name.clone(), self.visit_list(args.as_slice()))
-            }
-            Type::Alias(name, type_, args) => Type::Alias(
-                name.clone(),
-                Box::new(self.visit(type_)),
-                self.visit_list(args.as_slice()),
-            ),
-            Type::Forall(type_, size) => {
-                Type::Forall(Box::new(self.visit(type_)), *size)
-            }
-            // Primitive types don't contain type variables
-            Type::Primitive(_) => type_ref.clone(),
             _ => todo!("{:?}", type_ref),
         }
     }

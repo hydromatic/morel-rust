@@ -15,9 +15,10 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::core::{DatatypeBind, Decl, Expr, Pat, TypeBind};
 use crate::compile::pretty::Pretty;
 use crate::compile::type_env::{Binding, Id};
-use crate::compile::type_resolver::{TypeMap, Typed};
+use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::code::{Code, Codes, Effect, EvalEnv};
 use crate::eval::session::Session;
@@ -25,12 +26,6 @@ use crate::eval::val::Val;
 use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::Environment;
-use crate::syntax::ast::Pat;
-use crate::syntax::ast::{
-    DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind,
-    PatKind, Span, TypeBind,
-};
-use crate::syntax::parser;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
@@ -48,8 +43,8 @@ impl Closure {
         value: &Val,
         mut f: impl FnMut(&Pat, &Val),
     ) -> bool {
-        match &pat.kind {
-            PatKind::Identifier(_name) => {
+        match pat {
+            Pat::Identifier(_, _name) => {
                 f(pat, value);
                 true
             }
@@ -89,10 +84,8 @@ impl<'a> Compiler<'a> {
             Some(&mut actions),
         );
 
-        let type_ = match &decl.kind {
-            DeclKind::NonRecVal(val_bind) => {
-                val_bind.get_type(self.type_map).unwrap()
-            }
+        let type_ = match decl {
+            Decl::NonRecVal(val_bind) => val_bind.t.clone(),
             _ => Box::new(Type::Primitive(PrimitiveType::Unit)),
         };
 
@@ -115,8 +108,8 @@ impl<'a> Compiler<'a> {
         bindings: &mut Vec<Binding>,
         actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
-        match &decl.kind {
-            DeclKind::Val(_rec, _inst, _val_binds) => {
+        match decl {
+            Decl::NonRecVal(_) | Decl::RecVal(_) => {
                 self.compile_val_decl(
                     cx,
                     decl,
@@ -128,19 +121,17 @@ impl<'a> Compiler<'a> {
                 );
             }
 
-            DeclKind::Over(name) => {
+            Decl::Over(name) => {
                 self.compile_over_decl(name.as_str(), bindings, actions)
             }
 
-            DeclKind::Type(type_binds) => {
+            Decl::Type(type_binds) => {
                 self.compile_type_decl(type_binds, bindings, actions)
             }
 
-            DeclKind::Datatype(datatype_binds) => {
+            Decl::Datatype(datatype_binds) => {
                 self.compile_datatype_decl(datatype_binds, bindings, actions)
             }
-
-            _ => todo!("Implement {}", decl.kind),
         }
     }
 
@@ -163,10 +154,7 @@ impl<'a> Compiler<'a> {
         let mut collected_actions = Vec::new();
 
         decl.for_each_binding(
-            &mut |pat: &Pat,
-                  expr: &Expr,
-                  _overload_pat: &Option<Id>,
-                  _span: &Span| {
+            &mut |pat: &Pat, expr: &Expr, _overload_pat: &Option<Box<Id>>| {
                 let code = self.compile_arg(&cx1, expr);
 
                 let matches = vec![(pat.clone(), (*code).clone())];
@@ -193,22 +181,20 @@ impl<'a> Compiler<'a> {
     /// Richer than {@link #acceptBinding(TypeSystem, Core.Pat, List)}
     /// because we have the expression.
     fn bind_pattern(bindings: &mut Vec<Binding>, decl: &Decl) {
-        let mut p = |pat: &Pat,
-                     _expr: &Expr,
-                     _overload_pat: &Option<Id>,
-                     _span: &Span| {
-            if let PatKind::Identifier(name) = &pat.kind {
-                let binding = Binding {
-                    id: Box::new(Id {
-                        name: name.clone(),
-                        ordinal: 0,
-                    }),
-                    overload_id: None,
-                    value: None,
-                };
-                bindings.push(binding);
-            }
-        };
+        let mut p =
+            |pat: &Pat, _expr: &Expr, _overload_pat: &Option<Box<Id>>| {
+                if let Pat::Identifier(_, name) = pat {
+                    let binding = Binding {
+                        id: Box::new(Id {
+                            name: name.clone(),
+                            ordinal: 0,
+                        }),
+                        overload_id: None,
+                        value: None,
+                    };
+                    bindings.push(binding);
+                }
+            };
         decl.for_each_binding(&mut p);
     }
 
@@ -267,7 +253,7 @@ impl<'a> Compiler<'a> {
     /// Compiles the argument to a call, producing a list with N elements if the
     /// argument is an N-tuple.
     pub fn compile_args(&self, cx: &Context, expr: Box<Expr>) -> Vec<Code> {
-        if let ExprKind::Tuple(args) = &expr.kind {
+        if let Expr::Tuple(_, args) = *expr {
             self.compile_arg_list(cx, args.as_slice())
         } else {
             self.compile_arg_list(cx, &[expr])
@@ -294,7 +280,15 @@ impl<'a> Compiler<'a> {
         let mut result = Vec::new();
         for exp in expressions {
             let code = self.compile_arg(cx, exp);
-            let type_ = exp.get_type(self.type_map).unwrap();
+            let type_ = match exp {
+                Expr::Literal(t, _) => t.clone(),
+                Expr::Identifier(t, _) => t.clone(),
+                Expr::RecordSelector(t, _) => t.clone(),
+                Expr::Current(t) => t.clone(),
+                Expr::Ordinal(t) => t.clone(),
+                Expr::Plus(t, _, _) => t.clone(),
+                _ => Box::new(Type::Primitive(PrimitiveType::Unit)),
+            };
             result.push((code, type_));
         }
         result
@@ -356,74 +350,34 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn compile_with_context(&self, cx: &Context, expr: &Expr) -> Box<Code> {
-        match &expr.kind {
-            // lint: sort until '#}' where '##ExprKind::'
-            ExprKind::Apply(f, a) => {
+        match expr {
+            // lint: sort until '#}' where '##Expr::'
+            Expr::Apply(_, f, a) => {
                 let f_code = self.inline(cx, f.clone());
-                if let ExprKind::Literal(literal) = &f_code.kind
-                    && let LiteralKind::Fn(f) = &literal.kind
+                if let Expr::Literal(_t, literal) = f_code.as_ref()
+                    && let Val::Fn(f) = literal
                 {
                     let codes = self.compile_args(cx, a.clone());
                     let boxed_codes: Vec<Box<Code>> =
                         codes.into_iter().map(Box::new).collect();
                     return Codes::apply(*f, &boxed_codes);
                 }
-                todo!("{}", expr.kind)
+                todo!("{}", expr)
             }
-            ExprKind::List(args) => {
+            Expr::List(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
                 Codes::list(&codes)
             }
-            ExprKind::Literal(literal) => Codes::constant(literal_val(literal)),
-            /*
-                        Op::FnLiteral => {
-                            if let Core::Exp::Literal(literal) = expr {
-                                let built_in = literal.to_built_in(
-                                    &self.type_system,
-                                    None,
-                                );
-                                Codes::constant(built_in)
-                            } else {
-                                unreachable!()
-                            }
-                        }
-
-                        Op::InternalLiteral | Op::ValueLiteral => {
-                            if let Core::Exp::Literal(literal) = expr {
-                                let object_value = literal.unwrap_object();
-                                Codes::constant(object_value)
-                            } else {
-                                unreachable!()
-                            }
-                        }
-
-                        Op::Let => {
-                            if let Core::Exp::Let(let_exp) = expr {
-                                self.compile_let(cx, let_exp)
-                            } else {
-                                unreachable!()
-                            }
-                        }
-            */
-            ExprKind::Record(_, args) => {
-                let exprs: Vec<Box<Expr>> =
-                    args.iter().map(|le| le.expr.clone()).collect();
-                let codes = self.compile_arg_list(cx, &exprs);
-                Codes::list(&codes)
-            }
-            ExprKind::Tuple(args) => {
+            Expr::Literal(_t, val) => Codes::constant(val.clone()),
+            Expr::Tuple(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
                 Codes::tuple(&codes)
             }
-            _ => todo!("{:?}", expr.kind),
+            _ => todo!("{:?}", expr),
         }
     }
 
-    fn compile_let(
-        &self,
-        _cx: &Context,
-        _let_exp: &ExprKind<Expr>,
-    ) -> Box<Code> {
+    fn compile_let(&self, _cx: &Context, _let_exp: &Expr) -> Box<Code> {
         todo!("Implement compile_let")
     }
 
@@ -433,48 +387,31 @@ impl<'a> Compiler<'a> {
 
     /// TODO: Add an inliner step to do this.
     fn inline(&self, _cx: &Context, expr: Box<Expr>) -> Box<Expr> {
-        match &expr.kind {
-            ExprKind::Identifier(s) if s == "set" => {
-                let literal = LiteralKind::Fn(BuiltInFunction::SysSet)
-                    .spanned(&expr.span);
-                let expr1 = ExprKind::Literal(literal).spanned(&expr.span);
-                Box::new(expr1)
+        match expr.as_ref() {
+            Expr::Identifier(_t, s) if s == "set" => {
+                let literal = Val::Fn(BuiltInFunction::SysSet);
+                Box::new(Expr::Literal(
+                    Box::new(Type::Primitive(PrimitiveType::Unit)),
+                    literal,
+                ))
             }
-            ExprKind::Apply(f, a) => match &f.kind {
-                ExprKind::RecordSelector(f_name) if f_name == "set" => match &a
-                    .kind
-                {
-                    ExprKind::Identifier(a_name) if a_name == "Sys" => {
-                        let literal = LiteralKind::Fn(BuiltInFunction::SysSet)
-                            .spanned(&expr.span);
-                        let expr1 =
-                            ExprKind::Literal(literal).spanned(&expr.span);
-                        Box::new(expr1)
+            Expr::Apply(_, f, a) => match f.as_ref() {
+                Expr::RecordSelector(_t, f_name) if f_name == "set" => {
+                    match a.as_ref() {
+                        Expr::Identifier(_t, a_name) if a_name == "Sys" => {
+                            let literal = Val::Fn(BuiltInFunction::SysSet);
+                            Box::new(Expr::Literal(
+                                Box::new(Type::Primitive(PrimitiveType::Unit)),
+                                literal,
+                            ))
+                        }
+                        _ => expr,
                     }
-                    _ => expr,
-                },
+                }
                 _ => expr,
             },
             _ => expr, // unchanged
         }
-    }
-}
-
-fn literal_val(literal: &Literal) -> Val {
-    match &literal.kind {
-        LiteralKind::Fn(_fn_literal) => {
-            todo!("Implement Fn literal conversion")
-        }
-        LiteralKind::Bool(x) => Val::Bool(*x),
-        LiteralKind::Char(x) => {
-            Val::Char(parser::unquote_char_literal(x).unwrap())
-        }
-        LiteralKind::Int(x) => Val::Int(x.replace("~", "-").parse().unwrap()),
-        LiteralKind::Real(x) => Val::Real(x.replace("~", "-").parse().unwrap()),
-        LiteralKind::String(x) => {
-            Val::String(parser::unquote_string(x).unwrap())
-        }
-        LiteralKind::Unit => Val::Unit,
     }
 }
 
@@ -508,12 +445,11 @@ impl Action for ValDeclAction {
                     // pretty-printer ensures that the value is formatted
                     // correctly for its type, and lines are correctly wrapped
                     // and indented per the shell configuration.
-                    let type_map = v.type_map().unwrap();
                     let mut line = String::new();
                     let id = p2.name().unwrap();
-                    let type_ = *type_map.get_type(p2.id.unwrap()).unwrap();
-                    let typed_val = Val::new_typed(&id, v2.clone(), &type_);
-                    let _ = pretty.pretty(&mut line, &type_, &typed_val);
+                    let typed_val =
+                        Val::new_typed(&id, v2.clone(), &p2.type_());
+                    let _ = pretty.pretty(&mut line, &p2.type_(), &typed_val);
 
                     v.emit_effect(Effect::EmitLine(line));
                 });
@@ -608,8 +544,8 @@ mod calcite_functions {
 }
 
 /// List of built-in functions and operators.
-/// Generally wrapped in a [LiteralKind].`Fn`.
-#[derive(Debug, Clone, Copy)]
+/// Generally wrapped in a [crate::syntax::ast::LiteralKind].`Fn`.
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum BuiltInFunction {
     // lint: sort until '^}$'

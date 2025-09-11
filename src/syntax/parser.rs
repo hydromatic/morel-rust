@@ -1348,207 +1348,207 @@ impl MorelParser {
         Ok(input.as_str())
     }
 
-    fn EOI(_input: ParseInput) -> ParseResult<()> {
+    fn EOI(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _and(_input: ParseInput) -> ParseResult<()> {
+    fn _and(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _andalso(_input: ParseInput) -> ParseResult<()> {
+    fn _andalso(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _as(_input: ParseInput) -> ParseResult<()> {
+    fn _as(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _case(_input: ParseInput) -> ParseResult<()> {
+    fn _case(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _compute(_input: ParseInput) -> ParseResult<()> {
+    fn _compute(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _current(_input: ParseInput) -> ParseResult<()> {
+    fn _current(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _datatype(_input: ParseInput) -> ParseResult<()> {
+    fn _datatype(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _distinct(_input: ParseInput) -> ParseResult<()> {
+    fn _distinct(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _div(_input: ParseInput) -> ParseResult<()> {
+    fn _div(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _elem(_input: ParseInput) -> ParseResult<()> {
+    fn _elem(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _else(_input: ParseInput) -> ParseResult<()> {
+    fn _else(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _end(_input: ParseInput) -> ParseResult<()> {
+    fn _end(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _except(_input: ParseInput) -> ParseResult<()> {
+    fn _except(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _exists(_input: ParseInput) -> ParseResult<()> {
+    fn _exists(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _fn(_input: ParseInput) -> ParseResult<()> {
+    fn _fn(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _forall(_input: ParseInput) -> ParseResult<()> {
+    fn _forall(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _from(_input: ParseInput) -> ParseResult<()> {
+    fn _from(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _fun(_input: ParseInput) -> ParseResult<()> {
+    fn _fun(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _group(_input: ParseInput) -> ParseResult<()> {
+    fn _group(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _if(_input: ParseInput) -> ParseResult<()> {
+    fn _if(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _implies(_input: ParseInput) -> ParseResult<()> {
+    fn _implies(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _in(_input: ParseInput) -> ParseResult<()> {
+    fn _in(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _inst(_input: ParseInput) -> ParseResult<()> {
+    fn _inst(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _intersect(_input: ParseInput) -> ParseResult<()> {
+    fn _intersect(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _into(_input: ParseInput) -> ParseResult<()> {
+    fn _into(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _join(_input: ParseInput) -> ParseResult<()> {
+    fn _join(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _let(_input: ParseInput) -> ParseResult<()> {
+    fn _let(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _mod(_input: ParseInput) -> ParseResult<()> {
+    fn _mod(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _notelem(_input: ParseInput) -> ParseResult<()> {
+    fn _notelem(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _o(_input: ParseInput) -> ParseResult<()> {
+    fn _o(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _of(_input: ParseInput) -> ParseResult<()> {
+    fn _of(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _on(_input: ParseInput) -> ParseResult<()> {
+    fn _on(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _order(_input: ParseInput) -> ParseResult<()> {
+    fn _order(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _ordinal(_input: ParseInput) -> ParseResult<()> {
+    fn _ordinal(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _orelse(_input: ParseInput) -> ParseResult<()> {
+    fn _orelse(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _over(_input: ParseInput) -> ParseResult<()> {
+    fn _over(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _rec(_input: ParseInput) -> ParseResult<()> {
+    fn _rec(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _require(_input: ParseInput) -> ParseResult<()> {
+    fn _require(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _skip(_input: ParseInput) -> ParseResult<()> {
+    fn _skip(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _take(_input: ParseInput) -> ParseResult<()> {
+    fn _take(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _then(_input: ParseInput) -> ParseResult<()> {
+    fn _then(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _through(_input: ParseInput) -> ParseResult<()> {
+    fn _through(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _type(_input: ParseInput) -> ParseResult<()> {
+    fn _type(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _typeof(_input: ParseInput) -> ParseResult<()> {
+    fn _typeof(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _union(_input: ParseInput) -> ParseResult<()> {
+    fn _union(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _unorder(_input: ParseInput) -> ParseResult<()> {
+    fn _unorder(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _val(_input: ParseInput) -> ParseResult<()> {
+    fn _val(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _where(_input: ParseInput) -> ParseResult<()> {
+    fn _where(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _with(_input: ParseInput) -> ParseResult<()> {
+    fn _with(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
-    fn _yield(_input: ParseInput) -> ParseResult<()> {
+    fn _yield(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 }
