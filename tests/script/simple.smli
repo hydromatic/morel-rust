@@ -288,6 +288,12 @@ true;
    then it is ignored. *)
 5;
 > val it = 5 : int
+(*) A line comment can have a comment close. *)
+6;
+> val it = 6 : int
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) All the characters
 Sys.set ("printLength", 300);

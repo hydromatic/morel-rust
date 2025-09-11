@@ -424,13 +424,16 @@ fn comment_depth(code: &str) -> i32 {
         } else if buf[i % n] == '*' && c == ')' {
             if buf[(i - 1) % n] == '(' {
                 // We saw "(*)", which is a line comment.
-                // We already increased the depth, when we saw "(*".
+                // We already increased the depth when we saw "(*".
                 // Now we set a flag to decrease the depth when we next see a
                 // newline.
                 in_line_comment = true;
             } else {
-                // We saw "*)", which closes a block comment.
-                depth -= 1;
+                // We saw "*)", which closes a block comment, except if we're
+                // in a line comment.
+                if !in_line_comment {
+                    depth -= 1;
+                }
             }
         } else if c == '\n' && in_line_comment {
             depth -= 1;
@@ -493,6 +496,11 @@ mod tests {
         assert_eq!(comment_depth("(* (* nested (* deeper *) *) *)"), 0);
         assert_eq!(comment_depth("(*) line comment"), 1);
         assert_eq!(comment_depth("(*) line comment\n"), 0);
+        let s = r#"(* If a block comment
+   contains a (*) comment close *) in a line comment
+   then it is ignored. *)
+"#;
+        assert_eq!(comment_depth(s), 0);
     }
 }
 
