@@ -273,50 +273,17 @@ impl ExprKind<Expr> {
 impl Display for ExprKind<Expr> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
-            ExprKind::Identifier(name) => write!(f, "{}", name),
-            ExprKind::Literal(lit) => write!(f, "{}", lit),
-            ExprKind::RecordSelector(name) => write!(f, "#{}", name),
-            ExprKind::Current => write!(f, "current"),
-            ExprKind::Ordinal => write!(f, "ordinal"),
-            ExprKind::Plus(lhs, rhs) => write!(f, "({} + {})", lhs, rhs),
-            ExprKind::Minus(lhs, rhs) => write!(f, "({} - {})", lhs, rhs),
-            ExprKind::Times(lhs, rhs) => write!(f, "({} * {})", lhs, rhs),
-            ExprKind::Divide(lhs, rhs) => write!(f, "({} / {})", lhs, rhs),
-            ExprKind::Div(lhs, rhs) => write!(f, "({} div {})", lhs, rhs),
-            ExprKind::Mod(lhs, rhs) => write!(f, "({} mod {})", lhs, rhs),
-            ExprKind::Caret(lhs, rhs) => write!(f, "({} ^ {})", lhs, rhs),
-            ExprKind::Compose(lhs, rhs) => write!(f, "({} o {})", lhs, rhs),
-            ExprKind::Equal(lhs, rhs) => write!(f, "({} = {})", lhs, rhs),
-            ExprKind::NotEqual(lhs, rhs) => write!(f, "({} <> {})", lhs, rhs),
-            ExprKind::LessThan(lhs, rhs) => write!(f, "({} < {})", lhs, rhs),
-            ExprKind::LessThanOrEqual(lhs, rhs) => {
-                write!(f, "({} <= {})", lhs, rhs)
+            // lint: sort until '#}' where '##ExprKind::'
+            ExprKind::Aggregate(a0, a1) => {
+                write!(f, "({} over {})", a0, a1)
             }
-            ExprKind::GreaterThan(lhs, rhs) => write!(f, "({} > {})", lhs, rhs),
-            ExprKind::GreaterThanOrEqual(lhs, rhs) => {
-                write!(f, "({} >= {})", lhs, rhs)
+            ExprKind::AndAlso(a0, a1) => {
+                write!(f, "({} andalso {})", a0, a1)
             }
-            ExprKind::Elem(lhs, rhs) => write!(f, "({} elem {})", lhs, rhs),
-            ExprKind::NotElem(lhs, rhs) => {
-                write!(f, "({} notelem {})", lhs, rhs)
-            }
-            ExprKind::AndAlso(lhs, rhs) => {
-                write!(f, "({} andalso {})", lhs, rhs)
-            }
-            ExprKind::OrElse(lhs, rhs) => write!(f, "({} orelse {})", lhs, rhs),
-            ExprKind::Implies(lhs, rhs) => {
-                write!(f, "({} implies {})", lhs, rhs)
-            }
-            ExprKind::Aggregate(lhs, rhs) => {
-                write!(f, "({} over {})", lhs, rhs)
-            }
-            ExprKind::Cons(lhs, rhs) => write!(f, "({} :: {})", lhs, rhs),
-            ExprKind::Append(lhs, rhs) => write!(f, "({} @ {})", lhs, rhs),
-            ExprKind::Negate(e) => write!(f, "-{}", e),
+            ExprKind::Annotated(e, typ) => write!(f, "{}: {}", e, typ),
+            ExprKind::Append(a0, a1) => write!(f, "({} @ {})", a0, a1),
             ExprKind::Apply(fx, arg) => write!(f, "{} {}", fx, arg),
-            ExprKind::If(cond, then_, else_) => {
-                write!(f, "if {} then {} else {}", cond, then_, else_)
-            }
+            ExprKind::Caret(a0, a1) => write!(f, "({} ^ {})", a0, a1),
             ExprKind::Case(e, arms) => {
                 write!(f, "case {} of ", e)?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -327,13 +294,14 @@ impl Display for ExprKind<Expr> {
                 }
                 Ok(())
             }
-            ExprKind::Let(decls, body) => {
-                write!(f, "let ")?;
-                for decl in decls {
-                    write!(f, "{}; ", decl)?;
-                }
-                write!(f, "in {}", body)
-            }
+            ExprKind::Compose(a0, a1) => write!(f, "({} o {})", a0, a1),
+            ExprKind::Cons(a0, a1) => write!(f, "({} :: {})", a0, a1),
+            ExprKind::Current => write!(f, "current"),
+            ExprKind::Div(a0, a1) => write!(f, "({} div {})", a0, a1),
+            ExprKind::Divide(a0, a1) => write!(f, "({} / {})", a0, a1),
+            ExprKind::Elem(a0, a1) => write!(f, "({} elem {})", a0, a1),
+            ExprKind::Equal(a0, a1) => write!(f, "({} = {})", a0, a1),
+            ExprKind::Exists(steps) => write!(f, "exists {:?}", steps),
             ExprKind::Fn(arms) => {
                 write!(f, "fn ")?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -344,13 +312,29 @@ impl Display for ExprKind<Expr> {
                 }
                 Ok(())
             }
-            ExprKind::Tuple(elems) => {
-                let elems_str = elems
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", elems_str)
+            ExprKind::Forall(steps) => write!(f, "forall {:?}", steps),
+            ExprKind::From(steps) => write!(f, "from {:?}", steps),
+            ExprKind::GreaterThan(a0, a1) => write!(f, "({} > {})", a0, a1),
+            ExprKind::GreaterThanOrEqual(a0, a1) => {
+                write!(f, "({} >= {})", a0, a1)
+            }
+            ExprKind::Identifier(name) => write!(f, "{}", name),
+            ExprKind::If(cond, then_, else_) => {
+                write!(f, "if {} then {} else {}", cond, then_, else_)
+            }
+            ExprKind::Implies(a0, a1) => {
+                write!(f, "({} implies {})", a0, a1)
+            }
+            ExprKind::LessThan(a0, a1) => write!(f, "({} < {})", a0, a1),
+            ExprKind::LessThanOrEqual(a0, a1) => {
+                write!(f, "({} <= {})", a0, a1)
+            }
+            ExprKind::Let(decls, body) => {
+                write!(f, "let ")?;
+                for decl in decls {
+                    write!(f, "{}; ", decl)?;
+                }
+                write!(f, "in {}", body)
             }
             ExprKind::List(elems) => {
                 let elems_str = elems
@@ -360,6 +344,17 @@ impl Display for ExprKind<Expr> {
                     .join(", ");
                 write!(f, "[{}]", elems_str)
             }
+            ExprKind::Literal(lit) => write!(f, "{}", lit),
+            ExprKind::Minus(a0, a1) => write!(f, "({} - {})", a0, a1),
+            ExprKind::Mod(a0, a1) => write!(f, "({} mod {})", a0, a1),
+            ExprKind::Negate(e) => write!(f, "-{}", e),
+            ExprKind::NotElem(a0, a1) => {
+                write!(f, "({} notelem {})", a0, a1)
+            }
+            ExprKind::NotEqual(a0, a1) => write!(f, "({} <> {})", a0, a1),
+            ExprKind::OrElse(a0, a1) => write!(f, "({} orelse {})", a0, a1),
+            ExprKind::Ordinal => write!(f, "ordinal"),
+            ExprKind::Plus(a0, a1) => write!(f, "({} + {})", a0, a1),
             ExprKind::Record(base, fields) => {
                 let mut s = String::new();
                 if let Some(b) = base {
@@ -372,10 +367,16 @@ impl Display for ExprKind<Expr> {
                     .join(", ");
                 write!(f, "{{{}}}", s + &fields_str)
             }
-            ExprKind::From(steps) => write!(f, "from {:?}", steps),
-            ExprKind::Exists(steps) => write!(f, "exists {:?}", steps),
-            ExprKind::Forall(steps) => write!(f, "forall {:?}", steps),
-            ExprKind::Annotated(e, typ) => write!(f, "{}: {}", e, typ),
+            ExprKind::RecordSelector(name) => write!(f, "#{}", name),
+            ExprKind::Times(a0, a1) => write!(f, "({} * {})", a0, a1),
+            ExprKind::Tuple(elems) => {
+                let elems_str = elems
+                    .iter()
+                    .map(|e| format!("{}", e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", elems_str)
+            }
         }
     }
 }
@@ -421,13 +422,14 @@ impl LiteralKind {
 impl Display for LiteralKind {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match &self {
+            // lint: sort until '#}' where '##LiteralKind::'
+            LiteralKind::Bool(b) => write!(f, "{}", b)?,
+            LiteralKind::Char(s) => write!(f, "{}", s)?,
+            LiteralKind::Fn(built_in) => write!(f, "{:?}", built_in)?,
             LiteralKind::Int(s) => write!(f, "{}", s)?,
             LiteralKind::Real(s) => write!(f, "{}", s)?,
             LiteralKind::String(s) => write!(f, "{}", s)?,
-            LiteralKind::Char(s) => write!(f, "{}", s)?,
-            LiteralKind::Bool(b) => write!(f, "{}", b)?,
             LiteralKind::Unit => write!(f, "()")?,
-            LiteralKind::Fn(built_in) => write!(f, "{:?}", built_in)?,
         };
         Ok(())
     }
@@ -545,14 +547,13 @@ impl Pat {
             }
         }
     }
+
     /// Calls a given function for each atomic identifier in this pattern.
     pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(i32, &str)) {
         match &self.kind {
+            // lint: sort until '#}' where '##PatKind::'
             PatKind::Identifier(name) => {
                 (*consumer)(self.id.unwrap(), name.as_str())
-            }
-            PatKind::Tuple(pats) => {
-                pats.iter().for_each(|p| p.for_each_id_pat(consumer))
             }
             PatKind::Record(pat_fields, _) => {
                 for field in pat_fields {
@@ -566,6 +567,9 @@ impl Pat {
                         PatField::Ellipsis(_) => {}
                     }
                 }
+            }
+            PatKind::Tuple(pats) => {
+                pats.iter().for_each(|p| p.for_each_id_pat(consumer))
             }
             _ => todo!("{}", self.kind),
         }
@@ -618,17 +622,10 @@ impl PatKind {
 impl Display for PatKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
+            // lint: sort until '#}' where '##PatKind::'
+            PatKind::Annotated(pat, typ) => write!(f, "{}: {}", pat, typ),
             PatKind::Identifier(name) => write!(f, "{}", name),
             PatKind::Literal(lit) => write!(f, "{:?}", lit),
-            PatKind::Annotated(pat, typ) => write!(f, "{}: {}", pat, typ),
-            PatKind::Tuple(pats) => {
-                let pats_str = pats
-                    .iter()
-                    .map(|p| format!("{}", p))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", pats_str)
-            }
             PatKind::Record(fields, ellipsis) => {
                 let fields_str = fields
                     .iter()
@@ -646,6 +643,14 @@ impl Display for PatKind {
                 } else {
                     write!(f, "{{{}}}", fields_str)
                 }
+            }
+            PatKind::Tuple(pats) => {
+                let pats_str = pats
+                    .iter()
+                    .map(|p| format!("{}", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", pats_str)
             }
             _ => write!(f, "<unknown pat>"),
         }
@@ -723,15 +728,10 @@ impl DeclKind {
 impl Display for DeclKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            DeclKind::Val(rec, inst, binds) => {
-                write!(f, "val ")?;
-                if *rec {
-                    write!(f, "rec ")?;
-                }
-                if *inst {
-                    write!(f, "inst ")?;
-                }
-                fmt_list(f, binds, " and ")
+            // lint: sort until '#}' where '##DeclKind::'
+            DeclKind::Datatype(datatypes) => {
+                write!(f, "datatype ")?;
+                fmt_list(f, datatypes, "; ")
             }
             DeclKind::Fun(funs) => {
                 write!(f, "fun ")?;
@@ -742,9 +742,15 @@ impl Display for DeclKind {
                 write!(f, "type ")?;
                 fmt_list(f, types, "; ")
             }
-            DeclKind::Datatype(datatypes) => {
-                write!(f, "datatype ")?;
-                fmt_list(f, datatypes, "; ")
+            DeclKind::Val(rec, inst, binds) => {
+                write!(f, "val ")?;
+                if *rec {
+                    write!(f, "rec ")?;
+                }
+                if *inst {
+                    write!(f, "inst ")?;
+                }
+                fmt_list(f, binds, " and ")
             }
         }
     }
@@ -904,19 +910,19 @@ pub struct Type {
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> FmtResult {
         match &self.kind {
-            TypeKind::Unit => write!(f, "()"),
-            TypeKind::Id(name) => write!(f, "{}", name),
-            TypeKind::Var(name) => write!(f, "{}", name),
-            TypeKind::Con(name) => write!(f, "{}", name),
-            TypeKind::Fn(t1, t2) => write!(f, "({} -> {})", t1, t2),
-            TypeKind::Tuple(types) => {
-                let types_str = types
+            // lint: sort until '#}' where '##TypeKind::'
+            TypeKind::App(args, t) => {
+                let args_str = args
                     .iter()
-                    .map(|t| format!("{}", t))
+                    .map(|a| format!("{}", a))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "({})", types_str)
+                write!(f, "{}<{}>", t, args_str)
             }
+            TypeKind::Con(name) => write!(f, "{}", name),
+            TypeKind::Expression(expr) => write!(f, "<expr:{}>", expr),
+            TypeKind::Fn(t1, t2) => write!(f, "({} -> {})", t1, t2),
+            TypeKind::Id(name) => write!(f, "{}", name),
             TypeKind::Record(fields) => {
                 let fields_str = fields
                     .iter()
@@ -927,15 +933,16 @@ impl Display for Type {
                     .join(", ");
                 write!(f, "{{{}}}", fields_str)
             }
-            TypeKind::App(args, t) => {
-                let args_str = args
+            TypeKind::Tuple(types) => {
+                let types_str = types
                     .iter()
-                    .map(|a| format!("{}", a))
+                    .map(|t| format!("{}", t))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{}<{}>", t, args_str)
+                write!(f, "({})", types_str)
             }
-            TypeKind::Expression(expr) => write!(f, "<expr:{}>", expr),
+            TypeKind::Unit => write!(f, "()"),
+            TypeKind::Var(name) => write!(f, "{}", name),
         }
     }
 }
@@ -973,11 +980,12 @@ impl PartialEq for TypeKind {
         #[allow(clippy::enum_glob_use)]
         use TypeKind::*;
         match (self, other) {
-            (Unit, Unit) => true,
-            (Id(a), Id(b)) => a == b,
-            (Var(a), Var(b)) => a == b,
+            // lint: sort until '#}' where '##\('
             (Con(a), Con(b)) => a == b,
             (Fn(a, c), Fn(b, d)) => a.kind == b.kind && c.kind == d.kind,
+            (Id(a), Id(b)) => a == b,
+            (Unit, Unit) => true,
+            (Var(a), Var(b)) => a == b,
             _ => false, // TODO
         }
     }

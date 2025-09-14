@@ -366,19 +366,20 @@ impl Shell {
         // Apply effects
         for effect in effects {
             match effect {
+                // lint: sort until '#}' where '##Effect::'
+                Effect::AddBinding(binding) => {
+                    bindings.push(binding);
+                }
                 Effect::EmitLine(line) => {
                     result.push_str(&line);
                     result.push('\n');
-                }
-                Effect::SetShellProp(prop, val) => {
-                    let _ = self.set_prop(&prop, val);
                 }
                 Effect::SetSessionProp(prop, val) => {
                     let mut session = self.session.borrow_mut();
                     let _ = session.set_prop(&prop, val);
                 }
-                Effect::AddBinding(binding) => {
-                    bindings.push(binding);
+                Effect::SetShellProp(prop, val) => {
+                    let _ = self.set_prop(&prop, val);
                 }
             }
         }

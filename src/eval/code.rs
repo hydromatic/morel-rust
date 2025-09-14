@@ -63,13 +63,7 @@ pub enum Code {
 impl Code {
     pub fn eval(&self, v: &mut EvalEnv) -> Result<Val, MorelError> {
         match &self {
-            Code::Constant(c) => Ok(c.clone()),
-            Code::Link(_) => {
-                todo!()
-            }
-            Code::Match(_, _) => {
-                todo!()
-            }
+            // lint: sort until '#}' where '##Code::'
             Code::ApplyE2(_) => {
                 todo!()
             }
@@ -77,6 +71,13 @@ impl Code {
                 let v0 = code0.eval(v)?;
                 let v1 = code1.eval(v)?;
                 eager.apply(v, v0, v1)
+            }
+            Code::Constant(c) => Ok(c.clone()),
+            Code::Link(_) => {
+                todo!()
+            }
+            Code::Match(_, _) => {
+                todo!()
             }
             Code::Tuple(codes) => {
                 let mut values = Vec::with_capacity(codes.capacity());
@@ -106,6 +107,7 @@ impl Codes {
 
     pub(crate) fn native(impl_: Impl, codes: &[Box<Code>]) -> Box<Code> {
         match impl_ {
+            // lint: sort until '#}' where '##Impl::'
             Impl::E2(e2) => Box::new(Code::ApplyE2(e2)),
             Impl::EV2(ev2) => {
                 // TODO: handle cases like 'let args = (1, 2) in f args
@@ -215,6 +217,7 @@ pub struct Applicable;
 /// The arguments are eagerly evaluated before the function is called.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Eager2 {
+    // lint: sort until '#}'
     IntPlus,
 }
 
@@ -223,6 +226,7 @@ pub enum Eager2 {
 /// The arguments are eagerly evaluated before the function is called.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EagerV2 {
+    // lint: sort until '#}'
     SysSet,
 }
 
@@ -244,6 +248,7 @@ impl EagerV2 {
         a1: Val,
     ) -> Result<Val, MorelError> {
         match &self {
+            // lint: sort until '#}' where '##[A-Z]'
             SysSet => {
                 let prop = a0.expect_string();
                 let val = a1;
@@ -259,6 +264,7 @@ impl Eager2 {
     #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val, a1: Val) -> Val {
         match &self {
+            // lint: sort until '#}' where '##[A-Z]'
             Eager2::IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
         }
     }

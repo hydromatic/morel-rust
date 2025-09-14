@@ -17,7 +17,7 @@
 
 use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
-    Pat as CorePat, TypeBind as CoreTypeBind, ValBind as CoreValBind,
+    Match, Pat as CorePat, TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
@@ -148,11 +148,11 @@ impl ResolvedValDecl {
             overload_pat: None,
         };
 
-        // Create identifier expression for the temp variable.
+        // Create an identifier expression for the temp variable.
         let temp_id = Box::new(CoreExpr::Identifier(expr_type, temp_name));
 
         // Create the case expression to match the complex pattern.
-        let match_ = crate::compile::core::Match {
+        let match_ = Match {
             pat: self.pat.clone(),
             expr: result_expr,
         };
@@ -175,6 +175,23 @@ impl<'a> Resolver<'a> {
     /// Resolves an AST declaration to a core declaration.
     pub(crate) fn resolve_decl(&self, decl: &Decl) -> Box<CoreDecl> {
         Box::new(match &decl.kind {
+            // lint: sort until '#}' where '##DeclKind::'
+            DeclKind::Datatype(datatype_binds) => CoreDecl::Datatype(
+                datatype_binds
+                    .iter()
+                    .map(|db| self.resolve_datatype_bind(db))
+                    .collect(),
+            ),
+            DeclKind::Fun(_) => {
+                unreachable!("Should have been desugared already")
+            }
+            DeclKind::Over(name) => CoreDecl::Over(name.clone()),
+            DeclKind::Type(type_binds) => CoreDecl::Type(
+                type_binds
+                    .iter()
+                    .map(|tb| self.resolve_type_bind(tb))
+                    .collect(),
+            ),
             DeclKind::Val(rec, _overload, val_binds) => {
                 // Uses the new resolve_val_decl method.
                 let resolved_val_decl = self.resolve_val_decl(val_binds, *rec);
@@ -216,22 +233,6 @@ impl<'a> Resolver<'a> {
                     )
                 }
             }
-            DeclKind::Over(name) => CoreDecl::Over(name.clone()),
-            DeclKind::Type(type_binds) => CoreDecl::Type(
-                type_binds
-                    .iter()
-                    .map(|tb| self.resolve_type_bind(tb))
-                    .collect(),
-            ),
-            DeclKind::Datatype(datatype_binds) => CoreDecl::Datatype(
-                datatype_binds
-                    .iter()
-                    .map(|db| self.resolve_datatype_bind(db))
-                    .collect(),
-            ),
-            DeclKind::Fun(_) => {
-                unreachable!("Should have been desugared already")
-            }
         })
     }
 
@@ -239,54 +240,63 @@ impl<'a> Resolver<'a> {
     pub fn resolve_expr(&self, expr: &Expr) -> Box<CoreExpr> {
         let t = expr.get_type(self.type_map).unwrap();
         Box::new(match &expr.kind {
-            ExprKind::Literal(l) => {
-                CoreExpr::Literal(t, self.resolve_literal(l))
-            }
-            ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
-            ExprKind::RecordSelector(name) => {
-                let slot = t.lookup_field(name).unwrap();
-                CoreExpr::RecordSelector(t, slot)
-            }
-            ExprKind::Current => CoreExpr::Current(t),
-            ExprKind::Ordinal => CoreExpr::Ordinal(t),
-            ExprKind::Plus(lhs, rhs) => CoreExpr::Plus(
+            // lint: sort until '#}' where '##ExprKind::'
+            ExprKind::Aggregate(a0, a1) => CoreExpr::Aggregate(
                 t,
-                self.resolve_expr(lhs),
-                self.resolve_expr(rhs),
+                self.resolve_expr(a0),
+                self.resolve_expr(a1),
             ),
+            ExprKind::Annotated(expr, _) => *self.resolve_expr(expr),
             ExprKind::Apply(func, arg) => CoreExpr::Apply(
                 t,
                 self.resolve_expr(func),
                 self.resolve_expr(arg),
-            ),
-            ExprKind::If(cond, then_expr, else_expr) => CoreExpr::If(
-                t,
-                self.resolve_expr(cond),
-                self.resolve_expr(then_expr),
-                self.resolve_expr(else_expr),
             ),
             ExprKind::Case(expr, matches) => CoreExpr::Case(
                 t,
                 self.resolve_expr(expr),
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
-            ExprKind::Let(decls, body) => CoreExpr::Let(
+            ExprKind::Current => CoreExpr::Current(t),
+            ExprKind::Exists(steps) => CoreExpr::Exists(
                 t,
-                decls.iter().map(|d| *self.resolve_decl(d)).collect(),
-                self.resolve_expr(body),
+                steps.iter().map(|s| self.resolve_step(s)).collect(),
             ),
             ExprKind::Fn(matches) => CoreExpr::Fn(
                 t,
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
-            ExprKind::Tuple(elements) => CoreExpr::Tuple(
+            ExprKind::Forall(steps) => CoreExpr::Forall(
                 t,
-                elements.iter().map(|e| self.resolve_expr(e)).collect(),
+                steps.iter().map(|s| self.resolve_step(s)).collect(),
+            ),
+            ExprKind::From(steps) => CoreExpr::From(
+                t,
+                steps.iter().map(|s| self.resolve_step(s)).collect(),
+            ),
+            ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
+            ExprKind::If(cond, then_expr, else_expr) => CoreExpr::If(
+                t,
+                self.resolve_expr(cond),
+                self.resolve_expr(then_expr),
+                self.resolve_expr(else_expr),
+            ),
+            ExprKind::Let(decls, body) => CoreExpr::Let(
+                t,
+                decls.iter().map(|d| *self.resolve_decl(d)).collect(),
+                self.resolve_expr(body),
             ),
             ExprKind::List(elements) => CoreExpr::List(
                 t,
                 elements.iter().map(|e| self.resolve_expr(e)).collect(),
             ),
+            ExprKind::Literal(l) => {
+                CoreExpr::Literal(t, self.resolve_literal(l))
+            }
+            ExprKind::Ordinal => CoreExpr::Ordinal(t),
+            ExprKind::Plus(a0, a1) => {
+                CoreExpr::Plus(t, self.resolve_expr(a0), self.resolve_expr(a1))
+            }
             ExprKind::Record(_, fields) => CoreExpr::Tuple(
                 t,
                 fields
@@ -294,24 +304,14 @@ impl<'a> Resolver<'a> {
                     .map(|f| self.resolve_expr(f.expr.as_ref()))
                     .collect(),
             ),
-            ExprKind::Aggregate(left, right) => CoreExpr::Aggregate(
+            ExprKind::RecordSelector(name) => {
+                let slot = t.lookup_field(name).unwrap();
+                CoreExpr::RecordSelector(t, slot)
+            }
+            ExprKind::Tuple(elements) => CoreExpr::Tuple(
                 t,
-                self.resolve_expr(left),
-                self.resolve_expr(right),
+                elements.iter().map(|e| self.resolve_expr(e)).collect(),
             ),
-            ExprKind::From(steps) => CoreExpr::From(
-                t,
-                steps.iter().map(|s| self.resolve_step(s)).collect(),
-            ),
-            ExprKind::Exists(steps) => CoreExpr::Exists(
-                t,
-                steps.iter().map(|s| self.resolve_step(s)).collect(),
-            ),
-            ExprKind::Forall(steps) => CoreExpr::Forall(
-                t,
-                steps.iter().map(|s| self.resolve_step(s)).collect(),
-            ),
-            ExprKind::Annotated(expr, _) => *self.resolve_expr(expr),
             _ => todo!("Unimplemented expression kind: {:?}", expr.kind),
         })
     }
@@ -319,10 +319,12 @@ impl<'a> Resolver<'a> {
     /// Resolves an AST literal to a core value.
     fn resolve_literal(&self, literal: &Literal) -> Val {
         match &literal.kind {
+            // lint: sort until '#}' where '##LiteralKind::'
             LiteralKind::Bool(b) => Val::Bool(*b),
             LiteralKind::Char(c) => {
                 Val::Char(parser::unquote_char_literal(c).unwrap())
             }
+            LiteralKind::Fn(f) => Val::Fn(*f),
             LiteralKind::Int(i) => {
                 Val::Int(i.replace("~", "-").parse().unwrap())
             }
@@ -333,7 +335,6 @@ impl<'a> Resolver<'a> {
                 Val::String(parser::unquote_string(s).unwrap())
             }
             LiteralKind::Unit => Val::Unit,
-            LiteralKind::Fn(f) => Val::Fn(*f),
         }
     }
 
@@ -342,40 +343,41 @@ impl<'a> Resolver<'a> {
         let t = pat.get_type(self.type_map).unwrap();
 
         Box::new(match &pat.kind {
-            PatKind::Wildcard => CorePat::Wildcard(t),
-            PatKind::Identifier(name) => CorePat::Identifier(t, name.clone()),
+            // lint: sort until '#}' where '##PatKind::'
+            PatKind::Annotated(pat, _) => {
+                // For annotated patterns, just resolve the inner pattern
+                // since core patterns have embedded types.
+                *self.resolve_pat(pat)
+            }
             PatKind::As(name, sub_pat) => {
                 CorePat::As(t, name.clone(), self.resolve_pat(sub_pat))
+            }
+            PatKind::Cons(head, tail) => {
+                CorePat::Cons(t, self.resolve_pat(head), self.resolve_pat(tail))
             }
             PatKind::Constructor(name, opt_pat) => CorePat::Constructor(
                 t,
                 name.clone(),
                 opt_pat.as_ref().map(|p| self.resolve_pat(p)),
             ),
-            PatKind::Literal(literal) => {
-                CorePat::Literal(t, self.resolve_literal(literal))
-            }
-            PatKind::Tuple(pats) => CorePat::Tuple(
-                t,
-                pats.iter().map(|p| *self.resolve_pat(p)).collect(),
-            ),
+            PatKind::Identifier(name) => CorePat::Identifier(t, name.clone()),
             PatKind::List(pats) => CorePat::List(
                 t,
                 pats.iter().map(|p| *self.resolve_pat(p)).collect(),
             ),
+            PatKind::Literal(literal) => {
+                CorePat::Literal(t, self.resolve_literal(literal))
+            }
             PatKind::Record(fields, has_ellipsis) => CorePat::Record(
                 t,
                 fields.iter().map(|f| self.resolve_pat_field(f)).collect(),
                 *has_ellipsis,
             ),
-            PatKind::Cons(head, tail) => {
-                CorePat::Cons(t, self.resolve_pat(head), self.resolve_pat(tail))
-            }
-            PatKind::Annotated(pat, _) => {
-                // For annotated patterns, just resolve the inner pattern
-                // since core patterns have embedded types.
-                *self.resolve_pat(pat)
-            }
+            PatKind::Tuple(pats) => CorePat::Tuple(
+                t,
+                pats.iter().map(|p| *self.resolve_pat(p)).collect(),
+            ),
+            PatKind::Wildcard => CorePat::Wildcard(t),
         })
     }
 
@@ -432,18 +434,15 @@ impl<'a> Resolver<'a> {
 
     /// Resolves an AST type to a core type.
     fn resolve_ast_type(&self, _ast_type: &AstType) -> Type {
-        // For now, just returns a basic type. This would need proper
+        // For now, just returns a basic type. This would need a proper
         // implementation to convert AST type to core type based on the
         // type resolver.
         Type::Primitive(PrimitiveType::Unit)
     }
 
     /// Resolves an AST match to a core match.
-    fn resolve_match(
-        &self,
-        ast_match: &crate::syntax::ast::Match,
-    ) -> crate::compile::core::Match {
-        crate::compile::core::Match {
+    fn resolve_match(&self, ast_match: &crate::syntax::ast::Match) -> Match {
+        Match {
             pat: self.resolve_pat(&ast_match.pat),
             expr: self.resolve_expr(&ast_match.expr),
         }
@@ -464,12 +463,13 @@ impl<'a> Resolver<'a> {
     /// Converts an AST literal to a core value.
     fn literal_val(literal: &Literal) -> Val {
         match &literal.kind {
-            LiteralKind::Fn(_fn_literal) => {
-                todo!("Implement Fn literal conversion")
-            }
+            // lint: sort until '#}' where '##LiteralKind::'
             LiteralKind::Bool(x) => Val::Bool(*x),
             LiteralKind::Char(x) => {
                 Val::Char(parser::unquote_char_literal(x).unwrap())
+            }
+            LiteralKind::Fn(_fn_literal) => {
+                todo!("Implement Fn literal conversion")
             }
             LiteralKind::Int(x) => {
                 Val::Int(x.replace("~", "-").parse().unwrap())
@@ -596,8 +596,8 @@ impl<'a> Resolver<'a> {
         // Create identifier expression for temp variable.
         let temp_id = Box::new(CoreExpr::Identifier(expr_type, temp_name));
 
-        // Create case expression to match the complex pattern.
-        let match_ = crate::compile::core::Match {
+        // Create a case expression to match the complex pattern.
+        let match_ = Match {
             pat: Box::new(pat.clone()),
             expr: result_expr,
         };

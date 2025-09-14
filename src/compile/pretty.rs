@@ -58,14 +58,15 @@ impl Type {
 
     fn moniker(&self) -> String {
         match &self {
-            Type::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
+            // lint: sort until '#}' where '##Type::'
             Type::Alias(_, _, _) => "alias".to_string(),
+            Type::Data(name, _) => name.clone(),
+            Type::Fn(_, _) => "function".to_string(),
+            Type::Forall(_, _) => "forall".to_string(),
             Type::List(_) => "list".to_string(),
+            Type::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
             Type::Record(_, _) => "record".to_string(),
             Type::Tuple(_) => "tuple".to_string(),
-            Type::Fn(_, _) => "function".to_string(),
-            Type::Data(name, _) => name.clone(),
-            Type::Forall(_, _) => "forall".to_string(),
             _ => todo!("{:?}", self),
         }
     }
@@ -317,11 +318,26 @@ impl Pretty {
         }
 
         match current_type {
-            Type::Primitive(prim_type) => {
-                self.pretty_primitive(buf, prim_type, value)?;
+            // lint: sort until '#}' where '##Type::'
+            Type::Data(name, arg_types) => {
+                self.pretty_data_type(
+                    buf, indent, line_end, depth, name, arg_types, value,
+                )?;
             }
             Type::Fn(_, _) => {
                 buf.push_str("fn");
+            }
+            Type::Forall(type_, _size) => {
+                self.pretty2(
+                    buf,
+                    indent,
+                    line_end,
+                    depth + 1,
+                    type_,
+                    value,
+                    0,
+                    0,
+                )?;
             }
             Type::List(element_type) => {
                 self.print_list(
@@ -332,6 +348,9 @@ impl Pretty {
                     element_type,
                     value.expect_list(),
                 )?;
+            }
+            Type::Primitive(prim_type) => {
+                self.pretty_primitive(buf, prim_type, value)?;
             }
             Type::Record(_progressive, arg_name_types) => {
                 let list = value.expect_list();
@@ -374,23 +393,6 @@ impl Pretty {
                     )?;
                 }
                 buf.push(')');
-            }
-            Type::Forall(type_, _size) => {
-                self.pretty2(
-                    buf,
-                    indent,
-                    line_end,
-                    depth + 1,
-                    type_,
-                    value,
-                    0,
-                    0,
-                )?;
-            }
-            Type::Data(name, arg_types) => {
-                self.pretty_data_type(
-                    buf, indent, line_end, depth, name, arg_types, value,
-                )?;
             }
             _ => todo!("{:?}", current_type),
         }
@@ -500,13 +502,28 @@ impl Pretty {
         value: &Val,
     ) -> Result<(), std::fmt::Error> {
         match prim_type {
-            PrimitiveType::Unit => {
-                buf.push_str("()");
-            }
+            // lint: sort until '#}' where '##PrimitiveType::'
             PrimitiveType::Char => {
                 if let Val::Char(c) = value {
                     let s = char_to_string(*c);
                     write!(buf, "#\"{}\"", s)?;
+                }
+            }
+            PrimitiveType::Int => {
+                let mut i = value.expect_int();
+                if i < 0 {
+                    if i == i32::MIN {
+                        buf.push_str("~2147483648");
+                        return Ok(());
+                    }
+                    buf.push('~');
+                    i = -i;
+                }
+                write!(buf, "{}", i)?;
+            }
+            PrimitiveType::Real => {
+                if let Val::Real(f) = value {
+                    write!(buf, "{}", f)?;
                 }
             }
             PrimitiveType::String => {
@@ -526,22 +543,8 @@ impl Pretty {
                     buf.push('"');
                 }
             }
-            PrimitiveType::Int => {
-                let mut i = value.expect_int();
-                if i < 0 {
-                    if i == i32::MIN {
-                        buf.push_str("~2147483648");
-                        return Ok(());
-                    }
-                    buf.push('~');
-                    i = -i;
-                }
-                write!(buf, "{}", i)?;
-            }
-            PrimitiveType::Real => {
-                if let Val::Real(f) = value {
-                    write!(buf, "{}", f)?;
-                }
+            PrimitiveType::Unit => {
+                buf.push_str("()");
             }
             _ => {
                 write!(buf, "{}", value)?;
@@ -619,8 +622,58 @@ impl Pretty {
         let indent2 = indent + prefix.len();
 
         match type_ref {
+            // lint: sort until '#}' where '##Type::'
+            Type::Fn(param_type, result_type) => {
+                let v_param = Val::new_type("", param_type);
+                self.pretty1(
+                    buf, indent2, line_end, depth, &BOOL, &v_param, 0, 0,
+                )?;
+                let v_result = Val::new_type(" -> ", result_type);
+                self.pretty1(
+                    buf, indent2, line_end, depth, &BOOL, &v_result, 0, 0,
+                )?;
+            }
+            Type::List(element_type) => {
+                self.pretty_collection_type(
+                    buf,
+                    indent2,
+                    line_end,
+                    depth,
+                    type_ref,
+                    "list",
+                    element_type,
+                    left,
+                    right,
+                )?;
+            }
             Type::Primitive(p) => {
                 self.pretty_raw(buf, indent2, line_end, depth, p.as_str())?;
+            }
+            Type::Record(progressive, arg_name_types) => {
+                buf.push('{');
+                let start = buf.len();
+                for (name, element_type) in arg_name_types {
+                    if buf.len() > start {
+                        buf.push_str(", ");
+                    }
+                    self.pretty1(
+                        buf,
+                        indent2 + 1,
+                        line_end,
+                        depth,
+                        &BOOL,
+                        &Val::new_labeled(name, element_type),
+                        0,
+                        0,
+                    )?;
+                }
+                if *progressive {
+                    if buf.len() > start {
+                        buf.push_str(", ");
+                    }
+                    self.pretty_raw(buf, indent2 + 1, line_end, depth, "...")?;
+                }
+                buf.push('}');
             }
             Type::Tuple(arg_types) => {
                 if left > Op::TUPLE.left || right > Op::TUPLE.right {
@@ -651,55 +704,6 @@ impl Pretty {
                         },
                     )?;
                 }
-            }
-            Type::Record(progressive, arg_name_types) => {
-                buf.push('{');
-                let start = buf.len();
-                for (name, element_type) in arg_name_types {
-                    if buf.len() > start {
-                        buf.push_str(", ");
-                    }
-                    self.pretty1(
-                        buf,
-                        indent2 + 1,
-                        line_end,
-                        depth,
-                        &BOOL,
-                        &Val::new_labeled(name, element_type),
-                        0,
-                        0,
-                    )?;
-                }
-                if *progressive {
-                    if buf.len() > start {
-                        buf.push_str(", ");
-                    }
-                    self.pretty_raw(buf, indent2 + 1, line_end, depth, "...")?;
-                }
-                buf.push('}');
-            }
-            Type::Fn(param_type, result_type) => {
-                let v_param = Val::new_type("", param_type);
-                self.pretty1(
-                    buf, indent2, line_end, depth, &BOOL, &v_param, 0, 0,
-                )?;
-                let v_result = Val::new_type(" -> ", result_type);
-                self.pretty1(
-                    buf, indent2, line_end, depth, &BOOL, &v_result, 0, 0,
-                )?;
-            }
-            Type::List(element_type) => {
-                self.pretty_collection_type(
-                    buf,
-                    indent2,
-                    line_end,
-                    depth,
-                    type_ref,
-                    "list",
-                    element_type,
-                    left,
-                    right,
-                )?;
             }
             Type::Variable(ty_var) => {
                 let s = ty_var.name();

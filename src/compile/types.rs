@@ -139,7 +139,8 @@ impl Type {
         right: u8,
     ) -> std::fmt::Result {
         match self {
-            Type::Primitive(p) => f.write_str(p.as_str()),
+            // lint: sort until '#}' where '##Type::'
+            Type::Alias(name, _, _) => f.write_str(name),
             Type::Fn(param, result) => {
                 const OP: Op = Op::FN;
                 if left > OP.left || right > OP.right {
@@ -151,6 +152,26 @@ impl Type {
                 write!(f, " -> ")?;
                 result.describe(f, OP.right, right)
             }
+            Type::List(elem_type) => {
+                const OP: Op = Op::APPLY;
+                if left > OP.left || right > OP.right {
+                    write!(f, "(")?;
+                    self.describe(f, 0, 0)?;
+                    return write!(f, ")");
+                }
+                elem_type.describe(f, left, OP.right)?;
+                write!(f, " list")
+            }
+            Type::Named(args, name) => {
+                const OP: Op = Op::LIST;
+                if args.len() == 1 {
+                    args.first().unwrap().describe(f, left, OP.left)?;
+                } else {
+                    Self::describe_list(args, f, &OP, left, right)?;
+                }
+                write!(f, " {}", name)
+            }
+            Type::Primitive(p) => f.write_str(p.as_str()),
             Type::Record(progressive, fields) => {
                 f.write_str("{")?;
                 for (i, (name, field_type)) in fields.iter().enumerate() {
@@ -168,32 +189,12 @@ impl Type {
                 }
                 f.write_str("}")
             }
-            Type::List(elem_type) => {
-                const OP: Op = Op::APPLY;
-                if left > OP.left || right > OP.right {
-                    write!(f, "(")?;
-                    self.describe(f, 0, 0)?;
-                    return write!(f, ")");
-                }
-                elem_type.describe(f, left, OP.right)?;
-                write!(f, " list")
-            }
             Type::Tuple(types) => {
                 const OP: Op = Op::TUPLE;
                 Self::describe_list(types, f, &OP, left, right)?;
                 Ok(())
             }
             Type::Variable(var) => f.write_str(var.name().as_str()),
-            Type::Named(args, name) => {
-                const OP: Op = Op::LIST;
-                if args.len() == 1 {
-                    args.first().unwrap().describe(f, left, OP.left)?;
-                } else {
-                    Self::describe_list(args, f, &OP, left, right)?;
-                }
-                write!(f, " {}", name)
-            }
-            Type::Alias(name, _, _) => f.write_str(name),
             _ => todo!(),
         }
     }
@@ -223,12 +224,12 @@ pub enum PrimitiveType {
 impl PrimitiveType {
     pub fn as_str(&self) -> &'static str {
         match &self {
-            PrimitiveType::Unit => "unit",
             PrimitiveType::Bool => "bool",
+            PrimitiveType::Char => "char",
             PrimitiveType::Int => "int",
             PrimitiveType::Real => "real",
             PrimitiveType::String => "string",
-            PrimitiveType::Char => "char",
+            PrimitiveType::Unit => "unit",
         }
     }
 

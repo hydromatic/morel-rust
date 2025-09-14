@@ -46,6 +46,7 @@ impl Transformer for Inliner {
     fn transform_expr(&self, env: &Env, expr0: Box<Expr>) -> Box<Expr> {
         let expr = expr0.visit(env, self);
         match expr.as_ref() {
+            // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_result_type, f, a) => {
                 if let Expr::RecordSelector(_fn_type, slot) = f.as_ref()
                     && let Expr::Literal(record_type, v) = a.as_ref()

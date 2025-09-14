@@ -84,23 +84,23 @@ impl Expr {
     /// Returns this expression's type.
     pub fn type_(&self) -> Box<Type> {
         match self {
-            Expr::Literal(t, _) => t.clone(),
-            Expr::Identifier(t, _) => t.clone(),
-            Expr::RecordSelector(t, _) => t.clone(),
-            Expr::Current(t) => t.clone(),
-            Expr::Ordinal(t) => t.clone(),
-            Expr::Plus(t, _, _) => t.clone(),
             Expr::Aggregate(t, _, _) => t.clone(),
             Expr::Apply(t, _, _) => t.clone(),
-            Expr::If(t, _, _, _) => t.clone(),
             Expr::Case(t, _, _) => t.clone(),
-            Expr::Let(t, _, _) => t.clone(),
-            Expr::Fn(t, _) => t.clone(),
-            Expr::Tuple(t, _) => t.clone(),
-            Expr::List(t, _) => t.clone(),
-            Expr::From(t, _) => t.clone(),
+            Expr::Current(t) => t.clone(),
             Expr::Exists(t, _) => t.clone(),
+            Expr::Fn(t, _) => t.clone(),
             Expr::Forall(t, _) => t.clone(),
+            Expr::From(t, _) => t.clone(),
+            Expr::Identifier(t, _) => t.clone(),
+            Expr::If(t, _, _, _) => t.clone(),
+            Expr::Let(t, _, _) => t.clone(),
+            Expr::List(t, _) => t.clone(),
+            Expr::Literal(t, _) => t.clone(),
+            Expr::Ordinal(t) => t.clone(),
+            Expr::Plus(t, _, _) => t.clone(),
+            Expr::RecordSelector(t, _) => t.clone(),
+            Expr::Tuple(t, _) => t.clone(),
         }
     }
 }
@@ -108,19 +108,11 @@ impl Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
-            Expr::Identifier(_t, name) => write!(f, "{}", name),
-            Expr::Literal(_t, lit) => write!(f, "{}", lit),
-            Expr::RecordSelector(_t, name) => write!(f, "#{}", name),
-            Expr::Current(_t) => write!(f, "current"),
-            Expr::Ordinal(_t) => write!(f, "ordinal"),
-            Expr::Plus(_t, lhs, rhs) => write!(f, "({} + {})", lhs, rhs),
-            Expr::Aggregate(_t, lhs, rhs) => {
-                write!(f, "({} over {})", lhs, rhs)
+            // lint: sort until '#}' where '##Expr::'
+            Expr::Aggregate(_t, a0, a1) => {
+                write!(f, "({} over {})", a0, a1)
             }
             Expr::Apply(_t, fx, arg) => write!(f, "{} {}", fx, arg),
-            Expr::If(_t, cond, then_, else_) => {
-                write!(f, "if {} then {} else {}", cond, then_, else_)
-            }
             Expr::Case(_t, e, arms) => {
                 write!(f, "case {} of ", e)?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -131,13 +123,8 @@ impl Display for Expr {
                 }
                 Ok(())
             }
-            Expr::Let(_t, decls, body) => {
-                write!(f, "let ")?;
-                for decl in decls {
-                    write!(f, "{}; ", decl)?;
-                }
-                write!(f, "in {}", body)
-            }
+            Expr::Current(_t) => write!(f, "current"),
+            Expr::Exists(_t, steps) => write!(f, "exists {:?}", steps),
             Expr::Fn(_t, arms) => {
                 write!(f, "fn ")?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -148,13 +135,18 @@ impl Display for Expr {
                 }
                 Ok(())
             }
-            Expr::Tuple(_t, elems) => {
-                let elems_str = elems
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", elems_str)
+            Expr::Forall(_t, steps) => write!(f, "forall {:?}", steps),
+            Expr::From(_t, steps) => write!(f, "from {:?}", steps),
+            Expr::Identifier(_t, name) => write!(f, "{}", name),
+            Expr::If(_t, cond, then_, else_) => {
+                write!(f, "if {} then {} else {}", cond, then_, else_)
+            }
+            Expr::Let(_t, decls, body) => {
+                write!(f, "let ")?;
+                for decl in decls {
+                    write!(f, "{}; ", decl)?;
+                }
+                write!(f, "in {}", body)
             }
             Expr::List(_t, elems) => {
                 let elems_str = elems
@@ -164,9 +156,18 @@ impl Display for Expr {
                     .join(", ");
                 write!(f, "[{}]", elems_str)
             }
-            Expr::From(_t, steps) => write!(f, "from {:?}", steps),
-            Expr::Exists(_t, steps) => write!(f, "exists {:?}", steps),
-            Expr::Forall(_t, steps) => write!(f, "forall {:?}", steps),
+            Expr::Literal(_t, lit) => write!(f, "{}", lit),
+            Expr::Ordinal(_t) => write!(f, "ordinal"),
+            Expr::Plus(_t, a0, a1) => write!(f, "({} + {})", a0, a1),
+            Expr::RecordSelector(_t, name) => write!(f, "#{}", name),
+            Expr::Tuple(_t, elems) => {
+                let elems_str = elems
+                    .iter()
+                    .map(|e| format!("{}", e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", elems_str)
+            }
         }
     }
 }
@@ -245,15 +246,16 @@ impl Pat {
     /// Returns this pattern's type.
     pub fn type_(&self) -> Box<Type> {
         match self {
-            Pat::Wildcard(t) => t.clone(),
-            Pat::Identifier(t, _) => t.clone(),
+            // lint: sort until '#}' where '##Pat::'
             Pat::As(t, _, _) => t.clone(),
-            Pat::Constructor(t, _, _) => t.clone(),
-            Pat::Literal(t, _) => t.clone(),
-            Pat::Tuple(t, _) => t.clone(),
-            Pat::List(t, _) => t.clone(),
-            Pat::Record(t, _, _) => t.clone(),
             Pat::Cons(t, _, _) => t.clone(),
+            Pat::Constructor(t, _, _) => t.clone(),
+            Pat::Identifier(t, _) => t.clone(),
+            Pat::List(t, _) => t.clone(),
+            Pat::Literal(t, _) => t.clone(),
+            Pat::Record(t, _, _) => t.clone(),
+            Pat::Tuple(t, _) => t.clone(),
+            Pat::Wildcard(t) => t.clone(),
         }
     }
     pub(crate) fn bind_recurse(
@@ -270,6 +272,7 @@ impl Pat {
             }
         }
     }
+
     /// Calls a given function for each atomic identifier in this pattern.
     /// Since core doesn't have IDs, we'll use 0 as a placeholder.
     pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(&str)) {
@@ -295,22 +298,14 @@ impl Pat {
 impl Display for Pat {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
-            Pat::Wildcard(_) => write!(f, "_"),
-            Pat::Identifier(_, name) => write!(f, "{}", name),
+            // lint: sort until '#}' where '##Pat::'
             Pat::As(_, name, pat) => write!(f, "{} as {}", pat, name),
+            Pat::Cons(_, head, tail) => write!(f, "{} :: {}", head, tail),
+            Pat::Constructor(_, name, None) => write!(f, "{}", name),
             Pat::Constructor(_, name, Some(pat)) => {
                 write!(f, "{} {}", name, pat)
             }
-            Pat::Constructor(_, name, None) => write!(f, "{}", name),
-            Pat::Literal(_, val) => write!(f, "{}", val),
-            Pat::Tuple(_, pats) => {
-                let pats_str = pats
-                    .iter()
-                    .map(|p| format!("{}", p))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", pats_str)
-            }
+            Pat::Identifier(_, name) => write!(f, "{}", name),
             Pat::List(_, pats) => {
                 let pats_str = pats
                     .iter()
@@ -319,7 +314,7 @@ impl Display for Pat {
                     .join(", ");
                 write!(f, "[{}]", pats_str)
             }
-            Pat::Cons(_, head, tail) => write!(f, "{} :: {}", head, tail),
+            Pat::Literal(_, val) => write!(f, "{}", val),
             Pat::Record(_, fields, ellipsis) => {
                 let fields_str = fields
                     .iter()
@@ -338,6 +333,15 @@ impl Display for Pat {
                     write!(f, "{{{}}}", fields_str)
                 }
             }
+            Pat::Tuple(_, pats) => {
+                let pats_str = pats
+                    .iter()
+                    .map(|p| format!("{}", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", pats_str)
+            }
+            Pat::Wildcard(_) => write!(f, "_"),
         }
     }
 }
@@ -439,19 +443,20 @@ pub enum Decl {
 impl Display for Decl {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
+            // lint: sort until '#}' where '##Decl::'
+            Decl::Datatype(datatypes) => {
+                write!(f, "datatype ")?;
+                fmt_list(f, datatypes, "; ")
+            }
             Decl::NonRecVal(bind) => write!(f, "val {}", bind),
+            Decl::Over(name) => write!(f, "over {}", name),
             Decl::RecVal(binds) => {
                 write!(f, "val rec ")?;
                 fmt_list(f, binds, " and ")
             }
-            Decl::Over(name) => write!(f, "over {}", name),
             Decl::Type(types) => {
                 write!(f, "type ")?;
                 fmt_list(f, types, "; ")
-            }
-            Decl::Datatype(datatypes) => {
-                write!(f, "datatype ")?;
-                fmt_list(f, datatypes, "; ")
             }
         }
     }

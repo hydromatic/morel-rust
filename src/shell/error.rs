@@ -38,11 +38,11 @@ impl From<IoError> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
+            Error::Compile(e) => write!(f, "Compile Error: {}", e),
+            Error::FileNotFound(e) => write!(f, "File not found: {}", e),
             Error::Io(e) => write!(f, "IO Error: {}", e),
             Error::Parse(e) => write!(f, "Parse Error: {}", e),
-            Error::Compile(e) => write!(f, "Compile Error: {}", e),
             Error::Runtime(e) => write!(f, "Runtime Error: {}", e),
-            Error::FileNotFound(e) => write!(f, "File not found: {}", e),
         }
     }
 }

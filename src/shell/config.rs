@@ -53,23 +53,24 @@ impl Default for Config {
 impl Configurable for Config {
     fn set(&mut self, prop: Prop, val: &PropVal) {
         match (prop, val) {
-            (Prop::PrintLength, PropVal::Int(i)) => {
-                self.print_length = Some(*i);
-            }
-            (Prop::PrintDepth, PropVal::Int(i)) => {
-                self.print_depth = Some(*i);
-            }
-            (Prop::StringDepth, PropVal::Int(i)) => {
-                self.string_depth = Some(*i);
+            // lint: sort until '#}' where '##\(Prop::'
+            (Prop::Banner, PropVal::Bool(b)) => {
+                self.banner = Some(*b);
             }
             (Prop::LineWidth, PropVal::Int(i)) => {
                 self.line_width = Some(*i);
             }
-            (Prop::Banner, PropVal::Bool(b)) => {
-                self.banner = Some(*b);
-            }
             (Prop::Output, PropVal::Output(x)) => {
                 self.output = Some(*x);
+            }
+            (Prop::PrintDepth, PropVal::Int(i)) => {
+                self.print_depth = Some(*i);
+            }
+            (Prop::PrintLength, PropVal::Int(i)) => {
+                self.print_length = Some(*i);
+            }
+            (Prop::StringDepth, PropVal::Int(i)) => {
+                self.string_depth = Some(*i);
             }
             _ => todo!("set {}", prop.name()),
         }

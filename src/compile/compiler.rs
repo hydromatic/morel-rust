@@ -290,12 +290,12 @@ impl<'a> Compiler<'a> {
         for exp in expressions {
             let code = self.compile_arg(cx, exp);
             let type_ = match exp {
-                Expr::Literal(t, _) => t.clone(),
-                Expr::Identifier(t, _) => t.clone(),
-                Expr::RecordSelector(t, _) => t.clone(),
                 Expr::Current(t) => t.clone(),
+                Expr::Identifier(t, _) => t.clone(),
+                Expr::Literal(t, _) => t.clone(),
                 Expr::Ordinal(t) => t.clone(),
                 Expr::Plus(t, _, _) => t.clone(),
+                Expr::RecordSelector(t, _) => t.clone(),
                 _ => Box::new(Type::Primitive(PrimitiveType::Unit)),
             };
             result.push((code, type_));
