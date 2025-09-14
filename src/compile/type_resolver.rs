@@ -949,7 +949,7 @@ impl TypeResolver {
 
     fn deduce_record_selector_type(
         &mut self,
-        _env: &dyn TypeEnv,
+        env: &dyn TypeEnv,
         name: &String,
         v_rec: &Rc<Var>,
         v_field: &Rc<Var>,
@@ -957,6 +957,14 @@ impl TypeResolver {
         // Create a function type: record -> field
         let v_fn = self.variable();
         self.fn_term(v_rec, v_field, &v_fn);
+
+        if name == "set" {
+            // Temporary workaround. Resolve 'Sys.set' as if they wrote 'set'.
+            let term = env
+                .get(name, self)
+                .unwrap_or_else(|| todo!("identifier '{}' not found", name));
+            self.equiv(&term, &v_field);
+        }
 
         // Create a record selector expression
         let selector_kind = ExprKind::RecordSelector(name.clone());

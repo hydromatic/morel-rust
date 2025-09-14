@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library;
 use crate::compile::type_env::{
     EmptyTypeEnv, FunTypeEnv, TypeEnv, TypeSchemeResolver,
 };
@@ -24,7 +25,7 @@ use crate::eval::code::Code;
 use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::error::Error;
-use crate::shell::main::{BUILT_IN_TYPES, MorelError};
+use crate::shell::main::MorelError;
 use crate::shell::prop::{Configurable, Output, Prop, PropVal};
 use crate::syntax::ast::Statement;
 use crate::syntax::parser::parse_type_scheme;
@@ -114,7 +115,7 @@ impl Session {
         let empty_type_env = EmptyTypeEnv {};
         let resolve =
             |id: &str, t: &mut dyn TypeSchemeResolver| -> Option<Term> {
-                if let Some(x) = BUILT_IN_TYPES.get(id) {
+                if let Some(x) = library::name_to_type(id) {
                     let type_scheme = parse_type_scheme(x).unwrap();
                     Some(Term::Variable(t.deduce_type_scheme(&type_scheme)))
                 } else {

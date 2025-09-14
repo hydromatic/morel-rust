@@ -19,7 +19,7 @@ use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
     Pat as CorePat, TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
-use crate::compile::type_resolver::{TypeMap, Typed};
+use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::syntax::ast::{
@@ -27,6 +27,12 @@ use crate::syntax::ast::{
     PatKind, Type as AstType, TypeBind, ValBind,
 };
 use crate::syntax::parser;
+
+/// Converts an AST to a Core tree.
+pub fn resolve(resolved: &Resolved) -> Box<crate::compile::core::Decl> {
+    let resolver = Resolver::new(&resolved.type_map);
+    resolver.resolve_decl(&resolved.decl)
+}
 
 /// Converts an AST to a Core tree.
 ///
@@ -238,7 +244,8 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
             ExprKind::RecordSelector(name) => {
-                CoreExpr::RecordSelector(t, name.clone())
+                let slot = t.lookup_field(name).unwrap();
+                CoreExpr::RecordSelector(t, slot)
             }
             ExprKind::Current => CoreExpr::Current(t),
             ExprKind::Ordinal => CoreExpr::Ordinal(t),

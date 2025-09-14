@@ -21,10 +21,11 @@
 #![allow(clippy::useless_format)]
 #![allow(clippy::redundant_closure)]
 
-use crate::compile::compiler::Compiler;
-use crate::compile::resolver::Resolver;
+use crate::compile::inliner::{Binding as BindingInner, Env};
+use crate::compile::resolver;
 use crate::compile::type_env::Binding;
 use crate::compile::type_resolver::Resolved;
+use crate::compile::{compiler, inliner, library};
 use crate::eval::code::Effect;
 use crate::eval::session::Config as SessionConfig;
 use crate::eval::session::Session;
@@ -36,10 +37,9 @@ use crate::shell::prop::Mode;
 use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast::{Span, Statement};
 use crate::syntax::parser::parse_statement;
-use phf::phf_map;
 use rustc_version::version;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::fs::read_to_string;
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write};
@@ -336,15 +336,18 @@ impl Shell {
 
     /// Evaluates a parsed AST node.
     fn evaluate_node(&mut self, resolved: &Resolved) -> ShellResult<String> {
-        let resolver = Resolver::new(&resolved.type_map);
-        let decl = resolver.resolve_decl(&resolved.decl);
+        let decl = resolver::resolve(resolved);
 
-        let compiler = Compiler::new(&resolved.type_map);
-        let compiled_statement = compiler.compile_statement(
+        let env = Box::new(Env::Root);
+        let mut map: BTreeMap<&str, BindingInner> = BTreeMap::new();
+        library::populate_env(&mut map);
+        let env2 = env.multi(&map);
+        let decl2 = inliner::inline_decl(&env2, &decl);
+
+        let compiled_statement = compiler::compile_statement(
+            &resolved.type_map,
             &self.environment,
-            &decl,
-            None,
-            &HashSet::new(),
+            &decl2,
         );
         let mut result = String::new();
         let mut bindings = Vec::new();
@@ -507,35 +510,3 @@ mod tests {
         assert_eq!(comment_depth(s), 0);
     }
 }
-
-/// Built-in values (mainly operators) and their types.
-///
-/// The types are held as strings and are parsed (and converted to terms)
-/// on demand. This is a win when there are a lot of built-in operators.
-pub static BUILT_IN_TYPES: phf::Map<&'static str, &'static str> = phf_map! {
-    // lint: sort until '^};$'
-    "NONE" => "forall 1 'a option",
-    "SOME" => "forall 1 'a -> 'a option",
-    "Sys" => "{set: string * string -> unit}",
-    "false" => "bool",
-    "nil" => "forall 1 'a list",
-    "op *" => "int * int -> int",
-    "op +" => "int * int -> int",
-    "op -" => "int * int -> int",
-    "op /" => "real * real -> real",
-    "op ::" => "forall 1 'a * 'a list -> 'a list",
-    "op <" => "forall 1 'a * 'a -> bool",
-    "op <=" => "forall 1 'a * 'a -> bool",
-    "op <>" => "forall 1 'a * 'a -> bool",
-    "op =" => "forall 1 'a * 'a -> bool",
-    "op >" => "forall 1 'a * 'a -> bool",
-    "op >=" => "forall 1 'a * 'a -> bool",
-    "op andalso" => "bool * bool -> bool",
-    "op div" => "int * int -> int",
-    "op if" => "forall 1 bool * 'a * 'a -> 'a",
-    "op implies" => "bool * bool -> bool",
-    "op mod" => "int * int -> int",
-    "op orelse" => "bool * bool -> bool",
-    "set" => "string * string -> unit",
-    "true" => "bool",
-};

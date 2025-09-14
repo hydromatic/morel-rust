@@ -49,7 +49,11 @@ impl Display for StatementKind {
 pub enum Expr {
     Literal(Box<Type>, Val),
     Identifier(Box<Type>, String),
-    RecordSelector(Box<Type>, String),
+
+    /// `RecordSelector(type, slot)` is a function that returns the `slot`th
+    /// field of a record or tuple. `type` is a function type, `record_type`
+    /// -> `field_type`.
+    RecordSelector(Box<Type>, usize),
     Current(Box<Type>),
     Ordinal(Box<Type>),
 

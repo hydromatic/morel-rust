@@ -30,8 +30,17 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
-/// Compiles an expression to code that can be evaluated.
-pub struct Compiler<'a> {
+/// Compiles a declaration to code that can be evaluated.
+pub fn compile_statement(
+    type_map: &TypeMap,
+    env: &Environment,
+    decl: &Decl,
+) -> Box<dyn CompiledStatement> {
+    let compiler = Compiler::new(type_map);
+    compiler.compile_statement(env, decl, None, &HashSet::new())
+}
+
+struct Compiler<'a> {
     type_map: &'a TypeMap,
 }
 
@@ -58,11 +67,11 @@ impl<'a> Compiler<'a> {
         static ORDINAL_CODE: RefCell<Vec<i32>> = RefCell::new(vec![0]);
     }
 
-    pub fn new(type_map: &'a TypeMap) -> Self {
+    fn new(type_map: &'a TypeMap) -> Self {
         Self { type_map }
     }
 
-    pub fn compile_statement(
+    fn compile_statement(
         &self,
         env: &Environment,
         decl: &Decl,
@@ -353,16 +362,17 @@ impl<'a> Compiler<'a> {
         match expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_, f, a) => {
-                let f_code = self.inline(cx, f.clone());
-                if let Expr::Literal(_t, literal) = f_code.as_ref()
-                    && let Val::Fn(f) = literal
+                if let Expr::Literal(_t, literal) = f.as_ref()
+                    // TODO Maybe remove Val::Impl, and switch back to Val::Fn?
+                    // Inliner is too early to be mapping to native functions.
+                    && let Val::Impl(f) = literal
                 {
                     let codes = self.compile_args(cx, a.clone());
                     let boxed_codes: Vec<Box<Code>> =
                         codes.into_iter().map(Box::new).collect();
-                    return Codes::apply(*f, &boxed_codes);
+                    return Codes::native(*f, &boxed_codes);
                 }
-                todo!("{}", expr)
+                todo!("compile {:}", expr)
             }
             Expr::List(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
@@ -383,35 +393,6 @@ impl<'a> Compiler<'a> {
 
     fn link(_p0: &HashMap<String, Rc<Option<Code>>>, _p1: Pat, _p2: &Code) {
         todo!()
-    }
-
-    /// TODO: Add an inliner step to do this.
-    fn inline(&self, _cx: &Context, expr: Box<Expr>) -> Box<Expr> {
-        match expr.as_ref() {
-            Expr::Identifier(_t, s) if s == "set" => {
-                let literal = Val::Fn(BuiltInFunction::SysSet);
-                Box::new(Expr::Literal(
-                    Box::new(Type::Primitive(PrimitiveType::Unit)),
-                    literal,
-                ))
-            }
-            Expr::Apply(_, f, a) => match f.as_ref() {
-                Expr::RecordSelector(_t, f_name) if f_name == "set" => {
-                    match a.as_ref() {
-                        Expr::Identifier(_t, a_name) if a_name == "Sys" => {
-                            let literal = Val::Fn(BuiltInFunction::SysSet);
-                            Box::new(Expr::Literal(
-                                Box::new(Type::Primitive(PrimitiveType::Unit)),
-                                literal,
-                            ))
-                        }
-                        _ => expr,
-                    }
-                }
-                _ => expr,
-            },
-            _ => expr, // unchanged
-        }
     }
 }
 
@@ -541,14 +522,4 @@ mod calcite_functions {
             todo!()
         }
     }
-}
-
-/// List of built-in functions and operators.
-/// Generally wrapped in a [crate::syntax::ast::LiteralKind].`Fn`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(u8)]
-pub enum BuiltInFunction {
-    // lint: sort until '^}$'
-    IntPlus,
-    SysSet,
 }

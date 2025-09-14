@@ -15,13 +15,18 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::compiler::BuiltInFunction;
 use crate::compile::core::Pat;
+use crate::compile::library::{BuiltIn, BuiltInFunction, BuiltInRecord};
+use crate::compile::type_env::Binding;
+use crate::compile::type_resolver::TypeMap;
+use crate::eval::code::EagerV2::SysSet;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::main::{MorelError, Shell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::LazyLock;
+use strum::EnumProperty;
 
 /// Effects that can be applied to modify the state of the current shell or
 /// session.
@@ -94,20 +99,24 @@ impl Codes {
 
     pub(crate) fn apply(f: BuiltInFunction, codes: &[Box<Code>]) -> Box<Code> {
         match built_in_to_applicable(f) {
-            Some(impl_) => match impl_ {
-                Impl::E2(e2) => Box::new(Code::ApplyE2(e2)),
-                Impl::EV2(ev2) => {
-                    // TODO: handle cases like 'let args = (1, 2) in f args
-                    // end'; see Gather in Morel-Java
-                    assert_eq!(codes.len(), 2);
-                    Box::new(Code::ApplyEV2(
-                        ev2,
-                        codes[0].clone(),
-                        codes[1].clone(),
-                    ))
-                }
-            },
+            Some(impl_) => Self::native(impl_, codes),
             _ => todo!("{:?}", f),
+        }
+    }
+
+    pub(crate) fn native(impl_: Impl, codes: &[Box<Code>]) -> Box<Code> {
+        match impl_ {
+            Impl::E2(e2) => Box::new(Code::ApplyE2(e2)),
+            Impl::EV2(ev2) => {
+                // TODO: handle cases like 'let args = (1, 2) in f args
+                // end'; see Gather in Morel-Java
+                assert_eq!(codes.len(), 2);
+                Box::new(Code::ApplyEV2(
+                    ev2,
+                    codes[0].clone(),
+                    codes[1].clone(),
+                ))
+            }
         }
     }
 
@@ -194,7 +203,7 @@ impl EvalEnv<'_> {
 }
 
 /// Implementation of a function is an [Eager2] or ...
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Impl {
     E2(Eager2),
     EV2(EagerV2),
@@ -204,7 +213,7 @@ pub struct Applicable;
 
 /// Function implementation that takes two arguments.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Eager2 {
     IntPlus,
 }
@@ -212,14 +221,18 @@ pub enum Eager2 {
 /// Function implementation that takes two arguments and an evaluation
 /// environment.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EagerV2 {
     SysSet,
 }
 
 impl EagerV2 {
-    fn implements(&self, map: &mut BTreeMap<u8, Impl>, f: BuiltInFunction) {
-        map.insert(f as u8, Impl::EV2(*self));
+    fn implements(
+        &self,
+        map: &mut BTreeMap<BuiltInFunction, Impl>,
+        f: BuiltInFunction,
+    ) {
+        map.insert(f, Impl::EV2(*self));
     }
 
     // Passing Val by value is OK because it is small.
@@ -250,27 +263,57 @@ impl Eager2 {
         }
     }
 
-    fn implements(&self, map: &mut BTreeMap<u8, Impl>, f: BuiltInFunction) {
-        map.insert(f as u8, Impl::E2(*self));
+    fn implements(
+        &self,
+        map: &mut BTreeMap<BuiltInFunction, Impl>,
+        f: BuiltInFunction,
+    ) {
+        map.insert(f, Impl::E2(*self));
     }
 }
 
-use crate::compile::type_env::Binding;
-use crate::compile::type_resolver::TypeMap;
-use crate::eval::code::EagerV2::SysSet;
-use std::sync::LazyLock;
+pub struct Lib {
+    pub fn_map: BTreeMap<BuiltInFunction, Impl>,
+    pub rec_map: BTreeMap<BuiltInRecord, BTreeMap<String, Impl>>,
+}
 
-static BUILT_IN_VALUES: LazyLock<BTreeMap<u8, Impl>> = LazyLock::new(|| {
+pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     #[allow(clippy::enum_glob_use)]
-    use BuiltInFunction::*;
+    use crate::compile::library::BuiltInFunction::*;
+    use crate::compile::library::BuiltInRecord::Sys;
 
-    let mut map = BTreeMap::new();
-    // lint: sort until '^ *map' erase '^.*, '
-    Eager2::IntPlus.implements(&mut map, IntPlus);
-    EagerV2::SysSet.implements(&mut map, SysSet);
-    map
+    let mut fn_map: BTreeMap<BuiltInFunction, Impl> = BTreeMap::new();
+
+    // lint: sort until '^$' erase '^.*, '
+    Eager2::IntPlus.implements(&mut fn_map, IntPlus);
+    EagerV2::SysSet.implements(&mut fn_map, SysSet);
+
+    // Pass over the table and make sure that if a built-in has a parent,
+    // its parent exists and contains the child.
+    let mut rec_map: BTreeMap<BuiltInRecord, BTreeMap<String, Impl>> =
+        BTreeMap::new();
+    add_rec(&mut rec_map, &fn_map, Sys);
+
+    Lib { fn_map, rec_map }
 });
 
+fn add_rec(
+    rec_map: &mut BTreeMap<BuiltInRecord, BTreeMap<String, Impl>>,
+    fn_map: &BTreeMap<BuiltInFunction, Impl>,
+    r: BuiltInRecord,
+) {
+    let mut child_map = BTreeMap::new();
+    let parent_name = r.get_str("name").unwrap();
+    for (f, imp) in fn_map {
+        if let Some((parent, name)) = BuiltIn::Fn(*f).heritage()
+            && parent == parent_name
+        {
+            child_map.insert(name.to_string(), *imp);
+        }
+    }
+    rec_map.insert(r, child_map);
+}
+
 fn built_in_to_applicable(b: BuiltInFunction) -> Option<Impl> {
-    BUILT_IN_VALUES.get(&(b as u8)).copied()
+    LIBRARY.fn_map.get(&b).copied()
 }

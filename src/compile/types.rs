@@ -54,6 +54,47 @@ pub enum Type {
 }
 
 impl Type {
+    /// Returns the definition of a record type. Panics on any other type,
+    /// including a tuple type.
+    pub fn expect_record(&self) -> (bool, &BTreeMap<Label, Type>) {
+        match self {
+            Type::Record(progressive, fields) => (*progressive, fields),
+            _ => panic!("Expected record type"),
+        }
+    }
+
+    /// Returns a list of this type's fields. Panics if this type is not a
+    /// record or tuple.
+    pub fn field_types(&self) -> Vec<Type> {
+        match self {
+            Type::Record(_, fields) => {
+                fields.values().cloned().collect::<Vec<_>>()
+            }
+            Type::Tuple(field_types) => field_types.to_vec(),
+            _ => panic!("Expected record type"),
+        }
+    }
+
+    /// Returns the ordinal of a field with a given name.
+    /// Always returns None if not a record or tuple type.
+    pub fn lookup_field(&self, field_name: &str) -> Option<usize> {
+        match self {
+            Type::Record(_, fields) => fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name.matches(field_name))
+                .map(|(i, _)| i),
+            Type::Tuple(field_types) => {
+                field_name
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|&i| i > 0 && i <= field_types.len())
+                    .map(|i| i - 1) // Convert from 1-based to 0-based indexing
+            }
+            _ => None,
+        }
+    }
+
     /// Describes a list of types, with given left and right precedence
     /// and given opening, separator, and closing strings.
     fn describe_list(
@@ -244,6 +285,14 @@ pub enum Label {
 }
 
 impl Label {
+    /// Returns whether this label is equal to a string.
+    pub fn matches(&self, name: &str) -> bool {
+        match &self {
+            Label::Ordinal(i) => i.to_string().eq(name),
+            Label::String(s) => s.eq(name),
+        }
+    }
+
     /// Returns whether a collection of labels is the ordinal labels
     /// \[1, 2, ... N\].
     pub fn are_contiguous<I>(labels: I) -> bool

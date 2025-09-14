@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::compiler::BuiltInFunction;
+use crate::compile::library::BuiltInFunction;
 use crate::eval::val::Val;
 use crate::syntax::ast;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
