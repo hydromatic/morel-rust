@@ -24,6 +24,7 @@ mod compile;
 mod eval;
 mod shell;
 mod syntax;
+mod unify;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

@@ -15,25 +15,5 @@
 // language governing permissions and limitations under the
 // License.
 
-#![allow(dead_code)]
-
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-pub mod compile;
-pub mod eval;
-pub mod shell;
-pub mod syntax;
-pub mod unify;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod unifier;
+mod unifier_parser;

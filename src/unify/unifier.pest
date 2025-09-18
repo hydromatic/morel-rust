@@ -1,0 +1,51 @@
+// Licensed to Julian Hyde under one or more contributor license
+// agreements.  See the NOTICE file distributed with this work
+// for additional information regarding copyright ownership.
+// Julian Hyde licenses this file to you under the Apache
+// License, Version 2.0 (the "License"); you may not use this
+// file except in compliance with the License.  You may obtain a
+// copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.  See the License for the specific
+// language governing permissions and limitations under the
+// License.
+
+// Whitespace and comments
+WHITESPACE = _{ " " | NEWLINE }
+COMMENT = _{ line_comment | block_comment }
+line_comment = _{ "(*)" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI) }
+block_comment = _{ "(*" ~ (block_comment | (!"*)" ~ ANY))* ~ "*)" }
+
+// Examples of unification patterns
+// Variable: X
+// Atom: a
+// Sequence: f(a), g(b, X)
+// A term is a variable, atom or sequence.
+// Pair: f(X, g(Y)) = f(a, g(b))
+
+// Variable, e.g. "X", "Xyz", "T1".
+variable = @{ ASCII_ALPHA_UPPER ~ ASCII_ALPHANUMERIC* }
+
+// Atom, e.g. "a", "foo", "bar2".
+atom = @{ ASCII_ALPHA_LOWER ~ ASCII_ALPHANUMERIC* }
+
+// Sequence, e.g. "a", "f(a)", "g(b, X)".
+// Every atom is a sequence, but a variable is not a sequence.
+sequence = { atom ~ ("(" ~ term ~ ("," ~ term)* ~ ")")? }
+
+// A term is a variable or a sequence.
+// By that definition, an atom is also a term.
+// Terms may include nested terms (via sequences).
+term = { variable | sequence }
+
+// Pair, e.g. "f(X, g(Y)) = f(a, g(b))"
+pair = { term ~ "=" ~ term }
+
+pair_list = { (WHITESPACE | COMMENT)* ~ pair* }
+
+program = { SOI ~ pair_list ~ EOI }

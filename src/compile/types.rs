@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::unifier::Term;
+use crate::unify::unifier::Term;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 

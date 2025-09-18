@@ -16,10 +16,10 @@
 // License.
 
 use crate::compile::types::Type;
-use crate::compile::unifier::{Term, Var};
 use crate::eval::code::Code;
 use crate::eval::val::Val;
 use crate::syntax::ast::{Expr, Pat, PatKind, TypeScheme};
+use crate::unify::unifier::{Term, Var};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;

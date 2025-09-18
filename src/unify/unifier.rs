@@ -23,12 +23,11 @@
 #![allow(clippy::nonminimal_bool)]
 #![allow(clippy::collapsible_if)]
 
-use indexmap::IndexMap;
+use crate::unify;
 use std::cell::RefCell;
 use std::cmp::{PartialEq, max};
-use std::collections::{HashMap, VecDeque};
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter, Write};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::iter::zip;
 use std::rc::Rc;
 use std::time::Instant;
@@ -37,7 +36,7 @@ use std::time::Instant;
 trait TermLike {
     fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term;
     #[allow(dead_code)]
-    fn apply(&self, map: &IndexMap<Rc<Var>, Term>) -> Term;
+    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term;
     fn as_term(&self) -> Term;
 }
 
@@ -75,7 +74,7 @@ impl Term {
     }
 
     /// Applies a substitution to this term.
-    fn apply(&self, map: &IndexMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(map),
             Term::Sequence(seq) => seq.apply(map),
@@ -109,7 +108,7 @@ impl TermLike for Term {
         }
     }
 
-    fn apply(&self, map: &IndexMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(&map),
             Term::Sequence(seq) => seq.apply(&map),
@@ -140,10 +139,31 @@ impl Display for Term {
 ///
 /// Its id is unique within a Unifier,
 /// and disjoint from Op id values.
-#[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Var {
-    pub(crate) name: String,
-    pub(crate) id: i32,
+    pub name: String,
+    pub id: i32,
+}
+
+impl Ord for Var {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .id
+            .cmp(&self.id) // -1 before -2
+            .then_with(|| self.name.cmp(&other.name)) // X before Y
+    }
+}
+
+impl PartialOrd for Var {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Display for Var {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl Var {
@@ -152,10 +172,6 @@ impl Var {
             name: name.to_string(),
             id,
         }
-    }
-
-    fn to_string(&self) -> String {
-        self.name.clone()
     }
 }
 
@@ -168,7 +184,7 @@ impl TermLike for Rc<Var> {
         }
     }
 
-    fn apply(&self, map: &IndexMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
         map.get(self).cloned().unwrap_or_else(|| self.as_term())
     }
 
@@ -219,7 +235,7 @@ impl Sequence {
         }
     }
 
-    fn sub(&self, map: &IndexMap<Rc<Var>, Term>) -> Self {
+    fn sub(&self, map: &BTreeMap<Rc<Var>, Term>) -> Self {
         if self.terms.is_empty() {
             return self.clone();
         }
@@ -240,7 +256,7 @@ impl TermLike for Sequence {
         Term::Sequence(self.sub1(variable, term))
     }
 
-    fn apply(&self, map: &IndexMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
         Term::Sequence(self.sub(&map))
     }
 
@@ -278,7 +294,7 @@ impl<'a> Display for Sequence {
 /// Substitution.
 #[derive(Debug, Clone)]
 pub struct Substitution {
-    pub substitutions: IndexMap<Rc<Var>, Term>,
+    pub substitutions: BTreeMap<Rc<Var>, Term>,
 }
 
 impl Substitution {
@@ -286,7 +302,7 @@ impl Substitution {
         if self.has_cycles() {
             return self.clone();
         }
-        let mut new_substitutions = IndexMap::new();
+        let mut new_substitutions = BTreeMap::new();
         for (key, value) in &self.substitutions {
             new_substitutions.insert(key.clone(), self.resolve_term(value));
         }
@@ -441,6 +457,44 @@ impl Tracer for NullTracer {
     }
 }
 
+/// Tracer that prints to stdout.
+#[allow(dead_code)]
+pub struct PrintTracer;
+
+impl Tracer for PrintTracer {
+    fn on_conflict(&self, left: &Sequence, right: &Sequence) {
+        println!("CONFLICT: {} != {}", left, right);
+    }
+
+    fn on_sequence(&self, left: &Sequence, right: &Sequence) {
+        println!("DECOMPOSE: {} = {}", left, right);
+    }
+
+    fn on_cycle(&self, left: &Var, right: &Term) {
+        println!("CYCLE: {} occurs in {}", left, right);
+    }
+
+    fn on_variable(&self, left: &Var, right: &Term) {
+        println!("VARIABLE: {} = {}", left, right);
+    }
+
+    fn on_swap(&self, left: &Term, right: &Term) {
+        println!("SWAP: {} <-> {}", left, right);
+    }
+
+    fn on_substitute(
+        &self,
+        old_left: &Term,
+        old_right: &Term,
+        new_left: &Term,
+        new_right: &Term,
+    ) {
+        println!(
+            "SUBSTITUTE: ({}, {}) -> ({}, {})",
+            old_left, old_right, new_left, new_right
+        );
+    }
+}
 /// A pair of lists that act together.
 struct TermActions {
     left_list: Vec<Term>,
@@ -510,6 +564,28 @@ struct Work<'a> {
     var_any_queue: Rc<RefCell<VecDeque<(Rc<Var>, Term)>>>,
     constraint_queue: VecDeque<MutableConstraint>,
     result: HashMap<Rc<Var>, Term>,
+}
+
+impl Display for Work<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Work: seq-seq {{")?;
+        for (var, term) in
+            &self.seq_seq_queue.borrow().iter().collect::<Vec<_>>()[..]
+        {
+            write!(f, "\n  {}: {}", var, term)?;
+        }
+        write!(f, "\n}} var-any {{")?;
+        for (var, term) in
+            &self.var_any_queue.borrow().iter().collect::<Vec<_>>()[..]
+        {
+            write!(f, "\n  {}: {}", var, term)?;
+        }
+        write!(f, "\n}} result {{")?;
+        for (var, term) in &self.result {
+            write!(f, "\n  {}: {}", var, term)?;
+        }
+        write!(f, "\n}}")
+    }
 }
 
 impl<'a> Work<'a> {
@@ -612,12 +688,14 @@ impl<'a> Work<'a> {
 
             if needs_removal {
                 if let Some((left, right)) = removed_item {
+                    // println!("remove ({} {})", left, right);
                     items_to_add.push((left, right));
                 }
                 queue_ref.borrow_mut().remove(i);
                 // Don't increment i since we removed an element
             } else {
                 if let Some((l, r)) = new_pair {
+                    // println!("something ({} {})", l, r);
                     queue_ref.borrow_mut()[i] =
                         (L::from_term(&l), R::from_term(&r));
                 }
@@ -692,6 +770,15 @@ impl<'a> Work<'a> {
     }
 
     fn add(&mut self, left: Term, right: Term) {
+        // println!("add: {} {}", left, right);
+        match (&left, &right) {
+            (Term::Variable(v1), Term::Variable(v2))
+                if v1.id == -21 && v2.id == -1 =>
+            {
+                // println!("add: {} {}", v1, v2);
+            }
+            _ => {}
+        }
         match Kind::of(&left, &right) {
             Kind::SeqSeq => {
                 self.seq_seq_queue.borrow_mut().push_back((
@@ -754,7 +841,7 @@ impl Unifier {
     }
 
     /// Looks up or creates a new operator with the given name.
-    pub(crate) fn op(&mut self, name: &str, arity: Option<usize>) -> Rc<Op> {
+    pub fn op(&mut self, name: &str, arity: Option<usize>) -> Rc<Op> {
         if let Some(index) = self.op_by_name.get(name) {
             index.clone()
         } else {
@@ -816,7 +903,7 @@ impl Unifier {
 
     /// Creates a variable with a given name, or returns the existing variable
     /// with that name.
-    fn variable_with_name(&mut self, name: &str) -> Rc<Var> {
+    pub fn variable_with_name(&mut self, name: &str) -> Rc<Var> {
         if let Some(var) = self.var_by_name.get(name) {
             var.clone()
         } else {
@@ -869,7 +956,7 @@ impl Unifier {
     }
 
     /// Creates an Atom (a Sequence with zero operands).
-    pub(crate) fn atom(&self, op: Rc<Op>) -> Sequence {
+    pub fn atom(&self, op: Rc<Op>) -> Sequence {
         Sequence {
             op,
             terms: Vec::new(),
@@ -879,17 +966,24 @@ impl Unifier {
     /// Creates a substitution from a variable to a term.
     fn substitution(
         &self,
-        substitutions: IndexMap<Rc<Var>, Term>,
+        substitutions: BTreeMap<Rc<Var>, Term>,
     ) -> Substitution {
-        assert!(substitutions.is_sorted());
         Substitution { substitutions }
     }
 
-    pub(crate) fn unify(
+    pub fn unify(
         &self,
         term_pairs: &[(Term, Term)],
-        tracer: &dyn Tracer,
+        _tracer: &dyn Tracer,
     ) -> Result<Substitution, UnificationFailure> {
+        let tracer = &NullTracer; // switch to PrintTracer for debugging
+        if false {
+            // Uncomment this section to generate a unit test.
+            eprintln!(
+                "UnifierTask::from_grammar({}).unify()",
+                unify::unifier_parser::generate_program(term_pairs)
+            );
+        }
         let start = Instant::now();
 
         // delete: G u { t = t }
@@ -914,9 +1008,11 @@ impl Unifier {
         // if x in vars(f(s0, ..., sk))
 
         let mut work = Work::new(tracer, term_pairs);
+        println!("Before: {}", work);
         let mut iteration = 0;
         loop {
             iteration += 1;
+            // println!("iteration {} work {}", iteration, work);
 
             let seq_pair = work.seq_seq_queue.borrow_mut().pop_front();
             if let Some((left, right)) = seq_pair {
@@ -999,27 +1095,33 @@ impl Unifier {
                     duration.as_nanos(),
                     duration.as_nanos() / (iteration + 1)
                 );
+                println!("Result: {}", work);
             }
-            let mut substitutions = IndexMap::new();
+            let mut substitutions = BTreeMap::new();
             work.result.iter().for_each(|(var, term)| {
                 substitutions.insert(var.clone(), term.clone());
             });
-            substitutions.sort_keys();
+            println!(
+                "After: {}\n{}",
+                work,
+                Substitution {
+                    substitutions: substitutions.clone()
+                }
+                .resolve()
+            );
             return Ok(Substitution { substitutions });
         }
     }
 }
 
 /// Test for Unifier.
-// Turn off standard naming conventions for test variables
-#[allow(non_snake_case)]
 #[derive(Clone)]
 pub struct UnifierTest {
     unifier: Box<Unifier>,
 }
 
 impl UnifierTest {
-    pub(crate) fn with_occurs(&self, check_cycle: bool) -> Self {
+    pub fn with_occurs(&self, check_cycle: bool) -> Self {
         if check_cycle == self.unifier.occurs {
             self.clone()
         } else {
@@ -1040,26 +1142,6 @@ impl UnifierTest {
     fn arrow(&mut self, a0: Term, a1: Term) -> Term {
         let op = self.unifier.op("->", Some(2));
         Term::Sequence(self.unifier.apply2(op, a0, a1))
-    }
-
-    fn a(&mut self) -> Term {
-        let op = self.unifier.op("a", Some(0));
-        Term::Sequence(self.unifier.atom(op))
-    }
-
-    fn b(&mut self) -> Term {
-        let op = self.unifier.op("b", Some(0));
-        Term::Sequence(self.unifier.atom(op))
-    }
-
-    fn c(&mut self) -> Term {
-        let op = self.unifier.op("c", Some(0));
-        Term::Sequence(self.unifier.atom(op))
-    }
-
-    fn d(&mut self) -> Term {
-        let op = self.unifier.op("d", Some(0));
-        Term::Sequence(self.unifier.atom(op))
     }
 
     fn f(&mut self, a0: Term) -> Term {
@@ -1087,24 +1169,14 @@ impl UnifierTest {
         Term::Sequence(self.unifier.apply3(op, term0, term1, term2))
     }
 
-    fn bill(&mut self) -> Term {
-        let op = self.unifier.op("bill", Some(0));
-        Term::Sequence(self.unifier.atom(op))
+    fn atom(&mut self, op: &str) -> Term {
+        let op_ = self.unifier.op(op, Some(0));
+        Term::Sequence(self.unifier.atom(op_))
     }
 
-    fn bob(&mut self) -> Term {
-        let op = self.unifier.op("bob", Some(0));
-        Term::Sequence(self.unifier.atom(op))
-    }
-
-    fn john(&mut self) -> Term {
-        let op = self.unifier.op("john", Some(0));
-        Term::Sequence(self.unifier.atom(op))
-    }
-
-    fn tom(&mut self) -> Term {
-        let op = self.unifier.op("tom", Some(0));
-        Term::Sequence(self.unifier.atom(op))
+    fn seq2(&mut self, op: &str, a0: Term, a1: Term) -> Term {
+        let op_ = self.unifier.op(op, Some(2));
+        Term::Sequence(self.unifier.apply2(op_, a0, a1))
     }
 
     fn father(&mut self, a0: Term) -> Term {
@@ -1190,6 +1262,8 @@ impl UnifierTest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::unify;
+    use crate::unify::unifier_parser::UnifierTask;
 
     fn create() -> UnifierTest {
         UnifierTest::new(false)
@@ -1270,14 +1344,14 @@ mod tests {
         let mut t = create();
         let y = t.var("Y");
         let z = t.var("Z");
-        let a = t.a();
-        let b = t.b();
+        let a = t.atom("a");
+        let b = t.atom("b");
         let f_a = t.f(a.clone());
         let g_b = t.g(b);
         let e1 = t.p(f_a, g_b, y.clone());
         assert_eq!(e1.to_string(), "p(f(a), g(b), Y)");
-        let d = t.d();
-        let c = t.c();
+        let d = t.atom("d");
+        let c = t.atom("c");
         let g_d = t.g(d);
         let e2 = t.p(z.clone(), g_d, c);
         assert_eq!(e2.to_string(), "p(Z, g(d), c)");
@@ -1289,7 +1363,7 @@ mod tests {
         let mut t = create();
         let y = t.var("Y");
         let z = t.var("Z");
-        let a = t.a();
+        let a = t.atom("a");
         let f_a_y = t.f2(a, y);
         let z_v = match z {
             Term::Sequence(_) => {
@@ -1297,7 +1371,7 @@ mod tests {
             }
             Term::Variable(v) => v,
         };
-        let mut map: IndexMap<Rc<Var>, Term> = IndexMap::new();
+        let mut map: BTreeMap<Rc<Var>, Term> = BTreeMap::new();
         map.insert(z_v, f_a_y);
         let sub = t.unifier.substitution(map);
         assert_eq!(sub.to_string(), "[f(a, Y)/Z]");
@@ -1309,13 +1383,13 @@ mod tests {
         let w = t.var("W");
         let y = t.var("Y");
         let z = t.var("Z");
-        let a = t.a();
+        let a = t.atom("a");
         let f_a = t.f(a);
-        let b = t.b();
+        let b = t.atom("b");
         let g_b = t.g(b);
         let e1 = t.p(f_a, g_b, y.clone());
         assert_eq!(e1.to_string(), "p(f(a), g(b), Y)");
-        let c = t.c();
+        let c = t.atom("c");
         let g_w = t.g(w.clone());
         let e2 = t.p(z.clone(), g_w, c);
         assert_eq!(e2.to_string(), "p(Z, g(W), c)");
@@ -1329,7 +1403,7 @@ mod tests {
         // think because X is free, and so it assumes that Xs are distinct.
         let x = t.var("X");
         let y = t.var("Y");
-        let b = t.b();
+        let b = t.atom("b");
         let f_b = t.f(b);
         let f_f_b = t.f(f_b);
         let e1 = t.h(f_f_b, x.clone());
@@ -1345,10 +1419,10 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let b = t.b();
+        let b = t.atom("b");
         let f_b = t.f(b);
         let f_f_b = t.f(f_b);
-        let c = t.c();
+        let c = t.atom("c");
         let e1 = t.h(f_f_b, c.clone());
         let f_y = t.f(y.clone());
         let e2 = t.h(f_y, x.clone());
@@ -1360,9 +1434,9 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let a = t.a();
+        let a = t.atom("a");
         let e1 = t.h(a, x.clone());
-        let b = t.b();
+        let b = t.atom("b");
         let e2 = t.h(b, y.clone());
         t.assert_that_cannot_unify(e1, e2);
     }
@@ -1372,10 +1446,10 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let a = t.a();
+        let a = t.atom("a");
         let e1 = t.h(x.clone(), a);
         assert_eq!(e1.to_string(), "h(X, a)");
-        let b = t.b();
+        let b = t.atom("b");
         let e2 = t.h(b, y.clone());
         assert_eq!(e2.to_string(), "h(b, Y)");
         t.assert_that_unify(e1, e2, "[b/X, a/Y]");
@@ -1385,9 +1459,9 @@ mod tests {
     fn test7() {
         let mut t = create();
         let x = t.var("X");
-        let a1 = t.a();
-        let a2 = t.a();
-        let b = t.b();
+        let a1 = t.atom("a");
+        let a2 = t.atom("a");
+        let b = t.atom("b");
         let e1 = t.f2(a1, x.clone());
         assert_eq!(e1.to_string(), "f(a, X)");
         let e2 = t.f2(a2, b);
@@ -1435,7 +1509,7 @@ mod tests {
         let x = t.var("X");
         let y = t.var("Y");
         let g_x = t.g(x.clone());
-        let a = t.a();
+        let a = t.atom("a");
         let e1 = t.f2(g_x, x.clone());
         assert_eq!(e1.to_string(), "f(g(X), X)");
         let e2 = t.f2(y.clone(), a);
@@ -1448,8 +1522,8 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let bob = t.bob();
-        let tom = t.tom();
+        let bob = t.atom("bob");
+        let tom = t.atom("tom");
         let e1 = t.father2(x.clone(), y.clone());
         assert_eq!(e1.to_string(), "father(X, Y)");
         let e2 = t.father2(bob, tom);
@@ -1462,7 +1536,7 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let bill = t.bill();
+        let bill = t.atom("bill");
         let mother_bill = t.mother(bill.clone());
         let father_x = t.father(x.clone());
         let e1 = t.parents(x.clone(), father_x, mother_bill);
@@ -1478,7 +1552,7 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let john = t.john();
+        let john = t.atom("john");
         let parent_x = t.parent(x.clone());
         let parent_parent_x = t.parent(parent_x);
         let e1 = t.grand_parent(x.clone(), parent_parent_x);
@@ -1494,7 +1568,7 @@ mod tests {
         let mut t = create();
         let x = t.var("X");
         let y = t.var("Y");
-        let a = t.a();
+        let a = t.atom("a");
         let g_x = t.g(x.clone());
         let f_a = t.f(a);
         let e1 = t.h(f_a, g_x.clone());
@@ -1510,7 +1584,7 @@ mod tests {
         let x = t.var("X");
         let y = t.var("Y");
         let z = t.var("Z");
-        let a = t.a();
+        let a = t.atom("a");
         let g_z = t.g(z.clone());
         let f_g_z = t.f(g_z);
         let e1 = t.p(a.clone(), x.clone(), f_g_z);
@@ -1560,12 +1634,12 @@ mod tests {
         let y = t.var("Y");
         let z = t.var("Z");
         let f_x = t.f(x.clone());
-        let a = t.a();
+        let a = t.atom("a");
         let e1 = t.p(f_x, a.clone(), y.clone());
         assert_eq!(e1.to_string(), "p(f(X), a, Y)");
-        let bill = t.bill();
+        let bill = t.atom("bill");
         let f_bill = t.f(bill);
-        let b = t.b();
+        let b = t.atom("b");
         let g_b = t.g(b);
         let e2 = t.p(f_bill, z.clone(), g_b);
         assert_eq!(e2.to_string(), "p(f(bill), Z, g(b))");
@@ -1632,12 +1706,178 @@ mod tests {
         }
     }
 
+    /// Tests a graph that arises when resolving the type of the
+    /// expression
+    /// ```sml
+    ///  if 1 < 2 then "a" else "b"
+    /// ```
+    ///
+    /// The grammar is the same as that in [test_parse].
+    #[test]
+    fn test_types() {
+        let mut t = create();
+        let t0 = t.var("T0");
+        let t1 = t.var("T1");
+        let t2 = t.var("T2");
+        let t3 = t.var("T3");
+        let t4 = t.var("T4");
+        let t5 = t.var("T5");
+        let t7 = t.var("T7");
+        let string_ = t.atom("string");
+        let bool_ = t.atom("bool");
+        let int_ = t.atom("int");
+        let fn_t3_t1 = t.seq2("fn", t3.clone(), t1.clone());
+        let tuple_t4_t5 = t.seq2("tuple", t4.clone(), t5.clone());
+        let tuple_t7_t7 = t.seq2("tuple", t7.clone(), t7.clone());
+        let fn_tuple_t7_t7_bool =
+            t.seq2("fn", tuple_t7_t7.clone(), bool_.clone());
+
+        let term_pairs = vec![
+            (t2.clone(), fn_t3_t1.clone()), // "fn(T3, T1) = T2"
+            (t4.clone(), int_.clone()),     // "int = T4"
+            (t5.clone(), int_.clone()),     // "int = T5"
+            (t3.clone(), tuple_t4_t5.clone()), // "tuple(T4, T5) = T3"
+            (
+                t2.clone(),
+                fn_tuple_t7_t7_bool.clone(), // "fn(tuple(T7, T7), bool) = T2"
+            ),
+            (t1.clone(), bool_.clone()), // "bool = T1"
+            (t0.clone(), string_.clone()), // "string = T0"
+            (t0.clone(), string_.clone()), // "string = T0"
+        ];
+        let result = t.unifier.unify(&term_pairs, &NullTracer);
+        let expected = "[\
+            string/T0, \
+            bool/T1, \
+            fn(tuple(int, int), bool)/T2, \
+            tuple(int, int)/T3, \
+            int/T4, \
+            int/T5, \
+            int/T7]";
+        match result {
+            Ok(substitution) => {
+                let resolved = substitution.resolve();
+                assert_eq!(resolved.to_string(), expected);
+            }
+            Err(err) => panic!("Unification failed: {}", err.reason),
+        }
+    }
+
+    /// Tests the graph for resolving the type of
+    /// ```sml
+    /// fn (x, y) => x + y + 0
+    /// > val it = fn : int * int -> int
+    #[test]
+    fn test_21() {
+        let grammar = r#"tuple(T3, T4) = T1
+            fn(T6, T2) = T5
+            fn(T9, T7) = T8
+            T3 = T10
+            T4 = T11
+            tuple(T10, T11) = T9
+            T13 = T15
+            T13 = T16
+            tuple(T15, T16) = T14
+            T13 = T17
+            fn(T14, T17) = T12
+            T12 = T8
+            int = T18
+            tuple(T7, T18) = T6
+            T20 = T22
+            T20 = T23
+            tuple(T22, T23) = T21
+            T20 = T24
+            fn(T21, T24) = T19
+            T19 = T5
+            fn(T1, T2) = T0"#;
+        let substitutions = UnifierTask::from_grammar(grammar)
+            .expect("Failed to parse grammar")
+            .unify()
+            .expect("Unify failed");
+        let expected = "[\
+            int/T3, \
+            int/T4, \
+            tuple(int, int)/T1, \
+            tuple(int, int)/T6, \
+            int/T2, \
+            fn(tuple(int, int), int)/T5, \
+            tuple(int, int)/T9, \
+            int/T7, \
+            fn(tuple(int, int), int)/T8, \
+            int/T10, \
+            int/T11, \
+            int/T13, \
+            int/T15, \
+            int/T16, \
+            tuple(int, int)/T14, \
+            int/T17, \
+            fn(tuple(int, int), \
+            int)/T12, \
+            int/T18, \
+            int/T20, \
+            int/T22, \
+            int/T23, \
+            tuple(int, int)/T21, \
+            int/T24, \
+            fn(tuple(int, int), int)/T19, \
+            fn(tuple(int, int), int)/T0]";
+        assert_eq!(substitutions.resolve().to_string(), expected);
+    }
+
+    #[test]
+    fn test_22() {
+        let grammar = r#"fn(T2, T0) = T1
+fn(T5, T3) = T4
+int = T6
+int = T7
+tuple(T6, T7) = T5
+tuple(T10, T11) = T9
+bool = T12
+fn(T9, T12) = T8
+T8 = T4
+int = T14
+list(T14) = T13
+int = T16
+list(T16) = T15
+tuple(T3, T13, T15) = T2
+bool = T19
+tuple(T19, T20, T21) = T18
+fn(T18, T22) = T17
+T17 = T1"#;
+        let unifier_task = UnifierTask::from_grammar(grammar)
+            .expect("Failed to parse grammar");
+        let substitution = unifier_task.unify().expect("Unification failed");
+        let expected = "[tuple(bool, list(int), list(int))/T2, \
+fn(tuple(bool, list(int), list(int)), T0)/T1, \
+tuple(int, int)/T5, \
+bool/T3, \
+fn(tuple(int, int), bool)/T4, \
+int/T6, \
+int/T7, \
+int/T10, \
+int/T11, \
+tuple(int, int)/T9, \
+bool/T12, \
+fn(tuple(int, int), bool)/T8, \
+int/T14, \
+list(int)/T13, \
+int/T16, \
+list(int)/T15, \
+bool/T19, \
+list(int)/T20, \
+list(int)/T21, \
+tuple(bool, list(int), list(int))/T18, \
+T0/T22, \
+fn(tuple(bool, list(int), list(int)), T0)/T17]";
+        assert_eq!(substitution.resolve().to_string(), expected);
+    }
+
     #[test]
     fn test_atom_eq_atom() {
         let mut t = create();
         let x = t.var("X");
-        let b = t.b();
-        let a = t.a();
+        let b = t.atom("b");
+        let a = t.atom("a");
         let pairs = t.term_pairs(&[b.clone(), x.clone(), a.clone(), x.clone()]);
         assert_eq!(b.to_string(), "b");
         assert_eq!(a.to_string(), "a");
@@ -1649,9 +1889,9 @@ mod tests {
     fn test_atom_eq_atom2() {
         let mut t = create();
         let x = t.var("X");
-        let a1 = t.a();
-        let a2 = t.a();
-        let b = t.b();
+        let a1 = t.atom("a");
+        let a2 = t.atom("a");
+        let b = t.atom("b");
         let pairs = t.term_pairs(&[
             a1.clone(),
             x.clone(),
@@ -1671,8 +1911,8 @@ mod tests {
     fn test_atom_eq_atom3() {
         let mut t = create();
         let x = t.var("X");
-        let a1 = t.a();
-        let a2 = t.a();
+        let a1 = t.atom("a");
+        let a2 = t.atom("a");
         let pairs =
             t.term_pairs(&[a1.clone(), x.clone(), a2.clone(), x.clone()]);
         assert_eq!(a1.to_string(), "a");
@@ -1733,5 +1973,42 @@ mod tests {
         z.assert_that_unify_pairs(&pairs, expected);
 
          */
+    }
+
+    /// Unit test for [unifier_parser].
+    /// The graph is the same as [test_types].
+    #[test]
+    fn test_parse() {
+        let grammar = r#"
+fn(T3, T1) = T2
+int = T4
+int = T5
+tuple(T4, T5) = T3
+fn(tuple(T7, T7), bool) = T2
+bool = T1
+string = T0
+string = T0
+"#;
+
+        // First, parse the grammar and count the terms.
+        unify::unifier_parser::parse_pair_list(grammar, |pair_list| {
+            assert_eq!(pair_list.len(), 8);
+        })
+        .expect("Failed to parse grammar");
+
+        // Second, parse the grammar and populate a list of term-pairs to be
+        // unified.
+        let unifier_task = UnifierTask::from_grammar(grammar)
+            .expect("Failed to parse grammar");
+        let x = unifier_task.unify().expect("Failed to unify grammar");
+        let expected = "[\
+            tuple(int, int)/T3, \
+            bool/T1, \
+            fn(tuple(int, int), bool)/T2, \
+            int/T4, \
+            int/T5, \
+            int/T7, \
+            string/T0]";
+        assert_eq!(x.resolve().to_string(), expected);
     }
 }

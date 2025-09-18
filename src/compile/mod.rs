@@ -25,4 +25,3 @@ pub mod resolver;
 pub mod type_env;
 pub mod type_resolver;
 pub mod types;
-pub mod unifier;

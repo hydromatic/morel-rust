@@ -24,12 +24,12 @@ use crate::compile::type_env::{EmptyTypeEnv, TypeEnv, TypeSchemeResolver};
 use crate::compile::types;
 use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
-use crate::compile::unifier::{NullTracer, Op, Sequence, Term, Unifier, Var};
 use crate::syntax::ast::{
     Decl, DeclKind, Expr, ExprKind, FunBind, LabeledExpr, LiteralKind, Match,
     MorelNode, Pat, PatField, PatKind, Span, Statement, StatementKind,
     Type as AstType, TypeField, TypeKind, TypeScheme, ValBind,
 };
+use crate::unify::unifier::{NullTracer, Op, Sequence, Term, Unifier, Var};
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};

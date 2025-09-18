@@ -20,7 +20,6 @@ use crate::compile::type_env::{
     EmptyTypeEnv, FunTypeEnv, TypeEnv, TypeSchemeResolver,
 };
 use crate::compile::type_resolver::{Resolved, TypeResolver};
-use crate::compile::unifier::Term;
 use crate::eval::code::Code;
 use crate::eval::val::Val;
 use crate::shell::ShellResult;
@@ -29,6 +28,7 @@ use crate::shell::main::MorelError;
 use crate::shell::prop::{Configurable, Output, Prop, PropVal};
 use crate::syntax::ast::Statement;
 use crate::syntax::parser::parse_type_scheme;
+use crate::unify::unifier::Term;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
