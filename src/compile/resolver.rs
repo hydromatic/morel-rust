@@ -19,6 +19,7 @@ use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
     Match, Pat as CorePat, TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
+use crate::compile::library::BuiltInFunction;
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::val::Val;
@@ -246,7 +247,13 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(a0),
                 self.resolve_expr(a1),
             ),
+            ExprKind::AndAlso(a0, a1) => {
+                self.call2(t, BuiltInFunction::BoolAndAlso, a0, a1)
+            }
             ExprKind::Annotated(expr, _) => *self.resolve_expr(expr),
+            ExprKind::Append(a0, a1) => {
+                self.call2(t, BuiltInFunction::ListOpCons, a0, a1)
+            }
             ExprKind::Apply(func, arg) => CoreExpr::Apply(
                 t,
                 self.resolve_expr(func),
@@ -257,7 +264,36 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(expr),
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
+            ExprKind::Cons(a0, a1) => {
+                self.call2(t, BuiltInFunction::ListOpCons, a0, a1)
+            }
             ExprKind::Current => CoreExpr::Current(t),
+            ExprKind::Div(a0, a1) => {
+                self.call2(t, BuiltInFunction::IntDiv, a0, a1)
+            }
+            ExprKind::Divide(a0, a1) => {
+                self.call2(t, BuiltInFunction::RealDivide, a0, a1)
+            }
+            ExprKind::Equal(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntOpEq, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpEq, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringOpEq, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Char) => {
+                        self.call2(t, BuiltInFunction::CharOpEq, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Bool) => {
+                        self.call2(t, BuiltInFunction::BoolOpEq, a0, a1)
+                    }
+                    _ => self.call2(t, BuiltInFunction::GOpEq, a0, a1),
+                }
+            }
             ExprKind::Exists(steps) => CoreExpr::Exists(
                 t,
                 steps.iter().map(|s| self.resolve_step(s)).collect(),
@@ -274,6 +310,40 @@ impl<'a> Resolver<'a> {
                 t,
                 steps.iter().map(|s| self.resolve_step(s)).collect(),
             ),
+            ExprKind::GreaterThan(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntOpGt, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpGt, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringOpGt, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Char) => {
+                        self.call2(t, BuiltInFunction::CharOpGt, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
+            ExprKind::GreaterThanOrEqual(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntOpGe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpGe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringOpGe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Char) => {
+                        self.call2(t, BuiltInFunction::CharOpGe, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
             ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
             ExprKind::If(cond, then_expr, else_expr) => CoreExpr::If(
                 t,
@@ -281,6 +351,43 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(then_expr),
                 self.resolve_expr(else_expr),
             ),
+            ExprKind::Implies(a0, a1) => {
+                self.call2(t, BuiltInFunction::BoolImplies, a0, a1)
+            }
+            ExprKind::LessThan(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntOpLt, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpLt, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringOpLt, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Char) => {
+                        self.call2(t, BuiltInFunction::CharOpLt, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
+            ExprKind::LessThanOrEqual(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntOpLe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpLe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringOpLe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Char) => {
+                        self.call2(t, BuiltInFunction::CharOpLe, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
             ExprKind::Let(decls, body) => CoreExpr::Let(
                 t,
                 decls.iter().map(|d| *self.resolve_decl(d)).collect(),
@@ -293,9 +400,54 @@ impl<'a> Resolver<'a> {
             ExprKind::Literal(l) => {
                 CoreExpr::Literal(t, self.resolve_literal(l))
             }
+            ExprKind::Minus(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntMinus, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpMinus, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
+            ExprKind::Mod(a0, a1) => {
+                self.call2(t, BuiltInFunction::IntMod, a0, a1)
+            }
+            ExprKind::NotEqual(a0, a1) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntOpNe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpNe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringOpNe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Char) => {
+                        self.call2(t, BuiltInFunction::CharOpNe, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Bool) => {
+                        self.call2(t, BuiltInFunction::BoolOpNe, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
+            ExprKind::OrElse(a0, a1) => {
+                self.call2(t, BuiltInFunction::BoolOrElse, a0, a1)
+            }
             ExprKind::Ordinal => CoreExpr::Ordinal(t),
             ExprKind::Plus(a0, a1) => {
-                CoreExpr::Plus(t, self.resolve_expr(a0), self.resolve_expr(a1))
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntPlus, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpPlus, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
             }
             ExprKind::Record(_, fields) => CoreExpr::Tuple(
                 t,
@@ -308,12 +460,47 @@ impl<'a> Resolver<'a> {
                 let slot = t.lookup_field(name).unwrap();
                 CoreExpr::RecordSelector(t, slot)
             }
+            ExprKind::Times(a0, a1) => {
+                let a0_type = a0.get_type(self.type_map).expect("type");
+                match a0_type.as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call2(t, BuiltInFunction::IntTimes, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealOpTimes, a0, a1)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
+            }
             ExprKind::Tuple(elements) => CoreExpr::Tuple(
                 t,
                 elements.iter().map(|e| self.resolve_expr(e)).collect(),
             ),
             _ => todo!("Unimplemented expression kind: {:?}", expr.kind),
         })
+    }
+
+    fn call1(&self, t: Box<Type>, f: BuiltInFunction, a0: &Expr) -> CoreExpr {
+        let fn_type = f.get_type();
+        let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
+        let c0 = self.resolve_expr(a0);
+        CoreExpr::Apply(t, Box::new(fn_literal), c0)
+    }
+
+    fn call2(
+        &self,
+        t: Box<Type>,
+        f: BuiltInFunction,
+        a0: &Expr,
+        a1: &Expr,
+    ) -> CoreExpr {
+        let fn_type = f.get_type();
+        let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
+        let c0 = self.resolve_expr(a0);
+        let c1 = self.resolve_expr(a1);
+        let arg_type = fn_type.expect_fn().1;
+        let arg = CoreExpr::Tuple(Box::new(arg_type.clone()), vec![c0, c1]);
+        CoreExpr::Apply(t, Box::new(fn_literal), Box::new(arg))
     }
 
     /// Resolves an AST literal to a core value.

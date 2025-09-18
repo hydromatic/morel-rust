@@ -15,20 +15,31 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library;
+use crate::compile::library::BuiltIn;
+use crate::compile::type_resolver::TypeResolver;
 use crate::compile::types::Type;
-use crate::eval::code::Code;
+use crate::eval::code::{Code, LIBRARY};
 use crate::eval::val::Val;
 use crate::syntax::ast::{Expr, Pat, PatKind, TypeScheme};
 use crate::unify::unifier::{Term, Var};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
+use strum::EnumProperty;
+
+/// What kind of value is bound?
+#[derive(Debug, Clone)]
+pub enum BindType {
+    Val(Term),
+    Constructor(Term),
+}
 
 /// Environment for type resolution, mapping names to terms.
 pub trait TypeEnv {
     /// Gets the term associated with a name.
     /// May consult or modify the `unifier` to construct the [Term].
-    fn get(&self, name: &str, t: &mut dyn TypeSchemeResolver) -> Option<Term>;
+    fn get(&self, name: &str, t: &mut TypeResolver) -> Option<BindType>;
 
     /// Binds a name to a term, returning a new environment.
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv>;
@@ -41,11 +52,7 @@ pub trait TypeEnv {
 }
 
 impl TypeEnv for EmptyTypeEnv {
-    fn get(
-        &self,
-        _name: &str,
-        _t: &mut dyn TypeSchemeResolver,
-    ) -> Option<Term> {
+    fn get(&self, _name: &str, _t: &mut TypeResolver) -> Option<BindType> {
         None
     }
 
@@ -74,9 +81,9 @@ impl TypeEnv for EmptyTypeEnv {
 }
 
 impl TypeEnv for SimpleTypeEnv {
-    fn get(&self, name: &str, t: &mut dyn TypeSchemeResolver) -> Option<Term> {
+    fn get(&self, name: &str, t: &mut TypeResolver) -> Option<BindType> {
         if let Some(b) = self.bindings.get(name) {
-            Some(b.clone())
+            Some(BindType::Val(b.clone()))
         } else {
             self.parent.get(name, t)
         }
@@ -110,12 +117,31 @@ impl TypeEnv for SimpleTypeEnv {
 }
 
 impl TypeEnv for FunTypeEnv {
-    fn get(&self, name: &str, t: &mut dyn TypeSchemeResolver) -> Option<Term> {
-        if let Some(b) = (self.resolve)(name, t) {
-            Some(b)
-        } else {
-            self.parent.get(name, t)
+    fn get(&self, name: &str, tr: &mut TypeResolver) -> Option<BindType> {
+        if let Some(b) = library::lookup(name) {
+            match b {
+                BuiltIn::Fn(f) => {
+                    if let Some((t, _)) = LIBRARY.fn_map.get(&f) {
+                        let term = tr.type_to_term(t);
+                        return Some(
+                            if f.get_bool("constructor").unwrap_or(false) {
+                                BindType::Constructor(Term::Variable(term))
+                            } else {
+                                BindType::Val(Term::Variable(term))
+                            },
+                        );
+                    }
+                }
+                BuiltIn::Record(r) => {
+                    if let Some((t, _)) = LIBRARY.structure_map.get(&r) {
+                        return Some(BindType::Val(Term::Variable(
+                            tr.type_to_term(t),
+                        )));
+                    }
+                }
+            }
         }
+        self.parent.get(name, tr)
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
@@ -167,7 +193,6 @@ pub type ResolverFn =
 #[derive(Clone)]
 pub struct FunTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
-    pub resolve: ResolverFn,
 }
 
 pub trait TypeSchemeResolver {

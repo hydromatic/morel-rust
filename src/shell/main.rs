@@ -21,10 +21,11 @@
 #![allow(clippy::useless_format)]
 #![allow(clippy::redundant_closure)]
 
-use crate::compile::inliner::{Binding as BindingInner, Env};
+use crate::compile::inliner::Env;
 use crate::compile::resolver;
 use crate::compile::type_env::Binding;
 use crate::compile::type_resolver::Resolved;
+use crate::compile::types::Type;
 use crate::compile::{compiler, inliner, library};
 use crate::eval::code::Effect;
 use crate::eval::session::Config as SessionConfig;
@@ -36,12 +37,12 @@ use crate::shell::error::Error;
 use crate::shell::prop::Mode;
 use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast::{Span, Statement};
-use crate::syntax::parser::parse_statement;
+use crate::syntax::parser;
 use rustc_version::version;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
-use std::fs::read_to_string;
+use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -257,7 +258,7 @@ impl Shell {
         expected_output: Option<&str>,
     ) -> ShellResult<String> {
         // Try to parse the statement
-        let statement = match parse_statement(code) {
+        let statement = match parser::parse_statement(code) {
             Err(e) => {
                 let string = e.to_string();
                 println!("Failed to parse: {}, err {}", code, string);
@@ -325,7 +326,13 @@ impl Shell {
         {
             let type_map = &resolved.type_map;
             let closure = |id: i32, name: &str| {
-                let s = type_map.get_type(id).unwrap().to_string();
+                let s = match type_map.get_type(id) {
+                    Some(x) => x,
+                    None => {
+                        panic!("no type for id {} in {}", id, name);
+                    }
+                }
+                .to_string();
                 type_string.push_str(&format!("{} : {}\n", name, s));
             };
             resolved.decl.for_each_id_pat(closure);
@@ -339,7 +346,7 @@ impl Shell {
         let decl = resolver::resolve(resolved);
 
         let env = Box::new(Env::Root);
-        let mut map: BTreeMap<&str, BindingInner> = BTreeMap::new();
+        let mut map: BTreeMap<&str, (Type, Option<Val>)> = BTreeMap::new();
         library::populate_env(&mut map);
         let env2 = env.multi(&map);
         let decl2 = inliner::inline_decl(&env2, &decl);
@@ -392,7 +399,8 @@ impl Shell {
         file_path: P,
         output: W,
     ) -> ShellResult<()> {
-        let content = read_to_string(&file_path).map_err(|e| Error::Io(e))?;
+        let content =
+            fs::read_to_string(&file_path).map_err(|e| Error::Io(e))?;
 
         // Create a cursor from the string content
         let cursor = Cursor::new(content.as_bytes());
@@ -491,7 +499,7 @@ mod tests {
     #[test]
     fn test_environment() {
         let mut env = Environment::new();
-        let val = crate::eval::val::Val::String("42".to_string());
+        let val = Val::String("42".to_string());
         env.bind("x".to_string(), &val);
         assert_eq!(env.get("x"), Some(&val));
     }

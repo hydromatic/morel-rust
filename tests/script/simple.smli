@@ -107,9 +107,9 @@ fn (x, y) => x = y;
 >type it : 'a * 'a -> bool
 fn (x, y) => x <> y;
 >type it : 'a * 'a -> bool
-fn (x, y) => x + y;
+fn (x, y) => x + y + 0;
 >type it : int * int -> int
-fn (x, y) => x - y;
+fn (x, y) => x - y + 0;
 >type it : int * int -> int
 fn (x, y) => x mod y;
 >type it : int * int -> int
@@ -117,7 +117,7 @@ fn (x, y) => x div y;
 >type it : int * int -> int
 fn (x, y) => x / y;
 >type it : real * real -> real
-fn (x, y) => x * y;
+fn (x, y) => x * y * 1;
 >type it : int * int -> int
 fn NONE => 0;
 >type it : 'a option -> int
@@ -293,6 +293,19 @@ Sys;
 (*) A line comment can have a comment close. *)
 6;
 > val it = 6 : int
+
+true andalso true;
+> val it = true : bool
+false andalso false;
+> val it = false : bool
+true andalso false orelse true;
+> val it = true : bool
+false andalso false;
+> val it = false : bool
+11 > 2;
+> val it = true : bool
+"11" > "2";
+> val it = false : bool
 
 set("mode", "validate");
 > val it = () : unit

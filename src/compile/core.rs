@@ -356,6 +356,18 @@ pub enum PatField {
     Ellipsis,                  // e.g. `...`
 }
 
+/// Declaration.
+#[derive(Debug, Clone)]
+pub enum Decl {
+    /// Non-recursive value binding.
+    NonRecVal(Box<ValBind>),
+    /// Recursive value binding.
+    RecVal(Vec<ValBind>),
+    Over(String),
+    Type(Vec<TypeBind>),
+    Datatype(Vec<DatatypeBind>),
+}
+
 impl Decl {
     /// Invokes an action for each top-level binding.
     ///
@@ -426,18 +438,6 @@ impl Decl {
             _ => panic!("expected declaration"),
         }
     }
-}
-
-/// Declaration.
-#[derive(Debug, Clone)]
-pub enum Decl {
-    /// Non-recursive value binding.
-    NonRecVal(Box<ValBind>),
-    /// Recursive value binding.
-    RecVal(Vec<ValBind>),
-    Over(String),
-    Type(Vec<TypeBind>),
-    Datatype(Vec<DatatypeBind>),
 }
 
 impl Display for Decl {

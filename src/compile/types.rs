@@ -54,6 +54,14 @@ pub enum Type {
 }
 
 impl Type {
+    /// Returns the definition of a function type. Panics on any other type.
+    pub fn expect_fn(&self) -> (&Type, &Type) {
+        match self {
+            Type::Fn(param_type, result_type) => (param_type, result_type),
+            _ => panic!("Expected record type"),
+        }
+    }
+
     /// Returns the definition of a record type. Panics on any other type,
     /// including a tuple type.
     pub fn expect_record(&self) -> (bool, &BTreeMap<Label, Type>) {
@@ -274,6 +282,23 @@ impl TypeVariable {
         s.push('\'');
         s.chars().rev().collect()
     }
+
+    /// Converts a name to a type variable. The inverse of [Self::name].
+    pub fn from_name(name: &str) -> Option<TypeVariable> {
+        let mut i = 0;
+        if !name.starts_with('\'') {
+            return None;
+        }
+
+        for c in name[1..].chars() {
+            if !c.is_ascii_lowercase() {
+                return None;
+            }
+            i *= 26;
+            i += (c as u8 - b'a') as usize;
+        }
+        Some(TypeVariable::new(i))
+    }
 }
 
 /// Label for a field in a record type.
@@ -377,7 +402,7 @@ impl Op {
     /// and has a lower precedence than type-application.
     pub const TUPLE: Op = Op::new(14, 15, "(", " * ", ")", false);
 
-    /// The type-application operator is right-associative and has a
+    /// The type-application operator is left-associative and has a
     /// high precedence. An example is `int option list`:
     ///
     /// ```sml
@@ -389,8 +414,10 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
+    use crate::compile::types;
     use crate::compile::types::TypeVariable;
 
+    /// Tests [TypeVariable::name], [TypeVariable::from_name].
     #[test]
     fn test_type_variable() {
         let a = TypeVariable::new(0);
@@ -398,21 +425,27 @@ mod tests {
         assert_ne!(a, b);
 
         assert_eq!(a.name(), "'a");
+        assert_eq!(TypeVariable::from_name(&a.name()).unwrap(), a);
         assert_eq!(b.name(), "'b");
-        assert_eq!(TypeVariable::new(25).name(), "'z");
-        assert_eq!(TypeVariable::new(26).name(), "'ba");
-        assert_eq!(TypeVariable::new(27).name(), "'bb");
+        assert_eq!(TypeVariable::from_name(&b.name()).unwrap(), b);
+        let v25 = TypeVariable::new(25);
+        assert_eq!(v25.name(), "'z");
+        assert_eq!(TypeVariable::from_name(&v25.name()).unwrap(), v25);
+        let v26 = TypeVariable::new(26);
+        assert_eq!(v26.name(), "'ba");
+        assert_eq!(TypeVariable::from_name(&v26.name()).unwrap(), v26);
+        let v27 = TypeVariable::new(27);
+        assert_eq!(v27.name(), "'bb");
+        assert_eq!(TypeVariable::from_name(&v27.name()).unwrap(), v27);
     }
 
     #[test]
     fn test_are_contiguous_integers() {
-        use crate::compile::types::are_contiguous_integers;
-
         fn check(strings: &[&str]) -> bool {
             let owned: Vec<String> =
                 strings.iter().map(|s| s.to_string()).collect();
             let refs: Vec<&String> = owned.iter().collect();
-            are_contiguous_integers(&refs)
+            types::are_contiguous_integers(&refs)
         }
 
         assert!(check(&[])); // Empty collection

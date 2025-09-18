@@ -17,9 +17,9 @@
 
 use crate::compile::core::{Decl, Expr, Pat, ValBind};
 use crate::compile::types::Type;
-use crate::eval::code::Impl;
 use crate::eval::val::Val;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 
 /// Can transform any expression, declaration or pattern in a tree.
 /// Combined with [Decl::visit], [Expr::visit], and [Pat::visit], this
@@ -152,7 +152,7 @@ impl Decl {
 pub enum Env<'a> {
     Root,
     Child(&'a Env<'a>, String, Box<Type>, Option<Val>),
-    Multi(&'a Env<'a>, &'a BTreeMap<&'a str, Binding>),
+    Multi(&'a Env<'a>, &'a BTreeMap<&'a str, (Type, Option<Val>)>),
 }
 
 impl<'a> Env<'a> {
@@ -164,42 +164,37 @@ impl<'a> Env<'a> {
         Env::Child(self, name.to_string(), t, None)
     }
 
-    pub(crate) fn multi(&self, map: &'a BTreeMap<&str, Binding>) -> Env<'_> {
+    pub(crate) fn multi(
+        &self,
+        map: &'a BTreeMap<&str, (Type, Option<Val>)>,
+    ) -> Env<'_> {
         Env::Multi(self, map)
     }
 
     pub(crate) fn lookup_constant(&self, s: &str) -> Option<Val> {
+        if let Some((_, v)) = self.lookup(s) {
+            v
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn lookup(&self, s: &str) -> Option<(Type, Option<Val>)> {
         match self {
             Env::Root => None,
-            Env::Child(parent, name, _, v) => {
-                if name == s && v.is_some() {
-                    v.clone()
+            Env::Child(parent, name, t, v) => {
+                if name == s {
+                    Some((t.deref().clone(), v.clone()))
                 } else {
-                    parent.lookup_constant(s)
+                    parent.lookup(s)
                 }
             }
             Env::Multi(parent, map) => {
-                if let Some(binding) = map.get(s) {
-                    Some(binding.to_val())
+                if let Some(entry) = map.get(s) {
+                    Some(entry.clone())
                 } else {
-                    parent.lookup_constant(s)
+                    parent.lookup(s)
                 }
-            }
-        }
-    }
-}
-
-pub enum Binding {
-    Single(Impl),
-    List(Vec<Binding>),
-}
-
-impl Binding {
-    pub(crate) fn to_val(&self) -> Val {
-        match self {
-            Binding::Single(impl_) => Val::Impl(*impl_),
-            Binding::List(list) => {
-                Val::List(list.iter().map(Binding::to_val).collect())
             }
         }
     }

@@ -65,13 +65,13 @@ impl<R: Read> Read for BufferingReader<R> {
 
 /// Utility functions for the shell.
 pub mod utils {
-    use std::fs::{read_to_string, write};
+    use std::fs;
     use std::io::Result as IoResult;
     use std::path::Path;
 
     /// Writes content to a file.
     pub fn write_file<P: AsRef<Path>>(path: P, content: &str) -> IoResult<()> {
-        write(path, content)
+        fs::write(path, content)
     }
 
     /// Compares two files and returns the difference as a string.
@@ -81,8 +81,8 @@ pub mod utils {
     ) -> IoResult<String> {
         let ref_path = ref_file.as_ref();
         let out_path = out_file.as_ref();
-        let ref_content = read_to_string(ref_path)?;
-        let out_content = read_to_string(out_path)?;
+        let ref_content = fs::read_to_string(ref_path)?;
+        let out_content = fs::read_to_string(out_path)?;
 
         use similar::TextDiff;
         let text_diff = TextDiff::from_lines(&ref_content, &out_content);

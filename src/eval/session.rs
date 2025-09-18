@@ -15,10 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::library;
-use crate::compile::type_env::{
-    EmptyTypeEnv, FunTypeEnv, TypeEnv, TypeSchemeResolver,
-};
+use crate::compile::type_env::{EmptyTypeEnv, FunTypeEnv, TypeEnv};
 use crate::compile::type_resolver::{Resolved, TypeResolver};
 use crate::eval::code::Code;
 use crate::eval::val::Val;
@@ -27,8 +24,6 @@ use crate::shell::error::Error;
 use crate::shell::main::MorelError;
 use crate::shell::prop::{Configurable, Output, Prop, PropVal};
 use crate::syntax::ast::Statement;
-use crate::syntax::parser::parse_type_scheme;
-use crate::unify::unifier::Term;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -110,21 +105,11 @@ impl Session {
     }
 
     /// Deduces a statement's type. The statement is represented by an AST node.
-    pub fn deduce_type_inner(&self, node: &Statement) -> Resolved {
+    pub fn deduce_type_inner(&mut self, node: &Statement) -> Resolved {
         let mut type_resolver = TypeResolver::new();
         let empty_type_env = EmptyTypeEnv {};
-        let resolve =
-            |id: &str, t: &mut dyn TypeSchemeResolver| -> Option<Term> {
-                if let Some(x) = library::name_to_type(id) {
-                    let type_scheme = parse_type_scheme(x).unwrap();
-                    Some(Term::Variable(t.deduce_type_scheme(&type_scheme)))
-                } else {
-                    None
-                }
-            };
         let type_env = FunTypeEnv {
             parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
-            resolve: Rc::new(resolve),
         };
 
         type_resolver.deduce_type(&type_env, node)

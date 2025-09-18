@@ -41,7 +41,7 @@ pub enum Val {
     List(Vec<Val>),
     /// Built-in function.
     Fn(crate::compile::library::BuiltInFunction),
-    /// Contents of record (structure).
+    /// Contents of a structure.
     ImplList(Vec<Impl>),
 
     /// Wrapper that indicates that a value should be printed with its name
@@ -101,6 +101,7 @@ impl Val {
     pub fn new_labeled(label: &Label, type_: &Type) -> Self {
         Val::Labeled(Box::new((label.clone(), type_.clone())))
     }
+
     pub(crate) fn expect_bool(&self) -> bool {
         match &self {
             Val::Bool(b) => *b,
@@ -115,6 +116,13 @@ impl Val {
         }
     }
 
+    pub(crate) fn expect_real(&self) -> f32 {
+        match self {
+            Val::Real(r) => *r,
+            _ => panic!("Expected real"),
+        }
+    }
+
     pub(crate) fn expect_list(&self) -> &[Val] {
         match self {
             Val::List(list) => list,
@@ -126,6 +134,13 @@ impl Val {
         match self {
             Val::String(s) => s.clone(),
             _ => panic!("Expected string"),
+        }
+    }
+
+    pub(crate) fn expect_char(&self) -> char {
+        match self {
+            Val::Char(c) => *c,
+            _ => panic!("Expected char"),
         }
     }
 }

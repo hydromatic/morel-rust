@@ -997,6 +997,12 @@ pub struct TypeScheme {
     pub type_: Type,
 }
 
+impl Display for TypeScheme {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "forall {} {}", self.var_count, self.type_)
+    }
+}
+
 /// Type field in record types.
 #[derive(Debug, Clone)]
 pub struct TypeField {

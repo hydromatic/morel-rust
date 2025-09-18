@@ -15,19 +15,20 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::inliner::Binding as BindingInner;
-use crate::eval::code::LIBRARY;
+use crate::compile::types::Type;
+use crate::eval::code::{Impl, LIBRARY};
+use crate::eval::val::Val;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use strum::{EnumCount, EnumProperty, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter, EnumProperty, EnumString};
 
 /// Returns the datatype of a built-in function or record.
-pub fn name_to_type(id: &str) -> Option<&str> {
+pub fn name_to_type(id: &str) -> Option<Type> {
     if let Some(b) = BY_NAME.get(id) {
         match b {
-            BuiltIn::Fn(f) => f.get_str("type"),
-            BuiltIn::Record(f) => f.get_str("type"),
+            BuiltIn::Fn(f) => Some(*f.get_type()),
+            BuiltIn::Record(r) => r.get_type(),
         }
     } else {
         None
@@ -63,95 +64,162 @@ pub fn name_to_rec(id: &str) -> Option<BuiltInRecord> {
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInFunction {
     // lint: sort until '^}$' where '##[A-Z]'
-    #[strum(props(
-        p = "Bool",
-        name = "op andalso",
-        type = "bool * bool -> bool"
-    ))]
+    #[strum(props(p = "Bool", name = "op andalso", global = true))]
+    #[strum(props(type = "bool * bool -> bool"))]
     BoolAndAlso,
-    #[strum(props(p = "G", name = "false", type = "bool"))]
+    #[strum(props(name = "false", type = "bool"))]
     BoolFalse,
-    #[strum(props(
-        p = "Bool",
-        name = "op if",
-        type = "forall 1 bool * 'a * 'a -> 'a"
-    ))]
+    #[strum(props(p = "Bool", name = "op if", global = true))]
+    #[strum(props(type = "forall 1 bool * 'a * 'a -> 'a"))]
     BoolIf,
-    #[strum(props(
-        p = "Bool",
-        name = "op implies",
-        type = "bool * bool -> bool"
-    ))]
+    #[strum(props(p = "Bool", name = "op implies", global = true))]
+    #[strum(props(type = "bool * bool -> bool"))]
     BoolImplies,
-    #[strum(props(
-        p = "Bool",
-        name = "op orelse",
-        type = "bool * bool -> bool"
-    ))]
+    #[strum(props(p = "Bool", name = "op =", type = "bool * bool -> bool"))]
+    BoolOpEq,
+    #[strum(props(p = "Bool", name = "op <>", type = "bool * bool -> bool"))]
+    BoolOpNe,
+    #[strum(props(p = "Bool", name = "op orelse", global = true))]
+    #[strum(props(type = "bool * bool -> bool"))]
     BoolOrElse,
-    #[strum(props(p = "G", name = "true", type = "bool"))]
+    #[strum(props(name = "true", type = "bool"))]
     BoolTrue,
-    #[strum(props(p = "G", name = "op =", type = "forall 1 'a * 'a -> bool"))]
+    #[strum(props(p = "Char", name = "op =", type = "char * char -> bool"))]
+    CharOpEq,
+    #[strum(props(p = "Char", name = "op >=", type = "char * char -> bool"))]
+    CharOpGe,
+    #[strum(props(p = "Char", name = "op >", type = "char * char -> bool"))]
+    CharOpGt,
+    #[strum(props(p = "Char", name = "op <=", type = "char * char -> bool"))]
+    CharOpLe,
+    #[strum(props(p = "Char", name = "op <", type = "char * char -> bool"))]
+    CharOpLt,
+    #[strum(props(p = "Char", name = "op <>", type = "char * char -> bool"))]
+    CharOpNe,
+    #[strum(props(name = "op =", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpEq,
-    #[strum(props(p = "G", name = "op >=", type = "forall 1 'a * 'a -> bool"))]
+    #[strum(props(name = "op >=", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpGe,
-    #[strum(props(p = "G", name = "op >", type = "forall 1 'a * 'a -> bool"))]
+    #[strum(props(name = "op >", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpGt,
-    #[strum(props(p = "G", name = "op <=", type = "forall 1 'a * 'a -> bool"))]
+    #[strum(props(name = "op <=", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpLe,
-    #[strum(props(p = "G", name = "op <", type = "forall 1 'a * 'a -> bool"))]
+    #[strum(props(name = "op <", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpLt,
-    #[strum(props(p = "G", name = "op <>", type = "forall 1 'a * 'a -> bool"))]
+    #[strum(props(name = "op -", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
+    GOpMinus,
+    #[strum(props(name = "op <>", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpNe,
-    #[strum(props(p = "Int", name = "op div", type = "int * int -> int"))]
+    #[strum(props(name = "op +", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
+    GOpPlus,
+    #[strum(props(name = "op *", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
+    GOpTimes,
+    #[strum(props(p = "Int", name = "op div", global = true))]
+    #[strum(props(type = "int * int -> int"))]
     IntDiv,
     #[strum(props(p = "Int", name = "op -", type = "int * int -> int"))]
     IntMinus,
-    #[strum(props(p = "Int", name = "op mod", type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "op mod", global = true))]
+    #[strum(props(type = "int * int -> int"))]
     IntMod,
+    #[strum(props(p = "Int", name = "op =", type = "int * int -> bool"))]
+    IntOpEq,
+    #[strum(props(p = "Int", name = "op >=", type = "int * int -> bool"))]
+    IntOpGe,
+    #[strum(props(p = "Int", name = "op >", type = "int * int -> bool"))]
+    IntOpGt,
+    #[strum(props(p = "Int", name = "op <=", type = "int * int -> bool"))]
+    IntOpLe,
+    #[strum(props(p = "Int", name = "op <", type = "int * int -> bool"))]
+    IntOpLt,
+    #[strum(props(p = "Int", name = "op <>", type = "int * int -> bool"))]
+    IntOpNe,
     #[strum(props(p = "Int", name = "op +", type = "int * int -> int"))]
     IntPlus,
     #[strum(props(p = "Int", name = "op *", type = "int * int -> int"))]
     IntTimes,
-    #[strum(props(
-        p = "List",
-        global = true,
-        name = "nil",
-        type = "forall 1 'a list"
-    ))]
+    #[strum(props(p = "List", name = "nil", global = true))]
+    #[strum(props(type = "forall 1 'a list", constructor = true))]
     ListNil,
-    #[strum(props(
-        p = "List",
-        name = "op ::",
-        type = "forall 1 'a * 'a list -> 'a list"
-    ))]
+    #[strum(props(p = "List", name = "op ::", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
+    #[strum(props(constructor = true))]
     ListOpCons,
-    #[strum(props(p = "Real", name = "op /", type = "real * real -> real"))]
+    #[strum(props(p = "Option", name = "NONE", global = true))]
+    #[strum(props(type = "forall 1 'a option", constructor = true))]
     OptionNone,
-    #[strum(props(p = "Option", name = "NONE", type = "forall 1 'a option"))]
+    #[strum(props(p = "Option", name = "SOME", global = true))]
+    #[strum(props(type = "forall 1 'a -> 'a option", constructor = true))]
     OptionSome,
-    #[strum(props(
-        p = "Option",
-        name = "SOME",
-        type = "forall 1 'a -> 'a option"
-    ))]
+    #[strum(props(p = "Real", name = "op /", global = true))]
+    #[strum(props(type = "real * real -> real"))]
     RealDivide,
-    #[strum(props(
-        p = "Sys",
-        name = "set",
-        global = true,
-        type = "forall 1 string * 'a -> unit"
-    ))]
+    #[strum(props(p = "Real", name = "op =", type = "real * real -> bool"))]
+    RealOpEq,
+    #[strum(props(p = "Real", name = "op >=", type = "real * real -> bool"))]
+    RealOpGe,
+    #[strum(props(p = "Real", name = "op >", type = "real * real -> bool"))]
+    RealOpGt,
+    #[strum(props(p = "Real", name = "op <=", type = "real * real -> bool"))]
+    RealOpLe,
+    #[strum(props(p = "Real", name = "op <", type = "real * real -> bool"))]
+    RealOpLt,
+    #[strum(props(p = "Real", name = "op -", type = "real * real -> real"))]
+    RealOpMinus,
+    #[strum(props(p = "Real", name = "op <>", type = "real * real -> bool"))]
+    RealOpNe,
+    #[strum(props(p = "Real", name = "op +", type = "real * real -> real"))]
+    RealOpPlus,
+    #[strum(props(p = "Real", name = "op *", type = "real * real -> real"))]
+    RealOpTimes,
+    #[strum(props(p = "String", name = "op ="))]
+    #[strum(props(type = "string * string -> bool"))]
+    StringOpEq,
+    #[strum(props(p = "String", name = "op >="))]
+    #[strum(props(type = "string * string -> bool"))]
+    StringOpGe,
+    #[strum(props(p = "String", name = "op >"))]
+    #[strum(props(type = "string * string -> bool"))]
+    StringOpGt,
+    #[strum(props(p = "String", name = "op <="))]
+    #[strum(props(type = "string * string -> bool"))]
+    StringOpLe,
+    #[strum(props(p = "String", name = "op <"))]
+    #[strum(props(type = "string * string -> bool"))]
+    StringOpLt,
+    #[strum(props(p = "String", name = "op <>"))]
+    #[strum(props(type = "string * string -> bool"))]
+    StringOpNe,
+    #[strum(props(p = "Sys", name = "set", global = true))]
+    #[strum(props(type = "forall 1 string * 'a -> unit"))]
     SysSet,
 }
 
 impl BuiltInFunction {
+    pub fn get_impl(&self) -> Impl {
+        LIBRARY.fn_map.get(self).expect("fn impl").1
+    }
+
+    pub fn get_type(&self) -> Box<Type> {
+        Box::new(LIBRARY.fn_map.get(self).expect("fn type").0.clone())
+    }
+
     pub(crate) fn name(&self) -> &'static str {
         self.get_str("name").unwrap()
     }
 }
 
-/// List of built-in modules.
+/// List of built-in records. They represent structures of the standard basis
+/// library, including `General`, `Int` and `String`.
 #[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
@@ -166,6 +234,14 @@ pub enum BuiltInRecord {
 impl BuiltInRecord {
     pub(crate) fn name(&self) -> &'static str {
         self.get_str("name").unwrap()
+    }
+
+    pub(crate) fn get_type(&self) -> Option<Type> {
+        if let Some((t, _v)) = LIBRARY.structure_map.get(self) {
+            Some(t.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -220,26 +296,36 @@ impl BuiltIn {
 
 static BY_NAME: LazyLock<BTreeMap<&str, BuiltIn>> = LazyLock::new(|| {
     let mut map = BTreeMap::new();
-    for e in BuiltInFunction::iter() {
-        map.insert(e.get_str("name").unwrap(), BuiltIn::Fn(e));
+    for f in BuiltInFunction::iter() {
+        if f.get_bool("global").unwrap_or_default() {
+            map.insert(f.get_str("name").unwrap(), BuiltIn::Fn(f));
+        }
     }
-    for e in BuiltInRecord::iter() {
-        map.insert(e.get_str("name").unwrap(), BuiltIn::Record(e));
+    for r in BuiltInRecord::iter() {
+        map.insert(r.get_str("name").unwrap(), BuiltIn::Record(r));
     }
     map
 });
 
-pub(crate) fn populate_env(map: &mut BTreeMap<&str, BindingInner>) {
-    for (r, fields) in LIBRARY.rec_map.clone() {
-        let mut values = Vec::new();
-        for val in fields.values() {
-            values.push(BindingInner::Single(*val));
-        }
-        map.insert(r.name(), BindingInner::List(values));
-    }
-    for (f, imp) in LIBRARY.fn_map.clone() {
-        if f.get_bool("global").is_some_and(|b| b) {
-            map.insert(f.name(), BindingInner::Single(imp));
-        }
-    }
+pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
+    // Add built-in records to the environment
+    map.extend(
+        LIBRARY.structure_map.iter().map(|(r, (type_, v))| {
+            (r.name(), (type_.clone(), Some(v.clone())))
+        }),
+    );
+
+    // Add global built-in functions to the environment
+    map.extend(
+        LIBRARY
+            .fn_map
+            .iter()
+            .filter(|(f, _)| f.get_bool("global").is_some_and(|b| b))
+            .map(|(f, (t, _))| (f.name(), (t.clone(), Some(Val::Fn(*f))))),
+    );
+}
+
+/// Looks up a built-in (function or structure) by name.
+pub fn lookup(name: &str) -> Option<BuiltIn> {
+    LIBRARY.name_to_built_in.get(name).cloned()
 }

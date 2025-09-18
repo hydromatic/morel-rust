@@ -20,7 +20,7 @@ use crate::compile::pretty::Pretty;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
-use crate::eval::code::{Code, Codes, Effect, EvalEnv};
+use crate::eval::code::{Code, Effect, EvalEnv};
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::Shell;
@@ -166,7 +166,7 @@ impl<'a> Compiler<'a> {
             &mut |pat: &Pat, expr: &Expr, _overload_pat: &Option<Box<Id>>| {
                 let code = self.compile_arg(&cx1, expr);
 
-                let matches = vec![(pat.clone(), (*code).clone())];
+                let matches = vec![(pat.clone(), code.clone())];
                 let code2 = Rc::new(Code::Constant(Val::Bool(false)));
                 match_codes.push(Code::Match(matches, code2));
 
@@ -249,14 +249,9 @@ impl<'a> Compiler<'a> {
         Context::new(env.clone())
     }
 
-    pub fn compile(&self, env: &Environment, expr: &Expr) -> Box<Code> {
-        let cx = self.create_context(env);
-        self.compile_with_context(&cx, expr)
-    }
-
     /// Compiles the argument to "apply".
-    pub fn compile_arg(&self, cx: &Context, expr: &Expr) -> Box<Code> {
-        self.compile_with_context(cx, expr)
+    pub fn compile_arg(&self, cx: &Context, expr: &Expr) -> Code {
+        self.compile_expr(cx, expr)
     }
 
     /// Compiles the argument to a call, producing a list with N elements if the
@@ -275,9 +270,7 @@ impl<'a> Compiler<'a> {
         cx: &Context,
         expr: &[Box<Expr>],
     ) -> Vec<Code> {
-        expr.iter()
-            .map(|e| *self.compile_with_context(cx, e))
-            .collect()
+        expr.iter().map(|e| self.compile_expr(cx, e)).collect()
     }
 
     /// Compiles the tuple arguments to "apply".
@@ -285,18 +278,19 @@ impl<'a> Compiler<'a> {
         &self,
         cx: &Context,
         expressions: &[Expr],
-    ) -> Vec<(Box<Code>, Box<Type>)> {
+    ) -> Vec<(Code, Type)> {
         let mut result = Vec::new();
         for exp in expressions {
             let code = self.compile_arg(cx, exp);
             let type_ = match exp {
-                Expr::Current(t) => t.clone(),
-                Expr::Identifier(t, _) => t.clone(),
-                Expr::Literal(t, _) => t.clone(),
-                Expr::Ordinal(t) => t.clone(),
-                Expr::Plus(t, _, _) => t.clone(),
-                Expr::RecordSelector(t, _) => t.clone(),
-                _ => Box::new(Type::Primitive(PrimitiveType::Unit)),
+                // lint: sort until '#}' where '##Expr::'
+                Expr::Current(t) => (**t).clone(),
+                Expr::Identifier(t, _) => (**t).clone(),
+                Expr::Literal(t, _) => (**t).clone(),
+                Expr::Ordinal(t) => (**t).clone(),
+                Expr::Plus(t, _, _) => (**t).clone(),
+                Expr::RecordSelector(t, _) => (**t).clone(),
+                _ => Type::Primitive(PrimitiveType::Unit),
             };
             result.push((code, type_));
         }
@@ -304,12 +298,12 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compiles an expression that is evaluated once per row.
-    pub fn compile_row(&self, cx: &Context, expression: &Expr) -> Box<Code> {
+    pub fn compile_row(&self, cx: &Context, expression: &Expr) -> Code {
         let mut ordinal_slots = vec![0];
 
         Self::ORDINAL_CODE.with(|oc| {
             let old_slots = oc.replace(ordinal_slots.clone());
-            let code = self.compile_with_context(cx, expression);
+            let code = self.compile_expr(cx, expression);
             ordinal_slots = oc.replace(old_slots);
 
             if ordinal_slots[0] == 0 {
@@ -333,7 +327,7 @@ impl<'a> Compiler<'a> {
         &self,
         cx: &Context,
         name_exps: &[(String, Expr)],
-    ) -> BTreeMap<String, Box<Code>> {
+    ) -> BTreeMap<String, Code> {
         let mut ordinal_slots = vec![0];
 
         Self::ORDINAL_CODE.with(|oc| {
@@ -341,7 +335,7 @@ impl<'a> Compiler<'a> {
             let mut map_codes = BTreeMap::new();
 
             for (name, exp) in name_exps {
-                let code = self.compile_with_context(cx, exp);
+                let code = self.compile_expr(cx, exp);
                 map_codes.insert(name.clone(), code);
             }
 
@@ -358,30 +352,28 @@ impl<'a> Compiler<'a> {
         })
     }
 
-    pub fn compile_with_context(&self, cx: &Context, expr: &Expr) -> Box<Code> {
+    /// Compiles an expression.
+    pub fn compile_expr(&self, cx: &Context, expr: &Expr) -> Code {
         match expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_, f, a) => {
                 if let Expr::Literal(_t, literal) = f.as_ref()
-                    // TODO Maybe remove Val::Impl, and switch back to Val::Fn?
-                    // Inliner is too early to be mapping to native functions.
-                    && let Val::Impl(f) = literal
+                    && let Val::Fn(f) = literal
                 {
+                    let impl_ = f.get_impl();
                     let codes = self.compile_args(cx, a.clone());
-                    let boxed_codes: Vec<Box<Code>> =
-                        codes.into_iter().map(Box::new).collect();
-                    return Codes::native(*f, &boxed_codes);
+                    return Code::new_native(impl_, &codes);
                 }
                 todo!("compile {:}", expr)
             }
             Expr::List(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
-                Codes::list(&codes)
+                Code::new_list(&codes)
             }
-            Expr::Literal(_t, val) => Codes::constant(val.clone()),
+            Expr::Literal(_t, val) => Code::new_constant(val.clone()),
             Expr::Tuple(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
-                Codes::tuple(&codes)
+                Code::new_tuple(&codes)
             }
             _ => todo!("{:?}", expr),
         }
@@ -407,7 +399,7 @@ trait Action {
 
 // Simple action implementation
 struct ValDeclAction {
-    code: Box<Code>,
+    code: Code,
     pat: Pat,
 }
 
