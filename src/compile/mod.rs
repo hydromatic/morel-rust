@@ -23,5 +23,6 @@ pub mod library;
 mod pretty;
 pub mod resolver;
 pub mod type_env;
+pub mod type_parser;
 pub mod type_resolver;
 pub mod types;
