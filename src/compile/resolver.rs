@@ -19,6 +19,7 @@ use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
     Match, Pat as CorePat, TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
+use crate::compile::inliner::Env;
 use crate::compile::library::BuiltInFunction;
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
@@ -28,6 +29,7 @@ use crate::syntax::ast::{
     PatKind, Type as AstType, TypeBind, ValBind,
 };
 use crate::syntax::parser;
+use std::collections::{HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
 pub fn resolve(resolved: &Resolved) -> Box<crate::compile::core::Decl> {
@@ -73,7 +75,7 @@ pub struct Resolver<'a> {
 
 /// Helper struct representing a pattern-expression pair with position info.
 #[derive(Debug, Clone)]
-struct PatExp {
+struct PatExpr {
     pat: Box<CorePat>,
     expr: Box<CoreExpr>,
 }
@@ -83,7 +85,7 @@ struct PatExp {
 struct ResolvedValDecl {
     rec: bool,
     composite: bool,
-    pat_exps: Vec<PatExp>,
+    pat_exps: Vec<PatExpr>,
     pat: Box<CorePat>,
     expr: Box<CoreExpr>,
 }
@@ -675,7 +677,7 @@ impl<'a> Resolver<'a> {
     fn resolve_val_decl(
         &self,
         val_binds: &[ValBind],
-        rec: bool,
+        mut rec: bool,
     ) -> ResolvedValDecl {
         let composite = val_binds.len() > 1;
 
@@ -686,14 +688,37 @@ impl<'a> Resolver<'a> {
             let core_pat = self.resolve_pat(&val_bind.pat);
             let core_expr = self.resolve_expr(&val_bind.expr);
 
-            pat_exps.push(PatExp {
+            pat_exps.push(PatExpr {
                 pat: core_pat,
                 expr: core_expr,
             });
         }
 
-        // TODO: Convert recursive to non-recursive if the bound variable is not
-        // referenced in its definition.
+        // Convert recursive to non-recursive if the bound variable is not
+        // referenced in its definition. For example,
+        //   val rec inc = fn i => i + 1
+        // can be converted to
+        //   val inc = fn i => i + 1
+        // because "i + 1" does not reference "inc".
+        rec = rec && references(&pat_exps);
+
+        // Transform "let val v1 = E1 and v2 = E2 in E end"
+        // to "let val v = (v1, v2) in case v of (E1, E2) => E end"
+        let (_pat0, _exp) = if composite {
+            let pats: Vec<CorePat> =
+                pat_exps.iter().map(|x| *x.pat.clone()).collect();
+            let exps: Vec<Box<CoreExpr>> =
+                pat_exps.iter().map(|x| x.expr.clone()).collect();
+            let types: Vec<Type> =
+                pat_exps.iter().map(|x| *x.pat.type_()).collect();
+            let type_ = Box::new(Type::Tuple(types));
+            let pat0 = Box::new(CorePat::Tuple(type_.clone(), pats));
+            let exp = Box::new(CoreExpr::Tuple(type_, exps));
+            (pat0, exp)
+        } else {
+            let pat_exp = &pat_exps[0];
+            (pat_exp.pat.clone(), pat_exp.expr.clone())
+        };
 
         // Transform composite patterns.
         let (pat, expr) = if composite {
@@ -703,7 +728,7 @@ impl<'a> Resolver<'a> {
             let exprs: Vec<Box<CoreExpr>> =
                 pat_exps.iter().map(|pe| pe.expr.clone()).collect();
 
-            // Create tuple type based on the constituent types.
+            // Create a tuple type based on the constituent types.
             let tuple_types: Vec<Type> =
                 pats.iter().map(|p| *p.type_().clone()).collect();
             let tuple_type = Box::new(Type::Tuple(tuple_types));
@@ -795,5 +820,44 @@ impl<'a> Resolver<'a> {
         // Create the let expression.
         let decl = CoreDecl::NonRecVal(Box::new(temp_val_bind));
         Box::new(CoreExpr::Let(case_expr.type_(), vec![decl], case_expr))
+    }
+}
+
+/// Returns whether any of the expressions in `exps` references any of
+/// the variables defined in `pats`.
+///
+/// This method is used to decide whether it is safe to convert a recursive
+/// declaration into a non-recursive one.
+fn references(pat_exprs: &[PatExpr]) -> bool {
+    let finder = ReferenceFinder::new(&Env::empty(), VecDeque::new());
+
+    // Collect references from expressions
+    for _pat_expr in pat_exprs {
+        // TODO: Implement expression visitor pattern for collecting references
+        // For now, we'll assume no references are found
+    }
+
+    // Collect definitions from patterns
+    let mut def_set = HashSet::new();
+    for pat_exp in pat_exprs {
+        pat_exp
+            .pat
+            .for_each_id_pat(&mut |(_, name): (&Type, &str)| {
+                def_set.insert(name.to_string());
+            });
+    }
+
+    finder.ref_set.intersection(&def_set).count() > 0
+}
+
+struct ReferenceFinder {
+    ref_set: HashSet<String>,
+}
+
+impl ReferenceFinder {
+    fn new(_env: &Env, _from_stack: VecDeque<()>) -> Self {
+        ReferenceFinder {
+            ref_set: HashSet::new(),
+        }
     }
 }

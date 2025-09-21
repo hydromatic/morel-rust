@@ -18,6 +18,15 @@
  *
  * Expressions that use recursion, function values, and closure.
  *)
+
+(*) A simple non-recursive function.
+let
+  fun plus (x, y) = x + y
+in
+  plus (3, 4)
+end;
+> val it = 7 : int
+
 set("mode", "validate");
 > val it = () : unit
 

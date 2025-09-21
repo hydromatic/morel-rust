@@ -226,11 +226,20 @@ impl TypeEnvBuilder {
 /// val (w, x) as y = (1, 2)
 /// and z = 3
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Id {
     pub name: String,
     pub ordinal: usize,
     // pub type_: Box<Type>,
+}
+
+impl Id {
+    pub fn new(name: &str, ordinal: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            ordinal,
+        }
+    }
 }
 
 /// Binding of a name to a type and a value.
@@ -243,6 +252,8 @@ pub struct Binding {
     pub overload_id: Option<String>,
     pub value: Option<Val>,
 }
+
+impl Binding {}
 
 impl Binding {
     pub(crate) fn get_type(&self) -> Box<Type> {
@@ -261,17 +272,26 @@ impl Binding {
         todo!()
     }
 
-    pub(crate) fn of(x1: Pat, val: &Val) -> Self {
+    pub(crate) fn of_name(name: &str) -> Self {
+        Self::of_name_value(name, &None)
+    }
+
+    pub(crate) fn of_name_value(name: &str, value: &Option<Val>) -> Self {
         Binding {
-            id: Box::new(Id {
-                name: match x1.kind {
-                    PatKind::Identifier(name) => name.clone(),
-                    PatKind::As(name, _pat) => name.clone(),
-                    _ => panic!("Not an identifier or as pattern"),
-                },
-                ordinal: 0,
-                // type_: Box::new(Type::Var("a".to_string())), // Placeholder
-            }),
+            id: Box::new(Id::new(name, 0)),
+            value: value.clone(),
+            overload_id: None,
+        }
+    }
+
+    pub(crate) fn of(x1: Pat, val: &Val) -> Self {
+        let name1 = match x1.kind {
+            PatKind::Identifier(name) => name,
+            PatKind::As(name, _pat) => name,
+            _ => panic!("Not an identifier or as pattern"),
+        };
+        Binding {
+            id: Box::new(Id::new(&name1, 0)),
             value: Some(val.clone()),
             overload_id: None,
         }

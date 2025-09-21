@@ -15,13 +15,13 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::{Decl, Expr, Pat, ValBind};
+use crate::compile::core::{Decl, Expr, Match, Pat, ValBind};
 use crate::compile::types::Type;
 use crate::eval::val::Val;
+use im::HashMap;
 use std::collections::BTreeMap;
-use std::ops::Deref;
 
-/// Can transform any expression, declaration or pattern in a tree.
+/// Can transform any expression, declaration, or pattern in a tree.
 /// Combined with [Decl::visit], [Expr::visit], and [Pat::visit], this
 /// can reshape a whole tree.
 trait Transformer {
@@ -31,9 +31,9 @@ trait Transformer {
 }
 
 /// Passes over a tree and inlines constants.
-pub fn inline_decl(env: &Env, decl: &Decl) -> Box<Decl> {
+pub fn inline_decl(env: &Env, decl: Box<Decl>) -> Box<Decl> {
     let inliner = Inliner {};
-    inliner.transform_decl(env, Box::new(decl.clone()))
+    inliner.transform_decl(env, decl)
 }
 
 struct Inliner {}
@@ -97,12 +97,30 @@ impl Expr {
                 let a2 = x.transform_expr(env, a.clone());
                 Expr::Apply(result_type.clone(), f2, a2)
             }
+            Expr::Fn(t, match_list) => {
+                let mut match_list2 = Vec::new();
+                for m in match_list {
+                    let pat = x.transform_pat(env, m.pat.clone());
+                    let expr = x.transform_expr(env, m.expr.clone());
+                    match_list2.push(Match { pat, expr });
+                }
+                Expr::Fn(t.clone(), match_list2)
+            }
             Expr::Identifier(t, id) => {
                 if let Some(v) = env.lookup_constant(id) {
                     Expr::Literal(t.clone(), v.clone())
                 } else {
                     self.clone()
                 }
+            }
+            Expr::Let(t, decl_list, e) => {
+                let mut decl_list2 = Vec::new();
+                for d in decl_list {
+                    let d2 = x.transform_decl(env, Box::new(d.clone()));
+                    decl_list2.push(*d2);
+                }
+                let e2 = x.transform_expr(env, e.clone());
+                Expr::Let(t.clone(), decl_list2, e2)
             }
             Expr::List(t, expr_list) => {
                 Expr::List(t.clone(), Self::visit_list(env, x, expr_list))
@@ -134,7 +152,7 @@ impl Decl {
             Decl::NonRecVal(val_bind) => {
                 let env2 = env.child_none(
                     val_bind.pat.name().unwrap().as_str(),
-                    val_bind.t.clone(),
+                    &val_bind.t,
                 );
                 Box::new(Decl::NonRecVal(Box::new(ValBind {
                     pat: x.transform_pat(env, val_bind.pat.clone()),
@@ -149,26 +167,45 @@ impl Decl {
 }
 
 /// Environment for inlining.
-pub enum Env<'a> {
-    Root,
-    Child(&'a Env<'a>, String, Box<Type>, Option<Val>),
-    Multi(&'a Env<'a>, &'a BTreeMap<&'a str, (Type, Option<Val>)>),
+#[derive(Debug, Clone)]
+pub struct Env {
+    map: im::HashMap<String, (Type, Option<Val>)>,
 }
 
-impl<'a> Env<'a> {
-    pub(crate) fn child(&self, name: &str, t: Box<Type>, v: &Val) -> Env<'_> {
-        Env::Child(self, name.to_string(), t, Some(v.clone()))
+impl Env {
+    /// Returns an empty environment.
+    pub(crate) fn empty() -> Self {
+        Env {
+            map: HashMap::new(),
+        }
     }
 
-    pub(crate) fn child_none(&self, name: &str, t: Box<Type>) -> Env<'_> {
-        Env::Child(self, name.to_string(), t, None)
+    /// Returns an environment with a given backing map.
+    pub fn with(map: HashMap<String, (Type, Option<Val>)>) -> Env {
+        Env { map }
+    }
+
+    pub(crate) fn child(&self, name: &str, t: &Type, v: &Val) -> Env {
+        let map2 = self
+            .map
+            .update(name.to_string(), (t.clone(), Some(v.clone())));
+        Self::with(map2)
+    }
+
+    pub(crate) fn child_none(&self, name: &str, t: &Type) -> Env {
+        let map2 = self.map.update(name.to_string(), (t.clone(), None));
+        Self::with(map2)
     }
 
     pub(crate) fn multi(
         &self,
-        map: &'a BTreeMap<&str, (Type, Option<Val>)>,
-    ) -> Env<'_> {
-        Env::Multi(self, map)
+        map: &BTreeMap<&str, (Type, Option<Val>)>,
+    ) -> Env {
+        let mut map2 = self.map.clone();
+        for entry in map {
+            map2 = map2.update(entry.0.to_string(), entry.1.clone());
+        }
+        Self::with(map2)
     }
 
     pub(crate) fn lookup_constant(&self, s: &str) -> Option<Val> {
@@ -180,22 +217,6 @@ impl<'a> Env<'a> {
     }
 
     pub(crate) fn lookup(&self, s: &str) -> Option<(Type, Option<Val>)> {
-        match self {
-            Env::Root => None,
-            Env::Child(parent, name, t, v) => {
-                if name == s {
-                    Some((t.deref().clone(), v.clone()))
-                } else {
-                    parent.lookup(s)
-                }
-            }
-            Env::Multi(parent, map) => {
-                if let Some(entry) = map.get(s) {
-                    Some(entry.clone())
-                } else {
-                    parent.lookup(s)
-                }
-            }
-        }
+        self.map.get(s).cloned()
     }
 }

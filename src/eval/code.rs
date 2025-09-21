@@ -15,21 +15,33 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::Pat;
 use crate::compile::library::{BuiltIn, BuiltInFunction, BuiltInRecord};
-use crate::compile::type_env::Binding;
+use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_parser;
-use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{Label, Type};
 use crate::eval::code::EagerV2::SysSet;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::main::{MorelError, Shell};
 use std::collections::{BTreeMap, HashMap};
-use std::rc::Rc;
+use std::iter::zip;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use strum::{EnumProperty, IntoEnumIterator};
+
+/// Evaluation mode.
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub enum EvalMode {
+    /// Evaluation with a frame and no arguments.
+    EagerV0,
+    /// Evaluation with a frame and one argument.
+    EagerV1,
+    Eager0,
+    Eager1,
+    Eager2,
+    Eager3,
+    EagerV2,
+}
 
 /// Effects that can be applied to modify the state of the current shell or
 /// session.
@@ -52,12 +64,33 @@ pub enum Effect {
 }
 
 /// Generated code that can be evaluated.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Code {
-    // lint: sort until '^}$'
+    // lint: sort until '#}' where '##[A-Z][A-Za-z0-9]*\('
+    /// `Apply(fn_code, arg_code)`
+    Apply(Box<Code>, Box<Code>),
+    /// `Bind(pat, expr)` binds the pattern to the expression; throws if the
+    /// value does not match.
+    Bind(Box<(Code, Code)>),
+    /// `BindLiteral(val)` succeeds if the argument is equal to `val`.
+    BindLiteral(Val),
+    /// `Assign(ordinal, name)` assigns the argument to the `ordinal`th variable
+    /// in the current frame. `name` is for debugging purposes.
+    BindSlot(usize, String),
     Constant(Val),
-    Link(Rc<Option<Code>>),
-    Match(Vec<(Pat, Code)>, Rc<Code>),
+    /// `Fn(local_names, matches)` first creates a frame to contain the required
+    /// local variables, next iterates the (pattern, expression) pairs until it
+    /// can bind the argument to a pattern and finally evaluates the
+    /// expression.
+    Fn(Vec<Id>, Vec<(Code, Code)>),
+    GetLocal(usize),
+    Let(Vec<Code>, Box<Code>),
+    Link(Option<Box<Code>>),
+    /// `Match(c, if, else)` executes `if` if `c` is true, otherwise `else`.
+    Match(Box<(Code, Code, Code)>),
+    /// `Match(conditions)` returns true if all conditions return true.
+    /// Every condition takes 1 argument and returns a boolean value.
+    MatchTuple(Vec<Code>),
     Native0(Eager0),
     Native1(Eager1, Box<Code>),
     Native2(Eager2, Box<Code>, Box<Code>),
@@ -67,8 +100,56 @@ pub enum Code {
 }
 
 impl Code {
+    pub(crate) fn new_apply(f: &Code, a: &Code) -> Code {
+        Code::Apply(Box::new(f.clone()), Box::new(a.clone()))
+    }
+
+    pub(crate) fn new_bind_literal(val: &Val) -> Code {
+        Code::BindLiteral(val.clone())
+    }
+
+    pub(crate) fn new_bind_slot(slot: usize, name: &str) -> Code {
+        Code::BindSlot(slot, name.to_string())
+    }
+
+    pub(crate) fn new_bind(pat_code: &Code, expr_code: &Code) -> Code {
+        Code::Bind(Box::new((pat_code.clone(), expr_code.clone())))
+    }
+
     pub(crate) fn new_constant(v: Val) -> Code {
         Code::Constant(v)
+    }
+
+    pub(crate) fn new_fn(
+        local_vars: &[Id],
+        pat_expr_codes: &[(Code, Code)],
+    ) -> Code {
+        // REVIEW A function could also support Eager1 (without environment)
+        // if it does not use global variables or have effects. The environment
+        // is currently necessary to create a frame.
+        for (pat_code, _) in pat_expr_codes {
+            pat_code.assert_supports_eval_mode(&EvalMode::EagerV1);
+        }
+        Code::Fn(local_vars.to_vec(), pat_expr_codes.to_vec())
+    }
+
+    pub(crate) fn new_match_tuple(codes: &[Code]) -> Code {
+        codes.iter().for_each(|code| {
+            code.assert_supports_eval_mode(&EvalMode::EagerV1)
+        });
+        Code::MatchTuple(codes.to_vec())
+    }
+
+    pub(crate) fn new_match(
+        cond_code: &Code,
+        if_code: &Code,
+        else_code: &Code,
+    ) -> Code {
+        Code::Match(Box::new((
+            cond_code.clone(),
+            if_code.clone(),
+            else_code.clone(),
+        )))
     }
 
     pub(crate) fn new_native(impl_: Impl, codes: &[Code]) -> Code {
@@ -126,118 +207,218 @@ impl Code {
         Code::Tuple(codes.to_vec())
     }
 
-    pub fn eval(&self, v: &mut EvalEnv) -> Result<Val, MorelError> {
+    pub fn assert_supports_eval_mode(&self, eval_mode: &EvalMode) {
+        assert!(
+            self.supports_eval_mode(eval_mode),
+            "Code {:?} does not support eval mode {:?}",
+            self,
+            eval_mode
+        );
+    }
+
+    fn supports_eval_mode(&self, mode: &EvalMode) -> bool {
+        match self {
+            // lint: sort until '#}' where '##Code::'
+            Code::Apply(_, _) => *mode == EvalMode::Eager0,
+            Code::Bind(_) => *mode == EvalMode::Eager0,
+            Code::BindLiteral(_) => {
+                *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
+            }
+            Code::BindSlot(_, _) => *mode == EvalMode::EagerV1,
+            Code::Constant(_) => *mode == EvalMode::Eager0,
+            Code::Fn(_, _) => *mode == EvalMode::EagerV1,
+            Code::GetLocal(_) => *mode == EvalMode::EagerV0,
+            Code::Let(_, _) => *mode == EvalMode::Eager0,
+            Code::Link(_) => todo!("{:?}", self),
+            Code::Match(_) => *mode == EvalMode::EagerV1,
+            Code::MatchTuple(_) => *mode == EvalMode::EagerV1,
+            Code::Native0(_) => *mode == EvalMode::Eager0,
+            Code::Native1(_, _) => *mode == EvalMode::Eager1,
+            Code::Native2(_, _, _) => *mode == EvalMode::Eager2,
+            Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
+            Code::NativeF2(_, _, _) => *mode == EvalMode::EagerV2,
+            Code::Tuple(_) => *mode == EvalMode::EagerV0,
+        }
+    }
+
+    pub fn eval_f0(
+        &self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<Val, MorelError> {
         match &self {
             // lint: sort until '#}' where '##Code::'
-            Code::Constant(c) => Ok(c.clone()),
-            Code::Link(_) => {
-                todo!()
+            Code::Apply(fn_code, arg_code) => {
+                let arg = arg_code.eval_f0(r, f)?;
+                fn_code.eval_f1(r, f, &arg)
             }
-            Code::Match(_, _) => {
+            Code::Bind(b) => {
+                let (pat_code, expr_code) = &**b;
+                let v = expr_code.eval_f0(r, f)?;
+                match pat_code.eval_f1(r, f, &v) {
+                    Ok(Val::Bool(true)) => Ok(Val::Unit),
+                    Ok(_) => Err(MorelError::Bind),
+                    Err(e) => Err(e),
+                }
+            }
+            Code::Constant(c) => Ok(c.clone()),
+            Code::Fn(_, _) => {
+                // Fn is practically a literal. When evaluated, it returns
+                // itself.
+                Ok(Val::Code(Box::new(self.clone())))
+            }
+            Code::GetLocal(ordinal) => Ok(f.vals[*ordinal].clone()),
+            Code::Let(codes, code) => {
+                // REVIEW: Could codes and code be merged into one vector?
+                for code in codes {
+                    code.eval_f0(r, f)?;
+                }
+                code.eval_f0(r, f)
+            }
+            Code::Link(_) => {
                 todo!()
             }
             Code::Native0(eager) => Ok(eager.apply()),
             Code::Native1(eager, code0) => {
-                let v0 = code0.eval(v)?;
+                let v0 = code0.eval_f0(r, f)?;
                 Ok(eager.apply(v0))
             }
             Code::Native2(eager, code0, code1) => {
-                let v0 = code0.eval(v)?;
-                let v1 = code1.eval(v)?;
+                let v0 = code0.eval_f0(r, f)?;
+                let v1 = code1.eval_f0(r, f)?;
                 Ok(eager.apply(v0, v1))
             }
             Code::Native3(eager, code0, code1, code2) => {
-                let v0 = code0.eval(v)?;
-                let v1 = code1.eval(v)?;
-                let v2 = code2.eval(v)?;
+                let v0 = code0.eval_f0(r, f)?;
+                let v1 = code1.eval_f0(r, f)?;
+                let v2 = code2.eval_f0(r, f)?;
                 Ok(eager.apply(v0, v1, v2))
             }
             Code::NativeF2(eager, code0, code1) => {
-                let v0 = code0.eval(v)?;
-                let v1 = code1.eval(v)?;
-                eager.apply(v, v0, v1)
+                let v0 = code0.eval_f0(r, f)?;
+                let v1 = code1.eval_f0(r, f)?;
+                eager.apply(r, f, v0, v1)
             }
             Code::Tuple(codes) => {
                 let mut values = Vec::with_capacity(codes.capacity());
                 for code in codes {
-                    values.push(code.eval(v)?);
+                    values.push(code.eval_f0(r, f)?);
                 }
                 Ok(Val::List(values))
             }
+            _ => {
+                todo!("eval_f0: {:?}", self)
+            }
         }
+    }
+
+    pub fn eval_f1(
+        &self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+        a0: &Val,
+    ) -> Result<Val, MorelError> {
+        match &self {
+            // lint: sort until '#}' where '##Code::'
+            Code::BindLiteral(val) => Ok(Val::Bool(a0 == val)),
+            Code::BindSlot(ordinal, _) => {
+                f.vals[*ordinal] = a0.clone();
+                Ok(Val::Bool(true))
+            }
+            Code::Fn(local_names, matches) => {
+                Frame::create_and_eval(local_names, matches, r, a0)
+            }
+            Code::GetLocal(ordinal) => Ok(f.vals[*ordinal].clone()),
+            Code::MatchTuple(codes) => {
+                let list = a0.expect_list();
+                for (code, val) in zip(codes, list) {
+                    let result = code.eval_f1(r, f, val)?;
+                    if !result.expect_bool() {
+                        // One match failed. Return false.
+                        return Ok(result);
+                    }
+                }
+                // All matches succeeded. Return true.
+                Ok(Val::Bool(true))
+            }
+            _ => {
+                todo!("eval: {:?}", self)
+            }
+        }
+    }
+}
+
+/// Stack frame for evaluating [Code].
+pub struct Frame<'a> {
+    pub vals: &'a mut [Val],
+}
+
+impl<'a> Frame<'a> {
+    /// Creates a frame, binds an argument to one of a list of patterns,
+    /// and executes the corresponding expression.
+    ///
+    /// This is the implementation of a function call.
+    fn create_and_eval(
+        local_names: &[Id],
+        matches: &[(Code, Code)],
+        r: &mut EvalEnv,
+        arg: &Val,
+    ) -> Result<Val, MorelError> {
+        let mut val_vec: Vec<Val> = vec![Val::Unit; local_names.len()];
+
+        for (pat_code, expr_code) in matches {
+            let mut frame = Frame {
+                vals: &mut val_vec[..],
+            };
+            match pat_code.eval_f1(r, &mut frame, arg) {
+                Ok(Val::Bool(true)) => {
+                    // We got a match, and value(s) were bound to the frame.
+                    // Now evaluate the expression.
+                    return expr_code.eval_f0(r, &mut frame);
+                }
+                Ok(_) => {
+                    // This one did not match.
+                    // Carry on to the next pattern-expression pair.
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(MorelError::Bind)
+    }
+
+    pub(crate) fn assign(&mut self, ordinal: usize, a0: &Val) {
+        self.vals[ordinal] = a0.clone();
     }
 }
 
 /// Evaluation environment for [Code].
 ///
 /// Function parameters holding an evaluation environment are typically named
-/// `v`.
-pub enum EvalEnv<'a> {
-    /// Trivial environment with no session. To be used for
-    /// simple tasks such as compilation.
-    Empty,
+/// `r`.
+pub struct EvalEnv<'a> {
+    pub session: &'a Session,
+    pub shell: &'a Shell,
+    effects: &'a mut Vec<Effect>,
+}
 
-    /// Root environment with immutable references and effects collector.
-    Root(&'a Session, &'a Shell, &'a mut Vec<Effect>, &'a TypeMap),
-
-    /// Child environment.
-    Child(&'a mut EvalEnv<'a>),
+impl<'a> EvalEnv<'a> {
+    pub(crate) fn new(
+        session: &'a Session,
+        shell: &'a Shell,
+        effects: &'a mut Vec<Effect>,
+    ) -> Self {
+        EvalEnv {
+            session,
+            shell,
+            effects,
+        }
+    }
 }
 
 impl EvalEnv<'_> {
     /// Emits an effect to be applied later.
     pub fn emit_effect(&mut self, effect: Effect) {
-        match self {
-            EvalEnv::Empty => {
-                // No effects can be emitted in the empty environment.
-            }
-            EvalEnv::Root(_session, _shell, effects, _type_map) => {
-                effects.push(effect);
-            }
-            EvalEnv::Child(parent) => {
-                // For child environments, we need to delegate to the parent.
-                // This requires careful handling of the mutable borrow.
-                parent.emit_effect(effect);
-            }
-        }
-    }
-
-    /// Returns the root.
-    pub fn root(&self) -> Option<(&Session, &Shell, &TypeMap)> {
-        match self {
-            EvalEnv::Empty => None,
-            EvalEnv::Root(session, shell, _effects, type_map) => {
-                Some((session, shell, type_map))
-            }
-            EvalEnv::Child(parent) => parent.root(),
-        }
-    }
-
-    /// Returns the session.
-    pub fn session(&self) -> Option<&Session> {
-        if let Some((session, _shell, _type_map)) = self.root() {
-            Some(session)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the shell.
-    pub fn shell(&self) -> Option<&Shell> {
-        if let Some((_, shell, _type_map)) = self.root() {
-            Some(shell)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the type map.
-    pub fn type_map(&self) -> Option<&TypeMap> {
-        if let Some((_session, _shell, type_map)) = self.root() {
-            Some(type_map)
-        } else {
-            None
-        }
+        self.effects.push(effect);
     }
 }
 
@@ -469,7 +650,8 @@ impl EagerV2 {
     #[allow(clippy::needless_pass_by_value)]
     fn apply(
         &self,
-        v: &mut EvalEnv,
+        r: &mut EvalEnv,
+        _f: &mut Frame,
         a0: Val,
         a1: Val,
     ) -> Result<Val, MorelError> {
@@ -478,7 +660,7 @@ impl EagerV2 {
             SysSet => {
                 let prop = a0.expect_string();
                 let val = a1;
-                v.emit_effect(Effect::SetShellProp(prop, val));
+                r.emit_effect(Effect::SetShellProp(prop, val));
                 Ok(Val::Unit)
             }
         }

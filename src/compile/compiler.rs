@@ -15,12 +15,12 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::{DatatypeBind, Decl, Expr, Pat, TypeBind};
+use crate::compile::core::{DatatypeBind, Decl, Expr, Match, Pat, TypeBind};
 use crate::compile::pretty::Pretty;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
-use crate::eval::code::{Code, Effect, EvalEnv};
+use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame};
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::Shell;
@@ -154,24 +154,59 @@ impl<'a> Compiler<'a> {
         bindings: &mut Vec<Binding>,
         actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
-        Self::bind_pattern(bindings, decl);
         let binding_count = bindings.len();
+        Self::bind_pattern(bindings, decl);
         let new_bindings = &bindings.as_slice()[binding_count..];
         let cx1 = cx.bind_all(new_bindings);
+        bindings.truncate(binding_count);
 
         // Collect all bindings first to avoid borrowing issues
         let mut collected_actions = Vec::new();
 
         decl.for_each_binding(
             &mut |pat: &Pat, expr: &Expr, _overload_pat: &Option<Box<Id>>| {
-                let code = self.compile_arg(&cx1, expr);
+                let pat_code = self.compile_pat(&cx1, pat);
 
-                let matches = vec![(pat.clone(), code.clone())];
-                let code2 = Rc::new(Code::Constant(Val::Bool(false)));
-                match_codes.push(Code::Match(matches, code2));
+                let fn_expr = if actions.is_some() {
+                    // If there are actions, we are at the top level.
+                    // Wrap 'expr' as 'fn () => 'expr'. A function is able to
+                    // allocate a frame with space for all local variables.
+                    Expr::Fn(
+                        Box::new(Type::Fn(
+                            Box::new(Type::Primitive(PrimitiveType::Unit)),
+                            expr.type_(),
+                        )),
+                        vec![Match {
+                            pat: Box::new(Pat::Literal(
+                                Box::new(Type::Primitive(PrimitiveType::Unit)),
+                                Val::Unit,
+                            )),
+                            expr: Box::new(expr.clone()),
+                        }],
+                    )
+                } else {
+                    expr.clone()
+                };
+                let expr_code = self.compile_expr(&cx1, &fn_expr);
+                match_codes.push(Code::new_bind(&pat_code, &expr_code));
+
+                // Special treatment for 'val id =' so that 'fun' declarations
+                // can be inlined.
+                if let Pat::Identifier(_, name) = pat {
+                    bindings.push(Binding::of_name_value(
+                        name,
+                        &Some(Val::Code(Box::new(expr_code.clone()))),
+                    ))
+                } else {
+                    pat.for_each_id_pat(&mut |(_, name)| {
+                        bindings.push(Binding::of_name(name))
+                    });
+                }
+
+                // Package the expression code as a function.
 
                 collected_actions.push(ValDeclAction {
-                    code,
+                    code: expr_code.clone(),
                     pat: pat.clone(),
                 });
             },
@@ -183,28 +218,20 @@ impl<'a> Compiler<'a> {
                 actions.push(Box::new(action));
             }
         }
-
-        bindings.truncate(binding_count);
     }
 
     /// Richer than {@link #acceptBinding(TypeSystem, Core.Pat, List)}
     /// because we have the expression.
     fn bind_pattern(bindings: &mut Vec<Binding>, decl: &Decl) {
-        let mut p =
-            |pat: &Pat, _expr: &Expr, _overload_pat: &Option<Box<Id>>| {
+        decl.for_each_binding(
+            &mut (|pat: &Pat,
+                   _expr: &Expr,
+                   _overload_pat: &Option<Box<Id>>| {
                 if let Pat::Identifier(_, name) = pat {
-                    let binding = Binding {
-                        id: Box::new(Id {
-                            name: name.clone(),
-                            ordinal: 0,
-                        }),
-                        overload_id: None,
-                        value: None,
-                    };
-                    bindings.push(binding);
+                    bindings.push(Binding::of_name(name));
                 }
-            };
-        decl.for_each_binding(&mut p);
+            }),
+        );
     }
 
     fn compile_over_decl(
@@ -249,6 +276,35 @@ impl<'a> Compiler<'a> {
         Context::new(env.clone())
     }
 
+    /// Compiles a pattern. Returns a code that returns whether the pattern
+    /// matched, and if it matched, makes assignments to the current frame.
+    #[allow(clippy::only_used_in_recursion)]
+    pub fn compile_pat(&self, cx: &Context, pat: &Pat) -> Code {
+        match pat {
+            // lint: sort until '#}' where '##Pat::'
+            Pat::Identifier(_, name) => {
+                let i = cx.var_index(name);
+                Code::new_bind_slot(i, name)
+            }
+            Pat::Literal(_, val) => Code::new_bind_literal(val),
+            Pat::Tuple(_, pats) => {
+                let codes = pats
+                    .iter()
+                    .map(|p| self.compile_pat(cx, p))
+                    .collect::<Vec<Code>>();
+                Code::new_match_tuple(&codes)
+            }
+            Pat::Wildcard(_) => {
+                // no variables to bind;
+                // trivially succeeds
+                Code::new_constant(Val::Bool(true))
+            }
+            _ => {
+                todo!("compile_pat: {:?}", pat)
+            }
+        }
+    }
+
     /// Compiles the argument to "apply".
     pub fn compile_arg(&self, cx: &Context, expr: &Expr) -> Code {
         self.compile_expr(cx, expr)
@@ -256,11 +312,11 @@ impl<'a> Compiler<'a> {
 
     /// Compiles the argument to a call, producing a list with N elements if the
     /// argument is an N-tuple.
-    pub fn compile_args(&self, cx: &Context, expr: Box<Expr>) -> Vec<Code> {
-        if let Expr::Tuple(_, args) = *expr {
+    pub fn compile_args(&self, cx: &Context, expr: &Expr) -> Vec<Code> {
+        if let Expr::Tuple(_, args) = expr {
             self.compile_arg_list(cx, args.as_slice())
         } else {
-            self.compile_arg_list(cx, &[expr])
+            self.compile_arg_list(cx, &[Box::new(expr.clone())])
         }
     }
 
@@ -288,7 +344,6 @@ impl<'a> Compiler<'a> {
                 Expr::Identifier(t, _) => (**t).clone(),
                 Expr::Literal(t, _) => (**t).clone(),
                 Expr::Ordinal(t) => (**t).clone(),
-                Expr::Plus(t, _, _) => (**t).clone(),
                 Expr::RecordSelector(t, _) => (**t).clone(),
                 _ => Type::Primitive(PrimitiveType::Unit),
             };
@@ -357,14 +412,57 @@ impl<'a> Compiler<'a> {
         match expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_, f, a) => {
-                if let Expr::Literal(_t, literal) = f.as_ref()
-                    && let Val::Fn(f) = literal
-                {
-                    let impl_ = f.get_impl();
-                    let codes = self.compile_args(cx, a.clone());
-                    return Code::new_native(impl_, &codes);
+                match f.as_ref() {
+                    Expr::Literal(_t, Val::Fn(f)) => {
+                        let impl_ = f.get_impl();
+                        let codes = self.compile_args(cx, a);
+                        return Code::new_native(impl_, &codes);
+                    }
+                    Expr::Literal(_, _) => {}
+                    Expr::Identifier(_, name) => {
+                        if let Some(Val::Code(fn_code)) = cx.env.get(name) {
+                            let arg_code = self.compile_arg(cx, a);
+                            return Code::new_apply(fn_code, &arg_code);
+                        }
+                    }
+                    _ => {}
                 }
                 todo!("compile {:}", expr)
+            }
+            Expr::Fn(_, match_list) => {
+                let mut vars = Vec::new();
+                match_list.iter().for_each(|m| {
+                    m.collect_vars(&mut vars);
+                });
+
+                let cx1 = cx.with_frame(&vars);
+                let mut pat_expr_codes = Vec::new();
+                assert!(!match_list.is_empty(), "match list is empty");
+                for m in match_list {
+                    let pat_code = self.compile_pat(&cx1, &m.pat);
+                    let expr_code = self.compile_expr(&cx1, &m.expr);
+                    pat_expr_codes.push((pat_code, expr_code));
+                }
+                Code::new_fn(&cx1.local_vars, &pat_expr_codes)
+            }
+            Expr::Identifier(_, name) => Code::GetLocal(cx.var_index(name)),
+            Expr::Let(_, decl_list, expr) => {
+                let mut bindings = Vec::new();
+                let mut match_codes = Vec::new();
+                for d in decl_list {
+                    self.compile_decl(
+                        cx,
+                        d,
+                        None,
+                        &HashSet::new(),
+                        &mut match_codes,
+                        bindings.as_mut(),
+                        None,
+                    );
+                }
+                let cx1 = cx.bind_all(&bindings);
+                let code = self.compile_expr(&cx1, expr);
+                Code::Let(match_codes, Box::new(code))
             }
             Expr::List(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
@@ -394,7 +492,7 @@ impl<'a> Compiler<'a> {
 /// make up the environment in which the next statement will be executed and
 /// printing some text on the screen.
 trait Action {
-    fn apply(&self, v: &mut EvalEnv);
+    fn apply(&self, r: &mut EvalEnv, f: &mut Frame);
 }
 
 // Simple action implementation
@@ -404,15 +502,17 @@ struct ValDeclAction {
 }
 
 impl Action for ValDeclAction {
-    fn apply(&self, v: &mut EvalEnv) {
-        match self.code.eval(v) {
+    fn apply(&self, r: &mut EvalEnv, f: &mut Frame) {
+        // self.code is a function with unit argument.
+        self.code.assert_supports_eval_mode(&EvalMode::EagerV1);
+        match self.code.eval_f1(r, f, &Val::Unit) {
             Err(_) => {
-                v.emit_effect(Effect::EmitLine(
+                r.emit_effect(Effect::EmitLine(
                     "error in val binding".to_string(),
                 ));
             }
             Ok(o) => {
-                let pretty = Self::get_pretty(&v.shell().unwrap().config);
+                let pretty = Self::get_pretty(&r.shell.config);
                 self.pat.bind_recurse(&o, &mut |p2, v2| {
                     // Emit a line 'val <name> = <value> : <type>'. The
                     // pretty-printer ensures that the value is formatted
@@ -424,7 +524,7 @@ impl Action for ValDeclAction {
                         Val::new_typed(&id, v2.clone(), &p2.type_());
                     let _ = pretty.pretty(&mut line, &p2.type_(), &typed_val);
 
-                    v.emit_effect(Effect::EmitLine(line));
+                    r.emit_effect(Effect::EmitLine(line));
                 });
             }
         }
@@ -447,15 +547,89 @@ impl ValDeclAction {
 #[derive(Clone)]
 pub struct Context {
     env: Environment,
+
+    /// The local variables in the current stack frame.
+    local_vars: Vec<Id>,
 }
 
 impl Context {
     pub fn new(env: Environment) -> Self {
-        Self { env }
+        Self {
+            env,
+            local_vars: Vec::new(),
+        }
     }
 
     pub fn bind_all(&self, bindings: &[Binding]) -> Self {
-        Self::new(self.env.bind_all(bindings))
+        let mut local_vars = Vec::new();
+        for b in bindings {
+            local_vars.push(b.id.as_ref().clone());
+        }
+        Self {
+            env: self.env.bind_all(bindings),
+            local_vars,
+        }
+    }
+
+    /// Creates a context with a new frame. The frame has space for a new set of
+    /// variables.
+    ///
+    /// This function is called when we start generating code for a function
+    /// (`fn`). Space is needed for the function parameters, all the values
+    /// bound by the patterns, and by values declared within the body of a
+    /// function.
+    ///
+    /// For example, consider the following function declaration:
+    ///
+    /// ```sml
+    /// fun tree_size EMPTY = 0
+    ///   | tree_size LEAF n = 1
+    ///   | tree_size NODE (left, right) =
+    ///     let
+    ///        val left_size = tree_size left
+    ///        and right_size = tree_size right
+    ///     in
+    ///       left_size + right_size
+    ///     end
+    /// ```
+    ///
+    /// It desugars to a function value:
+    ///
+    /// ```sml
+    /// val rec tree_size =
+    ///   fn EMPTY => 0
+    ///    | LEAF n => 1
+    ///    | tree_size NODE (left, right) =>
+    ///      let
+    ///        val left_size = tree_size left
+    ///        and right_size = tree_size right
+    ///      in
+    ///        left_size + right_size
+    ///      end;
+    /// ```
+    ///
+    /// The variables are [`n`, `left`, `right`, `left_size`, `right_size`].
+    /// (Yes, some of those can be inlined or removed, and some variables
+    /// could occupy the same slot. But let's not consider optimizations here.)
+    pub(crate) fn with_frame(&self, vars: &[Id]) -> Self {
+        Context {
+            env: self.env.clone(),
+            local_vars: vars.to_vec(),
+        }
+    }
+
+    /// Returns the index within the current frame of a variable with a given
+    /// name. Panics if not found.
+    pub(crate) fn var_index(&self, name: &str) -> usize {
+        self.local_vars
+            .iter()
+            .position(|v| v.name == name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "variable {} not found in frame {:?}",
+                    name, self.local_vars
+                )
+            })
     }
 }
 
@@ -491,11 +665,13 @@ impl CompiledStatement for CompiledStatementImpl {
         shell: &Shell,
         _env: &Environment,
         effects: &mut Vec<Effect>,
-        type_map: &TypeMap,
+        _type_map: &TypeMap,
     ) {
-        let mut eval_env = EvalEnv::Root(session, shell, effects, type_map);
+        let mut eval_env = EvalEnv::new(session, shell, effects);
+        let mut vals = vec![];
+        let mut frame = Frame { vals: &mut vals };
         for action in &self.actions {
-            action.apply(&mut eval_env);
+            action.apply(&mut eval_env, &mut frame);
         }
     }
 }
@@ -512,6 +688,78 @@ mod calcite_functions {
             _environment: Environment,
         ) -> Context {
             todo!()
+        }
+    }
+}
+
+impl Pat {
+    fn collect_vars(&self, vars: &mut Vec<Id>) {
+        match self {
+            // lint: sort until '#}' where '##Pat::'
+            Pat::As(_, name, pat) => {
+                vars.push(Id::new(name, 0));
+                pat.collect_vars(vars);
+            }
+            Pat::Identifier(_, name) => {
+                vars.push(Id::new(name, 0));
+            }
+            Pat::Literal(_, _) => {
+                // no variables
+            }
+            Pat::Tuple(_, pats) => {
+                pats.iter().for_each(|p| p.collect_vars(vars));
+            }
+            _ => todo!("collect_vars {:?}", self),
+        }
+    }
+}
+
+impl Match {
+    fn collect_vars(&self, vars: &mut Vec<Id>) {
+        self.pat.collect_vars(vars);
+        self.expr.collect_vars(vars);
+    }
+}
+
+impl Decl {
+    fn collect_vars(&self, vars: &mut Vec<Id>) {
+        match self {
+            Decl::NonRecVal(val_bind) => {
+                val_bind.pat.collect_vars(vars);
+                val_bind.expr.collect_vars(vars);
+            }
+            Decl::RecVal(_) => todo!("collect_vars {:?}", self),
+            _ => {
+                // no expressions in other declarations, therefore no variables
+            }
+        }
+    }
+}
+
+impl Expr {
+    fn collect_vars(&self, vars: &mut Vec<Id>) {
+        match self {
+            // lint: sort until '#}' where '##Expr::'
+            Expr::Apply(_, f, a) => {
+                f.collect_vars(vars);
+                a.collect_vars(vars);
+            }
+            Expr::Fn(_, matches) => {
+                matches.iter().for_each(|m| m.collect_vars(vars));
+            }
+            Expr::Identifier(_, name) => {
+                vars.push(Id::new(name, 0));
+            }
+            Expr::Let(_, decls, _) => {
+                decls.iter().for_each(|d| d.collect_vars(vars));
+            }
+            Expr::List(_, exprs) | Expr::Tuple(_, exprs) => {
+                exprs.iter().for_each(|e| e.collect_vars(vars));
+            }
+            Expr::Literal(_, _) => {
+                // no variables
+            }
+            _ => todo!("collect_vars {:?}", self),
         }
     }
 }

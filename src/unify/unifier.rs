@@ -1008,7 +1008,9 @@ impl Unifier {
         // if x in vars(f(s0, ..., sk))
 
         let mut work = Work::new(tracer, term_pairs);
-        println!("Before: {}", work);
+        if false {
+            println!("Before: {}", work);
+        }
         let mut iteration = 0;
         loop {
             iteration += 1;
@@ -1101,14 +1103,16 @@ impl Unifier {
             work.result.iter().for_each(|(var, term)| {
                 substitutions.insert(var.clone(), term.clone());
             });
-            println!(
-                "After: {}\n{}",
-                work,
-                Substitution {
-                    substitutions: substitutions.clone()
-                }
-                .resolve()
-            );
+            if false {
+                println!(
+                    "After: {}\n{}",
+                    work,
+                    Substitution {
+                        substitutions: substitutions.clone()
+                    }
+                    .resolve()
+                );
+            }
             return Ok(Substitution { substitutions });
         }
     }

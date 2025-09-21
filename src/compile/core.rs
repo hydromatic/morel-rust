@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::inliner::Env;
 use crate::compile::type_env::Id;
 use crate::compile::types::Type;
 use crate::eval::val::Val;
@@ -56,9 +57,6 @@ pub enum Expr {
     RecordSelector(Box<Type>, usize),
     Current(Box<Type>),
     Ordinal(Box<Type>),
-
-    // Infix binary operators
-    Plus(Box<Type>, Box<Expr>, Box<Expr>),
     Aggregate(Box<Type>, Box<Expr>, Box<Expr>), // 'over'
 
     /// `Apply(f, a)` represents `f a`, applying a function to an argument.
@@ -98,7 +96,6 @@ impl Expr {
             Expr::List(t, _) => t.clone(),
             Expr::Literal(t, _) => t.clone(),
             Expr::Ordinal(t) => t.clone(),
-            Expr::Plus(t, _, _) => t.clone(),
             Expr::RecordSelector(t, _) => t.clone(),
             Expr::Tuple(t, _) => t.clone(),
         }
@@ -158,7 +155,6 @@ impl Display for Expr {
             }
             Expr::Literal(_t, lit) => write!(f, "{}", lit),
             Expr::Ordinal(_t) => write!(f, "ordinal"),
-            Expr::Plus(_t, a0, a1) => write!(f, "({} + {})", a0, a1),
             Expr::RecordSelector(_t, name) => write!(f, "#{}", name),
             Expr::Tuple(_t, elems) => {
                 let elems_str = elems
@@ -218,21 +214,40 @@ impl StepKind {
 }
 
 /// Pattern in core representation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Pat {
     Wildcard(Box<Type>),
+    /// `Identifier(t, name)` is a pattern that matches any expression and
+    /// binds it to an identifier. For example, `x`.
     Identifier(Box<Type>, String),
+    /// `As(t, name, pat)` is a pattern that matches if its subpattern matches,
+    /// and if so, binds the identifier. For example, `(x, y) as z`.
     As(Box<Type>, String, Box<Pat>),
-    Constructor(Box<Type>, String, Option<Box<Pat>>), // `Empty` or `Leaf x`
+    /// `Constructor(t, name, pat)` is a pattern that matches a constructor
+    /// (with or without an argument). For example, `EMPTY` or `LEAF x` or
+    /// `NODE (left, right)`.
+    Constructor(Box<Type>, String, Option<Box<Pat>>),
+    /// `Literal(t, val)` is a pattern that matches a literal, e.g. `1` or
+    /// `"foo"`. It does not bind any values.
     Literal(Box<Type>, Val),
+    /// `Tuple(t, pats)` is a pattern that matches a tuple. The match succeeds
+    /// if all elements of a tuple match, e.g. `(x, y, z)` or `(1, _, z)`.
     Tuple(Box<Type>, Vec<Pat>),
+    /// `Tuple(t, pats)` is a pattern that matches a list. The match succeeds
+    /// if all elements of a list match, e.g. `[x, y, z]` or `[1, _, z]`. It
+    /// can also be written `x :: y :: z :: nil`.
     List(Box<Type>, Vec<Pat>),
+    /// `Record(t, fields, ellipsis)` is a pattern that matches a record. The
+    /// match succeeds if all fields match. For example, `{a = 1, b = (p, q),
+    /// ...}` bind `p` and `q` if successful.
     Record(Box<Type>, Vec<PatField>, bool),
-    Cons(Box<Type>, Box<Pat>, Box<Pat>), // e.g. `x :: xs`
+    /// `Cons(t, head, tail)` is a pattern that matches a list. For example,
+    /// `1 :: rest`.
+    Cons(Box<Type>, Box<Pat>, Box<Pat>),
 }
 
 impl Pat {
-    /// Returns the name of this pattern, if it is an identifier or `as`,
+    /// Returns the name of this pattern if it is an identifier or `as`,
     /// otherwise None.
     pub fn name(&self) -> Option<String> {
         match self {
@@ -275,9 +290,12 @@ impl Pat {
 
     /// Calls a given function for each atomic identifier in this pattern.
     /// Since core doesn't have IDs, we'll use 0 as a placeholder.
-    pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(&str)) {
+    pub(crate) fn for_each_id_pat(
+        &self,
+        consumer: &mut impl FnMut((&Type, &str)),
+    ) {
         match self {
-            Pat::Identifier(_, name) => (*consumer)(name.as_str()),
+            Pat::Identifier(t, name) => (*consumer)((t, name.as_str())),
             Pat::Tuple(_, pats) => {
                 pats.iter().for_each(|p| p.for_each_id_pat(consumer))
             }
@@ -349,7 +367,7 @@ impl Display for Pat {
 /// Abstract syntax tree (AST) of a field in a record pattern.
 /// It can be labeled, anonymous, or ellipsis.
 /// For example, `{ label = x, y, ... }` has one of each.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PatField {
     Labeled(String, Box<Pat>), // e.g. `named = x`
     Anonymous(Box<Pat>),       // e.g. `y`
@@ -420,7 +438,7 @@ impl Decl {
         }
     }
 
-    pub(crate) fn for_each_id_pat(&self, mut p0: impl FnMut(&str)) {
+    pub(crate) fn for_each_id_pat(&self, mut p0: impl FnMut((&Type, &str))) {
         match self {
             Decl::NonRecVal(val_bind) => val_bind.pat.for_each_id_pat(&mut p0),
             Decl::RecVal(val_binds) => {
@@ -436,6 +454,33 @@ impl Decl {
         match &statement.kind {
             StatementKind::Decl(d) => d.clone(),
             _ => panic!("expected declaration"),
+        }
+    }
+
+    pub(crate) fn transform_env(&self, envs: &mut Vec<Env>) {
+        match self {
+            Decl::NonRecVal(val_bind) => {
+                let mut to_add = Vec::new();
+                val_bind.pat.for_each_id_pat(&mut |(t, name)| {
+                    to_add.push((t.clone(), name.to_string()));
+                });
+
+                let base_idx = envs.len() - 1;
+                for (i, (t, name)) in to_add.into_iter().enumerate() {
+                    let idx = base_idx + i;
+                    // Get a reference through index to avoid borrowing the
+                    // entire vec
+                    let env_ptr = &envs[idx] as *const Env;
+                    unsafe {
+                        let next_env = (*env_ptr).child_none(&name, &t);
+                        envs.push(next_env);
+                    }
+                }
+            }
+            Decl::RecVal(_) => todo!(".transform_env() for RecVal"),
+            Decl::Over(_) => {}
+            Decl::Type(_) => {}
+            Decl::Datatype(_) => {}
         }
     }
 }

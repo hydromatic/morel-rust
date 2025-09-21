@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 # lint: sort until '^$'
-indexmap = "2.11.0"
+im = "15.1.0"
 pest = "2.1"
 pest_ascii_tree = "0.1.0"
 pest_consume = "1.1"

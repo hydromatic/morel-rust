@@ -17,7 +17,7 @@
 
 use crate::compile::types::Label;
 use crate::compile::types::Type;
-use crate::eval::code::Impl;
+use crate::eval::code::{Code, Impl};
 use crate::syntax::parser;
 use std::fmt::{Display, Formatter};
 
@@ -69,6 +69,9 @@ pub enum Val {
     /// `Raw(value)` is printed to the output as-is, without any quoting.
     Raw(String),
     Impl(Impl),
+    /// A constant piece of code. TODO This is a short-term way of representing
+    /// user-defined functions. Long-term, they should be handled by inlining.
+    Code(Box<Code>),
 }
 
 // REVIEW Should we use `Into` or `From` traits?

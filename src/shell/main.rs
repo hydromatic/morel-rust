@@ -345,11 +345,11 @@ impl Shell {
     fn evaluate_node(&mut self, resolved: &Resolved) -> ShellResult<String> {
         let decl = resolver::resolve(resolved);
 
-        let env = Box::new(Env::Root);
+        let env = Env::empty();
         let mut map: BTreeMap<&str, (Type, Option<Val>)> = BTreeMap::new();
         library::populate_env(&mut map);
         let env2 = env.multi(&map);
-        let decl2 = inliner::inline_decl(&env2, &decl);
+        let decl2 = inliner::inline_decl(&env2, decl);
 
         let compiled_statement = compiler::compile_statement(
             &resolved.type_map,
@@ -464,6 +464,8 @@ fn comment_depth(code: &str) -> i32 {
 pub enum MorelError {
     Runtime(BuiltInExn, Span),
     Other,
+    // "Bind [nonexhaustive binding failure]"
+    Bind,
 }
 
 pub enum BuiltInExn {
