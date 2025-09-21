@@ -306,6 +306,17 @@ false andalso false;
 > val it = true : bool
 "11" > "2";
 > val it = false : bool
+~(6 + 5);
+> val it = ~11 : int
+~(6 - 5);
+> val it = ~1 : int
+
+let
+  fun foo n = case n of 1 => "one" | 2 => "two" | _ => "other"
+in
+  (foo 2, foo 4)
+end;
+> val it = ("two","other") : string * string
 
 set("mode", "validate");
 > val it = () : unit

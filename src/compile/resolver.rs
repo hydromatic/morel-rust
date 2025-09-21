@@ -348,12 +348,29 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
-            ExprKind::If(cond, then_expr, else_expr) => CoreExpr::If(
-                t,
-                Box::new(self.resolve_expr(cond)),
-                Box::new(self.resolve_expr(then_expr)),
-                Box::new(self.resolve_expr(else_expr)),
-            ),
+            ExprKind::If(cond, then_expr, else_expr) => {
+                // Convert 'if cond then e1 else e2'
+                // to 'case cond of true => e1 | _ => e2'.
+                let cond_core = self.resolve_expr(cond);
+                let then_core = self.resolve_expr(then_expr);
+                let else_core = self.resolve_expr(else_expr);
+
+                let bool_type = Box::new(Type::Primitive(PrimitiveType::Bool));
+                let true_match = CoreMatch {
+                    pat: CorePat::Literal(bool_type.clone(), Val::Bool(true)),
+                    expr: then_core,
+                };
+                let false_match = CoreMatch {
+                    pat: CorePat::Wildcard(bool_type.clone()),
+                    expr: else_core,
+                };
+
+                CoreExpr::Case(
+                    t,
+                    Box::new(cond_core),
+                    vec![true_match, false_match],
+                )
+            }
             ExprKind::Implies(a0, a1) => {
                 self.call2(t, BuiltInFunction::BoolImplies, a0, a1)
             }
@@ -420,6 +437,17 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Mod(a0, a1) => {
                 self.call2(t, BuiltInFunction::IntMod, a0, a1)
+            }
+            ExprKind::Negate(a0) => {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Primitive(PrimitiveType::Int) => {
+                        self.call1(t, BuiltInFunction::IntNegate, a0)
+                    }
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call1(t, BuiltInFunction::RealNegate, a0)
+                    }
+                    _ => todo!("resolve {:?}", a0),
+                }
             }
             ExprKind::NotEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {

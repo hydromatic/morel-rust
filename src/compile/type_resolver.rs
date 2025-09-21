@@ -747,6 +747,11 @@ impl TypeResolver {
                 let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Negate(e) => {
+                let e2 = self.deduce_call1_type(env, "op ~", e, &expr.span, v);
+                let x = ExprKind::Negate(Box::new(e2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::NotEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <>", left, right, v);
@@ -992,6 +997,19 @@ impl TypeResolver {
         // Minimal span since we don't have the original
         let span = Span::zero("".into());
         self.reg_expr(&selector_kind, &span, None, v_field)
+    }
+
+    fn deduce_call1_type(
+        &mut self,
+        env: &dyn TypeEnv,
+        op: &str,
+        arg: &Expr,
+        span: &Span,
+        v: &Rc<Var>,
+    ) -> Expr {
+        let fun = ExprKind::Identifier(op.to_string()).spanned(&span);
+        let (_fun, arg2) = self.deduce_apply_type(env, &fun, &arg, &v);
+        arg2
     }
 
     fn deduce_call2_type(

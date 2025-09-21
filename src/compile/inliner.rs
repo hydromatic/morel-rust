@@ -97,6 +97,16 @@ impl Expr {
                 let a2 = Box::new(x.transform_expr(env, a));
                 Expr::Apply(result_type.clone(), f2, a2)
             }
+            Expr::Case(t, expr, matches) => {
+                let expr2 = Box::new(x.transform_expr(env, expr));
+                let mut matches2 = Vec::new();
+                for m in matches {
+                    let pat = x.transform_pat(env, &m.pat);
+                    let expr = x.transform_expr(env, &m.expr);
+                    matches2.push(Match { pat, expr });
+                }
+                Expr::Case(t.clone(), expr2, matches2)
+            }
             Expr::Fn(t, match_list) => {
                 let mut match_list2 = Vec::new();
                 for m in match_list {

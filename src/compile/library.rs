@@ -117,6 +117,9 @@ pub enum BuiltInFunction {
     #[strum(props(name = "op <>", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpNe,
+    #[strum(props(name = "op ~", global = true))]
+    #[strum(props(type = "forall 1 'a -> 'a"))]
+    GOpNegate,
     #[strum(props(name = "op +", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GOpPlus,
@@ -131,6 +134,8 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Int", name = "op mod", global = true))]
     #[strum(props(type = "int * int -> int"))]
     IntMod,
+    #[strum(props(p = "Int", name = "op ~", type = "int -> int"))]
+    IntNegate,
     #[strum(props(p = "Int", name = "op =", type = "int * int -> bool"))]
     IntOpEq,
     #[strum(props(p = "Int", name = "op >=", type = "int * int -> bool"))]
@@ -163,6 +168,8 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Real", name = "op /", global = true))]
     #[strum(props(type = "real * real -> real"))]
     RealDivide,
+    #[strum(props(p = "Real", name = "op ~", type = "real -> real"))]
+    RealNegate,
     #[strum(props(p = "Real", name = "op =", type = "real * real -> bool"))]
     RealOpEq,
     #[strum(props(p = "Real", name = "op >=", type = "real * real -> bool"))]

@@ -298,7 +298,7 @@ impl<'a> Compiler<'a> {
             Pat::Wildcard(_) => {
                 // no variables to bind;
                 // trivially succeeds
-                Code::new_constant(Val::Bool(true))
+                Code::BindWildcard
             }
             _ => {
                 todo!("compile_pat: {:?}", pat)
@@ -425,6 +425,18 @@ impl<'a> Compiler<'a> {
                     _ => {}
                 }
                 todo!("compile {:}", expr)
+            }
+            Expr::Case(_, expr, matches) => {
+                let expr_code = self.compile_expr(cx, expr);
+                let mut codes = vec![expr_code];
+
+                for m in matches {
+                    let pat_code = self.compile_pat(cx, &m.pat);
+                    let expr_code = self.compile_expr(cx, &m.expr);
+                    codes.push(pat_code);
+                    codes.push(expr_code);
+                }
+                Code::new_match(&codes)
             }
             Expr::Fn(_, match_list) => {
                 let mut vars = Vec::new();
@@ -700,6 +712,9 @@ impl Pat {
             Pat::Tuple(_, pats) => {
                 pats.iter().for_each(|p| p.collect_vars(vars));
             }
+            Pat::Wildcard(_) => {
+                // no variables
+            }
             _ => todo!("collect_vars {:?}", self),
         }
     }
@@ -734,6 +749,10 @@ impl Expr {
             Expr::Apply(_, f, a) => {
                 f.collect_vars(vars);
                 a.collect_vars(vars);
+            }
+            Expr::Case(_, expr, matches) => {
+                expr.collect_vars(vars);
+                matches.iter().for_each(|m| m.collect_vars(vars));
             }
             Expr::Fn(_, matches) => {
                 matches.iter().for_each(|m| m.collect_vars(vars));

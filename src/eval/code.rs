@@ -74,9 +74,15 @@ pub enum Code {
     Bind(Box<(Code, Code)>),
     /// `BindLiteral(val)` succeeds if the argument is equal to `val`.
     BindLiteral(Val),
-    /// `Assign(ordinal, name)` assigns the argument to the `ordinal`th variable
-    /// in the current frame. `name` is for debugging purposes.
+    /// `BindSlot(slot, name)` assigns the argument to the `slot`th
+    /// variable in the current frame. `name` is for debugging purposes.
     BindSlot(usize, String),
+    /// `BindWildcard` ignores its argument and always succeeds.
+    BindWildcard,
+    /// `Case(codes)` evaluates `e`, iterates the (pattern, expression)
+    /// pairs until it can find the value to a pattern and finally evaluates
+    /// the expression.
+    Case(Vec<Code>),
     Constant(Val),
     /// `Fn(local_names, matches)` first creates a frame to contain the required
     /// local variables, next iterates the (pattern, expression) pairs until it
@@ -86,8 +92,6 @@ pub enum Code {
     GetLocal(usize),
     Let(Vec<Code>, Box<Code>),
     Link(Option<Box<Code>>),
-    /// `Match(c, if, else)` executes `if` if `c` is true, otherwise `else`.
-    Match(Box<(Code, Code, Code)>),
     /// `Match(conditions)` returns true if all conditions return true.
     /// Every condition takes 1 argument and returns a boolean value.
     MatchTuple(Vec<Code>),
@@ -140,16 +144,16 @@ impl Code {
         Code::MatchTuple(codes.to_vec())
     }
 
-    pub(crate) fn new_match(
-        cond_code: &Code,
-        if_code: &Code,
-        else_code: &Code,
-    ) -> Code {
-        Code::Match(Box::new((
-            cond_code.clone(),
-            if_code.clone(),
-            else_code.clone(),
-        )))
+    pub(crate) fn new_match(codes: &[Code]) -> Code {
+        assert_eq!(codes.len() % 2, 1);
+        codes.iter().enumerate().for_each(|(i, code)| {
+            code.assert_supports_eval_mode(if i % 2 == 0 {
+                &EvalMode::EagerV0
+            } else {
+                &EvalMode::EagerV1
+            })
+        });
+        Code::Case(codes.to_vec())
     }
 
     pub(crate) fn new_native(impl_: Impl, codes: &[Code]) -> Code {
@@ -225,16 +229,23 @@ impl Code {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
             }
             Code::BindSlot(_, _) => *mode == EvalMode::EagerV1,
-            Code::Constant(_) => *mode == EvalMode::Eager0,
+            Code::BindWildcard => *mode == EvalMode::EagerV1,
+            Code::Case(_) => *mode == EvalMode::EagerV1,
+            Code::Constant(_) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerV0
+            }
             Code::Fn(_, _) => *mode == EvalMode::EagerV1,
             Code::GetLocal(_) => *mode == EvalMode::EagerV0,
             Code::Let(_, _) => *mode == EvalMode::Eager0,
             Code::Link(_) => todo!("{:?}", self),
-            Code::Match(_) => *mode == EvalMode::EagerV1,
             Code::MatchTuple(_) => *mode == EvalMode::EagerV1,
             Code::Native0(_) => *mode == EvalMode::Eager0,
-            Code::Native1(_, _) => *mode == EvalMode::Eager1,
-            Code::Native2(_, _, _) => *mode == EvalMode::Eager2,
+            Code::Native1(_, _) => {
+                *mode == EvalMode::Eager1 || *mode == EvalMode::EagerV0
+            }
+            Code::Native2(_, _, _) => {
+                *mode == EvalMode::Eager2 || *mode == EvalMode::EagerV0
+            }
             Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
             Code::NativeF2(_, _, _) => *mode == EvalMode::EagerV2,
             Code::Tuple(_) => *mode == EvalMode::EagerV0,
@@ -260,6 +271,20 @@ impl Code {
                     Ok(_) => Err(MorelError::Bind),
                     Err(e) => Err(e),
                 }
+            }
+            Code::Case(codes) => {
+                let v = codes[0].eval_f0(r, f)?;
+                let mut i = 1;
+                while i < codes.len() {
+                    let pat = &codes[i];
+                    let matched = pat.eval_f1(r, f, &v)?;
+                    if matched.expect_bool() {
+                        let expr = &codes[i + 1];
+                        return expr.eval_f0(r, f);
+                    }
+                    i += 2;
+                }
+                Err(MorelError::Bind)
             }
             Code::Constant(c) => Ok(c.clone()),
             Code::Fn(_, _) => {
@@ -325,6 +350,7 @@ impl Code {
                 f.vals[*ordinal] = a0.clone();
                 Ok(Val::Bool(true))
             }
+            Code::BindWildcard => Ok(Val::Bool(true)),
             Code::Fn(local_names, matches) => {
                 Frame::create_and_eval(local_names, matches, r, a0)
             }
@@ -462,7 +488,9 @@ impl Eager0 {
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        b.fn_impls.insert(f, Impl::E0(*self));
+        if b.fn_impls.insert(f, Impl::E0(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
     }
 }
 
@@ -471,7 +499,9 @@ impl Eager0 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Eager1 {
     // lint: sort until '#}'
+    IntNegate,
     OptionSome,
+    RealNegate,
 }
 
 impl Eager1 {
@@ -480,16 +510,20 @@ impl Eager1 {
     fn apply(&self, a0: Val) -> Val {
         match &self {
             // lint: sort until '#}' where 'Eager1::'
+            Eager1::IntNegate => Val::Int(-a0.expect_int()),
             Eager1::OptionSome => {
                 // TODO: Proper option some implementation
                 // For now return the value
                 a0
             }
+            Eager1::RealNegate => Val::Real(-a0.expect_real()),
         }
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        b.fn_impls.insert(f, Impl::E1(*self));
+        if b.fn_impls.insert(f, Impl::E1(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
     }
 }
 
@@ -623,7 +657,9 @@ impl Eager2 {
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        b.fn_impls.insert(f, Impl::E2(*self));
+        if b.fn_impls.insert(f, Impl::E2(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
     }
 }
 
@@ -642,7 +678,9 @@ pub enum EagerV2 {
 
 impl EagerV2 {
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        b.fn_impls.insert(f, Impl::EV2(*self));
+        if b.fn_impls.insert(f, Impl::EV2(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
     }
 
     // Passing Val by value is OK because it is small.
@@ -690,7 +728,9 @@ impl Eager3 {
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        b.fn_impls.insert(f, Impl::E3(*self));
+        if b.fn_impls.insert(f, Impl::E3(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
     }
 }
 
@@ -705,6 +745,7 @@ enum Custom {
     GOpLt,
     GOpMinus,
     GOpNe,
+    GOpNegate,
     GOpPlus,
     GOpTimes,
 }
@@ -750,6 +791,11 @@ impl Custom {
                 _ => panic!("Type error in - operation"),
             },
             Custom::GOpNe => Val::Bool(a0 != a1),
+            Custom::GOpNegate => match a0 {
+                Val::Int(_) => Eager1::IntNegate.apply(a0),
+                Val::Real(_) => Eager1::RealNegate.apply(a0),
+                _ => panic!("Type error in ~ operation"),
+            },
             Custom::GOpPlus => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x + y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x + y),
@@ -764,7 +810,9 @@ impl Custom {
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        b.fn_impls.insert(f, Impl::Custom);
+        if b.fn_impls.insert(f, Impl::Custom).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
     }
 }
 
@@ -807,11 +855,13 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Custom::GOpLt.implements(&mut b, GOpLt);
     Custom::GOpMinus.implements(&mut b, GOpMinus);
     Custom::GOpNe.implements(&mut b, GOpNe);
+    Custom::GOpNegate.implements(&mut b, GOpNegate);
     Custom::GOpPlus.implements(&mut b, GOpPlus);
     Custom::GOpTimes.implements(&mut b, GOpTimes);
     Eager2::IntDiv.implements(&mut b, IntDiv);
     Eager2::IntMinus.implements(&mut b, IntMinus);
     Eager2::IntMod.implements(&mut b, IntMod);
+    Eager1::IntNegate.implements(&mut b, IntNegate);
     Eager2::IntOpEq.implements(&mut b, IntOpEq);
     Eager2::IntOpGe.implements(&mut b, IntOpGe);
     Eager2::IntOpGt.implements(&mut b, IntOpGt);
@@ -825,6 +875,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager0::OptionNone.implements(&mut b, OptionNone);
     Eager1::OptionSome.implements(&mut b, OptionSome);
     Eager2::RealDivide.implements(&mut b, RealDivide);
+    Eager1::RealNegate.implements(&mut b, RealNegate);
     Eager2::RealOpEq.implements(&mut b, RealOpEq);
     Eager2::RealOpGe.implements(&mut b, RealOpGe);
     Eager2::RealOpGt.implements(&mut b, RealOpGt);

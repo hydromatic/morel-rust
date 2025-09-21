@@ -61,8 +61,7 @@ pub enum Expr {
     /// `Apply(f, a)` represents `f a`, applying a function to an argument.
     Apply(Box<Type>, Box<Expr>, Box<Expr>),
 
-    // Control structures
-    If(Box<Type>, Box<Expr>, Box<Expr>, Box<Expr>),
+    // Control structures. (There is no 'If'; use 'Case' instead.)
     Case(Box<Type>, Box<Expr>, Vec<Match>),
     Let(Box<Type>, Vec<Decl>, Box<Expr>),
     Fn(Box<Type>, Vec<Match>),
@@ -90,7 +89,6 @@ impl Expr {
             Expr::Forall(t, _) => t.clone(),
             Expr::From(t, _) => t.clone(),
             Expr::Identifier(t, _) => t.clone(),
-            Expr::If(t, _, _, _) => t.clone(),
             Expr::Let(t, _, _) => t.clone(),
             Expr::List(t, _) => t.clone(),
             Expr::Literal(t, _) => t.clone(),
@@ -134,9 +132,6 @@ impl Display for Expr {
             Expr::Forall(_t, steps) => write!(f, "forall {:?}", steps),
             Expr::From(_t, steps) => write!(f, "from {:?}", steps),
             Expr::Identifier(_t, name) => write!(f, "{}", name),
-            Expr::If(_t, cond, then_, else_) => {
-                write!(f, "if {} then {} else {}", cond, then_, else_)
-            }
             Expr::Let(_t, decls, body) => {
                 write!(f, "let ")?;
                 for decl in decls {
