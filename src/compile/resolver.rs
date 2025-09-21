@@ -17,7 +17,8 @@
 
 use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
-    Match, Pat as CorePat, TypeBind as CoreTypeBind, ValBind as CoreValBind,
+    Match as CoreMatch, Pat as CorePat, PatField as CorePatField,
+    TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
 use crate::compile::inliner::Env;
 use crate::compile::library::BuiltInFunction;
@@ -25,14 +26,14 @@ use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::syntax::ast::{
-    DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Pat,
-    PatKind, Type as AstType, TypeBind, ValBind,
+    DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match,
+    Pat, PatField, PatKind, Type as AstType, TypeBind, ValBind,
 };
 use crate::syntax::parser;
 use std::collections::{HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
-pub fn resolve(resolved: &Resolved) -> Box<crate::compile::core::Decl> {
+pub fn resolve(resolved: &Resolved) -> CoreDecl {
     let resolver = Resolver::new(&resolved.type_map);
     resolver.resolve_decl(&resolved.decl)
 }
@@ -76,8 +77,8 @@ pub struct Resolver<'a> {
 /// Helper struct representing a pattern-expression pair with position info.
 #[derive(Debug, Clone)]
 struct PatExpr {
-    pat: Box<CorePat>,
-    expr: Box<CoreExpr>,
+    pat: CorePat,
+    expr: CoreExpr,
 }
 
 /// Resolved value declaration that mirrors the Java ResolvedValDecl.
@@ -86,14 +87,14 @@ struct ResolvedValDecl {
     rec: bool,
     composite: bool,
     pat_exps: Vec<PatExpr>,
-    pat: Box<CorePat>,
-    expr: Box<CoreExpr>,
+    pat: CorePat,
+    expr: CoreExpr,
 }
 
 impl ResolvedValDecl {
     /// Converts this resolved declaration to a let expression.
     /// This is the Rust translation of the Java toExp method.
-    fn to_exp(&self, result_expr: Box<CoreExpr>) -> Box<CoreExpr> {
+    fn to_exp(&self, result_expr: &CoreExpr) -> CoreExpr {
         if self.rec {
             // Recursive case: create RecVal with all bindings.
             let val_binds: Vec<CoreValBind> = self
@@ -101,35 +102,35 @@ impl ResolvedValDecl {
                 .iter()
                 .map(|pat_exp| CoreValBind {
                     pat: pat_exp.pat.clone(),
-                    t: pat_exp.pat.type_(),
+                    t: *pat_exp.pat.type_(),
                     expr: pat_exp.expr.clone(),
                     overload_pat: None,
                 })
                 .collect();
 
             let decl = CoreDecl::RecVal(val_binds);
-            return Box::new(CoreExpr::Let(
+            return CoreExpr::Let(
                 result_expr.type_(),
                 vec![decl],
-                result_expr,
-            ));
+                Box::new(result_expr.clone()),
+            );
         } else if !self.composite && self.pat_exps.len() == 1 {
             // Simple non-recursive case: single identifier pattern.
             let pat_exp = &self.pat_exps[0];
-            if let CorePat::Identifier(_, _) = pat_exp.pat.as_ref() {
+            if let CorePat::Identifier(_, _) = pat_exp.pat {
                 let val_bind = CoreValBind {
                     pat: pat_exp.pat.clone(),
-                    t: pat_exp.pat.type_(),
+                    t: *pat_exp.pat.type_(),
                     expr: pat_exp.expr.clone(),
                     overload_pat: None,
                 };
 
                 let decl = CoreDecl::NonRecVal(Box::new(val_bind));
-                return Box::new(CoreExpr::Let(
+                return CoreExpr::Let(
                     result_expr.type_(),
                     vec![decl],
-                    result_expr,
-                ));
+                    Box::new(result_expr.clone()),
+                );
             }
         }
 
@@ -141,12 +142,12 @@ impl ResolvedValDecl {
 
         // Create intermediate identifier pattern.
         let temp_pat =
-            Box::new(CorePat::Identifier(expr_type.clone(), temp_name.clone()));
+            CorePat::Identifier(expr_type.clone(), temp_name.clone());
 
         // Create the intermediate binding.
         let temp_val_bind = CoreValBind {
             pat: temp_pat.clone(),
-            t: expr_type.clone(),
+            t: *expr_type.clone(),
             expr: self.expr.clone(),
             overload_pat: None,
         };
@@ -155,9 +156,9 @@ impl ResolvedValDecl {
         let temp_id = Box::new(CoreExpr::Identifier(expr_type, temp_name));
 
         // Create the case expression to match the complex pattern.
-        let match_ = Match {
+        let match_ = CoreMatch {
             pat: self.pat.clone(),
-            expr: result_expr,
+            expr: result_expr.clone(),
         };
 
         let case_expr =
@@ -165,7 +166,7 @@ impl ResolvedValDecl {
 
         // Create the let expression.
         let decl = CoreDecl::NonRecVal(Box::new(temp_val_bind));
-        Box::new(CoreExpr::Let(case_expr.type_(), vec![decl], case_expr))
+        CoreExpr::Let(case_expr.type_(), vec![decl], case_expr)
     }
 }
 
@@ -176,8 +177,8 @@ impl<'a> Resolver<'a> {
     }
 
     /// Resolves an AST declaration to a core declaration.
-    pub(crate) fn resolve_decl(&self, decl: &Decl) -> Box<CoreDecl> {
-        Box::new(match &decl.kind {
+    pub(crate) fn resolve_decl(&self, decl: &Decl) -> CoreDecl {
+        match &decl.kind {
             // lint: sort until '#}' where '##DeclKind::'
             DeclKind::Datatype(datatype_binds) => CoreDecl::Datatype(
                 datatype_binds
@@ -206,7 +207,7 @@ impl<'a> Resolver<'a> {
                             .iter()
                             .map(|pe| CoreValBind {
                                 pat: pe.pat.clone(),
-                                t: pe.pat.type_(),
+                                t: *pe.pat.type_(),
                                 expr: pe.expr.clone(),
                                 overload_pat: None,
                             })
@@ -216,7 +217,7 @@ impl<'a> Resolver<'a> {
                     let pe = &resolved_val_decl.pat_exps[0];
                     CoreDecl::NonRecVal(Box::new(CoreValBind {
                         pat: pe.pat.clone(),
-                        t: pe.pat.type_(),
+                        t: *pe.pat.type_(),
                         expr: pe.expr.clone(),
                         overload_pat: None,
                     }))
@@ -228,7 +229,7 @@ impl<'a> Resolver<'a> {
                             .iter()
                             .map(|pe| CoreValBind {
                                 pat: pe.pat.clone(),
-                                t: pe.pat.type_(),
+                                t: *pe.pat.type_(),
                                 expr: pe.expr.clone(),
                                 overload_pat: None,
                             })
@@ -236,34 +237,34 @@ impl<'a> Resolver<'a> {
                     )
                 }
             }
-        })
+        }
     }
 
     /// Resolves an AST expression to a core expression.
-    pub fn resolve_expr(&self, expr: &Expr) -> Box<CoreExpr> {
+    pub fn resolve_expr(&self, expr: &Expr) -> CoreExpr {
         let t = expr.get_type(self.type_map).unwrap();
-        Box::new(match &expr.kind {
+        match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Aggregate(a0, a1) => CoreExpr::Aggregate(
                 t,
-                self.resolve_expr(a0),
-                self.resolve_expr(a1),
+                Box::new(self.resolve_expr(a0)),
+                Box::new(self.resolve_expr(a1)),
             ),
             ExprKind::AndAlso(a0, a1) => {
                 self.call2(t, BuiltInFunction::BoolAndAlso, a0, a1)
             }
-            ExprKind::Annotated(expr, _) => *self.resolve_expr(expr),
+            ExprKind::Annotated(expr, _) => self.resolve_expr(expr),
             ExprKind::Append(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListOpCons, a0, a1)
             }
             ExprKind::Apply(func, arg) => CoreExpr::Apply(
                 t,
-                self.resolve_expr(func),
-                self.resolve_expr(arg),
+                Box::new(self.resolve_expr(func)),
+                Box::new(self.resolve_expr(arg)),
             ),
             ExprKind::Case(expr, matches) => CoreExpr::Case(
                 t,
-                self.resolve_expr(expr),
+                Box::new(self.resolve_expr(expr)),
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
             ExprKind::Cons(a0, a1) => {
@@ -349,9 +350,9 @@ impl<'a> Resolver<'a> {
             ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
             ExprKind::If(cond, then_expr, else_expr) => CoreExpr::If(
                 t,
-                self.resolve_expr(cond),
-                self.resolve_expr(then_expr),
-                self.resolve_expr(else_expr),
+                Box::new(self.resolve_expr(cond)),
+                Box::new(self.resolve_expr(then_expr)),
+                Box::new(self.resolve_expr(else_expr)),
             ),
             ExprKind::Implies(a0, a1) => {
                 self.call2(t, BuiltInFunction::BoolImplies, a0, a1)
@@ -390,11 +391,15 @@ impl<'a> Resolver<'a> {
                     _ => todo!("resolve {:?}", a0),
                 }
             }
-            ExprKind::Let(decls, body) => CoreExpr::Let(
-                t,
-                decls.iter().map(|d| *self.resolve_decl(d)).collect(),
-                self.resolve_expr(body),
-            ),
+            ExprKind::Let(decls, body) => {
+                let resolved_decls =
+                    decls.iter().map(|d| self.resolve_decl(d)).collect();
+                CoreExpr::Let(
+                    t,
+                    resolved_decls,
+                    Box::new(self.resolve_expr(body)),
+                )
+            }
             ExprKind::List(elements) => CoreExpr::List(
                 t,
                 elements.iter().map(|e| self.resolve_expr(e)).collect(),
@@ -451,13 +456,11 @@ impl<'a> Resolver<'a> {
                     _ => todo!("resolve {:?}", a0),
                 }
             }
-            ExprKind::Record(_, fields) => CoreExpr::Tuple(
-                t,
-                fields
-                    .iter()
-                    .map(|f| self.resolve_expr(f.expr.as_ref()))
-                    .collect(),
-            ),
+            ExprKind::Record(_, fields) => {
+                let resolved_fields =
+                    fields.iter().map(|f| self.resolve_expr(&f.expr)).collect();
+                CoreExpr::Tuple(t, resolved_fields)
+            }
             ExprKind::RecordSelector(name) => {
                 let slot = t.lookup_field(name).unwrap();
                 CoreExpr::RecordSelector(t, slot)
@@ -479,14 +482,14 @@ impl<'a> Resolver<'a> {
                 elements.iter().map(|e| self.resolve_expr(e)).collect(),
             ),
             _ => todo!("Unimplemented expression kind: {:?}", expr.kind),
-        })
+        }
     }
 
     fn call1(&self, t: Box<Type>, f: BuiltInFunction, a0: &Expr) -> CoreExpr {
         let fn_type = f.get_type();
         let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
         let c0 = self.resolve_expr(a0);
-        CoreExpr::Apply(t, Box::new(fn_literal), c0)
+        CoreExpr::Apply(t, Box::new(fn_literal), Box::new(c0))
     }
 
     fn call2(
@@ -528,53 +531,55 @@ impl<'a> Resolver<'a> {
     }
 
     /// Resolves an AST pattern to a core pattern.
-    fn resolve_pat(&self, pat: &Pat) -> Box<CorePat> {
+    fn resolve_pat(&self, pat: &Pat) -> CorePat {
         let t = pat.get_type(self.type_map).unwrap();
 
-        Box::new(match &pat.kind {
+        match &pat.kind {
             // lint: sort until '#}' where '##PatKind::'
             PatKind::Annotated(pat, _) => {
                 // For annotated patterns, just resolve the inner pattern
                 // since core patterns have embedded types.
-                *self.resolve_pat(pat)
+                self.resolve_pat(pat)
             }
-            PatKind::As(name, sub_pat) => {
-                CorePat::As(t, name.clone(), self.resolve_pat(sub_pat))
-            }
-            PatKind::Cons(head, tail) => {
-                CorePat::Cons(t, self.resolve_pat(head), self.resolve_pat(tail))
-            }
-            PatKind::Constructor(name, opt_pat) => CorePat::Constructor(
+            PatKind::As(name, sub_pat) => CorePat::As(
                 t,
                 name.clone(),
-                opt_pat.as_ref().map(|p| self.resolve_pat(p)),
+                Box::new(self.resolve_pat(sub_pat)),
             ),
-            PatKind::Identifier(name) => CorePat::Identifier(t, name.clone()),
-            PatKind::List(pats) => CorePat::List(
+            PatKind::Cons(head, tail) => CorePat::Cons(
                 t,
-                pats.iter().map(|p| *self.resolve_pat(p)).collect(),
+                Box::new(self.resolve_pat(head)),
+                Box::new(self.resolve_pat(tail)),
             ),
+            PatKind::Constructor(name, opt_pat) => {
+                let resolved_pat =
+                    opt_pat.as_ref().map(|p| Box::new(self.resolve_pat(p)));
+                CorePat::Constructor(t, name.clone(), resolved_pat)
+            }
+            PatKind::Identifier(name) => CorePat::Identifier(t, name.clone()),
+            PatKind::List(pats) => {
+                let resolved_pats =
+                    pats.iter().map(|p| self.resolve_pat(p)).collect();
+                CorePat::List(t, resolved_pats)
+            }
             PatKind::Literal(literal) => {
                 CorePat::Literal(t, self.resolve_literal(literal))
             }
-            PatKind::Record(fields, has_ellipsis) => CorePat::Record(
-                t,
-                fields.iter().map(|f| self.resolve_pat_field(f)).collect(),
-                *has_ellipsis,
-            ),
-            PatKind::Tuple(pats) => CorePat::Tuple(
-                t,
-                pats.iter().map(|p| *self.resolve_pat(p)).collect(),
-            ),
+            PatKind::Record(fields, has_ellipsis) => {
+                let resolved_fields =
+                    fields.iter().map(|f| self.resolve_pat_field(f)).collect();
+                CorePat::Record(t, resolved_fields, *has_ellipsis)
+            }
+            PatKind::Tuple(pats) => {
+                let resolved_pats = pats.iter().map(|p| self.resolve_pat(p));
+                CorePat::Tuple(t, resolved_pats.collect())
+            }
             PatKind::Wildcard => CorePat::Wildcard(t),
-        })
+        }
     }
 
     /// Resolves an AST pattern field to a core pattern field.
-    fn resolve_pat_field(
-        &self,
-        _field: &crate::syntax::ast::PatField,
-    ) -> crate::compile::core::PatField {
+    fn resolve_pat_field(&self, _field: &PatField) -> CorePatField {
         todo!("Implement pat field resolution")
     }
 
@@ -602,7 +607,7 @@ impl<'a> Resolver<'a> {
 
         CoreValBind {
             pat,
-            t: type_,
+            t: *type_,
             expr,
             overload_pat: None,
         }
@@ -630,8 +635,8 @@ impl<'a> Resolver<'a> {
     }
 
     /// Resolves an AST match to a core match.
-    fn resolve_match(&self, ast_match: &crate::syntax::ast::Match) -> Match {
-        Match {
+    fn resolve_match(&self, ast_match: &Match) -> CoreMatch {
+        CoreMatch {
             pat: self.resolve_pat(&ast_match.pat),
             expr: self.resolve_expr(&ast_match.expr),
         }
@@ -706,14 +711,14 @@ impl<'a> Resolver<'a> {
         // to "let val v = (v1, v2) in case v of (E1, E2) => E end"
         let (_pat0, _exp) = if composite {
             let pats: Vec<CorePat> =
-                pat_exps.iter().map(|x| *x.pat.clone()).collect();
-            let exps: Vec<Box<CoreExpr>> =
+                pat_exps.iter().map(|x| x.pat.clone()).collect();
+            let exps: Vec<CoreExpr> =
                 pat_exps.iter().map(|x| x.expr.clone()).collect();
             let types: Vec<Type> =
                 pat_exps.iter().map(|x| *x.pat.type_()).collect();
             let type_ = Box::new(Type::Tuple(types));
-            let pat0 = Box::new(CorePat::Tuple(type_.clone(), pats));
-            let exp = Box::new(CoreExpr::Tuple(type_, exps));
+            let pat0 = CorePat::Tuple(type_.clone(), pats);
+            let exp = CoreExpr::Tuple(type_, exps);
             (pat0, exp)
         } else {
             let pat_exp = &pat_exps[0];
@@ -721,11 +726,11 @@ impl<'a> Resolver<'a> {
         };
 
         // Transform composite patterns.
-        let (pat, expr) = if composite {
+        let (ref pat, expr) = if composite {
             // Create tuple pattern and expression.
             let pats: Vec<CorePat> =
-                pat_exps.iter().map(|pe| *pe.pat.clone()).collect();
-            let exprs: Vec<Box<CoreExpr>> =
+                pat_exps.iter().map(|pe| pe.pat.clone()).collect();
+            let exprs: Vec<CoreExpr> =
                 pat_exps.iter().map(|pe| pe.expr.clone()).collect();
 
             // Create a tuple type based on the constituent types.
@@ -733,8 +738,8 @@ impl<'a> Resolver<'a> {
                 pats.iter().map(|p| *p.type_().clone()).collect();
             let tuple_type = Box::new(Type::Tuple(tuple_types));
 
-            let tuple_pat = Box::new(CorePat::Tuple(tuple_type.clone(), pats));
-            let tuple_expr = Box::new(CoreExpr::Tuple(tuple_type, exprs));
+            let tuple_pat = CorePat::Tuple(tuple_type.clone(), pats);
+            let tuple_expr = CoreExpr::Tuple(tuple_type, exprs);
 
             (tuple_pat, tuple_expr)
         } else {
@@ -746,7 +751,7 @@ impl<'a> Resolver<'a> {
             rec,
             composite,
             pat_exps,
-            pat,
+            pat: pat.clone(),
             expr,
         }
     }
@@ -757,8 +762,8 @@ impl<'a> Resolver<'a> {
         &self,
         val_binds: &[ValBind],
         is_rec: bool,
-        result_expr: Box<CoreExpr>,
-    ) -> Box<CoreExpr> {
+        result_expr: &CoreExpr,
+    ) -> CoreExpr {
         let resolved_val_decl = self.resolve_val_decl(val_binds, is_rec);
         resolved_val_decl.to_exp(result_expr)
     }
@@ -769,24 +774,24 @@ impl<'a> Resolver<'a> {
         &self,
         pat: &CorePat,
         expr: &CoreExpr,
-        result_expr: Box<CoreExpr>,
-    ) -> Box<CoreExpr> {
+        result_expr: &CoreExpr,
+    ) -> CoreExpr {
         // Check if this is a simple identifier pattern.
         if let CorePat::Identifier(_, _) = pat {
             // Simple case - create direct let binding.
             let val_bind = CoreValBind {
-                pat: Box::new(pat.clone()),
-                t: pat.type_(),
-                expr: Box::new(expr.clone()),
+                pat: pat.clone(),
+                t: *pat.type_(),
+                expr: expr.clone(),
                 overload_pat: None,
             };
 
             let decl = CoreDecl::NonRecVal(Box::new(val_bind));
-            return Box::new(CoreExpr::Let(
+            return CoreExpr::Let(
                 result_expr.type_(),
                 vec![decl],
-                result_expr,
-            ));
+                Box::new(result_expr.clone()),
+            );
         }
 
         // Complex pattern case - allocate intermediate variable.
@@ -795,13 +800,13 @@ impl<'a> Resolver<'a> {
 
         // Create intermediate identifier pattern.
         let temp_pat =
-            Box::new(CorePat::Identifier(expr_type.clone(), temp_name.clone()));
+            CorePat::Identifier(expr_type.clone(), temp_name.clone());
 
         // Create intermediate binding.
         let temp_val_bind = CoreValBind {
             pat: temp_pat.clone(),
-            t: expr_type.clone(),
-            expr: Box::new(expr.clone()),
+            t: *expr_type.clone(),
+            expr: expr.clone(),
             overload_pat: None,
         };
 
@@ -809,9 +814,9 @@ impl<'a> Resolver<'a> {
         let temp_id = Box::new(CoreExpr::Identifier(expr_type, temp_name));
 
         // Create a case expression to match the complex pattern.
-        let match_ = Match {
-            pat: Box::new(pat.clone()),
-            expr: result_expr,
+        let match_ = CoreMatch {
+            pat: pat.clone(),
+            expr: result_expr.clone(),
         };
 
         let case_expr =
@@ -819,7 +824,7 @@ impl<'a> Resolver<'a> {
 
         // Create the let expression.
         let decl = CoreDecl::NonRecVal(Box::new(temp_val_bind));
-        Box::new(CoreExpr::Let(case_expr.type_(), vec![decl], case_expr))
+        CoreExpr::Let(case_expr.type_(), vec![decl], case_expr)
     }
 }
 

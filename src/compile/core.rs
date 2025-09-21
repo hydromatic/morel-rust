@@ -45,7 +45,6 @@ impl Display for StatementKind {
 }
 
 /// Expression.
-#[allow(clippy::vec_box)]
 #[derive(Debug, Clone)]
 pub enum Expr {
     Literal(Box<Type>, Val),
@@ -69,8 +68,8 @@ pub enum Expr {
     Fn(Box<Type>, Vec<Match>),
 
     // Constructors for data structures
-    Tuple(Box<Type>, Vec<Box<Expr>>), // e.g. `(x, y, z)`
-    List(Box<Type>, Vec<Box<Expr>>),  // e.g. `[x, y, z]`
+    Tuple(Box<Type>, Vec<Expr>), // e.g. `(x, y, z)`
+    List(Box<Type>, Vec<Expr>),  // e.g. `[x, y, z]`
 
     // Relational expressions
     From(Box<Type>, Vec<Step>),
@@ -171,8 +170,8 @@ impl Display for Expr {
 /// Match in a `case`.
 #[derive(Debug, Clone)]
 pub struct Match {
-    pub pat: Box<Pat>,
-    pub expr: Box<Expr>,
+    pub pat: Pat,
+    pub expr: Expr,
 }
 
 /// Abstract syntax tree (AST) of a step in a query.
@@ -273,6 +272,7 @@ impl Pat {
             Pat::Wildcard(t) => t.clone(),
         }
     }
+
     pub(crate) fn bind_recurse(
         &self,
         val: &Val,
@@ -434,7 +434,7 @@ impl Decl {
         where
             F: FnMut(&Pat, &Expr, &Option<Box<Id>>),
         {
-            action(b.pat.as_ref(), b.expr.as_ref(), &b.overload_pat);
+            action(&b.pat, &b.expr, &b.overload_pat);
         }
     }
 
@@ -510,20 +510,20 @@ impl Display for Decl {
 /// Value binding.
 #[derive(Debug, Clone)]
 pub struct ValBind {
-    pub pat: Box<Pat>,
-    pub t: Box<Type>,
-    pub expr: Box<Expr>,
+    pub pat: Pat,
+    pub t: Type,
+    pub expr: Expr,
     pub overload_pat: Option<Box<Id>>,
 }
 
 impl ValBind {
     /// Creates a value binding with the given pattern, type annotation, and
     /// expression.
-    pub fn of(pat: Box<Pat>, t: Box<Type>, expr: Box<Expr>) -> Self {
+    pub fn of(pat: &Pat, t: &Type, expr: &Expr) -> Self {
         ValBind {
-            pat,
-            t,
-            expr,
+            pat: pat.clone(),
+            t: t.clone(),
+            expr: expr.clone(),
             overload_pat: None,
         }
     }
@@ -569,7 +569,7 @@ pub struct FunMatch {
     pub name: String,
     pub pats: Vec<Pat>,
     pub type_: Option<Box<Type>>,
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl Display for FunMatch {

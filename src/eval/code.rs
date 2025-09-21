@@ -448,7 +448,6 @@ pub enum Eager0 {
 
 impl Eager0 {
     // Passing Val by value is OK because it is small.
-    #[allow(clippy::needless_pass_by_value)]
     fn apply(&self) -> Val {
         match &self {
             // lint: sort until '#}' where 'Eager0::'

@@ -29,6 +29,7 @@ use crate::shell::main::Environment;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
+use std::slice;
 
 /// Compiles a declaration to code that can be evaluated.
 pub fn compile_statement(
@@ -95,7 +96,7 @@ impl<'a> Compiler<'a> {
 
         let type_ = match decl {
             Decl::NonRecVal(val_bind) => val_bind.t.clone(),
-            _ => Box::new(Type::Primitive(PrimitiveType::Unit)),
+            _ => Type::Primitive(PrimitiveType::Unit),
         };
 
         let context = self.create_context(env);
@@ -177,11 +178,11 @@ impl<'a> Compiler<'a> {
                             expr.type_(),
                         )),
                         vec![Match {
-                            pat: Box::new(Pat::Literal(
+                            pat: Pat::Literal(
                                 Box::new(Type::Primitive(PrimitiveType::Unit)),
                                 Val::Unit,
-                            )),
-                            expr: Box::new(expr.clone()),
+                            ),
+                            expr: expr.clone(),
                         }],
                     )
                 } else {
@@ -316,16 +317,12 @@ impl<'a> Compiler<'a> {
         if let Expr::Tuple(_, args) = expr {
             self.compile_arg_list(cx, args.as_slice())
         } else {
-            self.compile_arg_list(cx, &[Box::new(expr.clone())])
+            self.compile_arg_list(cx, slice::from_ref(expr))
         }
     }
 
     /// Compiles the tuple arguments to "apply".
-    pub fn compile_arg_list(
-        &self,
-        cx: &Context,
-        expr: &[Box<Expr>],
-    ) -> Vec<Code> {
+    pub fn compile_arg_list(&self, cx: &Context, expr: &[Expr]) -> Vec<Code> {
         expr.iter().map(|e| self.compile_expr(cx, e)).collect()
     }
 
@@ -477,10 +474,6 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn compile_let(&self, _cx: &Context, _let_exp: &Expr) -> Box<Code> {
-        todo!("Implement compile_let")
-    }
-
     fn link(_p0: &HashMap<String, Rc<Option<Code>>>, _p1: Pat, _p2: &Code) {
         todo!()
     }
@@ -561,10 +554,8 @@ impl Context {
     }
 
     pub fn bind_all(&self, bindings: &[Binding]) -> Self {
-        let mut local_vars = Vec::new();
-        for b in bindings {
-            local_vars.push(b.id.as_ref().clone());
-        }
+        let local_vars: Vec<Id> =
+            bindings.iter().map(|b| b.id.clone()).collect();
         Self {
             env: self.env.bind_all(bindings),
             local_vars,
@@ -649,7 +640,7 @@ pub trait CompiledStatement {
 }
 
 struct CompiledStatementImpl {
-    type_: Box<Type>,
+    type_: Type,
     actions: Vec<Box<dyn Action>>,
     context: Context,
 }

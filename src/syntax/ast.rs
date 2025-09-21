@@ -170,7 +170,6 @@ impl Display for Expr {
 }
 
 /// Kind of expression.
-#[allow(clippy::vec_box)]
 #[derive(Debug, Clone)]
 pub enum ExprKind<SubExpr> {
     Literal(Literal),
@@ -214,8 +213,8 @@ pub enum ExprKind<SubExpr> {
     Fn(Vec<Match>),
 
     // Constructors for data structures
-    Tuple(Vec<Box<Expr>>), // e.g. `(x, y, z)`
-    List(Vec<Box<Expr>>),  // e.g. `[x, y, z]`
+    Tuple(Vec<Expr>), // e.g. `(x, y, z)`
+    List(Vec<Expr>),  // e.g. `[x, y, z]`
     Record(Option<Box<Expr>>, Vec<LabeledExpr>), // e.g. `{r with x = 1, y}`
 
     // Relational expressions
@@ -455,20 +454,23 @@ impl Label {
 #[derive(Debug, Clone)]
 pub struct LabeledExpr {
     pub label: Option<Label>,
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl LabeledExpr {
-    pub fn new(label: Option<Label>, expr: Box<Expr>) -> Self {
-        LabeledExpr { label, expr }
+    pub fn new(label: Option<Label>, expr: &Expr) -> Self {
+        LabeledExpr {
+            label,
+            expr: expr.clone(),
+        }
     }
 }
 
 /// Match in a `case` or `fn` expression.
 #[derive(Debug, Clone)]
 pub struct Match {
-    pub pat: Box<Pat>,
-    pub expr: Box<Expr>,
+    pub pat: Pat,
+    pub expr: Expr,
 }
 
 /// Abstract syntax tree (AST) of a step in a query.
@@ -587,7 +589,6 @@ impl Display for Pat {
 /// A few names have evolved from Morel-Java.
 /// `Constructor` is equivalent to `class ConPat` or `class Con0Pat`;
 /// `Cons` is equivalent to `class ConsPat` in Morel-Java.
-#[allow(clippy::vec_box)]
 #[derive(Debug, Clone)]
 pub enum PatKind {
     Wildcard,
@@ -595,7 +596,7 @@ pub enum PatKind {
     As(String, Box<Pat>),
     Constructor(String, Option<Box<Pat>>), // e.g. `Empty` or `Leaf x`
     Literal(Literal),
-    Tuple(Vec<Box<Pat>>),
+    Tuple(Vec<Pat>),
     List(Vec<Pat>),
     Record(Vec<PatField>, bool),
     Cons(Box<Pat>, Box<Pat>), // e.g. `x :: xs`
@@ -662,9 +663,9 @@ impl Display for PatKind {
 /// For example, `{ label = x, y, ... }` has one of each.
 #[derive(Debug, Clone)]
 pub enum PatField {
-    Labeled(Span, String, Box<Pat>), // e.g. `named = x`
-    Anonymous(Span, Box<Pat>),       // e.g. `y`
-    Ellipsis(Span),                  // e.g. `...`
+    Labeled(Span, String, Pat), // e.g. `named = x`
+    Anonymous(Span, Pat),       // e.g. `y`
+    Ellipsis(Span),             // e.g. `...`
 }
 
 /// Abstract syntax tree (AST) of a declaration.
@@ -759,23 +760,19 @@ impl Display for DeclKind {
 /// Value binding.
 #[derive(Debug, Clone)]
 pub struct ValBind {
-    pub pat: Box<Pat>,
+    pub pat: Pat,
     pub type_annotation: Option<Box<Type>>,
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl ValBind {
     /// Creates a value binding with the given pattern, type annotation, and
     /// expression.
-    pub fn of(
-        pat: Box<Pat>,
-        type_annotation: Option<Type>,
-        expr: Box<Expr>,
-    ) -> Self {
+    pub fn of(pat: &Pat, type_annotation: Option<Type>, expr: &Expr) -> Self {
         ValBind {
-            pat,
+            pat: pat.clone(),
             type_annotation: type_annotation.map(Box::new),
-            expr,
+            expr: expr.clone(),
         }
     }
 
@@ -826,7 +823,7 @@ pub struct FunMatch {
     pub name: String,
     pub pats: Vec<Pat>,
     pub type_: Option<Box<Type>>,
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl Display for FunMatch {

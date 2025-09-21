@@ -247,7 +247,7 @@ impl Id {
 /// Used in [crate::shell::main::Environment].
 #[derive(Debug, Clone)]
 pub struct Binding {
-    pub id: Box<Id>,
+    pub id: Id,
     // pub term: Term,
     pub overload_id: Option<String>,
     pub value: Option<Val>,
@@ -278,7 +278,7 @@ impl Binding {
 
     pub(crate) fn of_name_value(name: &str, value: &Option<Val>) -> Self {
         Binding {
-            id: Box::new(Id::new(name, 0)),
+            id: Id::new(name, 0),
             value: value.clone(),
             overload_id: None,
         }
@@ -291,7 +291,7 @@ impl Binding {
             _ => panic!("Not an identifier or as pattern"),
         };
         Binding {
-            id: Box::new(Id::new(&name1, 0)),
+            id: Id::new(&name1, 0),
             value: Some(val.clone()),
             overload_id: None,
         }

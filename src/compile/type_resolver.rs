@@ -318,7 +318,7 @@ impl TypeResolver {
         }
 
         Resolved {
-            decl: *decl2,
+            decl: decl2,
             type_map,
             bindings: Vec::new(), // TODO: populate bindings
         }
@@ -330,7 +330,7 @@ impl TypeResolver {
         env: &dyn TypeEnv,
         decl: &Decl,
         term_map: &mut Vec<(String, Term)>,
-    ) -> Box<Decl> {
+    ) -> Decl {
         match &decl.kind {
             DeclKind::Val(rec, inst, val_binds) => {
                 let x = &self.deduce_val_decl_type(
@@ -373,7 +373,7 @@ impl TypeResolver {
         &mut self,
         env: &dyn TypeEnv,
         fun_binds: &[FunBind],
-    ) -> Box<Decl> {
+    ) -> Decl {
         let val_bind_list: Vec<ValBind> = fun_binds
             .iter()
             .map(|fun_bind| self.convert_fun_bind_to_val_bind(env, fun_bind))
@@ -381,7 +381,7 @@ impl TypeResolver {
 
         let x = DeclKind::Val(true, false, val_bind_list);
         let span = Span::sum(fun_binds, |b| b.span.clone());
-        Box::new(x.spanned(&span.unwrap()))
+        x.spanned(&span.unwrap())
     }
 
     fn convert_fun_bind_to_val_bind(
@@ -390,7 +390,7 @@ impl TypeResolver {
         fun_bind: &FunBind,
     ) -> ValBind {
         let vars: Vec<Pat>;
-        let mut expr: Box<Expr>;
+        let mut expr: Expr;
         let mut type_annotation: Option<Box<AstType>> = None;
         let span = fun_bind.span.clone();
 
@@ -414,7 +414,7 @@ impl TypeResolver {
 
             for fun_match in &fun_bind.matches {
                 match_list.push(Match {
-                    pat: Box::new(self.pat_tuple(&span, &fun_match.pats)),
+                    pat: self.pat_tuple(&span, &fun_match.pats),
                     expr: fun_match.expr.clone(),
                 });
 
@@ -434,21 +434,21 @@ impl TypeResolver {
                 }
             }
 
-            let x =
-                ExprKind::Case(self.id_tuple(&span, &var_names), match_list);
-            expr = Box::new(x.spanned(&span));
+            let x = ExprKind::Case(
+                Box::new(self.id_tuple(&span, &var_names)),
+                match_list,
+            );
+            expr = x.spanned(&span);
         }
 
         for var in vars.iter().rev() {
-            let pat = Box::new(var.clone());
+            let pat = var.clone();
             let kind = ExprKind::Fn(vec![Match { pat, expr }]);
-            expr = Box::new(kind.spanned(&span));
+            expr = kind.spanned(&span);
         }
 
         ValBind {
-            pat: Box::new(
-                PatKind::Identifier(fun_bind.name.clone()).spanned(&span),
-            ),
+            pat: PatKind::Identifier(fun_bind.name.clone()).spanned(&span),
             type_annotation,
             expr,
         }
@@ -462,18 +462,16 @@ impl TypeResolver {
     ///
     /// For example, `["x"]` becomes `x` (an `Id`), and `["x", "y"]`
     /// becomes `(x, y)` (a `Tuple` of `Id`s).
-    fn id_tuple(&self, span: &Span, vars: &[String]) -> Box<Expr> {
-        let id_list: Vec<Box<Expr>> = vars
+    fn id_tuple(&self, span: &Span, vars: &[String]) -> Expr {
+        let id_list: Vec<Expr> = vars
             .iter()
-            .map(|v| {
-                Box::new(ExprKind::Identifier(v.to_string()).spanned(span))
-            })
+            .map(|v| ExprKind::Identifier(v.to_string()).spanned(span))
             .collect();
 
         if id_list.len() == 1 {
             id_list.into_iter().next().unwrap()
         } else {
-            Box::new(ExprKind::Tuple(id_list).spanned(span))
+            ExprKind::Tuple(id_list).spanned(span)
         }
     }
 
@@ -484,10 +482,8 @@ impl TypeResolver {
         } else if pat_list.len() == 1 {
             pat_list.first().unwrap().clone()
         } else {
-            PatKind::Tuple(
-                pat_list.iter().map(|p| Box::new(p.clone())).collect(),
-            )
-            .spanned(&Span::sum(pat_list, |p| p.span.clone()).unwrap())
+            PatKind::Tuple(pat_list.to_vec())
+                .spanned(&Span::sum(pat_list, |p| p.span.clone()).unwrap())
         }
     }
 
@@ -538,7 +534,7 @@ impl TypeResolver {
         env: &dyn TypeEnv,
         type_: &AstType,
         v: &Rc<Var>,
-    ) -> Box<AstType> {
+    ) -> AstType {
         let mut converter = TypeToTermConverter {
             type_resolver: self,
             env,
@@ -552,7 +548,7 @@ impl TypeResolver {
         env: &dyn TypeEnv,
         type_scheme: &TypeScheme,
         v: &Rc<Var>,
-    ) -> Box<AstType> {
+    ) -> AstType {
         let mut type_variables = BTreeMap::new();
         for i in 0..type_scheme.var_count {
             let type_variable = Box::new(TypeVariable::new(i));
@@ -574,19 +570,19 @@ impl TypeResolver {
         env: &dyn TypeEnv,
         expr: &Expr,
         v: &'a Rc<Var>,
-    ) -> Box<Expr> {
+    ) -> Expr {
         match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::AndAlso(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op andalso", left, right, v);
-                let x = ExprKind::AndAlso(left2, right2);
+                let x = ExprKind::AndAlso(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Apply(left, right) => {
                 let (left2, right2) =
                     self.deduce_apply_type(env, &left, &right, v);
-                let apply2 = ExprKind::Apply(left2, right2);
+                let apply2 = ExprKind::Apply(Box::new(left2), Box::new(right2));
                 self.reg_expr(&apply2, &expr.span, expr.id, v)
             }
             ExprKind::Case(e, match_list) => {
@@ -608,25 +604,25 @@ impl TypeResolver {
                     v,
                 );
 
-                let x = ExprKind::Case(e2, match_list2);
+                let x = ExprKind::Case(Box::new(e2), match_list2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Div(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op div", left, right, v);
-                let x = ExprKind::Divide(left2, right2);
+                let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Divide(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op /", left, right, v);
-                let x = ExprKind::Divide(left2, right2);
+                let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Equal(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op =", left, right, v);
-                let x = ExprKind::Equal(left2, right2);
+                let x = ExprKind::Equal(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Fn(matches) => {
@@ -647,13 +643,17 @@ impl TypeResolver {
             ExprKind::GreaterThan(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op >", left, right, v);
-                let x = ExprKind::GreaterThan(left2, right2);
+                let x =
+                    ExprKind::GreaterThan(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::GreaterThanOrEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op >=", left, right, v);
-                let x = ExprKind::GreaterThanOrEqual(left2, right2);
+                let x = ExprKind::GreaterThanOrEqual(
+                    Box::new(left2),
+                    Box::new(right2),
+                );
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Identifier(name) => {
@@ -671,25 +671,29 @@ impl TypeResolver {
             ExprKind::If(a0, a1, a2) => {
                 let (a02, a12, a22) =
                     self.deduce_call3_type(env, "op if", a0, a1, a2, v);
-                let x = ExprKind::If(a02, a12, a22);
+                let x =
+                    ExprKind::If(Box::new(a02), Box::new(a12), Box::new(a22));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Implies(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op implies", left, right, v);
-                let x = ExprKind::Implies(left2, right2);
+                let x = ExprKind::Implies(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::LessThan(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <", left, right, v);
-                let x = ExprKind::LessThan(left2, right2);
+                let x = ExprKind::LessThan(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::LessThanOrEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <=", left, right, v);
-                let x = ExprKind::LessThanOrEqual(left2, right2);
+                let x = ExprKind::LessThanOrEqual(
+                    Box::new(left2),
+                    Box::new(right2),
+                );
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Let(decl_list, expr) => {
@@ -697,11 +701,11 @@ impl TypeResolver {
                 let mut decl_list2 = Vec::new();
                 for decl in decl_list {
                     let decl2 = self.deduce_decl_type(env, decl, &mut term_map);
-                    decl_list2.push(*decl2);
+                    decl_list2.push(decl2);
                 }
                 let env2 = env.bind_all(term_map.as_ref());
                 let expr2 = self.deduce_expr_type(&*env2, expr, v);
-                let x = ExprKind::Let(decl_list2, expr2);
+                let x = ExprKind::Let(decl_list2, Box::new(expr2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::List(expr_list) => {
@@ -734,31 +738,31 @@ impl TypeResolver {
             ExprKind::Minus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op -", left, right, v);
-                let x = ExprKind::Minus(left2, right2);
+                let x = ExprKind::Minus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Mod(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op mod", left, right, v);
-                let x = ExprKind::Divide(left2, right2);
+                let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::NotEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <>", left, right, v);
-                let x = ExprKind::NotEqual(left2, right2);
+                let x = ExprKind::NotEqual(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::OrElse(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op orelse", left, right, v);
-                let x = ExprKind::OrElse(left2, right2);
+                let x = ExprKind::OrElse(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Plus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op +", left, right, v);
-                let x = ExprKind::Plus(left2, right2);
+                let x = ExprKind::Plus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Record(with_expr, labeled_expr_list) => {
@@ -801,7 +805,7 @@ impl TypeResolver {
             ExprKind::Times(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op *", left, right, v);
-                let x = ExprKind::Times(left2, right2);
+                let x = ExprKind::Times(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Tuple(expr_list) => {
@@ -902,7 +906,7 @@ impl TypeResolver {
         fun: &Expr,
         arg: &Expr,
         v_result: &Rc<Var>,
-    ) -> (Box<Expr>, Box<Expr>) {
+    ) -> (Expr, Expr) {
         let v_fn = self.variable();
         let v_arg = self.variable();
         self.fn_term(&v_arg, v_result, &v_fn);
@@ -961,7 +965,7 @@ impl TypeResolver {
         v_fun: &Rc<Var>,
         _v_arg: &Rc<Var>,
         _v: &Rc<Var>,
-    ) -> Box<Expr> {
+    ) -> Expr {
         self.deduce_expr_type(env, fun, v_fun)
     }
 
@@ -971,7 +975,7 @@ impl TypeResolver {
         name: &String,
         v_rec: &Rc<Var>,
         v_field: &Rc<Var>,
-    ) -> Box<Expr> {
+    ) -> Expr {
         // Create a function type: record -> field
         let v_fn = self.variable();
         self.fn_term(v_rec, v_field, &v_fn);
@@ -997,16 +1001,10 @@ impl TypeResolver {
         left: &Expr,
         right: &Expr,
         v: &Rc<Var>,
-    ) -> (Box<Expr>, Box<Expr>) {
-        let fun =
-            Box::new(ExprKind::Identifier(op.to_string()).spanned(&left.span));
-        let arg = Box::new(
-            ExprKind::Tuple(vec![
-                Box::new(left.clone()),
-                Box::new(right.clone()),
-            ])
-            .spanned(&left.span),
-        );
+    ) -> (Expr, Expr) {
+        let fun = ExprKind::Identifier(op.to_string()).spanned(&left.span);
+        let arg = ExprKind::Tuple(vec![left.clone(), right.clone()])
+            .spanned(&left.span);
         let (_fun, arg) = self.deduce_apply_type(env, &fun, &arg, &v);
         if let ExprKind::Tuple(args) = arg.kind
             && args.len() == 2
@@ -1025,16 +1023,12 @@ impl TypeResolver {
         a1: &Expr,
         a2: &Expr,
         v: &Rc<Var>,
-    ) -> (Box<Expr>, Box<Expr>, Box<Expr>) {
+    ) -> (Expr, Expr, Expr) {
         let fun =
             Box::new(ExprKind::Identifier(op.to_string()).spanned(&a0.span));
         let arg = Box::new(
-            ExprKind::Tuple(vec![
-                Box::new(a0.clone()),
-                Box::new(a1.clone()),
-                Box::new(a2.clone()),
-            ])
-            .spanned(&a0.span),
+            ExprKind::Tuple(vec![a0.clone(), a1.clone(), a2.clone()])
+                .spanned(&a0.span),
         );
         let (_fun, arg) = self.deduce_apply_type(env, &fun, &arg, &v);
         if let ExprKind::Tuple(args) = arg.kind
@@ -1058,7 +1052,7 @@ impl TypeResolver {
         right: &Pat,
         term_map: &mut Vec<(String, Term)>,
         v: &Rc<Var>,
-    ) -> (Box<Pat>, Box<Pat>) {
+    ) -> (Pat, Pat) {
         let v_arg0 = self.variable();
         let v_arg1 = self.variable();
         let left2 = self.deduce_pat_type(env, &left, term_map, &v_arg0);
@@ -1390,14 +1384,14 @@ impl TypeResolver {
         span: &Span,
         id: Option<i32>,
         v: &Rc<Var>,
-    ) -> Box<Expr> {
+    ) -> Expr {
         let id2 = id.unwrap_or_else(|| self.next_id());
         self.node_var_map.insert(id2, v.clone());
-        Box::new(Expr {
+        Expr {
             kind: kind.clone(),
             span: span.clone(),
             id: Some(id2),
-        })
+        }
     }
 
     /// Registers a term for an AST node for a pattern.
@@ -1407,14 +1401,14 @@ impl TypeResolver {
         span: &Span,
         id: Option<i32>,
         v: &Rc<Var>,
-    ) -> Box<Pat> {
+    ) -> Pat {
         let id2 = id.unwrap_or_else(|| self.next_id());
         self.node_var_map.insert(id2, v.clone());
-        Box::new(Pat {
+        Pat {
             kind: kind.clone(),
             span: span.clone(),
             id: Some(id2),
-        })
+        }
     }
 
     /// Registers a term for an AST node for a declaration.
@@ -1423,13 +1417,13 @@ impl TypeResolver {
         kind: &DeclKind,
         span: &Span,
         id: Option<i32>,
-    ) -> Box<Decl> {
+    ) -> Decl {
         let id2 = id.unwrap_or_else(|| self.next_id());
-        Box::new(Decl {
+        Decl {
             kind: kind.clone(),
             span: span.clone(),
             id: Some(id2),
-        })
+        }
     }
 
     /// Registers a term for an AST node for a type.
@@ -1438,12 +1432,12 @@ impl TypeResolver {
         kind: &TypeKind,
         span: &Span,
         v: &Rc<Var>,
-    ) -> Box<AstType> {
-        Box::new(AstType {
+    ) -> AstType {
+        AstType {
             kind: kind.clone(),
             span: span.clone(),
             id: Some(v.id),
-        })
+        }
     }
 
     fn deduce_val_bind_type(
@@ -1481,14 +1475,17 @@ impl TypeResolver {
         pat: &Pat,
         term_map: &mut Vec<(String, Term)>,
         v: &Rc<Var>,
-    ) -> Box<Pat> {
+    ) -> Pat {
         match &pat.kind {
             // lint: sort until '#}' where '##PatKind::[^ ]* =>'
             PatKind::Annotated(pat, type_) => {
                 let pat2 = self.deduce_pat_type(env, pat, term_map, &v);
                 let type2 = self.deduce_type_type(env, type_, &v);
                 self.reg_pat(
-                    &PatKind::Annotated(pat2.clone(), type2),
+                    &PatKind::Annotated(
+                        Box::new(pat2.clone()),
+                        Box::new(type2),
+                    ),
                     &pat2.span,
                     pat2.id,
                     &v,
@@ -1498,7 +1495,7 @@ impl TypeResolver {
                 let (left2, right2) = self.deduce_pat_call2_type(
                     env, "op ::", left, right, term_map, v,
                 );
-                let x = PatKind::Cons(left2, right2);
+                let x = PatKind::Cons(Box::new(left2), Box::new(right2));
                 self.reg_pat(&x, &pat.span, pat.id, &v)
             }
             PatKind::Constructor(name, arg) => {
@@ -1524,7 +1521,7 @@ impl TypeResolver {
                     self.equiv(&term, v);
                     None
                 };
-                let x = PatKind::Constructor(name.clone(), arg2);
+                let x = PatKind::Constructor(name.clone(), arg2.map(Box::new));
                 self.reg_pat(&x, &pat.span, pat.id, &v)
             }
             PatKind::Identifier(name) => {
@@ -1677,17 +1674,17 @@ fn ensure_decl(statement: &Statement) -> Decl {
                 false,
                 false,
                 vec![ValBind::of(
-                    Box::new(Pat {
+                    &Pat {
                         kind: PatKind::Identifier("it".to_string()),
                         span: statement.span.clone(),
                         id: statement.id,
-                    }),
+                    },
                     None,
-                    Box::new(Expr {
+                    &Expr {
                         kind: e.clone(),
                         span: statement.span.clone(),
                         id: statement.id,
-                    }),
+                    },
                 )],
             ),
             span: statement.span.clone(),
@@ -1715,7 +1712,7 @@ impl<'a> TypeToTermConverter<'a> {
         &mut self,
         type_scheme: &TypeScheme,
         v: &Rc<Var>,
-    ) -> Box<AstType> {
+    ) -> AstType {
         let mut subst = Subst::Empty;
         for i in 0..type_scheme.var_count {
             let type_variable = self.type_variables.values().nth(i).unwrap();
@@ -1732,7 +1729,7 @@ impl<'a> TypeToTermConverter<'a> {
         type_node: &AstType,
         subst: &Subst,
         v: &Rc<Var>,
-    ) -> Box<AstType> {
+    ) -> AstType {
         match &type_node.kind {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, t) => {
@@ -1743,7 +1740,7 @@ impl<'a> TypeToTermConverter<'a> {
                         let v2 = self.type_resolver.variable();
                         terms.push(Term::Variable(v2.clone()));
                         let arg2 = self.type_term(arg, subst, &v2);
-                        args2.push(*arg2);
+                        args2.push(arg2);
                     }
                     let op = self
                         .type_resolver
@@ -1764,7 +1761,7 @@ impl<'a> TypeToTermConverter<'a> {
                 let result2 = self.type_term(result, subst, &v5);
                 self.type_resolver.fn_term(&v4, &v5, &v);
                 self.type_resolver.reg_type(
-                    &TypeKind::Fn(param2, result2),
+                    &TypeKind::Fn(Box::new(param2), Box::new(result2)),
                     &type_node.span,
                     &v,
                 )
@@ -1785,7 +1782,7 @@ impl<'a> TypeToTermConverter<'a> {
                     let v2 = self.type_resolver.variable();
                     fields2.push(TypeField {
                         label: field.label.clone(),
-                        type_: *self.type_term(&field.type_, subst, &v2),
+                        type_: self.type_term(&field.type_, subst, &v2),
                     });
                     label_types.insert(
                         Label::from(field.label.name.clone()),
@@ -1805,7 +1802,7 @@ impl<'a> TypeToTermConverter<'a> {
                 for t in types {
                     let v2 = self.type_resolver.variable();
                     terms.push(Term::Variable(v2.clone()));
-                    types2.push(*self.type_term(&t, subst, &v2));
+                    types2.push(self.type_term(&t, subst, &v2));
                 }
                 self.type_resolver.tuple_term(&terms, &v);
                 self.type_resolver.reg_type(
@@ -1826,7 +1823,7 @@ impl<'a> TypeToTermConverter<'a> {
                 let type_variable = self.type_variables.get(name).unwrap();
                 let term = subst.get(type_variable).unwrap();
                 self.type_resolver.equiv(&term, &v);
-                Box::new(TypeKind::Var(name.clone()).spanned(&type_node.span))
+                TypeKind::Var(name.clone()).spanned(&type_node.span)
             }
             _ => todo!("{:?}", type_node.kind),
         }

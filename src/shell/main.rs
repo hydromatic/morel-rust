@@ -97,11 +97,10 @@ impl Environment {
 }
 
 impl Shell {
-    #[allow(clippy::needless_pass_by_value)] // Val is small
     pub(crate) fn set_prop(
         &mut self,
         prop: &str,
-        val: Val,
+        val: &Val,
     ) -> Result<(), Error> {
         match prop {
             "mode" => {
@@ -349,7 +348,7 @@ impl Shell {
         let mut map: BTreeMap<&str, (Type, Option<Val>)> = BTreeMap::new();
         library::populate_env(&mut map);
         let env2 = env.multi(&map);
-        let decl2 = inliner::inline_decl(&env2, decl);
+        let decl2 = inliner::inline_decl(&env2, &decl);
 
         let compiled_statement = compiler::compile_statement(
             &resolved.type_map,
@@ -383,10 +382,10 @@ impl Shell {
                 }
                 Effect::SetSessionProp(prop, val) => {
                     let mut session = self.session.borrow_mut();
-                    let _ = session.set_prop(&prop, val);
+                    let _ = session.set_prop(&prop, &val);
                 }
                 Effect::SetShellProp(prop, val) => {
-                    let _ = self.set_prop(&prop, val);
+                    let _ = self.set_prop(&prop, &val);
                 }
             }
         }

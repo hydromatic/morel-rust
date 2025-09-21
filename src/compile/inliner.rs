@@ -25,13 +25,13 @@ use std::collections::BTreeMap;
 /// Combined with [Decl::visit], [Expr::visit], and [Pat::visit], this
 /// can reshape a whole tree.
 trait Transformer {
-    fn transform_decl(&self, env: &Env, decl: Box<Decl>) -> Box<Decl>;
-    fn transform_expr(&self, env: &Env, expr: Box<Expr>) -> Box<Expr>;
-    fn transform_pat(&self, env: &Env, pat: Box<Pat>) -> Box<Pat>;
+    fn transform_decl(&self, env: &Env, decl: &Decl) -> Decl;
+    fn transform_expr(&self, env: &Env, expr: &Expr) -> Expr;
+    fn transform_pat(&self, env: &Env, pat: &Pat) -> Pat;
 }
 
 /// Passes over a tree and inlines constants.
-pub fn inline_decl(env: &Env, decl: Box<Decl>) -> Box<Decl> {
+pub fn inline_decl(env: &Env, decl: &Decl) -> Decl {
     let inliner = Inliner {};
     inliner.transform_decl(env, decl)
 }
@@ -39,13 +39,13 @@ pub fn inline_decl(env: &Env, decl: Box<Decl>) -> Box<Decl> {
 struct Inliner {}
 
 impl Transformer for Inliner {
-    fn transform_decl(&self, env: &Env, decl: Box<Decl>) -> Box<Decl> {
+    fn transform_decl(&self, env: &Env, decl: &Decl) -> Decl {
         decl.visit(env, self)
     }
 
-    fn transform_expr(&self, env: &Env, expr0: Box<Expr>) -> Box<Expr> {
-        let expr = expr0.visit(env, self);
-        match expr.as_ref() {
+    fn transform_expr(&self, env: &Env, expr: &Expr) -> Expr {
+        let expr = expr.visit(env, self);
+        match &expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_result_type, f, a) => {
                 if let Expr::RecordSelector(_fn_type, slot) = f.as_ref()
@@ -54,10 +54,10 @@ impl Transformer for Inliner {
                         record_type.field_types().get(*slot)
                 {
                     let v2 = v.get_field(*slot).unwrap();
-                    return Box::new(Expr::Literal(
+                    return Expr::Literal(
                         Box::new(field_type.clone()),
                         v2.clone(),
-                    ));
+                    );
                 }
                 expr
             }
@@ -69,7 +69,7 @@ impl Transformer for Inliner {
                 // the 9th field of "Sys" record type) converts that the field
                 // into a function literal.
                 if let Some(v) = env.lookup_constant(id) {
-                    return Box::new(Expr::Literal(t.clone(), v.clone()));
+                    return Expr::Literal(t.clone(), v.clone());
                 }
                 expr
             }
@@ -77,31 +77,31 @@ impl Transformer for Inliner {
         }
     }
 
-    fn transform_pat(&self, _v: &Env, pat: Box<Pat>) -> Box<Pat> {
-        pat // For now, just return the pattern unchanged
+    fn transform_pat(&self, _v: &Env, pat: &Pat) -> Pat {
+        pat.clone() // For now, just return the pattern unchanged
     }
 }
 
 impl Pat {
-    fn visit(&self, _env: &Env, _x: &dyn Transformer) -> Box<Pat> {
-        Box::new(self.clone())
+    fn visit(&self, _env: &Env, _x: &dyn Transformer) -> Pat {
+        self.clone()
     }
 }
 
 impl Expr {
-    fn visit(&self, env: &Env, x: &dyn Transformer) -> Box<Expr> {
-        Box::new(match &self {
+    fn visit(&self, env: &Env, x: &dyn Transformer) -> Expr {
+        match &self {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(result_type, f, a) => {
-                let f2 = x.transform_expr(env, f.clone());
-                let a2 = x.transform_expr(env, a.clone());
+                let f2 = Box::new(x.transform_expr(env, f));
+                let a2 = Box::new(x.transform_expr(env, a));
                 Expr::Apply(result_type.clone(), f2, a2)
             }
             Expr::Fn(t, match_list) => {
                 let mut match_list2 = Vec::new();
                 for m in match_list {
-                    let pat = x.transform_pat(env, m.pat.clone());
-                    let expr = x.transform_expr(env, m.expr.clone());
+                    let pat = x.transform_pat(env, &m.pat);
+                    let expr = x.transform_expr(env, &m.expr);
                     match_list2.push(Match { pat, expr });
                 }
                 Expr::Fn(t.clone(), match_list2)
@@ -116,50 +116,48 @@ impl Expr {
             Expr::Let(t, decl_list, e) => {
                 let mut decl_list2 = Vec::new();
                 for d in decl_list {
-                    let d2 = x.transform_decl(env, Box::new(d.clone()));
-                    decl_list2.push(*d2);
+                    let d2 = x.transform_decl(env, d);
+                    decl_list2.push(d2);
                 }
-                let e2 = x.transform_expr(env, e.clone());
+                let e2 = Box::new(x.transform_expr(env, e));
                 Expr::Let(t.clone(), decl_list2, e2)
             }
-            Expr::List(t, expr_list) => {
-                Expr::List(t.clone(), Self::visit_list(env, x, expr_list))
-            }
+            Expr::List(t, expr_list) => Expr::List(
+                t.clone(),
+                Self::visit_list(env, x, expr_list).into_iter().collect(),
+            ),
             Expr::Literal(_t, _v) => self.clone(),
-            Expr::Tuple(t, expr_list) => {
-                Expr::Tuple(t.clone(), Self::visit_list(env, x, expr_list))
-            }
+            Expr::Tuple(t, expr_list) => Expr::Tuple(
+                t.clone(),
+                Self::visit_list(env, x, expr_list).into_iter().collect(),
+            ),
             _ => todo!("inline {:}", self),
-        })
+        }
     }
 
-    #[allow(clippy::vec_box)]
     fn visit_list(
         env: &Env,
         x: &dyn Transformer,
-        expr_list: &[Box<Expr>],
-    ) -> Vec<Box<Expr>> {
-        expr_list
-            .iter()
-            .map(|e| x.transform_expr(env, e.clone()))
-            .collect()
+        expr_list: &[Expr],
+    ) -> Vec<Expr> {
+        expr_list.iter().map(|e| x.transform_expr(env, e)).collect()
     }
 }
 
 impl Decl {
-    fn visit(&self, env: &Env, x: &dyn Transformer) -> Box<Decl> {
+    fn visit(&self, env: &Env, x: &dyn Transformer) -> Decl {
         match &self {
             Decl::NonRecVal(val_bind) => {
                 let env2 = env.child_none(
                     val_bind.pat.name().unwrap().as_str(),
                     &val_bind.t,
                 );
-                Box::new(Decl::NonRecVal(Box::new(ValBind {
-                    pat: x.transform_pat(env, val_bind.pat.clone()),
-                    expr: x.transform_expr(&env2, val_bind.expr.clone()),
+                Decl::NonRecVal(Box::new(ValBind {
+                    pat: x.transform_pat(env, &val_bind.pat),
+                    expr: x.transform_expr(&env2, &val_bind.expr),
                     t: val_bind.t.clone(),
                     overload_pat: val_bind.overload_pat.clone(),
-                })))
+                }))
             }
             _ => todo!("inline {:}", self),
         }

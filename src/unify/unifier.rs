@@ -1121,7 +1121,7 @@ impl Unifier {
 /// Test for Unifier.
 #[derive(Clone)]
 pub struct UnifierTest {
-    unifier: Box<Unifier>,
+    unifier: Unifier,
 }
 
 impl UnifierTest {
@@ -1139,7 +1139,7 @@ impl UnifierTest {
 
     fn new(occurs: bool) -> Self {
         Self {
-            unifier: Box::new(Unifier::new(occurs)),
+            unifier: Unifier::new(occurs),
         }
     }
 
