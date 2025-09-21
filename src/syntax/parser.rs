@@ -1669,36 +1669,42 @@ pub fn from_string(s: &str) -> Option<char> {
 /// For example, 'a' becomes '"a"' and therefore `char_to_string('a')`
 /// returns "a". Character 0 becomes "\\^@".
 /// Character 255 becomes "\\255". Character 9 becomes "\t".
-///
-/// Inverse of `unquote_char_literal`.
 pub fn char_to_string(c: char) -> String {
+    let mut buf = String::new();
+    char_to_string_append(c, &mut buf);
+    buf
+}
+
+/// As `char_to_string`, but appends to a buffer.
+pub fn char_to_string_append(c: char, buf: &mut String) {
     match c as u8 {
-        7 => "\\a".to_string(),   // Alert (ASCII 0x07)
-        8 => "\\b".to_string(),   // Backspace (ASCII 0x08)
-        9 => "\\t".to_string(),   // Horizontal tab (ASCII 0x09)
-        10 => "\\n".to_string(),  // Linefeed or newline (ASCII 0x0A)
-        11 => "\\v".to_string(),  // Vertical tab (ASCII 0x0B)
-        12 => "\\f".to_string(),  // Form feed (ASCII 0x0C)
-        13 => "\\r".to_string(),  // Carriage return (ASCII 0x0D)
-        34 => "\\\"".to_string(), // Double-quote requires escape
-        92 => "\\\\".to_string(), // Backslash requires escape
+        7 => buf.push_str("\\a"),   // Alert (ASCII 0x07)
+        8 => buf.push_str("\\b"),   // Backspace (ASCII 0x08)
+        9 => buf.push_str("\\t"),   // Horizontal tab (ASCII 0x09)
+        10 => buf.push_str("\\n"),  // Linefeed or newline (ASCII 0x0A)
+        11 => buf.push_str("\\v"),  // Vertical tab (ASCII 0x0B)
+        12 => buf.push_str("\\f"),  // Form feed (ASCII 0x0C)
+        13 => buf.push_str("\\r"),  // Carriage return (ASCII 0x0D)
+        34 => buf.push_str("\\\""), // Double-quote requires escape
+        92 => buf.push_str("\\\\"), // Backslash requires escape
+
+        // chr(0) = "\\^@", chr(1) = "\\^A", ..., chr(31) = "\\^_"
         n if n < 32 => {
-            // chr(0) = "\\^@", chr(1) = "\\^A", ..., chr(31) = "\\^_"
-            format!("\\^{}", (n + 64) as char)
+            buf.push_str("\\^");
+            buf.push((n + 64) as char);
         }
         n if n >= 127 => {
-            format!("\\{}", n)
+            buf.push('\\');
+            buf.push_str(&n.to_string());
         }
-        _ => c.to_string(),
+        _ => buf.push(c),
     }
 }
 
 /// Converts an internal string to a string using Standard ML escapes,
 /// appending to a string.
 pub fn string_to_string_append(s: &str, buf: &mut String) {
-    for c in s.chars() {
-        buf.push_str(&char_to_string(c));
-    }
+    s.chars().for_each(|c| char_to_string_append(c, buf));
 }
 
 /// Converts an internal string to a string using Standard ML escapes.

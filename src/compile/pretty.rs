@@ -18,6 +18,9 @@
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
 use crate::eval::val::Val;
 use crate::shell::prop::Output as PropOutput;
+use crate::syntax::parser::{
+    append_id, char_to_string, string_to_string_append,
+};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::iter::zip;
@@ -794,47 +797,6 @@ impl Pretty {
         Ok(())
     }
 }
-
-// Helper functions (you'll need to implement these based on your string
-// utilities)
-fn append_id(buf: &mut String, id: &str) {
-    if id.contains('`') {
-        buf.push('`');
-        buf.push_str(&id.replace('`', "``"));
-        buf.push('`');
-    } else if id.contains(' ') {
-        buf.push('`');
-        buf.push_str(id);
-        buf.push('`');
-    } else {
-        buf.push_str(id);
-    }
-}
-
-fn char_to_string(c: char) -> String {
-    // Implementation from your string utilities
-    match c as u8 {
-        7 => "\\a".to_string(),
-        8 => "\\b".to_string(),
-        9 => "\\t".to_string(),
-        10 => "\\n".to_string(),
-        11 => "\\v".to_string(),
-        12 => "\\f".to_string(),
-        13 => "\\r".to_string(),
-        34 => "\\\"".to_string(),
-        92 => "\\\\".to_string(),
-        n if n < 32 => format!("\\^{}", (n + 64) as char),
-        n if n >= 127 => format!("\\{}", n),
-        _ => c.to_string(),
-    }
-}
-
-fn string_to_string_append(s: &str, buf: &mut String) {
-    for c in s.chars() {
-        buf.push_str(&char_to_string(c));
-    }
-}
-
 /// Visitor for renumbering type variables
 struct TypeVarRenumberer {
     var_map: HashMap<usize, Type>,
