@@ -284,8 +284,8 @@ impl Binding {
         }
     }
 
-    pub(crate) fn of(x1: Pat, val: &Val) -> Self {
-        let name1 = match x1.kind {
+    pub(crate) fn of(pat: &Pat, val: &Val) -> Self {
+        let name1 = match pat.kind.clone() {
             PatKind::Identifier(name) => name,
             PatKind::As(name, _pat) => name,
             _ => panic!("Not an identifier or as pattern"),

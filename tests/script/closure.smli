@@ -27,9 +27,6 @@ in
 end;
 > val it = 7 : int
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Simple factorial function
 let
   fun fact n =
@@ -70,6 +67,9 @@ in
   fact 5
 end;
 > val it = 120 : int
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Closure; int variable 'n' is captured in the function definition
 val one = 1;

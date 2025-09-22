@@ -89,9 +89,15 @@ pub enum Code {
     /// can bind the argument to a pattern and finally evaluates the
     /// expression.
     Fn(Vec<Id>, Vec<(Code, Code)>),
+    /// `GetLocal(slot)` returns the value of the `slot`th variable in the
+    /// current stack frame. See [Code::BindSlot].
     GetLocal(usize),
     Let(Vec<Code>, Box<Code>),
-    Link(Option<Box<Code>>),
+    /// `Link(slot, name)` is a reference to the code in the `slot`th slot of
+    /// the code table. It used to represent recursive functions, because at
+    /// the time the recursive function is being compiled, there is not yet
+    /// code to refer to. `name` is for debugging.
+    Link(usize, String),
     /// `Match(conditions)` returns true if all conditions return true.
     /// Every condition takes 1 argument and returns a boolean value.
     MatchTuple(Vec<Code>),
@@ -237,7 +243,7 @@ impl Code {
             Code::Fn(_, _) => *mode == EvalMode::EagerV1,
             Code::GetLocal(_) => *mode == EvalMode::EagerV0,
             Code::Let(_, _) => *mode == EvalMode::Eager0,
-            Code::Link(_) => todo!("{:?}", self),
+            Code::Link(_, _) => todo!("{:?}", self),
             Code::MatchTuple(_) => *mode == EvalMode::EagerV1,
             Code::Native0(_) => *mode == EvalMode::Eager0,
             Code::Native1(_, _) => {
@@ -300,7 +306,7 @@ impl Code {
                 }
                 code.eval_f0(r, f)
             }
-            Code::Link(_) => {
+            Code::Link(_, _) => {
                 todo!()
             }
             Code::Native0(eager) => Ok(eager.apply()),
@@ -355,6 +361,10 @@ impl Code {
                 Frame::create_and_eval(local_names, matches, r, a0)
             }
             Code::GetLocal(ordinal) => Ok(f.vals[*ordinal].clone()),
+            Code::Link(slot, _) => {
+                let code = r.link_codes[*slot].clone();
+                code.eval_f1(r, f, a0)
+            }
             Code::MatchTuple(codes) => {
                 let list = a0.expect_list();
                 for (code, val) in zip(codes, list) {
@@ -425,6 +435,7 @@ pub struct EvalEnv<'a> {
     pub session: &'a Session,
     pub shell: &'a Shell,
     effects: &'a mut Vec<Effect>,
+    link_codes: Vec<Code>,
 }
 
 impl<'a> EvalEnv<'a> {
@@ -432,11 +443,13 @@ impl<'a> EvalEnv<'a> {
         session: &'a Session,
         shell: &'a Shell,
         effects: &'a mut Vec<Effect>,
+        link_codes: &[Code],
     ) -> Self {
         EvalEnv {
             session,
             shell,
             effects,
+            link_codes: link_codes.to_vec(),
         }
     }
 }

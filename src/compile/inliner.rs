@@ -169,11 +169,24 @@ impl Decl {
                     overload_pat: val_bind.overload_pat.clone(),
                 }))
             }
+            Decl::RecVal(val_binds) => {
+                let val_binds2 =
+                    val_binds.iter().map(|b| b.visit(env, x)).collect();
+                Decl::RecVal(val_binds2)
+            }
             _ => todo!("inline {:}", self),
         }
     }
 }
 
+impl ValBind {
+    fn visit(&self, env: &Env, x: &dyn Transformer) -> Self {
+        let env2 = env.child_none(self.pat.name().unwrap().as_str(), &self.t);
+        let pat = x.transform_pat(env, &self.pat);
+        let expr = x.transform_expr(&env2, &self.expr);
+        ValBind::of(&pat, &self.t, &expr)
+    }
+}
 /// Environment for inlining.
 #[derive(Debug, Clone)]
 pub struct Env {

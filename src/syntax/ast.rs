@@ -709,6 +709,8 @@ impl Display for Decl {
 /// Kind of declaration.
 #[derive(Debug, Clone)]
 pub enum DeclKind {
+    /// `Val(rec, inst, binds)` represents a value declaration such as
+    /// `val rec x = 0 and f = fn i => f(i - 1)`.
     Val(bool, bool, Vec<ValBind>),
     Fun(Vec<FunBind>),
     Over(String),

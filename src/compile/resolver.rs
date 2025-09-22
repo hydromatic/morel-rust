@@ -733,7 +733,7 @@ impl<'a> Resolver<'a> {
         // can be converted to
         //   val inc = fn i => i + 1
         // because "i + 1" does not reference "inc".
-        rec = rec && references(&pat_exps);
+        rec = rec && !references(&pat_exps);
 
         // Transform "let val v1 = E1 and v2 = E2 in E end"
         // to "let val v = (v1, v2) in case v of (E1, E2) => E end"

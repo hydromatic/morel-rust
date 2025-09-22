@@ -27,9 +27,7 @@ use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::Environment;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::rc::Rc;
-use std::slice;
+use std::collections::{BTreeMap, HashSet};
 
 /// Compiles a declaration to code that can be evaluated.
 pub fn compile_statement(
@@ -37,12 +35,18 @@ pub fn compile_statement(
     env: &Environment,
     decl: &Decl,
 ) -> Box<dyn CompiledStatement> {
-    let compiler = Compiler::new(type_map);
+    let mut compiler = Compiler::new(type_map);
     compiler.compile_statement(env, decl, None, &HashSet::new())
 }
 
 struct Compiler<'a> {
     type_map: &'a TypeMap,
+    links: Vec<Link>,
+}
+
+struct Link {
+    name: String,
+    code: Option<Code>,
 }
 
 struct Closure;
@@ -69,11 +73,14 @@ impl<'a> Compiler<'a> {
     }
 
     fn new(type_map: &'a TypeMap) -> Self {
-        Self { type_map }
+        Self {
+            type_map,
+            links: Vec::new(),
+        }
     }
 
     fn compile_statement(
-        &self,
+        &mut self,
         env: &Environment,
         decl: &Decl,
         skip_pat: Option<Id>,
@@ -100,16 +107,19 @@ impl<'a> Compiler<'a> {
         };
 
         let context = self.create_context(env);
+        let link_codes: Vec<Code> =
+            self.links.iter().filter_map(|l| l.code.clone()).collect();
 
         Box::new(CompiledStatementImpl {
             type_,
             context,
             actions,
+            link_codes,
         })
     }
 
     fn compile_decl(
-        &self,
+        &mut self,
         cx: &Context,
         decl: &Decl,
         skip_pat: Option<Id>,
@@ -146,7 +156,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile_val_decl(
-        &self,
+        &mut self,
         cx: &Context,
         decl: &Decl,
         _skip_pat: Option<Id>,
@@ -157,6 +167,24 @@ impl<'a> Compiler<'a> {
     ) {
         let binding_count = bindings.len();
         Self::bind_pattern(bindings, decl);
+
+        // Remember the ordinal of the first link.
+        // After we have defined recursive functions, we will
+        // iterate the links again and assign the code.
+        let mut link_code_ordinal = self.links.len();
+
+        if let Decl::RecVal(_) = decl {
+            decl.for_each_binding(&mut |pat, _, _| {
+                pat.for_each_id_pat(&mut |(_, name)| {
+                    let link_code = self.create_link(name);
+                    bindings.push(Binding::of_name_value(
+                        name,
+                        &Some(Val::Code(Box::new(link_code))),
+                    ));
+                })
+            });
+        }
+
         let new_bindings = &bindings.as_slice()[binding_count..];
         let cx1 = cx.bind_all(new_bindings);
         bindings.truncate(binding_count);
@@ -204,7 +232,17 @@ impl<'a> Compiler<'a> {
                     });
                 }
 
-                // Package the expression code as a function.
+                // Populate links for recursive functions. We assume that
+                // patterns will be traversed in the same order as before, and
+                // therefore that links will be resolved in the same order that
+                // they were created.
+                if let Decl::RecVal(_) = decl {
+                    pat.for_each_id_pat(&mut |(_, _)| {
+                        self.links[link_code_ordinal].code =
+                            Some(expr_code.clone());
+                        link_code_ordinal += 1;
+                    })
+                }
 
                 collected_actions.push(ValDeclAction {
                     code: expr_code.clone(),
@@ -307,50 +345,30 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compiles the argument to "apply".
-    pub fn compile_arg(&self, cx: &Context, expr: &Expr) -> Code {
+    pub fn compile_arg(&mut self, cx: &Context, expr: &Expr) -> Code {
         self.compile_expr(cx, expr)
     }
 
     /// Compiles the argument to a call, producing a list with N elements if the
     /// argument is an N-tuple.
-    pub fn compile_args(&self, cx: &Context, expr: &Expr) -> Vec<Code> {
-        if let Expr::Tuple(_, args) = expr {
-            self.compile_arg_list(cx, args.as_slice())
-        } else {
-            self.compile_arg_list(cx, slice::from_ref(expr))
+    pub fn compile_args(&mut self, cx: &Context, expr: &Expr) -> Vec<Code> {
+        match expr {
+            Expr::Tuple(_, args) => self.compile_arg_list(cx, args),
+            _ => vec![self.compile_expr(cx, expr)],
         }
     }
 
     /// Compiles the tuple arguments to "apply".
-    pub fn compile_arg_list(&self, cx: &Context, expr: &[Expr]) -> Vec<Code> {
-        expr.iter().map(|e| self.compile_expr(cx, e)).collect()
-    }
-
-    /// Compiles the tuple arguments to "apply".
-    pub fn compile_arg_types(
-        &self,
+    pub fn compile_arg_list(
+        &mut self,
         cx: &Context,
-        expressions: &[Expr],
-    ) -> Vec<(Code, Type)> {
-        let mut result = Vec::new();
-        for exp in expressions {
-            let code = self.compile_arg(cx, exp);
-            let type_ = match exp {
-                // lint: sort until '#}' where '##Expr::'
-                Expr::Current(t) => (**t).clone(),
-                Expr::Identifier(t, _) => (**t).clone(),
-                Expr::Literal(t, _) => (**t).clone(),
-                Expr::Ordinal(t) => (**t).clone(),
-                Expr::RecordSelector(t, _) => (**t).clone(),
-                _ => Type::Primitive(PrimitiveType::Unit),
-            };
-            result.push((code, type_));
-        }
-        result
+        args: &[Expr],
+    ) -> Vec<Code> {
+        args.iter().map(|e| self.compile_expr(cx, e)).collect()
     }
 
     /// Compiles an expression that is evaluated once per row.
-    pub fn compile_row(&self, cx: &Context, expression: &Expr) -> Code {
+    pub fn compile_row(&mut self, cx: &Context, expression: &Expr) -> Code {
         let mut ordinal_slots = vec![0];
 
         Self::ORDINAL_CODE.with(|oc| {
@@ -376,7 +394,7 @@ impl<'a> Compiler<'a> {
     /// wrapper around the first expression that increments the ordinal,
     /// similar to how `compile_row` does it.
     fn compile_row_map(
-        &self,
+        &mut self,
         cx: &Context,
         name_exps: &[(String, Expr)],
     ) -> BTreeMap<String, Code> {
@@ -405,7 +423,7 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compiles an expression.
-    pub fn compile_expr(&self, cx: &Context, expr: &Expr) -> Code {
+    pub fn compile_expr(&mut self, cx: &Context, expr: &Expr) -> Code {
         match expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_, f, a) => {
@@ -415,7 +433,6 @@ impl<'a> Compiler<'a> {
                         let codes = self.compile_args(cx, a);
                         return Code::new_native(impl_, &codes);
                     }
-                    Expr::Literal(_, _) => {}
                     Expr::Identifier(_, name) => {
                         if let Some(Val::Code(fn_code)) = cx.env.get(name) {
                             let arg_code = self.compile_arg(cx, a);
@@ -486,8 +503,13 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn link(_p0: &HashMap<String, Rc<Option<Code>>>, _p1: Pat, _p2: &Code) {
-        todo!()
+    fn create_link(&mut self, name: &str) -> Code {
+        let i = self.links.len();
+        self.links.push(Link {
+            name: name.to_string(),
+            code: None,
+        });
+        Code::Link(i, name.to_string())
     }
 }
 
@@ -655,6 +677,7 @@ struct CompiledStatementImpl {
     type_: Type,
     actions: Vec<Box<dyn Action>>,
     context: Context,
+    link_codes: Vec<Code>,
 }
 
 impl CompiledStatement for CompiledStatementImpl {
@@ -670,7 +693,8 @@ impl CompiledStatement for CompiledStatementImpl {
         effects: &mut Vec<Effect>,
         _type_map: &TypeMap,
     ) {
-        let mut eval_env = EvalEnv::new(session, shell, effects);
+        let mut eval_env =
+            EvalEnv::new(session, shell, effects, &self.link_codes);
         let mut vals = vec![];
         let mut frame = Frame { vals: &mut vals };
         for action in &self.actions {
@@ -734,7 +758,12 @@ impl Decl {
                 val_bind.pat.collect_vars(vars);
                 val_bind.expr.collect_vars(vars);
             }
-            Decl::RecVal(_) => todo!("collect_vars {:?}", self),
+            Decl::RecVal(val_binds) => {
+                for val_bind in val_binds {
+                    val_bind.pat.collect_vars(vars);
+                    val_bind.expr.collect_vars(vars);
+                }
+            }
             _ => {
                 // no expressions in other declarations, therefore no variables
             }
