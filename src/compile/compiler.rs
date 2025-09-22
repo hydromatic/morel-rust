@@ -266,9 +266,7 @@ impl<'a> Compiler<'a> {
             &mut (|pat: &Pat,
                    _expr: &Expr,
                    _overload_pat: &Option<Box<Id>>| {
-                if let Pat::Identifier(_, name) = pat {
-                    bindings.push(Binding::of_name(name));
-                }
+                pat.collect_vars(bindings);
             }),
         );
     }
@@ -321,9 +319,25 @@ impl<'a> Compiler<'a> {
     pub fn compile_pat(&self, cx: &Context, pat: &Pat) -> Code {
         match pat {
             // lint: sort until '#}' where '##Pat::'
+            Pat::Cons(_, head, tail) => {
+                let head_code = self.compile_pat(cx, head);
+                let tail_code = self.compile_pat(cx, tail);
+                Code::new_bind_cons(&head_code, &tail_code)
+            }
+            Pat::Constructor(_, name, p) => {
+                let code = p.clone().map(|p2| self.compile_pat(cx, &p2));
+                Code::new_bind_constructor(name, &code)
+            }
             Pat::Identifier(_, name) => {
                 let i = cx.var_index(name);
                 Code::new_bind_slot(i, name)
+            }
+            Pat::List(_, pats) => {
+                let codes = pats
+                    .iter()
+                    .map(|p| self.compile_pat(cx, p))
+                    .collect::<Vec<Code>>();
+                Code::new_bind_list(&codes)
             }
             Pat::Literal(_, val) => Code::new_bind_literal(val),
             Pat::Tuple(_, pats) => {
@@ -331,7 +345,7 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|p| self.compile_pat(cx, p))
                     .collect::<Vec<Code>>();
-                Code::new_match_tuple(&codes)
+                Code::new_bind_tuple(&codes)
             }
             Pat::Wildcard(_) => {
                 // no variables to bind;
@@ -426,23 +440,29 @@ impl<'a> Compiler<'a> {
     pub fn compile_expr(&mut self, cx: &Context, expr: &Expr) -> Code {
         match expr {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Apply(_, f, a) => {
-                match f.as_ref() {
-                    Expr::Literal(_t, Val::Fn(f)) => {
-                        let impl_ = f.get_impl();
-                        let codes = self.compile_args(cx, a);
-                        return Code::new_native(impl_, &codes);
-                    }
-                    Expr::Identifier(_, name) => {
-                        if let Some(Val::Code(fn_code)) = cx.env.get(name) {
-                            let arg_code = self.compile_arg(cx, a);
-                            return Code::new_apply(fn_code, &arg_code);
-                        }
-                    }
-                    _ => {}
+            Expr::Apply(_, f, a) => match f.as_ref() {
+                Expr::Literal(_t, Val::Fn(f)) => {
+                    let impl_ = f.get_impl();
+                    let codes = self.compile_args(cx, a);
+                    Code::new_native(impl_, &codes)
                 }
-                todo!("compile {:}", expr)
-            }
+                Expr::Identifier(_, name) => {
+                    let arg_code = self.compile_arg(cx, a);
+                    if let Some(Val::Code(code)) = &cx.env.get(name) {
+                        let fn_code =
+                            Code::new_constant(Val::Code(code.clone()));
+                        Code::new_apply(&fn_code, &arg_code)
+                    } else {
+                        let fn_code = self.compile_arg(cx, f);
+                        Code::new_apply(&fn_code, &arg_code)
+                    }
+                }
+                _ => {
+                    let arg_code = self.compile_arg(cx, a);
+                    let fn_code = self.compile_arg(cx, f);
+                    Code::new_apply(&fn_code, &arg_code)
+                }
+            },
             Expr::Case(_, expr, matches) => {
                 let expr_code = self.compile_expr(cx, expr);
                 let mut codes = vec![expr_code];
@@ -456,12 +476,12 @@ impl<'a> Compiler<'a> {
                 Code::new_match(&codes)
             }
             Expr::Fn(_, match_list) => {
-                let mut vars = Vec::new();
+                let mut bindings = Vec::new();
                 match_list.iter().for_each(|m| {
-                    m.collect_vars(&mut vars);
+                    m.collect_vars(&mut bindings);
                 });
 
-                let cx1 = cx.with_frame(&vars);
+                let cx1 = cx.with_frame(&bindings);
                 let mut pat_expr_codes = Vec::new();
                 assert!(!match_list.is_empty(), "match list is empty");
                 for m in match_list {
@@ -576,7 +596,7 @@ pub struct Context {
     env: Environment,
 
     /// The local variables in the current stack frame.
-    local_vars: Vec<Id>,
+    local_vars: Vec<Binding>,
 }
 
 impl Context {
@@ -588,11 +608,9 @@ impl Context {
     }
 
     pub fn bind_all(&self, bindings: &[Binding]) -> Self {
-        let local_vars: Vec<Id> =
-            bindings.iter().map(|b| b.id.clone()).collect();
         Self {
             env: self.env.bind_all(bindings),
-            local_vars,
+            local_vars: bindings.to_vec(),
         }
     }
 
@@ -636,7 +654,7 @@ impl Context {
     /// The variables are [`n`, `left`, `right`, `left_size`, `right_size`].
     /// (Yes, some of those can be inlined or removed, and some variables
     /// could occupy the same slot. But let's not consider optimizations here.)
-    pub(crate) fn with_frame(&self, vars: &[Id]) -> Self {
+    pub(crate) fn with_frame(&self, vars: &[Binding]) -> Self {
         Context {
             env: self.env.clone(),
             local_vars: vars.to_vec(),
@@ -648,7 +666,7 @@ impl Context {
     pub(crate) fn var_index(&self, name: &str) -> usize {
         self.local_vars
             .iter()
-            .position(|v| v.name == name)
+            .position(|v| v.id.name == name)
             .unwrap_or_else(|| {
                 panic!(
                     "variable {} not found in frame {:?}",
@@ -720,21 +738,28 @@ mod calcite_functions {
 }
 
 impl Pat {
-    fn collect_vars(&self, vars: &mut Vec<Id>) {
+    fn collect_vars(&self, bindings: &mut Vec<Binding>) {
         match self {
             // lint: sort until '#}' where '##Pat::'
             Pat::As(_, name, pat) => {
-                vars.push(Id::new(name, 0));
-                pat.collect_vars(vars);
+                bindings.push(Binding::of_name(name));
+                pat.collect_vars(bindings);
+            }
+            Pat::Cons(_, head, tail) => {
+                head.collect_vars(bindings);
+                tail.collect_vars(bindings);
+            }
+            Pat::Constructor(_, _name, pat) => {
+                pat.iter().for_each(|p| p.collect_vars(bindings));
             }
             Pat::Identifier(_, name) => {
-                vars.push(Id::new(name, 0));
+                bindings.push(Binding::of_name(name));
+            }
+            Pat::List(_, pats) | Pat::Tuple(_, pats) => {
+                pats.iter().for_each(|p| p.collect_vars(bindings));
             }
             Pat::Literal(_, _) => {
                 // no variables
-            }
-            Pat::Tuple(_, pats) => {
-                pats.iter().for_each(|p| p.collect_vars(vars));
             }
             Pat::Wildcard(_) => {
                 // no variables
@@ -745,23 +770,23 @@ impl Pat {
 }
 
 impl Match {
-    fn collect_vars(&self, vars: &mut Vec<Id>) {
-        self.pat.collect_vars(vars);
-        self.expr.collect_vars(vars);
+    fn collect_vars(&self, bindings: &mut Vec<Binding>) {
+        self.pat.collect_vars(bindings);
+        self.expr.collect_vars(bindings);
     }
 }
 
 impl Decl {
-    fn collect_vars(&self, vars: &mut Vec<Id>) {
+    fn collect_vars(&self, bindings: &mut Vec<Binding>) {
         match self {
             Decl::NonRecVal(val_bind) => {
-                val_bind.pat.collect_vars(vars);
-                val_bind.expr.collect_vars(vars);
+                val_bind.pat.collect_vars(bindings);
+                val_bind.expr.collect_vars(bindings);
             }
             Decl::RecVal(val_binds) => {
                 for val_bind in val_binds {
-                    val_bind.pat.collect_vars(vars);
-                    val_bind.expr.collect_vars(vars);
+                    val_bind.pat.collect_vars(bindings);
+                    val_bind.expr.collect_vars(bindings);
                 }
             }
             _ => {
@@ -772,28 +797,28 @@ impl Decl {
 }
 
 impl Expr {
-    fn collect_vars(&self, vars: &mut Vec<Id>) {
+    fn collect_vars(&self, bindings: &mut Vec<Binding>) {
         match self {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(_, f, a) => {
-                f.collect_vars(vars);
-                a.collect_vars(vars);
+                f.collect_vars(bindings);
+                a.collect_vars(bindings);
             }
             Expr::Case(_, expr, matches) => {
-                expr.collect_vars(vars);
-                matches.iter().for_each(|m| m.collect_vars(vars));
+                expr.collect_vars(bindings);
+                matches.iter().for_each(|m| m.collect_vars(bindings));
             }
             Expr::Fn(_, matches) => {
-                matches.iter().for_each(|m| m.collect_vars(vars));
+                matches.iter().for_each(|m| m.collect_vars(bindings));
             }
             Expr::Identifier(_, name) => {
-                vars.push(Id::new(name, 0));
+                bindings.push(Binding::of_name(name));
             }
             Expr::Let(_, decls, _) => {
-                decls.iter().for_each(|d| d.collect_vars(vars));
+                decls.iter().for_each(|d| d.collect_vars(bindings));
             }
             Expr::List(_, exprs) | Expr::Tuple(_, exprs) => {
-                exprs.iter().for_each(|e| e.collect_vars(vars));
+                exprs.iter().for_each(|e| e.collect_vars(bindings));
             }
             Expr::Literal(_, _) => {
                 // no variables

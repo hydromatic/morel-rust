@@ -245,7 +245,7 @@ impl Id {
 /// Binding of a name to a type and a value.
 ///
 /// Used in [crate::shell::main::Environment].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
     pub id: Id,
     // pub term: Term,

@@ -355,6 +355,10 @@ impl TypeResolver {
     /// argument: `fun sum x y = x + y` becomes `val rec sum = fn x =>
     /// fn y => x + y`.
     ///
+    /// If there is a type annotation, it is applied to the body of the
+    /// innermost `fn`: `fun sum x y: int = x + y` becomes
+    /// `val rec sum = fn x => fn y => ((x + y): int)`.
+    ///
     /// If there are multiple clauses, we generate `case`:
     ///
     /// ```sml
@@ -441,6 +445,11 @@ impl TypeResolver {
             expr = x.spanned(&span);
         }
 
+        if let Some(type_) = type_annotation {
+            let x = ExprKind::Annotated(Box::new(expr), type_);
+            expr = x.spanned(&span);
+        }
+
         for var in vars.iter().rev() {
             let pat = var.clone();
             let kind = ExprKind::Fn(vec![Match { pat, expr }]);
@@ -449,7 +458,7 @@ impl TypeResolver {
 
         ValBind {
             pat: PatKind::Identifier(fun_bind.name.clone()).spanned(&span),
-            type_annotation,
+            type_annotation: None,
             expr,
         }
     }
@@ -579,6 +588,12 @@ impl TypeResolver {
                 let x = ExprKind::AndAlso(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Annotated(e, t) => {
+                let e2 = self.deduce_expr_type(env, e, v);
+                let t2 = self.deduce_type_type(env, &t, v);
+                let x = ExprKind::Annotated(Box::new(e2), Box::new(t2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::Apply(left, right) => {
                 let (left2, right2) =
                     self.deduce_apply_type(env, &left, &right, v);
@@ -605,6 +620,12 @@ impl TypeResolver {
                 );
 
                 let x = ExprKind::Case(Box::new(e2), match_list2);
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
+            ExprKind::Cons(left, right) => {
+                let (left2, right2) =
+                    self.deduce_call2_type(env, "op ::", left, right, v);
+                let x = ExprKind::Cons(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Div(left, right) => {
@@ -1551,6 +1572,15 @@ impl TypeResolver {
                 }
                 term_map.push((name.clone(), Term::Variable(v.clone())));
                 self.reg_pat(&pat.kind, &pat.span, pat.id, &v)
+            }
+            PatKind::List(pats) => {
+                let v2 = self.variable();
+                let pats2 = pats
+                    .iter()
+                    .map(|p| self.deduce_pat_type(env, p, term_map, &v2))
+                    .collect();
+                self.list_term(Term::Variable(v2), &v);
+                self.reg_pat(&PatKind::List(pats2), &pat.span, pat.id, &v)
             }
             PatKind::Literal(literal) => {
                 self.primitive_term(&Self::literal_type(&literal.kind), v);

@@ -158,10 +158,11 @@ impl Decl {
     fn visit(&self, env: &Env, x: &dyn Transformer) -> Decl {
         match &self {
             Decl::NonRecVal(val_bind) => {
-                let env2 = env.child_none(
-                    val_bind.pat.name().unwrap().as_str(),
-                    &val_bind.t,
-                );
+                let env2 = if let Some(name) = val_bind.pat.name() {
+                    env.child_none(name.as_str(), &val_bind.t)
+                } else {
+                    env.clone()
+                };
                 Decl::NonRecVal(Box::new(ValBind {
                     pat: x.transform_pat(env, &val_bind.pat),
                     expr: x.transform_expr(&env2, &val_bind.expr),

@@ -58,7 +58,7 @@ impl Type {
     pub fn expect_fn(&self) -> (&Type, &Type) {
         match self {
             Type::Fn(param_type, result_type) => (param_type, result_type),
-            _ => panic!("Expected record type"),
+            _ => panic!("Expected fn type"),
         }
     }
 

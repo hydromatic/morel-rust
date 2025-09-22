@@ -183,6 +183,22 @@ in
 end;
 >type it : string
 
+(* You can mix constructors (SOME) and 'op ::' in patterns,
+ * and constructors have the higher precedence. *)
+let
+  val option_list = [SOME 1, NONE]
+in
+  let
+    val SOME x :: y = option_list
+  in
+    (y, x)
+  end
+end;
+>type it : int option list * int
+(* TODO: evaluate:
+> val it = ([NONE],1) : int option list * int
+*)
+
 let
   val foo =
     fn SOME s => s
@@ -204,6 +220,28 @@ val rec len =
 fun len nil = 0
   | len (h :: t) = 1 + (len t);
 >type len : 'a list -> int
+
+val x: string = "hello";
+> val x = "hello" : string
+fun hello1 (s: string) = "hello!";
+> val hello1 = fn : string -> string
+fun hello2 (n: int): string = "hello!";
+> val hello2 = fn : int -> string
+fun hello3 (name: string, code: int): string = "hello!";
+> val hello3 = fn : string * int -> string
+fun hello2 (name: string) (code : int): string = "hello!";
+> val hello2 = fn : string -> int -> string
+fun plus_list x (y :: z) = x + y;
+>type plus_list : 'a -> 'a list -> 'a
+fun plus x y = x + y;
+>type plus : 'a -> 'a -> 'a
+let
+  fun map f [] = []
+    | map f (x::xs) = f x :: map f xs
+in
+  map (fn x => x + 1) [1, 2, 3]
+end;
+>type it : int list
 
 (*) Literals
 1;

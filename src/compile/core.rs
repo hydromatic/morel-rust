@@ -77,6 +77,13 @@ pub enum Expr {
 }
 
 impl Expr {
+    /// Creates a tuple expression.
+    pub(crate) fn new_tuple(args: &[Expr]) -> Self {
+        let types = args.iter().map(|e| *e.type_()).collect::<Vec<_>>();
+        let arg_type = Type::Tuple(types);
+        Expr::Tuple(Box::new(arg_type), args.to_vec())
+    }
+
     /// Returns this expression's type.
     pub fn type_(&self) -> Box<Type> {
         match self {

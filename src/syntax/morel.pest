@@ -305,17 +305,19 @@ yield_ = { _yield ~ expr }
 
 pat = { annotated_pat }
 annotated_pat = { cons_pat ~ (":" ~ type_)? }
-cons_pat = { atomic_pat ~ ("::" ~ cons_pat)? }
+cons_pat = { almost_atomic_pat ~ ("::" ~ cons_pat)? }
+almost_atomic_pat = {
+    constructor_pat
+  | atomic_pat
+}
 atomic_pat = {
     wildcard_pat
-  | constructor_pat
   | as_pat
   | id_pat
   | literal_pat
   | tuple_pat
   | record_pat
   | list_pat
-  | "(" ~ pat ~ ")"
 }
 
 wildcard_pat = { "_" }
@@ -330,6 +332,8 @@ record_pat = {
     "}"
 }
 list_pat = { "[" ~ (pat ~ ("," ~ pat)*)? ~ "]" }
+
+atomic_pat_list = { atomic_pat+ }
 
 pat_field = { labeled_pat_field | anon_pat_field }
 labeled_pat_field = { identifier ~ "=" ~ pat }
@@ -357,7 +361,7 @@ val_bind = { pat ~ "=" ~ expr }
 fun_decl = { _fun ~ fun_bind ~ and_fun_bind* }
 and_fun_bind = { _and ~ fun_bind }
 fun_bind = { fun_match ~ ("|" ~ fun_match)* }
-fun_match = { identifier ~ pat+ ~ (":" ~ type_)? ~ "=" ~ expr }
+fun_match = { identifier ~ atomic_pat_list ~ (":" ~ type_)? ~ "=" ~ expr }
 
 over_decl = { _over ~ identifier }
 
@@ -413,7 +417,7 @@ type_scheme_top = { SOI ~ type_scheme ~ EOI }
 
 // -- Literals --------------------------------------------
 // Literals are used in expressions, patterns.
-// There is no unit literal; `()` is handled by `list`, `list_pat`.
+// There is no unit literal; `()` is handled by `tuple`, `tuple_pat`.
 
 literal = {
     numeric_literal

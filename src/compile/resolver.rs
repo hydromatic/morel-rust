@@ -531,8 +531,7 @@ impl<'a> Resolver<'a> {
         let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
         let c0 = self.resolve_expr(a0);
         let c1 = self.resolve_expr(a1);
-        let arg_type = fn_type.expect_fn().1;
-        let arg = CoreExpr::Tuple(Box::new(arg_type.clone()), vec![c0, c1]);
+        let arg = CoreExpr::new_tuple(&[c0, c1]);
         CoreExpr::Apply(t, Box::new(fn_literal), Box::new(arg))
     }
 
@@ -742,11 +741,8 @@ impl<'a> Resolver<'a> {
                 pat_exps.iter().map(|x| x.pat.clone()).collect();
             let exps: Vec<CoreExpr> =
                 pat_exps.iter().map(|x| x.expr.clone()).collect();
-            let types: Vec<Type> =
-                pat_exps.iter().map(|x| *x.pat.type_()).collect();
-            let type_ = Box::new(Type::Tuple(types));
-            let pat0 = CorePat::Tuple(type_.clone(), pats);
-            let exp = CoreExpr::Tuple(type_, exps);
+            let exp = CoreExpr::new_tuple(&exps);
+            let pat0 = CorePat::Tuple(exp.type_().clone(), pats);
             (pat0, exp)
         } else {
             let pat_exp = &pat_exps[0];
@@ -762,12 +758,8 @@ impl<'a> Resolver<'a> {
                 pat_exps.iter().map(|pe| pe.expr.clone()).collect();
 
             // Create a tuple type based on the constituent types.
-            let tuple_types: Vec<Type> =
-                pats.iter().map(|p| *p.type_().clone()).collect();
-            let tuple_type = Box::new(Type::Tuple(tuple_types));
-
-            let tuple_pat = CorePat::Tuple(tuple_type.clone(), pats);
-            let tuple_expr = CoreExpr::Tuple(tuple_type, exprs);
+            let tuple_expr = CoreExpr::new_tuple(&exprs);
+            let tuple_pat = CorePat::Tuple(tuple_expr.type_().clone(), pats);
 
             (tuple_pat, tuple_expr)
         } else {

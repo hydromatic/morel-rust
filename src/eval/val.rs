@@ -112,6 +112,13 @@ impl Val {
         }
     }
 
+    pub(crate) fn expect_code(&self) -> Box<Code> {
+        match self {
+            Val::Code(c) => c.clone(),
+            _ => panic!("Expected code"),
+        }
+    }
+
     pub(crate) fn expect_int(&self) -> i32 {
         match self {
             Val::Int(i) => *i,
