@@ -594,11 +594,23 @@ impl TypeResolver {
                 let x = ExprKind::Annotated(Box::new(e2), Box::new(t2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Append(left, right) => {
+                let (left2, right2) =
+                    self.deduce_call2_type(env, "op @", left, right, v);
+                let x = ExprKind::Append(Box::new(left2), Box::new(right2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::Apply(left, right) => {
                 let (left2, right2) =
                     self.deduce_apply_type(env, &left, &right, v);
                 let apply2 = ExprKind::Apply(Box::new(left2), Box::new(right2));
                 self.reg_expr(&apply2, &expr.span, expr.id, v)
+            }
+            ExprKind::Caret(left, right) => {
+                let (left2, right2) =
+                    self.deduce_call2_type(env, "op ^", left, right, v);
+                let x = ExprKind::Caret(Box::new(left2), Box::new(right2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Case(e, match_list) => {
                 let v_e = self.unifier.variable();

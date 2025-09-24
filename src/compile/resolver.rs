@@ -255,13 +255,16 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Annotated(expr, _) => self.resolve_expr(expr),
             ExprKind::Append(a0, a1) => {
-                self.call2(t, BuiltInFunction::ListOpCons, a0, a1)
+                self.call2(t, BuiltInFunction::ListOpAt, a0, a1)
             }
             ExprKind::Apply(func, arg) => CoreExpr::Apply(
                 t,
                 Box::new(self.resolve_expr(func)),
                 Box::new(self.resolve_expr(arg)),
             ),
+            ExprKind::Caret(a0, a1) => {
+                self.call2(t, BuiltInFunction::StringOpCaret, a0, a1)
+            }
             ExprKind::Case(expr, matches) => CoreExpr::Case(
                 t,
                 Box::new(self.resolve_expr(expr)),

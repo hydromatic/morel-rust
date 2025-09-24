@@ -651,6 +651,7 @@ pub enum Eager2 {
     IntOpNe,
     IntPlus,
     IntTimes,
+    ListOpAt,
     ListOpCons,
     RealDivide,
     RealOpEq,
@@ -662,6 +663,7 @@ pub enum Eager2 {
     RealOpNe,
     RealOpPlus,
     RealOpTimes,
+    StringOpCaret,
     StringOpEq,
     StringOpGe,
     StringOpGt,
@@ -704,14 +706,20 @@ impl Eager2 {
             Eager2::IntOpNe => Val::Bool(a0.expect_int() != a1.expect_int()),
             Eager2::IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
             Eager2::IntTimes => Val::Int(a0.expect_int() * a1.expect_int()),
+            Eager2::ListOpAt => {
+                // TODO claude optimize
+                let list: Vec<_> = a0
+                    .expect_list()
+                    .iter()
+                    .chain(a1.expect_list().iter())
+                    .cloned()
+                    .collect();
+                Val::List(list)
+            }
             Eager2::ListOpCons => {
-                let mut list = vec![a0];
-                if let Val::List(mut rest) = a1 {
-                    list.append(&mut rest);
-                } else {
-                    // If a1 is not a list, treat it as a single element
-                    list.push(a1);
-                }
+                // TODO claude optimize
+                let mut list = a1.expect_list().to_vec();
+                list.insert(0, a0);
                 Val::List(list)
             }
             Eager2::RealDivide => {
@@ -732,6 +740,11 @@ impl Eager2 {
             Eager2::RealOpTimes => {
                 Val::Real(a0.expect_real() * a1.expect_real())
             }
+            Eager2::StringOpCaret => Val::String(format!(
+                "{}{}",
+                a0.expect_string(),
+                a1.expect_string()
+            )),
             Eager2::StringOpEq => {
                 Val::Bool(a0.expect_string() == a1.expect_string())
             }
@@ -968,6 +981,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::IntPlus.implements(&mut b, IntPlus);
     Eager2::IntTimes.implements(&mut b, IntTimes);
     Eager0::ListNil.implements(&mut b, ListNil);
+    Eager2::ListOpAt.implements(&mut b, ListOpAt);
     Eager2::ListOpCons.implements(&mut b, ListOpCons);
     Eager0::OptionNone.implements(&mut b, OptionNone);
     Eager1::OptionSome.implements(&mut b, OptionSome);
@@ -982,6 +996,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::RealOpNe.implements(&mut b, RealOpNe);
     Eager2::RealOpPlus.implements(&mut b, RealOpPlus);
     Eager2::RealOpTimes.implements(&mut b, RealOpTimes);
+    Eager2::StringOpCaret.implements(&mut b, StringOpCaret);
     Eager2::StringOpEq.implements(&mut b, StringOpEq);
     Eager2::StringOpGe.implements(&mut b, StringOpGe);
     Eager2::StringOpGt.implements(&mut b, StringOpGt);
@@ -1011,7 +1026,7 @@ impl LibBuilder {
         for f in BuiltInFunction::iter() {
             let type_code = f.get_str("type").expect("type");
             let name = f.get_str("name").expect("name");
-            let global = f.get_bool("global").unwrap_or_default();
+            let global = f.is_global();
 
             let t = type_parser::string_to_type(type_code);
             if let Some(fn_impl) = self.fn_impls.remove(&f) {

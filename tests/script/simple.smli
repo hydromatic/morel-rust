@@ -437,6 +437,8 @@ String.implode [#"\t", #"a", #"\128", #"b"];
 > val it = "\ta\128b" : string
 
 (*) Lists and precedence
+set("mode", "evaluate");
+> val it = () : unit
 1 :: 2 :: [3];
 > val it = [1,2,3] : int list
 [1 + 2, 3 * 4];
@@ -447,6 +449,14 @@ String.implode [#"\t", #"a", #"\128", #"b"];
 > val it = [1,2,3,4] : int list
 ["a" ^ "b", "c" ^ "d" ^ "e"];
 > val it = ["ab","cde"] : string list
+"a" :: "b" :: nil;
+> val it = ["a","b"] : string list
+"a" :: nil;
+> val it = ["a"] : string list
+([1],true) :: [([2,3],false), ([],true)];
+> val it = [([1],true),([2,3],false),([],true)] : (int list * bool) list
+set("mode", "validate");
+> val it = () : unit
 
 (* `andalso` has higher precedence (2) than `orelse` (1). *)
 false andalso true orelse true;

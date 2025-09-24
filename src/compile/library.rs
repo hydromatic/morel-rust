@@ -155,9 +155,11 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "nil", global = true))]
     #[strum(props(type = "forall 1 'a list", constructor = true))]
     ListNil,
+    #[strum(props(p = "List", name = "op @", global = true))]
+    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    ListOpAt,
     #[strum(props(p = "List", name = "op ::", global = true))]
     #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
-    #[strum(props(constructor = true))]
     ListOpCons,
     #[strum(props(p = "Option", name = "NONE", global = true))]
     #[strum(props(type = "forall 1 'a option", constructor = true))]
@@ -188,6 +190,9 @@ pub enum BuiltInFunction {
     RealOpPlus,
     #[strum(props(p = "Real", name = "op *", type = "real * real -> real"))]
     RealOpTimes,
+    #[strum(props(p = "String", name = "op ^", global = true))]
+    #[strum(props(type = "string * string -> string"))]
+    StringOpCaret,
     #[strum(props(p = "String", name = "op ="))]
     #[strum(props(type = "string * string -> bool"))]
     StringOpEq,
@@ -222,6 +227,10 @@ impl BuiltInFunction {
 
     pub(crate) fn name(&self) -> &'static str {
         self.get_str("name").unwrap()
+    }
+
+    pub(crate) fn is_global(&self) -> bool {
+        self.get_bool("global").is_some_and(|b| b)
     }
 }
 
@@ -304,7 +313,7 @@ impl BuiltIn {
 static BY_NAME: LazyLock<BTreeMap<&str, BuiltIn>> = LazyLock::new(|| {
     let mut map = BTreeMap::new();
     for f in BuiltInFunction::iter() {
-        if f.get_bool("global").unwrap_or_default() {
+        if f.is_global() {
             map.insert(f.get_str("name").unwrap(), BuiltIn::Fn(f));
         }
     }
@@ -322,13 +331,39 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
         }),
     );
 
-    // Add global built-in functions to the environment
+    // Until we can deduce type for records, keep the old logic that provides
+    // the "set" function.
     map.extend(
         LIBRARY
             .fn_map
             .iter()
             .filter(|(f, _)| f.get_bool("global").is_some_and(|b| b))
             .map(|(f, (t, _))| (f.name(), (t.clone(), Some(Val::Fn(*f))))),
+    );
+
+    // Add global built-in functions to the environment.
+    map.extend(
+        LIBRARY
+            .fn_map
+            .iter()
+            .map(|(f, (t, _))| {
+                (
+                    f.name(),
+                    (
+                        t.clone(),
+                        if !f.is_global() {
+                            None
+                        } else if let Type::Fn(_, _) = t {
+                            Some(Val::Fn(*f))
+                        } else if f == &BuiltInFunction::ListNil {
+                            Some(Val::List(Vec::new()))
+                        } else {
+                            None
+                        },
+                    ),
+                )
+            })
+            .filter(|(_name, (_t, v))| v.is_some()),
     );
 }
 
