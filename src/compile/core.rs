@@ -176,6 +176,12 @@ pub struct Match {
     pub expr: Expr,
 }
 
+impl Display for Match {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{} => {}", self.pat, self.expr)
+    }
+}
+
 /// Abstract syntax tree (AST) of a step in a query.
 #[derive(Debug, Clone)]
 pub struct Step {

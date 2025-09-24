@@ -63,6 +63,20 @@ pub enum Term {
 }
 
 impl Term {
+    fn expect_sequence(&self) -> &Sequence {
+        match self {
+            Term::Sequence(s) => s,
+            _ => panic!("Expected Sequence, got {}", self),
+        }
+    }
+
+    fn expect_variable(&self) -> &Rc<Var> {
+        match self {
+            Term::Variable(v) => v,
+            _ => panic!("Expected Variable, got {}", self),
+        }
+    }
+
     /// Returns whether this term references a given variable.
     fn contains(&self, var: &Rc<Var>) -> bool {
         match self {
@@ -612,6 +626,23 @@ impl<'a> Work<'a> {
         })
     }
 
+    /// Returns a list of all term pairs.
+    fn all_term_pairs(&self) -> Vec<(Term, Term)> {
+        self.seq_seq_queue
+            .borrow()
+            .iter()
+            .map(|(s1, s2)| {
+                (Term::Sequence(s1.clone()), Term::Sequence(s2.clone()))
+            })
+            .chain(
+                self.var_any_queue
+                    .borrow()
+                    .iter()
+                    .map(|(v, t)| (Term::Variable(v.clone()), t.clone())),
+            )
+            .collect()
+    }
+
     /// Applies a mapping to all term pairs in a list, modifying them in place.
     fn substitute_list(
         &mut self,
@@ -966,9 +997,11 @@ impl Unifier {
     /// Creates a substitution from a variable to a term.
     fn substitution(
         &self,
-        substitutions: BTreeMap<Rc<Var>, Term>,
+        substitutions: &BTreeMap<Rc<Var>, Term>,
     ) -> Substitution {
-        Substitution { substitutions }
+        Substitution {
+            substitutions: substitutions.clone(),
+        }
     }
 
     pub fn unify(
@@ -1072,15 +1105,14 @@ impl Unifier {
                 }
 
                 /*
-                if !term_actions.is_empty() {
+                 if !term_actions.is_empty() {
                     final Set<Variable> set = new HashSet<>();
                     act(variable, term, work, new Substitution(result),
                         termActions, set);
                     checkArgument(set.isEmpty(), "Working set not empty: %s",
                         set);
-                }
+                 }
                 */
-
                 if let Some(failure) = work.substitute_list(&variable, &term) {
                     return Err(failure);
                 }
@@ -1378,7 +1410,7 @@ mod tests {
         };
         let mut map: BTreeMap<Rc<Var>, Term> = BTreeMap::new();
         map.insert(z_v, f_a_y);
-        let sub = t.unifier.substitution(map);
+        let sub = t.unifier.substitution(&map);
         assert_eq!(sub.to_string(), "[f(a, Y)/Z]");
     }
 

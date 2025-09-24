@@ -15,11 +15,14 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Label;
 use crate::compile::types::Type;
 use crate::eval::code::{Code, Impl};
+use crate::eval::frame::FrameDef;
 use crate::syntax::parser;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 /// Runtime value.
 ///
@@ -40,7 +43,7 @@ pub enum Val {
     String(String),
     List(Vec<Val>),
     /// Built-in function.
-    Fn(crate::compile::library::BuiltInFunction),
+    Fn(BuiltInFunction),
     /// Contents of a structure.
     ImplList(Vec<Impl>),
 
@@ -69,9 +72,15 @@ pub enum Val {
     /// `Raw(value)` is printed to the output as-is, without any quoting.
     Raw(String),
     Impl(Impl),
+
     /// A constant piece of code. TODO This is a short-term way of representing
     /// user-defined functions. Long-term, they should be handled by inlining.
     Code(Box<Code>),
+
+    /// `Closure(frame_def, matches, bound_vals)` is a closure.
+    /// It is evaluated similarly to `Fn(frame_def, matches)`, except
+    /// that the frame is pre-populated with the values.
+    Closure(Arc<FrameDef>, Vec<(Code, Code)>, Vec<Val>),
 }
 
 // REVIEW Should we use `Into` or `From` traits?

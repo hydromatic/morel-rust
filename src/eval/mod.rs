@@ -17,15 +17,6 @@
 
 // lint: sort until '^$' erase 'pub '
 pub mod code;
+pub mod frame;
 pub mod session;
 pub mod val;
-
-// pub mod compiler;
-// pub mod context;
-// pub mod env;
-// pub mod eval;
-// pub mod eval_env;
-// pub mod eval_session;
-// pub mod eval_state;
-// pub mod eval_types;
-// pub mod expr;

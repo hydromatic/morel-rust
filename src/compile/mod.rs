@@ -26,3 +26,4 @@ pub mod type_env;
 pub mod type_parser;
 pub mod type_resolver;
 pub mod types;
+mod var_collector;
