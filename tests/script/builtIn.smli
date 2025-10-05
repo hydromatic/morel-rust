@@ -31,9 +31,13 @@ fun print x = ignore x;
 > val print = fn : 'a -> unit
 
 (* Structures -------------------------------------------------- *)
+set("mode", "evaluate");
+> val it = () : unit
 General;
 > val it = {ignore=fn,`op o`=fn}
 >   : {ignore:'a -> unit, `op o`:('b -> 'c) * ('d -> 'b) -> 'd -> 'c}
+set("mode", "validate");
+> val it = () : unit
 Char;
 > val it =
 >   {chr=fn,compare=fn,contains=fn,fromCString=fn,fromString=fn,isAlpha=fn,

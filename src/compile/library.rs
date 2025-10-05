@@ -126,6 +126,12 @@ pub enum BuiltInFunction {
     #[strum(props(name = "op *", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GOpTimes,
+    #[strum(props(p = "General", name = "ignore", global = true))]
+    #[strum(props(type = "forall 1 'a -> unit"))]
+    GeneralIgnore,
+    #[strum(props(p = "General", name = "op o", global = true))]
+    #[strum(props(type = "forall 3 ('a -> 'b) * ('c -> 'a) -> 'c -> 'b"))]
+    GeneralOpO,
     #[strum(props(p = "Int", name = "op div", global = true))]
     #[strum(props(type = "int * int -> int"))]
     IntDiv,
@@ -241,9 +247,11 @@ impl BuiltInFunction {
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInRecord {
     // lint: sort until '^}$' where '##[A-Z]'
-    #[strum(props(name = "Int", type = "{op +: int * int -> int"))]
+    #[strum(props(name = "General"))]
+    General,
+    #[strum(props(name = "Int"))]
     Int,
-    #[strum(props(name = "Sys", type = "forall 1 {set: string * 'a -> unit}"))]
+    #[strum(props(name = "Sys"))]
     Sys,
 }
 

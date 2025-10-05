@@ -760,6 +760,7 @@ impl Eager0 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Eager1 {
     // lint: sort until '#}'
+    GeneralIgnore,
     IntNegate,
     OptionSome,
     RealNegate,
@@ -771,6 +772,7 @@ impl Eager1 {
     fn apply(&self, a0: Val) -> Val {
         match &self {
             // lint: sort until '#}' where 'Eager1::'
+            Eager1::GeneralIgnore => Val::Unit,
             Eager1::IntNegate => Val::Int(-a0.expect_int()),
             Eager1::OptionSome => {
                 // TODO: Proper option some implementation
@@ -804,6 +806,7 @@ pub enum Eager2 {
     CharOpLe,
     CharOpLt,
     CharOpNe,
+    GeneralOpO,
     IntDiv,
     IntMinus,
     IntMod,
@@ -859,6 +862,7 @@ impl Eager2 {
             Eager2::CharOpLe => Val::Bool(a0.expect_char() <= a1.expect_char()),
             Eager2::CharOpLt => Val::Bool(a0.expect_char() < a1.expect_char()),
             Eager2::CharOpNe => Val::Bool(a0.expect_char() != a1.expect_char()),
+            Eager2::GeneralOpO => Val::Unit,
             Eager2::IntDiv => Val::Int(a0.expect_int() / a1.expect_int()),
             Eager2::IntMinus => Val::Int(a0.expect_int() - a1.expect_int()),
             Eager2::IntMod => Val::Int(a0.expect_int() % a1.expect_int()),
@@ -1128,6 +1132,8 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Custom::GOpNegate.implements(&mut b, GOpNegate);
     Custom::GOpPlus.implements(&mut b, GOpPlus);
     Custom::GOpTimes.implements(&mut b, GOpTimes);
+    Eager1::GeneralIgnore.implements(&mut b, GeneralIgnore);
+    Eager2::GeneralOpO.implements(&mut b, GeneralOpO);
     Eager2::IntDiv.implements(&mut b, IntDiv);
     Eager2::IntMinus.implements(&mut b, IntMinus);
     Eager2::IntMod.implements(&mut b, IntMod);

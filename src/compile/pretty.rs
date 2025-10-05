@@ -308,8 +308,7 @@ impl Pretty {
             Val::Type(b) => {
                 let (prefix, type_) = &**b;
                 return self.pretty_type(
-                    buf, indent, line_end, depth, prefix, type_, value, left,
-                    right,
+                    buf, indent, line_end, depth, prefix, type_, left, right,
                 );
             }
             _ => {}
@@ -613,10 +612,22 @@ impl Pretty {
         depth: i32,
         prefix: &str,
         type_ref: &Type,
-        type_val: &Val,
         left: u8,
         right: u8,
     ) -> Result<(), std::fmt::Error> {
+        if match type_ref {
+            Type::Fn(_, _) => left > Op::FN.left || right > Op::FN.right,
+            Type::Tuple(_) => left > Op::TUPLE.left || right > Op::TUPLE.right,
+            _ => false,
+        } {
+            self.pretty_raw(buf, indent, line_end, depth, "(")?;
+            self.pretty_type(
+                buf, indent, line_end, depth, prefix, type_ref, 0, 0,
+            )?;
+            self.pretty_raw(buf, indent, line_end, depth, ")")?;
+            return Ok(());
+        }
+
         buf.push_str(if buf.ends_with(' ') {
             prefix.trim_start()
         } else {
@@ -627,30 +638,31 @@ impl Pretty {
         match type_ref {
             // lint: sort until '#}' where '##Type::'
             Type::Fn(param_type, result_type) => {
+                const OP: Op = Op::FN;
                 let v_param = Val::new_type("", param_type);
                 self.pretty1(
-                    buf, indent2, line_end, depth, &BOOL, &v_param, 0, 0,
+                    buf, indent2, line_end, depth, &BOOL, &v_param, left,
+                    OP.left,
                 )?;
                 let v_result = Val::new_type(" -> ", result_type);
                 self.pretty1(
-                    buf, indent2, line_end, depth, &BOOL, &v_result, 0, 0,
-                )?;
-            }
-            Type::List(element_type) => {
-                self.pretty_collection_type(
-                    buf,
-                    indent2,
-                    line_end,
-                    depth,
-                    type_ref,
-                    "list",
-                    element_type,
-                    left,
+                    buf, indent2, line_end, depth, &BOOL, &v_result, OP.right,
                     right,
-                )?;
+                )
             }
+            Type::List(element_type) => self.pretty_collection_type(
+                buf,
+                indent2,
+                line_end,
+                depth,
+                type_ref,
+                "list",
+                element_type,
+                left,
+                right,
+            ),
             Type::Primitive(p) => {
-                self.pretty_raw(buf, indent2, line_end, depth, p.as_str())?;
+                self.pretty_raw(buf, indent2, line_end, depth, p.as_str())
             }
             Type::Record(progressive, arg_name_types) => {
                 buf.push('{');
@@ -677,16 +689,10 @@ impl Pretty {
                     self.pretty_raw(buf, indent2 + 1, line_end, depth, "...")?;
                 }
                 buf.push('}');
+                Ok(())
             }
             Type::Tuple(arg_types) => {
-                if left > Op::TUPLE.left || right > Op::TUPLE.right {
-                    self.pretty_raw(buf, indent2, line_end, depth, "(")?;
-                    let _ = self.pretty1(
-                        buf, indent2, line_end, depth, type_ref, type_val, 0, 0,
-                    );
-                    self.pretty_raw(buf, indent2, line_end, depth, ")")?;
-                    return Ok(());
-                }
+                const OP: Op = Op::TUPLE;
                 let start = buf.len();
                 for (i, arg_type) in arg_types.iter().enumerate() {
                     if buf.len() > start {
@@ -699,24 +705,24 @@ impl Pretty {
                         depth,
                         &BOOL,
                         &Val::new_type("", arg_type),
-                        if i == 0 { left } else { Op::TUPLE.right },
+                        if i == 0 { left } else { OP.right },
                         if i == arg_types.len() - 1 {
                             right
                         } else {
-                            Op::TUPLE.left
+                            OP.left
                         },
                     )?;
                 }
+                Ok(())
             }
             Type::Variable(ty_var) => {
                 let s = ty_var.name();
-                self.pretty_raw(buf, indent2, line_end, depth, s.as_str())?;
+                self.pretty_raw(buf, indent2, line_end, depth, s.as_str())
             }
             _ => {
-                write!(buf, "unknown type {:?}", type_ref)?;
+                write!(buf, "unknown type {:?}", type_ref)
             }
         }
-        Ok(())
     }
 
     fn print_list(

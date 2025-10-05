@@ -79,6 +79,10 @@ fn () => fn () => 4;
 >type it : (unit -> int) * (unit -> int)
 fn () => (5, fn () => 6);
 >type it : unit -> int * (unit -> int)
+fn f => fn g => fn x => g (f x);
+>type it : ('a -> 'b) -> ('b -> 'c) -> 'a -> 'c
+fn (f, g) => fn x => f (g x);
+>type it : ('a -> 'b) * ('c -> 'a) -> 'c -> 'b
 fn x: int => true;
 >type it : int -> bool
 fn (x: int, y: string) => (true, [1]);
