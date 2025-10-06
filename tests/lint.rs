@@ -129,6 +129,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     if file_type.text {
         let contents = fs::read_to_string(file_name).unwrap();
         let mut line = 0;
+        let mut in_pre = false;
         let mut in_raw_string = false;
         let mut sort: Option<Sort> = None;
         let mut impl_lines: HashMap<String, usize> = HashMap::new();
@@ -178,9 +179,17 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                 if l.contains("\"#") {
                     in_raw_string = false;
                 }
+                if l.contains("<pre>") {
+                    in_pre = true;
+                }
+                if l.contains("</pre>") {
+                    in_pre = false;
+                }
                 if l.len() > file_type.max_line_length
                     && !l.contains("://")
+                    && !l.starts_with("|") // markdown table
                     && !in_raw_string
+                    && !in_pre
                 {
                     // ignore URLs
                     warnings.push(format!(

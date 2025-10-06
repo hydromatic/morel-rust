@@ -40,15 +40,20 @@ $ cargo build; ./target/main
 $ cargo run
 morel-rust version 0.1.0 (rust version 1.89.0)
 - "Hello, world!";
-"Hello, world!"
--
+> val it = "Hello, world!" : string
 ```
 
 Type control+D to exit the shell.
 
-(The shell only checks whether the input is syntactically
-valid. We will do more as we port the type-checker and
-executor from [Morel Java](morel).)
+## Documentation
+
+* [Morel Rust language reference](docs/reference.md)
+* [Morel Java language reference](https://github.com/hydromatic/morel/blob/main/docs/reference.md)
+* [Query reference](https://github.com/hydromatic/morel/blob/main/docs/query.md)
+* [Change log](HISTORY.md)
+* Reading [test scripts](tests/script)
+  can be instructive; try, for example,
+  [builtIn.smli](tests/script/builtIn.smli)
 
 ## More information
 
