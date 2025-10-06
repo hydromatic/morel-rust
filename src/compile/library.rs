@@ -132,32 +132,73 @@ pub enum BuiltInFunction {
     #[strum(props(p = "General", name = "op o", global = true))]
     #[strum(props(type = "forall 3 ('a -> 'b) * ('c -> 'a) -> 'c -> 'b"))]
     GeneralOpO,
-    #[strum(props(p = "Int", name = "op div", global = true))]
+    #[strum(props(p = "Int", name = "abs", type = "int -> int"))]
+    IntAbs,
+    #[strum(props(p = "Int", name = "compare", type = "int * int -> `order`"))]
+    IntCompare,
+    #[strum(props(p = "Int", name = "div"))]
     #[strum(props(type = "int * int -> int"))]
     IntDiv,
-    #[strum(props(p = "Int", name = "op -", type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "fromInt", type = "int -> int"))]
+    IntFromInt,
+    #[strum(props(p = "Int", name = "fromLarge", type = "int -> int"))]
+    IntFromLarge,
+    #[strum(props(p = "Int", name = "fromString"))]
+    #[strum(props(type = "string -> int option"))]
+    IntFromString,
+    #[strum(props(p = "Int", name = "max", type = "int * int -> int"))]
+    IntMax,
+    #[strum(props(p = "Int", name = "maxInt", type = "int option"))]
+    IntMaxInt,
+    #[strum(props(p = "Int", name = "min", type = "int * int -> int"))]
+    IntMin,
+    #[strum(props(p = "Int", name = "minInt", type = "int option"))]
+    IntMinInt,
+    #[strum(props(name = "op -", type = "int * int -> int"))]
     IntMinus,
-    #[strum(props(p = "Int", name = "op mod", global = true))]
+    #[strum(props(p = "Int", name = "mod"))]
     #[strum(props(type = "int * int -> int"))]
     IntMod,
-    #[strum(props(p = "Int", name = "op ~", type = "int -> int"))]
+    #[strum(props(name = "op ~", type = "int -> int"))]
     IntNegate,
-    #[strum(props(p = "Int", name = "op =", type = "int * int -> bool"))]
+    #[strum(props(name = "op div", global = true))]
+    #[strum(props(type = "int * int -> int"))]
+    IntOpDiv,
+    #[strum(props(name = "op =", type = "int * int -> bool"))]
     IntOpEq,
-    #[strum(props(p = "Int", name = "op >=", type = "int * int -> bool"))]
+    #[strum(props(name = "op >=", type = "int * int -> bool"))]
     IntOpGe,
-    #[strum(props(p = "Int", name = "op >", type = "int * int -> bool"))]
+    #[strum(props(name = "op >", type = "int * int -> bool"))]
     IntOpGt,
-    #[strum(props(p = "Int", name = "op <=", type = "int * int -> bool"))]
+    #[strum(props(name = "op <=", type = "int * int -> bool"))]
     IntOpLe,
-    #[strum(props(p = "Int", name = "op <", type = "int * int -> bool"))]
+    #[strum(props(name = "op <", type = "int * int -> bool"))]
     IntOpLt,
-    #[strum(props(p = "Int", name = "op <>", type = "int * int -> bool"))]
+    #[strum(props(name = "op mod", global = true))]
+    #[strum(props(type = "int * int -> int"))]
+    IntOpMod,
+    #[strum(props(name = "op <>", type = "int * int -> bool"))]
     IntOpNe,
-    #[strum(props(p = "Int", name = "op +", type = "int * int -> int"))]
+    #[strum(props(name = "op +", type = "int * int -> int"))]
     IntPlus,
-    #[strum(props(p = "Int", name = "op *", type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "precision", type = "int option"))]
+    IntPrecision,
+    #[strum(props(p = "Int", name = "quot", type = "int * int -> int"))]
+    IntQuot,
+    #[strum(props(p = "Int", name = "rem", type = "int * int -> int"))]
+    IntRem,
+    #[strum(props(p = "Int", name = "sameSign", type = "int * int -> bool"))]
+    IntSameSign,
+    #[strum(props(p = "Int", name = "sign", type = "int -> int"))]
+    IntSign,
+    #[strum(props(name = "op *", type = "int * int -> int"))]
     IntTimes,
+    #[strum(props(p = "Int", name = "toInt", type = "int -> int"))]
+    IntToInt,
+    #[strum(props(p = "Int", name = "toLarge", type = "int -> int"))]
+    IntToLarge,
+    #[strum(props(p = "Int", name = "toString", type = "int -> string"))]
+    IntToString,
     #[strum(props(p = "List", name = "nil", global = true))]
     #[strum(props(type = "forall 1 'a list", constructor = true))]
     ListNil,
