@@ -531,8 +531,11 @@ impl Display for MorelError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MorelError::Runtime(exn, loc) => {
-                writeln!(f, "uncaught exception {}", exn)?;
-                write!(f, "  raised at: {}", loc)
+                write!(f, "uncaught exception {}", exn)?;
+                if let Some(explanation) = exn.explain() {
+                    write!(f, " [{}]", explanation)?;
+                }
+                write!(f, "\n  raised at: {}", loc)
             }
             MorelError::Other => write!(f, "Other error"),
             MorelError::Bind => write!(f, "Bind error"),

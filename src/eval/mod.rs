@@ -23,4 +23,5 @@ pub mod int;
 pub mod list;
 pub mod order;
 pub mod session;
+pub mod string;
 pub mod val;

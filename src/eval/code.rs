@@ -24,6 +24,7 @@ use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
 use crate::eval::session::Session;
+use crate::eval::string::Str;
 use crate::eval::val::Val;
 use crate::shell::main::{MorelError, Shell};
 use std::collections::{BTreeMap, HashMap};
@@ -46,6 +47,8 @@ pub enum EvalMode {
     Eager2,
     Eager3,
     EagerV2,
+    EagerV3,
+    EagerV4,
 }
 
 /// Effects that can be applied to modify the state of the current shell or
@@ -148,6 +151,8 @@ pub enum Code {
     NativeF0(EagerF0),
     NativeF1(EagerF1, Box<Code>),
     NativeF2(EagerF2, Box<Code>, Box<Code>),
+    NativeF3(EagerF3, Box<Code>, Box<Code>, Box<Code>),
+    NativeF4(EagerF4, Box<Code>, Box<Code>, Box<Code>, Box<Code>),
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
     Nth(Box<Type>, usize),
@@ -344,6 +349,19 @@ impl Code {
                     code_or_span(codes, span, 1),
                 )
             }
+            Impl::EF3(ev3) => Code::NativeF3(
+                ev3,
+                codes[0].clone(),
+                codes[1].clone(),
+                code_or_span(codes, span, 2),
+            ),
+            Impl::EF4(ev4) => Code::NativeF4(
+                ev4,
+                codes[0].clone(),
+                codes[1].clone(),
+                codes[2].clone(),
+                code_or_span(codes, span, 3),
+            ),
         }
     }
 
@@ -391,7 +409,9 @@ impl Code {
             Code::BindSlot(_, _) => *mode == EvalMode::EagerV1,
             Code::BindTuple(_) => *mode == EvalMode::EagerV1,
             Code::BindWildcard => *mode == EvalMode::EagerV1,
-            Code::Case(_) => *mode == EvalMode::EagerV1,
+            Code::Case(_) => {
+                *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
+            }
             Code::Constant(_) => {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
@@ -411,6 +431,8 @@ impl Code {
             Code::NativeF0(_) => *mode == EvalMode::EagerF0,
             Code::NativeF1(_, _) => *mode == EvalMode::EagerV1,
             Code::NativeF2(_, _, _) => *mode == EvalMode::EagerV2,
+            Code::NativeF3(_, _, _, _) => *mode == EvalMode::EagerV3,
+            Code::NativeF4(_, _, _, _, _) => *mode == EvalMode::EagerV4,
             Code::Nth(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
@@ -525,6 +547,19 @@ impl Code {
                 let v1 = code1.eval_f0(r, f)?;
                 eager.apply(r, f, v0, v1)
             }
+            Code::NativeF3(eager, code0, code1, code2) => {
+                let v0 = code0.eval_f0(r, f)?;
+                let v1 = code1.eval_f0(r, f)?;
+                let v2 = code2.eval_f0(r, f)?;
+                eager.apply(r, f, v0, v1, v2)
+            }
+            Code::NativeF4(eager, code0, code1, code2, code3) => {
+                let v0 = code0.eval_f0(r, f)?;
+                let v1 = code1.eval_f0(r, f)?;
+                let v2 = code2.eval_f0(r, f)?;
+                let v3 = code3.eval_f0(r, f)?;
+                eager.apply(r, f, v0, v1, v2, v3)
+            }
             Code::Tuple(codes) => {
                 let mut values = Vec::with_capacity(codes.capacity());
                 for code in codes {
@@ -606,6 +641,19 @@ impl Code {
                 Self::eval_all_f1(r, f, codes, list)
             }
             Code::BindWildcard => Ok(Val::Bool(true)),
+            Code::Case(codes) => {
+                let mut i = 1;
+                while i < codes.len() {
+                    let pat = &codes[i];
+                    let matched = pat.eval_f1(r, f, a0)?;
+                    if matched.expect_bool() {
+                        let expr = &codes[i + 1];
+                        return expr.eval_f0(r, f);
+                    }
+                    i += 2;
+                }
+                panic!("Match not exhaustive")
+            }
             Code::Constant(v) => Ok(v.clone()),
             Code::Fn(frame_def, pat_expr_codes) => {
                 Frame::create_and_eval(frame_def, pat_expr_codes, r, a0)
@@ -653,6 +701,7 @@ impl Display for Code {
         match self {
             Code::BindLiteral(v) => write!(f, "{}", v),
             Code::Constant(v) => match v {
+                Val::Char(c) => write!(f, "constant({})", c),
                 Val::String(s) => write!(f, "constant({})", s),
                 _ => write!(f, "constant({})", v),
             },
@@ -669,24 +718,68 @@ impl Display for Code {
                 }
                 write!(f, ")")
             }
+            Code::Native1(eager, code0) => {
+                write!(f, "apply(fnValue {}, argCode {})", eager.plan(), code0)
+            }
             Code::Native2(eager, code0, code1) => {
                 write!(
                     f,
                     "apply2(fnValue {}, {}, {})",
                     eager.plan(),
                     code0,
-                    code1
+                    code1,
                 )
             }
             Code::NativeF2(eager, code0, code1) => {
                 write!(
                     f,
-                    "apply(fnValue {}, argCode tuple({}, {}))",
+                    "apply2(fnValue {}, {}, {})",
                     eager.plan(),
                     code0,
-                    code1
+                    code1,
                 )
             }
+            Code::NativeF3(eager, code0, code1, code2) => {
+                write!(
+                    f,
+                    "apply(fnValue {}, argCode tuple({}, {}, {}))",
+                    eager.plan(),
+                    code0,
+                    code1,
+                    code2
+                )
+            }
+            Code::NativeF4(eager, code0, code1, code2, code3) => {
+                write!(
+                    f,
+                    "apply(fnValue {}, argCode tuple({}, {}, {}, {}))",
+                    eager.plan(),
+                    code0,
+                    code1,
+                    code2,
+                    code3
+                )
+            }
+            Code::Tuple(codes) => {
+                write!(f, "tuple")?;
+                for code in codes {
+                    write!(f, "{}, ", code)?;
+                }
+                Ok(())
+            }
+            Code::BindSlot(_, slot) => write!(f, "bind({})", slot),
+            Code::BindWildcard => write!(f, "_"),
+            Code::Case(codes) => {
+                write!(f, "case(")?;
+                for (i, code) in codes.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", code)?;
+                }
+                write!(f, ")")
+            }
+            Code::GetLocal(_, slot) => write!(f, "get({})", slot),
             _ => todo!("fmt: {:?}", self),
         }
     }
@@ -840,6 +933,8 @@ pub enum Impl {
     EF0(EagerF0),
     EF1(EagerF1),
     EF2(EagerF2),
+    EF3(EagerF3),
+    EF4(EagerF4),
 }
 
 pub struct Applicable;
@@ -858,6 +953,7 @@ pub enum Eager0 {
     OrderEqual,
     OrderGreater,
     OrderLess,
+    StringMaxSize,
 }
 
 impl Eager0 {
@@ -877,6 +973,7 @@ impl Eager0 {
             OrderEqual => Val::Int(0),
             OrderGreater => Val::Int(1),
             OrderLess => Val::Int(-1),
+            StringMaxSize => Val::Int(i32::MAX),
         }
     }
 
@@ -970,9 +1067,10 @@ impl EagerF1 {
 
 /// Function implementation that takes one argument.
 /// The argument is eagerly evaluated before the function is called.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum Eager1 {
     // lint: sort until '#}'
+    CharToLower,
     GeneralIgnore,
     IntAbs,
     IntFromInt,
@@ -985,9 +1083,18 @@ pub enum Eager1 {
     IntToString,
     OptionSome,
     RealNegate,
+    StringConcat,
+    StringExplode,
+    StringImplode,
+    StringSize,
+    StringStr,
 }
 
 impl Eager1 {
+    pub(crate) fn plan(&self) -> String {
+        camel_to_dotted(&self.to_string())
+    }
+
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val) -> Val {
@@ -996,6 +1103,7 @@ impl Eager1 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
             GeneralIgnore => Val::Unit,
             IntAbs => Val::Int(a0.expect_int().abs()),
             IntFromInt => a0,
@@ -1011,6 +1119,23 @@ impl Eager1 {
             IntToString => Val::String(Int::_to_string(a0.expect_int())),
             OptionSome => Val::Some(Box::new(a0)),
             RealNegate => Val::Real(-a0.expect_real()),
+            StringConcat => {
+                let strings = a0.expect_list();
+                Val::String(Str::concat(strings))
+            }
+            StringExplode => {
+                let s = a0.expect_string();
+                Val::List(Str::explode(&s))
+            }
+            StringImplode => {
+                let chars = a0.expect_list();
+                Val::String(Str::implode(chars))
+            }
+            StringSize => Val::Int(a0.expect_string().len() as i32),
+            StringStr => {
+                let c = a0.expect_char();
+                Val::String(c.to_string())
+            }
         }
     }
 
@@ -1031,6 +1156,7 @@ pub enum Eager2 {
     BoolOpEq,
     BoolOpNe,
     BoolOrElse,
+    CharCompare,
     CharOpEq,
     CharOpGe,
     CharOpGt,
@@ -1067,6 +1193,10 @@ pub enum Eager2 {
     RealOpNe,
     RealOpPlus,
     RealOpTimes,
+    StringCompare,
+    StringIsPrefix,
+    StringIsSubstring,
+    StringIsSuffix,
     StringOpCaret,
     StringOpEq,
     StringOpGe,
@@ -1080,7 +1210,8 @@ impl Eager2 {
     fn plan(&self) -> String {
         match self {
             Eager2::IntPlus => "+".to_string(),
-            _ => self.to_string(),
+            Eager2::StringOpCaret => "^".to_string(),
+            _ => camel_to_dotted(&self.to_string()),
         }
     }
 
@@ -1097,6 +1228,9 @@ impl Eager2 {
             BoolOpEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
             BoolOpNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
             BoolOrElse => Val::Bool(a0.expect_bool() || a1.expect_bool()),
+            CharCompare => {
+                Val::Order(Char::compare(a0.expect_char(), a1.expect_char()))
+            }
             CharOpEq => Val::Bool(a0.expect_char() == a1.expect_char()),
             CharOpGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
             CharOpGt => Val::Bool(a0.expect_char() > a1.expect_char()),
@@ -1149,6 +1283,22 @@ impl Eager2 {
             RealOpNe => Val::Bool(a0.expect_real() != a1.expect_real()),
             RealOpPlus => Val::Real(a0.expect_real() + a1.expect_real()),
             RealOpTimes => Val::Real(a0.expect_real() * a1.expect_real()),
+            StringCompare => Val::Order(Str::compare(
+                &a0.expect_string(),
+                &a1.expect_string(),
+            )),
+            StringIsPrefix => Val::Bool(Str::is_prefix(
+                &a0.expect_string(),
+                &a1.expect_string(),
+            )),
+            StringIsSubstring => Val::Bool(Str::is_substring(
+                &a0.expect_string(),
+                &a1.expect_string(),
+            )),
+            StringIsSuffix => Val::Bool(Str::is_suffix(
+                &a0.expect_string(),
+                &a1.expect_string(),
+            )),
             StringOpCaret => Val::String(format!(
                 "{}{}",
                 a0.expect_string(),
@@ -1182,16 +1332,18 @@ pub enum EagerF2 {
     // lint: sort until '#}'
     CharChr,
     ListTabulate,
+    StringCollate,
+    StringConcatWith,
+    StringFields,
+    StringMap,
+    StringTokens,
+    StringTranslate,
     SysSet,
 }
 
 impl EagerF2 {
     fn plan(&self) -> String {
-        match self {
-            EagerF2::CharChr => "Char.chr".to_string(),
-            EagerF2::SysSet => "Sys.set".to_string(),
-            EagerF2::ListTabulate => "List.tabulate".to_string(),
-        }
+        camel_to_dotted(&self.to_string())
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
@@ -1218,12 +1370,146 @@ impl EagerF2 {
             ListTabulate => {
                 List::tabulate(r, f, a0.expect_int(), &a1.expect_code())
             }
+            StringCollate => {
+                let tuple = a1.expect_list();
+                if tuple.len() != 2 {
+                    panic!("Expected tuple of 2 strings");
+                }
+                let s1 = tuple[0].expect_string();
+                let s2 = tuple[1].expect_string();
+                Ok(Val::Order(Str::collate(r, f, &a0, &s1, &s2)?))
+            }
+            StringConcatWith => {
+                let sep = a0.expect_string();
+                let strings = a1.expect_list();
+                Ok(Val::String(Str::concat_with(&sep, strings)))
+            }
+            StringFields => {
+                let func = a0.expect_code();
+                let s = a1.expect_string();
+                Str::fields(r, f, &func, &s)
+            }
+            StringMap => {
+                let func = a0.expect_code();
+                let s = a1.expect_string();
+                Str::map(r, f, &func, &s)
+            }
+            StringTokens => {
+                let func = a0.expect_code();
+                let s = a1.expect_string();
+                Str::tokens(r, f, &func, &s)
+            }
+            StringTranslate => {
+                let func = a0.expect_code();
+                let s = a1.expect_string();
+                Str::translate(r, f, &func, &s)
+            }
             SysSet => {
                 let prop = a0.expect_string();
                 let val = a1;
                 r.emit_effect(Effect::SetShellProp(prop, val));
                 Ok(Val::Unit)
             }
+        }
+    }
+}
+
+/// Function implementation that takes three arguments (one function, two
+/// values). The arguments are eagerly evaluated before the function is called
+/// -- but allows the implementation to have side effects such as modifying the
+/// state of the session.
+#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+pub enum EagerF3 {
+    // lint: sort until '#}'
+    StringSub,
+}
+
+impl EagerF3 {
+    fn plan(&self) -> String {
+        camel_to_dotted(&self.to_string())
+    }
+
+    fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
+        if b.fn_impls.insert(f, Impl::EF3(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
+    }
+
+    // Passing Val by value is OK because it is small.
+    #[allow(clippy::needless_pass_by_value)]
+    fn apply(
+        &self,
+        _r: &mut EvalEnv,
+        _f: &mut Frame,
+        a0: Val,
+        a1: Val,
+        a2: Val,
+    ) -> Result<Val, MorelError> {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::EagerF3::*;
+
+        match &self {
+            StringSub => Str::sub(
+                &a0.expect_string(),
+                a1.expect_int(),
+                &a2.expect_span(),
+            ),
+        }
+    }
+}
+
+/// Function implementation that takes four arguments, the fourth being a span.
+/// The arguments are eagerly evaluated before the function is called.
+#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+pub enum EagerF4 {
+    // lint: sort until '#}'
+    StringExtract,
+    StringSubstring,
+}
+
+impl EagerF4 {
+    fn plan(&self) -> String {
+        camel_to_dotted(&self.to_string())
+    }
+
+    fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
+        if b.fn_impls.insert(f, Impl::EF4(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
+    }
+
+    // Passing Val by value is OK because it is small.
+    #[allow(clippy::needless_pass_by_value)]
+    fn apply(
+        &self,
+        _r: &mut EvalEnv,
+        _f: &mut Frame,
+        a0: Val,
+        a1: Val,
+        a2: Val,
+        a3: Val,
+    ) -> Result<Val, MorelError> {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::EagerF4::*;
+
+        match &self {
+            StringExtract => {
+                let s = a0.expect_string();
+                let i = a1.expect_int();
+                let j = match a2 {
+                    Val::Unit => None,
+                    Val::Some(v) => Some(v.expect_int()),
+                    _ => panic!("Expected int option"),
+                };
+                let span = a3.expect_span();
+                Str::extract(&s, i, j, &span)
+            }
+            StringSubstring => Str::substring(
+                &a0.expect_string(),
+                a1.expect_int(),
+                a2.expect_int(),
+                &a3.expect_span(),
+            ),
         }
     }
 }
@@ -1346,10 +1632,53 @@ impl Custom {
     }
 }
 
+/// Converts a camel-case enum variant name to a dotted function name.
+///
+/// For example, `camel_to_dotted("StringFields")` returns `"String.fields"`;
+/// `camel_to_dotted("StringConcatWith")` returns `"String.concatWith"`.
+fn camel_to_dotted(s: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let mut dot_inserted = false;
+
+    for (i, &c) in chars.iter().enumerate() {
+        if i > 0 && c.is_uppercase() {
+            let prev = chars[i - 1];
+            // Insert dot when transitioning from lowercase to uppercase
+            if prev.is_lowercase() {
+                if !dot_inserted {
+                    // First dot - this separates structure from function name
+                    result.push('.');
+                    dot_inserted = true;
+                    // Lowercase the first character of the function name
+                    result.push(c.to_lowercase().next().unwrap());
+                } else {
+                    // Already inserted dot, just add character as-is (preserves
+                    // camelCase)
+                    result.push(c);
+                }
+            } else {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 pub struct Lib {
     pub fn_map: BTreeMap<BuiltInFunction, (Type, Impl)>,
     pub structure_map: BTreeMap<BuiltInRecord, (Type, Val)>,
     pub name_to_built_in: HashMap<String, BuiltIn>,
+}
+
+impl Lib {
+    pub fn get_fn_code(&self, f: BuiltInFunction) -> Arc<Code> {
+        let (_, impl_) = self.fn_map.get(&f).expect("Function not in library");
+        Arc::new(Code::new_native(*impl_, &[], &Span("?".to_string())))
+    }
 }
 
 #[derive(Default)]
@@ -1373,12 +1702,14 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::BoolOrElse.implements(&mut b, BoolOrElse);
     Eager0::BoolTrue.implements(&mut b, BoolTrue);
     EagerF2::CharChr.implements(&mut b, CharChr);
+    Eager2::CharCompare.implements(&mut b, CharCompare);
     Eager2::CharOpEq.implements(&mut b, CharOpEq);
     Eager2::CharOpGe.implements(&mut b, CharOpGe);
     Eager2::CharOpGt.implements(&mut b, CharOpGt);
     Eager2::CharOpLe.implements(&mut b, CharOpLe);
     Eager2::CharOpLt.implements(&mut b, CharOpLt);
     Eager2::CharOpNe.implements(&mut b, CharOpNe);
+    Eager1::CharToLower.implements(&mut b, CharToLower);
     Custom::GOpEq.implements(&mut b, GOpEq);
     Custom::GOpGe.implements(&mut b, GOpGe);
     Custom::GOpGt.implements(&mut b, GOpGt);
@@ -1442,6 +1773,19 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::RealOpNe.implements(&mut b, RealOpNe);
     Eager2::RealOpPlus.implements(&mut b, RealOpPlus);
     Eager2::RealOpTimes.implements(&mut b, RealOpTimes);
+    EagerF2::StringCollate.implements(&mut b, StringCollate);
+    Eager2::StringCompare.implements(&mut b, StringCompare);
+    Eager1::StringConcat.implements(&mut b, StringConcat);
+    EagerF2::StringConcatWith.implements(&mut b, StringConcatWith);
+    Eager1::StringExplode.implements(&mut b, StringExplode);
+    EagerF4::StringExtract.implements(&mut b, StringExtract);
+    EagerF2::StringFields.implements(&mut b, StringFields);
+    Eager1::StringImplode.implements(&mut b, StringImplode);
+    Eager2::StringIsPrefix.implements(&mut b, StringIsPrefix);
+    Eager2::StringIsSubstring.implements(&mut b, StringIsSubstring);
+    Eager2::StringIsSuffix.implements(&mut b, StringIsSuffix);
+    EagerF2::StringMap.implements(&mut b, StringMap);
+    Eager0::StringMaxSize.implements(&mut b, StringMaxSize);
     Eager2::StringOpCaret.implements(&mut b, StringOpCaret);
     Eager2::StringOpEq.implements(&mut b, StringOpEq);
     Eager2::StringOpGe.implements(&mut b, StringOpGe);
@@ -1449,6 +1793,12 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::StringOpLe.implements(&mut b, StringOpLe);
     Eager2::StringOpLt.implements(&mut b, StringOpLt);
     Eager2::StringOpNe.implements(&mut b, StringOpNe);
+    Eager1::StringSize.implements(&mut b, StringSize);
+    Eager1::StringStr.implements(&mut b, StringStr);
+    EagerF3::StringSub.implements(&mut b, StringSub);
+    EagerF4::StringSubstring.implements(&mut b, StringSubstring);
+    EagerF2::StringTokens.implements(&mut b, StringTokens);
+    EagerF2::StringTranslate.implements(&mut b, StringTranslate);
     EagerF0::SysPlan.implements(&mut b, SysPlan);
     EagerF2::SysSet.implements(&mut b, SysSet);
     EagerF1::SysUnset.implements(&mut b, SysUnset);

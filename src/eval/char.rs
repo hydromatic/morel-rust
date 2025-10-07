@@ -17,6 +17,7 @@
 
 use crate::compile::library::BuiltInExn;
 use crate::eval::code::Span;
+use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 
@@ -31,5 +32,21 @@ impl Char {
         } else {
             Ok(Val::Char(i as u8 as char))
         }
+    }
+
+    /// Computes the Morel expression `Char.compare (c1, c2)`.
+    ///
+    /// Returns `LESS`, `EQUAL`, or `GREATER` according to whether its first
+    /// argument is less than, equal to, or greater than the second.
+    pub(crate) fn compare(c1: char, c2: char) -> Order {
+        Order(c1.cmp(&c2))
+    }
+
+    /// Computes the Morel expression `Char.toLower c`.
+    ///
+    /// Returns the lowercase letter corresponding to `c`, if `c` is a letter
+    /// (a to z or A to Z); otherwise returns `c`.
+    pub(crate) fn to_lower(c: char) -> char {
+        c.to_lowercase().next().unwrap_or(c)
     }
 }

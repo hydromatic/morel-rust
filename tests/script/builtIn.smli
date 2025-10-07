@@ -60,10 +60,12 @@ Char;
 *)
 Char;
 > val it =
->   {chr=fn,`op <`=fn,`op <=`=fn,`op <>`=fn,`op =`=fn,`op >`=fn,`op >=`=fn}
->   : {chr:int -> char, `op <`:char * char -> bool, `op <=`:char * char -> bool,
->      `op <>`:char * char -> bool, `op =`:char * char -> bool,
->      `op >`:char * char -> bool, `op >=`:char * char -> bool}
+>   {chr=fn,compare=fn,`op <`=fn,`op <=`=fn,`op <>`=fn,`op =`=fn,`op >`=fn,
+>    `op >=`=fn,toLower=fn}
+>   : {chr:int -> char, compare:char * char -> order, `op <`:char * char -> bool,
+>      `op <=`:char * char -> bool, `op <>`:char * char -> bool,
+>      `op =`:char * char -> bool, `op >`:char * char -> bool,
+>      `op >=`:char * char -> bool, toLower:char -> char}
 Int;
 > val it =
 >   {abs=fn,compare=fn,div=fn,fromInt=fn,fromLarge=fn,fromString=fn,max=fn,
@@ -155,12 +157,15 @@ Option;
 >      map:('l -> 'm) -> 'l option -> 'm option,
 >      mapPartial:('n -> 'o option) -> 'n option -> 'o option,
 >      valOf:'p option -> 'p}
+set("mode", "evaluate");
+> val it = () : unit
 String;
 > val it =
 >   {collate=fn,compare=fn,concat=fn,concatWith=fn,explode=fn,extract=fn,
 >    fields=fn,implode=fn,isPrefix=fn,isSubstring=fn,isSuffix=fn,map=fn,
->    maxSize=2147483647,`op <`=fn,`op <=`=fn,`op >`=fn,`op >=`=fn,`op ^`=fn,
->    size=fn,str=fn,sub=fn,substring=fn,tokens=fn,translate=fn}
+>    maxSize=2147483647,`op <`=fn,`op <=`=fn,`op <>`=fn,`op =`=fn,`op >`=fn,
+>    `op >=`=fn,`op ^`=fn,size=fn,str=fn,sub=fn,substring=fn,tokens=fn,
+>    translate=fn}
 >   : {collate:(char * char -> order) -> string * string -> order,
 >      compare:string * string -> order, concat:string list -> string,
 >      concatWith:string -> string list -> string, explode:string -> char list,
@@ -170,11 +175,14 @@ String;
 >      isSubstring:string -> string -> bool, isSuffix:string -> string -> bool,
 >      map:(char -> char) -> string -> string, maxSize:int,
 >      `op <`:string * string -> bool, `op <=`:string * string -> bool,
+>      `op <>`:string * string -> bool, `op =`:string * string -> bool,
 >      `op >`:string * string -> bool, `op >=`:string * string -> bool,
 >      `op ^`:string * string -> string, size:string -> int, str:char -> string,
 >      sub:string * int -> char, substring:string * int * int -> string,
 >      tokens:(char -> bool) -> string -> string list,
 >      translate:(char -> string) -> string -> string}
+set("mode", "validate");
+> val it = () : unit
 Real;
 > val it =
 >   {abs=fn,ceil=fn,checkFloat=fn,compare=fn,copySign=fn,floor=fn,fromInt=fn,
@@ -301,8 +309,6 @@ set("mode", "evaluate");
 > val it = () : unit
 chr;
 > val it = fn : int -> char
-set("mode", "validate");
-> val it = () : unit
 (* "val compare : 'a * 'a -> order" maps to "String.compare" *)
 String.compare;
 > val it = fn : string * string -> order
@@ -320,6 +326,8 @@ concat;
 (* "val explode : string -> char list" maps to "String.explode" *)
 explode;
 > val it = fn : string -> char list
+set("mode", "validate");
+> val it = () : unit
 (* "val floor : real -> int" maps to "Real.floor" *)
 floor;
 > val it = fn : real -> int
@@ -340,11 +348,11 @@ set("mode", "evaluate");
 (* "val ignore : 'a -> unit" maps to "General.ignore" *)
 ignore;
 > val it = fn : 'a -> unit
-set("mode", "validate");
-> val it = () : unit
 (* "val implode : char list -> string" maps to "String.implode" *)
 implode;
 > val it = fn : char list -> string
+set("mode", "validate");
+> val it = () : unit
 (* "val isSome : 'a option -> bool" maps to "Option.isSome" *)
 isSome;
 > val it = fn : 'a option -> bool
@@ -377,6 +385,8 @@ rev;
 (* "val round : real -> int" maps to "Real.round" *)
 round;
 > val it = fn : real -> int
+set("mode", "evaluate");
+> val it = () : unit
 (* "val size : string -> int" maps to "String.size" *)
 size;
 > val it = fn : string -> int
@@ -386,6 +396,8 @@ str;
 (* "val substring : string * int * int -> string" maps to "String.substring" *)
 substring;
 > val it = fn : string * int * int -> string
+set("mode", "validate");
+> val it = () : unit
 (* "val tl : 'a list -> 'a list" maps to "List.tl" *)
 tl;
 > val it = fn : 'a list -> 'a list
@@ -921,6 +933,8 @@ use;
 > val it = fn : string -> unit
 
 (* String ------------------------------------------------------ *)
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) val maxSize : int
 String.maxSize;
@@ -955,7 +969,9 @@ String.sub("abc", ~1);
 > uncaught exception Subscript [subscript out of bounds]
 >   raised at: stdIn:1.1-1.22
 Sys.plan ();
-> val it = "apply2(fnValue String.sub, constant(abc), constant(-1))" : string
+> val it =
+>   "apply(fnValue String.sub, argCode tuple(constant(abc), constant(~1), constant(stdIn:1.1-1.22)))"
+>   : string
 
 (*) val extract: string * int * int option -> string
 String.extract;
@@ -988,7 +1004,7 @@ String.extract("abc", 1, SOME 99);
 >   raised at: stdIn:1.1-1.34
 Sys.plan ();
 > val it =
->   "apply3(fnValue String.extract, constant(abc), constant(1), apply(fnValue tyCon, argCode constant(99)))"
+>   "apply(fnValue String.extract, argCode tuple(constant(abc), constant(1), apply(fnValue Option.some, argCode constant(99)), constant(stdIn:1.1-1.34)))"
 >   : string
 
 (*) val substring : string * int * int -> string
@@ -1015,7 +1031,7 @@ String.substring("hello", 1, 5);
 >   raised at: stdIn:1.1-1.32
 Sys.plan ();
 > val it =
->   "apply3(fnValue String.substring, constant(hello), constant(1), constant(5))"
+>   "apply(fnValue String.substring, argCode tuple(constant(hello), constant(1), constant(5), constant(stdIn:1.1-1.32)))"
 >   : string
 
 (*) val ^ : string * string -> string
@@ -1083,8 +1099,10 @@ String.explode "abc";
 > val it = [#"a",#"b",#"c"] : char list
 String.explode "";
 > val it = [] : char list
+(*
 Sys.plan ();
 > val it = "apply(fnValue String.explode, argCode constant())" : string
+*)
 
 (*) val map : (char -> char) -> string -> string
 String.map;
@@ -1095,7 +1113,7 @@ String.map (fn c => if c = #"a" then #"A" else if c = #"c" then #"C" else c) "";
 > val it = "" : string
 Sys.plan ();
 > val it =
->   "apply2(fnValue String.map, match(c, apply(fnCode match(true, constant(A), _, apply(fnCode match(true, constant(C), _, get(name c)), argCode apply2(fnValue =, get(name c), constant(c)))), argCode apply2(fnValue =, get(name c), constant(a)))), constant())"
+>   "apply2(fnValue String.map, fn(bind(0) => case(apply2(fnValue Char.opEq, get(0), constant(a)), true, constant(A), _, case(apply2(fnValue Char.opEq, get(0), constant(c)), true, constant(C), _, get(0)))), constant())"
 >   : string
 
 (*) val translate : (char -> string) -> string -> string
@@ -1107,7 +1125,7 @@ String.translate (fn c => if c = #"a" then "AA" else if c = #"c" then "CCC" else
 > val it = "" : string
 Sys.plan ();
 > val it =
->   "apply2(fnValue String.translate, match(c, apply(fnCode match(true, constant(AA), _, apply(fnCode match(true, constant(CCC), _, constant(-)), argCode apply2(fnValue =, get(name c), constant(c)))), argCode apply2(fnValue =, get(name c), constant(a)))), constant())"
+>   "apply2(fnValue String.translate, fn(bind(0) => case(apply2(fnValue Char.opEq, get(0), constant(a)), true, constant(AA), _, case(apply2(fnValue Char.opEq, get(0), constant(c)), true, constant(CCC), _, constant(-)))), constant())"
 >   : string
 
 (*) val tokens : (char -> bool) -> string -> string list
@@ -1151,6 +1169,8 @@ Sys.plan ();
 > val it = "apply2(fnValue String.isPrefix, constant(), constant())" : string
 
 (*) Partial evaluation
+set("mode", "validate");
+> val it = () : unit
 val p = String.isPrefix "he";
 > val p = fn : string -> bool
 Sys.plan ();
@@ -1159,6 +1179,8 @@ p "hello";
 > val it = true : bool
 p "goodbye";
 > val it = false : bool
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) val isSubstring : string -> string -> bool
 String.isSubstring;
@@ -1257,6 +1279,9 @@ String.`op >=`;
 > val it = true : bool
 "ab" >= "ab";
 > val it = true : bool
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) val toString : string -> String.string
 (*) val scan       : (char, 'a) StringCvt.reader
@@ -4531,9 +4556,7 @@ Sys.set;
 Sys.set ("hybrid", false);
 > val it = () : unit
 Sys.plan ();
-> val it =
->   "apply(fnValue Sys.set, argCode tuple(constant(hybrid), constant(false)))"
->   : string
+> val it = "apply2(fnValue Sys.set, constant(hybrid), constant(false))" : string
 set("mode", "validate");
 > val it = () : unit
 

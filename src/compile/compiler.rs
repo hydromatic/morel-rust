@@ -24,7 +24,7 @@ use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
-use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame};
+use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame, Impl};
 use crate::eval::frame::FrameDef;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
@@ -460,7 +460,33 @@ impl<'a> Compiler<'a> {
                 Expr::Literal(_t, Val::Fn(f)) => {
                     let impl_ = f.get_impl();
                     let codes = self.compile_args_boxed(cx, a);
+                    // TODO: Support partial application of curried built-in
+                    // functions. Currently only works when all arguments are
+                    // provided.
                     Code::new_native(impl_, &codes, span)
+                }
+                // Handle curried application of EV2 and E2 functions like
+                // String.map and String.isPrefix. Pattern:
+                //   (String.map f) s => String.map (f, s)
+                Expr::Apply(_, inner_f, first_arg, span) => {
+                    if let Expr::Literal(_t, Val::Fn(func)) = inner_f.as_ref()
+                        && matches!(func.get_impl(), Impl::EF2(_) | Impl::E2(_))
+                    {
+                        // This is a curried call to an EF2 or E2 function.
+                        // Gather both arguments.
+                        let arg1_code =
+                            Box::new(self.compile_arg(cx, first_arg));
+                        let arg2_code = Box::new(self.compile_arg(cx, a));
+                        return Code::new_native(
+                            func.get_impl(),
+                            &[arg1_code, arg2_code],
+                            span,
+                        );
+                    }
+                    // Fall through to default handling
+                    let arg_code = self.compile_arg(cx, a);
+                    let fn_code = self.compile_arg(cx, f);
+                    Code::new_apply(&fn_code, &arg_code, &[])
                 }
                 Expr::Identifier(_, name) => {
                     let arg_code = self.compile_arg(cx, a);
@@ -662,6 +688,7 @@ impl Action for ValDeclAction {
     fn apply(&self, r: &mut EvalEnv, f: &mut Frame) {
         // self.code is a function with unit argument.
         self.code.assert_supports_eval_mode(&EvalMode::EagerV1);
+        r.emit_effect(Effect::EmitCode(self.code.clone()));
         match self.code.eval_f1(r, f, &Val::Unit) {
             Err(e) => {
                 r.emit_effect(Effect::EmitLine(e.to_string()));
@@ -681,7 +708,6 @@ impl Action for ValDeclAction {
 
                     r.emit_effect(Effect::EmitLine(line));
                 });
-                r.emit_effect(Effect::EmitCode(self.code.clone()));
             }
         }
     }

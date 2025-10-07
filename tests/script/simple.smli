@@ -444,8 +444,6 @@ String.implode [#"\t", #"a", #"\128", #"b"];
 > val it = "\ta\128b" : string
 
 (*) Lists and precedence
-set("mode", "evaluate");
-> val it = () : unit
 1 :: 2 :: [3];
 > val it = [1,2,3] : int list
 [1 + 2, 3 * 4];

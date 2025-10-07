@@ -87,6 +87,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Char", name = "chr", global = true))]
     #[strum(props(type = "int -> char", throws = "Chr"))]
     CharChr,
+    #[strum(props(p = "Char", name = "compare"))]
+    #[strum(props(type = "char * char -> `order`"))]
+    CharCompare,
     #[strum(props(p = "Char", name = "op =", type = "char * char -> bool"))]
     CharOpEq,
     #[strum(props(p = "Char", name = "op >=", type = "char * char -> bool"))]
@@ -99,6 +102,8 @@ pub enum BuiltInFunction {
     CharOpLt,
     #[strum(props(p = "Char", name = "op <>", type = "char * char -> bool"))]
     CharOpNe,
+    #[strum(props(p = "Char", name = "toLower", type = "char -> char"))]
+    CharToLower,
     #[strum(props(name = "op =", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpEq,
@@ -252,6 +257,46 @@ pub enum BuiltInFunction {
     RealOpPlus,
     #[strum(props(p = "Real", name = "op *", type = "real * real -> real"))]
     RealOpTimes,
+    #[strum(props(p = "String", name = "collate"))]
+    #[strum(props(
+        type = "(char * char -> `order`) -> string * string -> `order`"
+    ))]
+    StringCollate,
+    #[strum(props(p = "String", name = "compare"))]
+    #[strum(props(type = "string * string -> `order`"))]
+    StringCompare,
+    #[strum(props(p = "String", name = "concat", global = true))]
+    #[strum(props(type = "string list -> string"))]
+    StringConcat,
+    #[strum(props(p = "String", name = "concatWith"))]
+    #[strum(props(type = "string -> string list -> string"))]
+    StringConcatWith,
+    #[strum(props(p = "String", name = "explode", global = true))]
+    #[strum(props(type = "string -> char list"))]
+    StringExplode,
+    #[strum(props(p = "String", name = "extract", throws = "Subscript"))]
+    #[strum(props(type = "string * int * int option -> string"))]
+    StringExtract,
+    #[strum(props(p = "String", name = "fields"))]
+    #[strum(props(type = "(char -> bool) -> string -> string list"))]
+    StringFields,
+    #[strum(props(p = "String", name = "implode", global = true))]
+    #[strum(props(type = "char list -> string"))]
+    StringImplode,
+    #[strum(props(p = "String", name = "isPrefix"))]
+    #[strum(props(type = "string -> string -> bool"))]
+    StringIsPrefix,
+    #[strum(props(p = "String", name = "isSubstring"))]
+    #[strum(props(type = "string -> string -> bool"))]
+    StringIsSubstring,
+    #[strum(props(p = "String", name = "isSuffix"))]
+    #[strum(props(type = "string -> string -> bool"))]
+    StringIsSuffix,
+    #[strum(props(p = "String", name = "map"))]
+    #[strum(props(type = "(char -> char) -> string -> string"))]
+    StringMap,
+    #[strum(props(p = "String", name = "maxSize", type = "int"))]
+    StringMaxSize,
     #[strum(props(p = "String", name = "op ^", global = true))]
     #[strum(props(type = "string * string -> string"))]
     StringOpCaret,
@@ -273,6 +318,25 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "op <>"))]
     #[strum(props(type = "string * string -> bool"))]
     StringOpNe,
+    #[strum(props(p = "String", name = "size", global = true))]
+    #[strum(props(type = "string -> int"))]
+    StringSize,
+    #[strum(props(p = "String", name = "str", global = true))]
+    #[strum(props(type = "char -> string"))]
+    StringStr,
+    #[strum(props(p = "String", name = "sub", throws = "Subscript"))]
+    #[strum(props(type = "string * int -> char"))]
+    StringSub,
+    #[strum(props(p = "String", name = "substring", global = true))]
+    #[strum(props(type = "string * int * int -> string"))]
+    #[strum(props(throws = "Subscript"))]
+    StringSubstring,
+    #[strum(props(p = "String", name = "tokens"))]
+    #[strum(props(type = "(char -> bool) -> string -> string list"))]
+    StringTokens,
+    #[strum(props(p = "String", name = "translate"))]
+    #[strum(props(type = "(char -> string) -> string -> string"))]
+    StringTranslate,
     #[strum(props(p = "Sys", name = "plan", global = true))]
     #[strum(props(type = "unit -> string"))]
     SysPlan,
@@ -352,9 +416,15 @@ pub enum BuiltInExn {
     Bind,
     #[strum(props(p = "General"))]
     Chr,
+    #[strum(props(p = "General", explain = "subscript out of bounds"))]
+    Subscript,
 }
 
 impl BuiltInExn {
+    pub(crate) fn explain(&self) -> Option<&'static str> {
+        self.get_str("explain")
+    }
+
     pub(crate) fn package(&self) -> &'static str {
         self.get_str("p").unwrap()
     }
@@ -370,7 +440,6 @@ OPTION("Option", "Option"),
 OVERFLOW("General", "Overflow"),
 ERROR("Interact", "Error"), // not in standard basis
 SIZE("General", "Size"),
-SUBSCRIPT("General", "Subscript [subscript out of bounds]"),
 UNEQUAL_LENGTHS("ListPair", "UnequalLengths"),
 UNORDERED("IEEEReal", "Unordered");
  */
