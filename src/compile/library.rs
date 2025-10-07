@@ -267,9 +267,15 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "op <>"))]
     #[strum(props(type = "string * string -> bool"))]
     StringOpNe,
+    #[strum(props(p = "Sys", name = "plan", global = true))]
+    #[strum(props(type = "unit -> string"))]
+    SysPlan,
     #[strum(props(p = "Sys", name = "set", global = true))]
     #[strum(props(type = "forall 1 string * 'a -> unit"))]
     SysSet,
+    #[strum(props(p = "Sys", name = "unset", global = true))]
+    #[strum(props(type = "forall 1 string -> unit"))]
+    SysUnset,
 }
 
 impl BuiltInFunction {
@@ -301,10 +307,16 @@ impl BuiltInFunction {
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInRecord {
     // lint: sort until '^}$' where '##[A-Z]'
+    #[strum(props(name = "Char"))]
+    Char,
     #[strum(props(name = "General"))]
     General,
     #[strum(props(name = "Int"))]
     Int,
+    #[strum(props(name = "List"))]
+    List,
+    #[strum(props(name = "String"))]
+    String,
     #[strum(props(name = "Sys"))]
     Sys,
 }

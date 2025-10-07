@@ -16,11 +16,7 @@
  * language governing permissions and limitations under the
  * License.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("lineWidth", 78);
-> val it = () : unit
-set("mode", "evaluate");
 > val it = () : unit
 
 (*) Type tests
@@ -320,8 +316,6 @@ true;
 {1=1,2=2,3=3,5=5,6=6,7=7,8=8,9=9,10=10,11=11};
 > val it = {1=1,2=2,3=3,5=5,6=6,7=7,8=8,9=9,10=10,11=11}
 >   : {1:int, 2:int, 3:int, 5:int, 6:int, 7:int, 8:int, 9:int, 10:int, 11:int}
-Sys;
-> val it = {set=fn} : {set:string * 'a -> unit}
 
 (*) Comments
 1;

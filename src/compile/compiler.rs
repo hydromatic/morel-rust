@@ -31,8 +31,10 @@ use crate::eval::val::Val;
 use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::Environment;
+use crate::shell::prop::Prop;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
+use std::ops::Deref;
 use std::sync::Arc;
 
 /// Compiles a declaration to code that can be evaluated.
@@ -52,7 +54,7 @@ struct Compiler<'a> {
 
 struct Link {
     name: String,
-    code: Option<Code>,
+    code: Option<Arc<Code>>,
 }
 
 struct Closure;
@@ -134,8 +136,13 @@ impl<'a> Compiler<'a> {
         };
 
         let context = self.create_context(env);
-        let link_codes: Vec<Code> =
-            self.links.iter().filter_map(|l| l.code.clone()).collect();
+        let link_codes: Vec<Code> = self
+            .links
+            .iter()
+            .filter_map(|link| {
+                link.code.as_ref().map(|code| code.deref().clone())
+            })
+            .collect();
 
         Box::new(CompiledStatementImpl {
             type_,
@@ -203,7 +210,7 @@ impl<'a> Compiler<'a> {
                     let link_code = self.create_link(name);
                     bindings.push(Binding::of_name_value(
                         name,
-                        &Some(Val::Code(Box::new(link_code))),
+                        &Some(Val::Code(Arc::new(link_code))),
                     ));
                 })
             });
@@ -217,7 +224,7 @@ impl<'a> Compiler<'a> {
         decl.for_each_binding(
             &mut |pat: &Pat, expr: &Expr, _overload_pat: &Option<Box<Id>>| {
                 let pat_code = self.compile_pat(&cx1, pat);
-                let expr_code = self.compile_expr(&cx1, None, expr);
+                let expr_code = Arc::new(self.compile_expr(&cx1, None, expr));
                 match_codes.push(Code::new_bind(&pat_code, &expr_code));
 
                 // Special treatment for 'val id =' so that 'fun' declarations
@@ -225,7 +232,7 @@ impl<'a> Compiler<'a> {
                 if let Pat::Identifier(_, name) = pat {
                     bindings.push(Binding::of_name_value(
                         name,
-                        &Some(Val::Code(Box::new(expr_code.clone()))),
+                        &Some(Val::Code(expr_code.clone())),
                     ))
                 } else {
                     pat.for_each_id_pat(&mut |(_, name)| {
@@ -634,7 +641,7 @@ trait Action {
 
 // Simple action implementation
 struct ValDeclAction {
-    code: Code,
+    code: Arc<Code>,
     pat: Pat,
 }
 
@@ -663,6 +670,7 @@ impl Action for ValDeclAction {
 
                     r.emit_effect(Effect::EmitLine(line));
                 });
+                r.emit_effect(Effect::EmitCode(self.code.clone()));
             }
         }
     }
@@ -671,11 +679,19 @@ impl Action for ValDeclAction {
 impl ValDeclAction {
     fn get_pretty(shell_config: &ShellConfig) -> Pretty {
         Pretty::new(
-            shell_config.line_width.unwrap(),
+            shell_config
+                .line_width
+                .unwrap_or_else(|| Prop::LineWidth.default_value().as_int()),
             shell_config.output.unwrap(),
-            shell_config.print_length.unwrap(),
-            shell_config.print_depth.unwrap(),
-            shell_config.string_depth.unwrap(),
+            shell_config
+                .print_length
+                .unwrap_or_else(|| Prop::PrintLength.default_value().as_int()),
+            shell_config
+                .print_depth
+                .unwrap_or_else(|| Prop::PrintDepth.default_value().as_int()),
+            shell_config
+                .string_depth
+                .unwrap_or_else(|| Prop::StringDepth.default_value().as_int()),
         )
     }
 }

@@ -99,6 +99,25 @@ impl Type {
         self.renumbered()
     }
 
+    /// Removes any "forall" qualifier of a type.
+    ///
+    /// Unlike [Type::unqualified], does not renumber the remaining
+    /// type variables, and therefore can avoid cloning.
+    ///
+    /// Examples:
+    /// - `forall 'a. 'a list` → `'a list`
+    /// - `forall 'a 'b. 'b list` → `'b list`
+    pub fn unqualified_quick(&self) -> &Type {
+        let mut current_type = self;
+
+        // Strip all forall qualifiers
+        while let Type::Forall(inner_type, _size) = current_type {
+            current_type = inner_type;
+        }
+
+        current_type
+    }
+
     /// Renumbers type variables.
     ///
     /// Examples:

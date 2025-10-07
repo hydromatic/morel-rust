@@ -19,14 +19,16 @@ use crate::compile::library::{BuiltIn, BuiltInFunction, BuiltInRecord};
 use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
 use crate::compile::types::{Label, Type};
-use crate::eval::code::EagerV2::SysSet;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
+use crate::eval::list::List;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::main::{MorelError, Shell};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Display, Formatter};
 use std::iter::zip;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use strum::{EnumProperty, IntoEnumIterator};
@@ -35,7 +37,7 @@ use strum::{EnumProperty, IntoEnumIterator};
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum EvalMode {
     /// Evaluation with a frame and no arguments.
-    EagerV0,
+    EagerF0,
     /// Evaluation with a frame and one argument.
     EagerV1,
     Eager0,
@@ -55,14 +57,19 @@ pub enum EvalMode {
 /// the command completes.
 #[derive(Debug, Clone)]
 pub enum Effect {
-    /// Emits an output line.
-    EmitLine(String),
-    /// Sets a shell property.
-    SetShellProp(String, Val),
-    /// Sets a session property.
-    SetSessionProp(String, Val),
+    // lint: sort until '#}' where '##[A-Z]'
     /// Adds a binding to the environment.
     AddBinding(Binding),
+    /// Emits a piece of code.
+    EmitCode(Arc<Code>),
+    /// Emits an output line.
+    EmitLine(String),
+    /// Sets a session property.
+    SetSessionProp(String, Val),
+    /// Sets a shell property.
+    SetShellProp(String, Val),
+    /// Unsets a shell property.
+    UnsetShellProp(String),
 }
 
 /// Generated code that can be evaluated.
@@ -137,7 +144,9 @@ pub enum Code {
     Native1(Eager1, Box<Code>),
     Native2(Eager2, Box<Code>, Box<Code>),
     Native3(Eager3, Box<Code>, Box<Code>, Box<Code>),
-    NativeF2(EagerV2, Box<Code>, Box<Code>),
+    NativeF0(EagerF0),
+    NativeF1(EagerF1, Box<Code>),
+    NativeF2(EagerF2, Box<Code>, Box<Code>),
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
     Nth(Box<Type>, usize),
@@ -155,7 +164,10 @@ impl Code {
                 bind_codes,
             )
         } else if let Code::Constant(Val::Code(c)) = f {
-            Code::ApplyConstant(c.clone(), Box::new(a.clone()))
+            Code::ApplyConstant(
+                Box::new(c.deref().clone()),
+                Box::new(a.clone()),
+            )
         } else {
             Code::Apply(Box::new(f.clone()), Box::new(a.clone()))
         }
@@ -271,7 +283,7 @@ impl Code {
         assert_eq!(codes.len() % 2, 1);
         codes.iter().enumerate().for_each(|(i, code)| {
             code.assert_supports_eval_mode(if i % 2 == 0 {
-                &EvalMode::EagerV0
+                &EvalMode::EagerF0
             } else {
                 &EvalMode::EagerV1
             })
@@ -312,6 +324,15 @@ impl Code {
                     Box::new(codes[1].clone()),
                     Box::new(codes[2].clone()),
                 )
+            }
+            Impl::EV0(ev0) => {
+                assert_eq!(codes.len(), 1);
+                assert!(matches!(codes[0], Code::Constant(Val::Unit)));
+                Code::NativeF0(ev0)
+            }
+            Impl::EV1(ev1) => {
+                assert_eq!(codes.len(), 1);
+                Code::NativeF1(ev1, Box::new(codes[0].clone()))
             }
             Impl::EV2(ev2) => {
                 // TODO: handle cases like 'let args = (1, 2) in f args
@@ -372,26 +393,28 @@ impl Code {
             Code::BindWildcard => *mode == EvalMode::EagerV1,
             Code::Case(_) => *mode == EvalMode::EagerV1,
             Code::Constant(_) => {
-                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerV0
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
-            Code::CreateClosure(_, _, _) => *mode == EvalMode::EagerV0,
+            Code::CreateClosure(_, _, _) => *mode == EvalMode::EagerF0,
             Code::Fn(_, _) => *mode == EvalMode::EagerV1,
-            Code::GetLocal(_, _) => *mode == EvalMode::EagerV0,
+            Code::GetLocal(_, _) => *mode == EvalMode::EagerF0,
             Code::Let(_, _) => *mode == EvalMode::Eager0,
             Code::Link(_, _) => todo!("{:?}", self),
             Code::Native0(_) => *mode == EvalMode::Eager0,
             Code::Native1(_, _) => {
-                *mode == EvalMode::Eager1 || *mode == EvalMode::EagerV0
+                *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
             Code::Native2(_, _, _) => {
-                *mode == EvalMode::Eager2 || *mode == EvalMode::EagerV0
+                *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0
             }
             Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
+            Code::NativeF0(_) => *mode == EvalMode::EagerF0,
+            Code::NativeF1(_, _) => *mode == EvalMode::EagerV1,
             Code::NativeF2(_, _, _) => *mode == EvalMode::EagerV2,
             Code::Nth(_, _) => {
-                *mode == EvalMode::Eager1 || *mode == EvalMode::EagerV0
+                *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
-            Code::Tuple(_) => *mode == EvalMode::EagerV0,
+            Code::Tuple(_) => *mode == EvalMode::EagerF0,
         }
     }
 
@@ -458,7 +481,7 @@ impl Code {
             Code::Fn(_, _) | Code::Nth(_, _) => {
                 // Fn and Nth are practically literals. When evaluated, they
                 // return themselves.
-                Ok(Val::Code(Box::new(self.clone())))
+                Ok(Val::Code(Arc::new(self.clone())))
             }
             Code::GetLocal(frame_def, slot) => {
                 debug_assert!(
@@ -491,6 +514,11 @@ impl Code {
                 let v1 = code1.eval_f0(r, f)?;
                 let v2 = code2.eval_f0(r, f)?;
                 Ok(eager.apply(v0, v1, v2))
+            }
+            Code::NativeF0(eager) => Ok(eager.apply(r, f)),
+            Code::NativeF1(eager, code0) => {
+                let v0 = code0.eval_f0(r, f)?;
+                eager.apply(r, f, v0)
             }
             Code::NativeF2(eager, code0, code1) => {
                 let v0 = code0.eval_f0(r, f)?;
@@ -608,6 +636,50 @@ impl Code {
         }
         // All matches succeeded. Return true.
         Ok(Val::Bool(true))
+    }
+}
+
+impl Display for Code {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Code::BindLiteral(v) => write!(f, "{}", v),
+            Code::Constant(v) => match v {
+                Val::String(s) => write!(f, "constant({})", s),
+                _ => write!(f, "constant({})", v),
+            },
+            Code::Fn(_, matches) => {
+                write!(f, "fn(")?;
+                let mut first = true;
+                for (pat, expr) in matches {
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{} => {}", pat, expr)?;
+                }
+                write!(f, ")")
+            }
+            Code::Native2(eager, code0, code1) => {
+                write!(
+                    f,
+                    "apply2(fnValue {}, {}, {})",
+                    eager.plan(),
+                    code0,
+                    code1
+                )
+            }
+            Code::NativeF2(eager, code0, code1) => {
+                write!(
+                    f,
+                    "apply(fnValue {}, argCode tuple({}, {}))",
+                    eager.plan(),
+                    code0,
+                    code1
+                )
+            }
+            _ => todo!("fmt: {:?}", self),
+        }
     }
 }
 
@@ -731,7 +803,9 @@ pub enum Impl {
     E1(Eager1),
     E2(Eager2),
     E3(Eager3),
-    EV2(EagerV2),
+    EV0(EagerF0),
+    EV1(EagerF1),
+    EV2(EagerF2),
 }
 
 pub struct Applicable;
@@ -753,26 +827,109 @@ pub enum Eager0 {
 }
 
 impl Eager0 {
-    // Passing Val by value is OK because it is small.
     fn apply(&self) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::Eager0::*;
+
         match &self {
-            // lint: sort until '#}' where 'Eager0::'
-            Eager0::BoolFalse => Val::Bool(false),
-            Eager0::BoolTrue => Val::Bool(true),
-            Eager0::IntMaxInt => Val::Some(Box::new(Val::Int(i32::MAX))),
-            Eager0::IntMinInt => Val::Some(Box::new(Val::Int(i32::MIN))),
-            Eager0::IntPrecision => Val::Some(Box::new(Val::Int(32))),
-            Eager0::ListNil => Val::List(vec![]),
-            Eager0::OptionNone => Val::Unit,
-            Eager0::OrderEqual => Val::Int(0),
-            Eager0::OrderGreater => Val::Int(1),
-            Eager0::OrderLess => Val::Int(-1),
+            // lint: sort until '#}' where '##[A-Z]'
+            BoolFalse => Val::Bool(false),
+            BoolTrue => Val::Bool(true),
+            IntMaxInt => Val::Some(Box::new(Val::Int(i32::MAX))),
+            IntMinInt => Val::Some(Box::new(Val::Int(i32::MIN))),
+            IntPrecision => Val::Some(Box::new(Val::Int(32))),
+            ListNil => Val::List(vec![]),
+            OptionNone => Val::Unit,
+            OrderEqual => Val::Int(0),
+            OrderGreater => Val::Int(1),
+            OrderLess => Val::Int(-1),
         }
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
         if b.fn_impls.insert(f, Impl::E0(*self)).is_some() {
             panic!("Already implemented {:?}", f);
+        }
+    }
+}
+
+/// Function implementation that takes no arguments and an evaluation
+/// environment.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EagerF0 {
+    // lint: sort until '#}'
+    SysPlan,
+}
+
+impl EagerF0 {
+    fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::EagerF0::*;
+
+        match &self {
+            // lint: sort until '#}' where '##[A-Z]'
+            SysPlan => {
+                let s = if let Some(c) = r.session.code.as_ref() {
+                    if let Code::Fn(_, matches) = c.deref()
+                        && matches.len() == 1
+                    {
+                        format!("{}", matches[0].1)
+                    } else {
+                        format!("{}", c)
+                    }
+                } else {
+                    "".to_string()
+                };
+                Val::String(s)
+            }
+        }
+    }
+
+    fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
+        if b.fn_impls.insert(f, Impl::EV0(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
+    }
+}
+
+/// Function implementation that takes one argument and an evaluation
+/// environment.
+///
+/// The environment is not required for evaluating arguments -- the arguments
+/// are eagerly evaluated before the function is called -- but allows the
+/// implementation to have side effects such as modifying the state of the
+/// session.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EagerF1 {
+    // lint: sort until '#}'
+    SysUnset,
+}
+
+impl EagerF1 {
+    fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
+        if b.fn_impls.insert(f, Impl::EV1(*self)).is_some() {
+            panic!("Already implemented {:?}", f);
+        }
+    }
+
+    // Passing Val by value is OK because it is small.
+    #[allow(clippy::needless_pass_by_value)]
+    fn apply(
+        &self,
+        r: &mut EvalEnv,
+        _f: &mut Frame,
+        a0: Val,
+    ) -> Result<Val, MorelError> {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::EagerF1::*;
+
+        match &self {
+            // lint: sort until '#}' where '##[A-Z]'
+            SysUnset => {
+                let prop = a0.expect_string();
+                r.emit_effect(Effect::UnsetShellProp(prop));
+                Ok(Val::Unit)
+            }
         }
     }
 }
@@ -800,27 +957,26 @@ impl Eager1 {
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::Eager1::*;
+
         match &self {
-            // lint: sort until '#}' where 'Eager1::'
-            Eager1::GeneralIgnore => Val::Unit,
-            Eager1::IntAbs => Val::Int(a0.expect_int().abs()),
-            Eager1::IntFromInt => a0,
-            Eager1::IntFromLarge => a0,
-            Eager1::IntFromString => {
-                match Int::from_string(&a0.expect_string()) {
-                    Some(n) => Val::Some(Box::new(Val::Int(n))),
-                    None => Val::Unit,
-                }
-            }
-            Eager1::IntNegate => Val::Int(-a0.expect_int()),
-            Eager1::IntSign => Val::Int(Int::sign(a0.expect_int())),
-            Eager1::IntToInt => a0,
-            Eager1::IntToLarge => a0,
-            Eager1::IntToString => {
-                Val::String(Int::_to_string(a0.expect_int()))
-            }
-            Eager1::OptionSome => Val::Some(Box::new(a0)),
-            Eager1::RealNegate => Val::Real(-a0.expect_real()),
+            // lint: sort until '#}' where '##[A-Z]'
+            GeneralIgnore => Val::Unit,
+            IntAbs => Val::Int(a0.expect_int().abs()),
+            IntFromInt => a0,
+            IntFromLarge => a0,
+            IntFromString => match Int::from_string(&a0.expect_string()) {
+                Some(n) => Val::Some(Box::new(Val::Int(n))),
+                None => Val::Unit,
+            },
+            IntNegate => Val::Int(-a0.expect_int()),
+            IntSign => Val::Int(Int::sign(a0.expect_int())),
+            IntToInt => a0,
+            IntToLarge => a0,
+            IntToString => Val::String(Int::_to_string(a0.expect_int())),
+            OptionSome => Val::Some(Box::new(a0)),
+            RealNegate => Val::Real(-a0.expect_real()),
         }
     }
 
@@ -833,7 +989,7 @@ impl Eager1 {
 
 /// Function implementation that takes two arguments.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum Eager2 {
     // lint: sort until '#}'
     BoolAndAlso,
@@ -887,117 +1043,89 @@ pub enum Eager2 {
 }
 
 impl Eager2 {
+    fn plan(&self) -> String {
+        match self {
+            Eager2::IntPlus => "+".to_string(),
+            _ => self.to_string(),
+        }
+    }
+
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val, a1: Val) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::Eager2::*;
+
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
-            Eager2::BoolAndAlso => {
-                Val::Bool(a0.expect_bool() && a1.expect_bool())
-            }
-            Eager2::BoolImplies => {
-                Val::Bool(!a0.expect_bool() || a1.expect_bool())
-            }
-            Eager2::BoolOpEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
-            Eager2::BoolOpNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
-            Eager2::BoolOrElse => {
-                Val::Bool(a0.expect_bool() || a1.expect_bool())
-            }
-            Eager2::CharOpEq => Val::Bool(a0.expect_char() == a1.expect_char()),
-            Eager2::CharOpGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
-            Eager2::CharOpGt => Val::Bool(a0.expect_char() > a1.expect_char()),
-            Eager2::CharOpLe => Val::Bool(a0.expect_char() <= a1.expect_char()),
-            Eager2::CharOpLt => Val::Bool(a0.expect_char() < a1.expect_char()),
-            Eager2::CharOpNe => Val::Bool(a0.expect_char() != a1.expect_char()),
-            Eager2::GeneralOpO => Val::Unit,
-            Eager2::IntCompare => {
+            BoolAndAlso => Val::Bool(a0.expect_bool() && a1.expect_bool()),
+            BoolImplies => Val::Bool(!a0.expect_bool() || a1.expect_bool()),
+            BoolOpEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
+            BoolOpNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
+            BoolOrElse => Val::Bool(a0.expect_bool() || a1.expect_bool()),
+            CharOpEq => Val::Bool(a0.expect_char() == a1.expect_char()),
+            CharOpGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
+            CharOpGt => Val::Bool(a0.expect_char() > a1.expect_char()),
+            CharOpLe => Val::Bool(a0.expect_char() <= a1.expect_char()),
+            CharOpLt => Val::Bool(a0.expect_char() < a1.expect_char()),
+            CharOpNe => Val::Bool(a0.expect_char() != a1.expect_char()),
+            GeneralOpO => Val::Unit,
+            IntCompare => {
                 Val::Order(Int::compare(a0.expect_int(), a1.expect_int()))
             }
-            Eager2::IntDiv => {
-                Val::Int(Int::div(a0.expect_int(), a1.expect_int()))
-            }
-            Eager2::IntMax => Val::Int(a0.expect_int().max(a1.expect_int())),
-            Eager2::IntMin => Val::Int(a0.expect_int().min(a1.expect_int())),
-            Eager2::IntMinus => Val::Int(a0.expect_int() - a1.expect_int()),
-            Eager2::IntMod => {
-                Val::Int(Int::_mod(a0.expect_int(), a1.expect_int()))
-            }
-            Eager2::IntOpEq => Val::Bool(a0.expect_int() == a1.expect_int()),
-            Eager2::IntOpGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
-            Eager2::IntOpGt => Val::Bool(a0.expect_int() > a1.expect_int()),
-            Eager2::IntOpLe => Val::Bool(a0.expect_int() <= a1.expect_int()),
-            Eager2::IntOpLt => Val::Bool(a0.expect_int() < a1.expect_int()),
-            Eager2::IntOpNe => Val::Bool(a0.expect_int() != a1.expect_int()),
-            Eager2::IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
-            Eager2::IntQuot => {
+            IntDiv => Val::Int(Int::div(a0.expect_int(), a1.expect_int())),
+            IntMax => Val::Int(a0.expect_int().max(a1.expect_int())),
+            IntMin => Val::Int(a0.expect_int().min(a1.expect_int())),
+            IntMinus => Val::Int(a0.expect_int() - a1.expect_int()),
+            IntMod => Val::Int(Int::_mod(a0.expect_int(), a1.expect_int())),
+            IntOpEq => Val::Bool(a0.expect_int() == a1.expect_int()),
+            IntOpGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
+            IntOpGt => Val::Bool(a0.expect_int() > a1.expect_int()),
+            IntOpLe => Val::Bool(a0.expect_int() <= a1.expect_int()),
+            IntOpLt => Val::Bool(a0.expect_int() < a1.expect_int()),
+            IntOpNe => Val::Bool(a0.expect_int() != a1.expect_int()),
+            IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
+            IntQuot => {
                 let n1 = a0.expect_int();
                 let n2 = a1.expect_int();
                 Val::Int(n1 / n2) // Truncation towards zero
             }
-            Eager2::IntRem => {
+            IntRem => {
                 let n1 = a0.expect_int();
                 let n2 = a1.expect_int();
                 Val::Int(n1 - (n1 / n2) * n2) // Remainder after quot
             }
-            Eager2::IntSameSign => {
+            IntSameSign => {
                 let n1 = a0.expect_int();
                 let n2 = a1.expect_int();
                 Val::Bool((n1 >= 0 && n2 >= 0) || (n1 < 0 && n2 < 0))
             }
-            Eager2::IntTimes => Val::Int(a0.expect_int() * a1.expect_int()),
-            Eager2::ListOpAt => {
-                let mut list = a0.expect_list().to_vec();
-                list.extend_from_slice(a1.expect_list());
-                Val::List(list)
+            IntTimes => Val::Int(a0.expect_int() * a1.expect_int()),
+            ListOpAt => {
+                Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
-            Eager2::ListOpCons => {
-                let tail = a1.expect_list();
-                let mut list = Vec::with_capacity(tail.len() + 1);
-                list.push(a0);
-                list.extend_from_slice(tail);
-                Val::List(list)
-            }
-            Eager2::RealDivide => {
-                Val::Real(a0.expect_real() / a1.expect_real())
-            }
-            Eager2::RealOpEq => Val::Bool(a0.expect_real() == a1.expect_real()),
-            Eager2::RealOpGe => Val::Bool(a0.expect_real() >= a1.expect_real()),
-            Eager2::RealOpGt => Val::Bool(a0.expect_real() > a1.expect_real()),
-            Eager2::RealOpLe => Val::Bool(a0.expect_real() <= a1.expect_real()),
-            Eager2::RealOpLt => Val::Bool(a0.expect_real() < a1.expect_real()),
-            Eager2::RealOpMinus => {
-                Val::Real(a0.expect_real() - a1.expect_real())
-            }
-            Eager2::RealOpNe => Val::Bool(a0.expect_real() != a1.expect_real()),
-            Eager2::RealOpPlus => {
-                Val::Real(a0.expect_real() + a1.expect_real())
-            }
-            Eager2::RealOpTimes => {
-                Val::Real(a0.expect_real() * a1.expect_real())
-            }
-            Eager2::StringOpCaret => Val::String(format!(
+            ListOpCons => Val::List(List::cons(&a0, a1.expect_list())),
+            RealDivide => Val::Real(a0.expect_real() / a1.expect_real()),
+            RealOpEq => Val::Bool(a0.expect_real() == a1.expect_real()),
+            RealOpGe => Val::Bool(a0.expect_real() >= a1.expect_real()),
+            RealOpGt => Val::Bool(a0.expect_real() > a1.expect_real()),
+            RealOpLe => Val::Bool(a0.expect_real() <= a1.expect_real()),
+            RealOpLt => Val::Bool(a0.expect_real() < a1.expect_real()),
+            RealOpMinus => Val::Real(a0.expect_real() - a1.expect_real()),
+            RealOpNe => Val::Bool(a0.expect_real() != a1.expect_real()),
+            RealOpPlus => Val::Real(a0.expect_real() + a1.expect_real()),
+            RealOpTimes => Val::Real(a0.expect_real() * a1.expect_real()),
+            StringOpCaret => Val::String(format!(
                 "{}{}",
                 a0.expect_string(),
                 a1.expect_string()
             )),
-            Eager2::StringOpEq => {
-                Val::Bool(a0.expect_string() == a1.expect_string())
-            }
-            Eager2::StringOpGe => {
-                Val::Bool(a0.expect_string() >= a1.expect_string())
-            }
-            Eager2::StringOpGt => {
-                Val::Bool(a0.expect_string() > a1.expect_string())
-            }
-            Eager2::StringOpLe => {
-                Val::Bool(a0.expect_string() <= a1.expect_string())
-            }
-            Eager2::StringOpLt => {
-                Val::Bool(a0.expect_string() < a1.expect_string())
-            }
-            Eager2::StringOpNe => {
-                Val::Bool(a0.expect_string() != a1.expect_string())
-            }
+            StringOpEq => Val::Bool(a0.expect_string() == a1.expect_string()),
+            StringOpGe => Val::Bool(a0.expect_string() >= a1.expect_string()),
+            StringOpGt => Val::Bool(a0.expect_string() > a1.expect_string()),
+            StringOpLe => Val::Bool(a0.expect_string() <= a1.expect_string()),
+            StringOpLt => Val::Bool(a0.expect_string() < a1.expect_string()),
+            StringOpNe => Val::Bool(a0.expect_string() != a1.expect_string()),
         }
     }
 
@@ -1015,13 +1143,19 @@ impl Eager2 {
 /// are eagerly evaluated before the function is called -- but allows the
 /// implementation to have side effects such as modifying the state of the
 /// session.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EagerV2 {
+#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+pub enum EagerF2 {
     // lint: sort until '#}'
     SysSet,
 }
 
-impl EagerV2 {
+impl EagerF2 {
+    fn plan(&self) -> String {
+        match self {
+            EagerF2::SysSet => "Sys.set".to_string(),
+        }
+    }
+
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
         if b.fn_impls.insert(f, Impl::EV2(*self)).is_some() {
             panic!("Already implemented {:?}", f);
@@ -1037,6 +1171,9 @@ impl EagerV2 {
         a0: Val,
         a1: Val,
     ) -> Result<Val, MorelError> {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::EagerF2::*;
+
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             SysSet => {
@@ -1061,8 +1198,11 @@ impl Eager3 {
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val, a1: Val, a2: Val) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::Eager3::*;
+
         match &self {
-            Eager3::BoolIf => {
+            BoolIf => {
                 if a0.expect_bool() {
                     a1
                 } else {
@@ -1099,54 +1239,57 @@ impl Custom {
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(&self, a0: Val, a1: Val) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::Custom::*;
+
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
-            Custom::GOpEq => Val::Bool(a0 == a1),
-            Custom::GOpGe => match (a0, a1) {
+            GOpEq => Val::Bool(a0 == a1),
+            GOpGe => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x >= y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x >= y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x >= y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x >= y),
                 _ => panic!("Type error in >= comparison"),
             },
-            Custom::GOpGt => match (a0, a1) {
+            GOpGt => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x > y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x > y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x & !y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x > y),
                 _ => panic!("Type error in > comparison"),
             },
-            Custom::GOpLe => match (a0, a1) {
+            GOpLe => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x <= y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x <= y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x <= y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x <= y),
                 _ => panic!("Type error in <= comparison"),
             },
-            Custom::GOpLt => match (a0, a1) {
+            GOpLt => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x < y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x < y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(!x & y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x < y),
                 _ => panic!("Type error in < comparison"),
             },
-            Custom::GOpMinus => match (a0, a1) {
+            GOpMinus => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x - y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x - y),
                 _ => panic!("Type error in - operation"),
             },
-            Custom::GOpNe => Val::Bool(a0 != a1),
-            Custom::GOpNegate => match a0 {
+            GOpNe => Val::Bool(a0 != a1),
+            GOpNegate => match a0 {
                 Val::Int(_) => Eager1::IntNegate.apply(a0),
                 Val::Real(_) => Eager1::RealNegate.apply(a0),
                 _ => panic!("Type error in ~ operation"),
             },
-            Custom::GOpPlus => match (a0, a1) {
+            GOpPlus => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x + y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x + y),
                 _ => panic!("Type error in + operation"),
             },
-            Custom::GOpTimes => match (a0, a1) {
+            GOpTimes => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x * y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x * y),
                 _ => panic!("Type error in * operation"),
@@ -1262,7 +1405,9 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::StringOpLe.implements(&mut b, StringOpLe);
     Eager2::StringOpLt.implements(&mut b, StringOpLt);
     Eager2::StringOpNe.implements(&mut b, StringOpNe);
-    EagerV2::SysSet.implements(&mut b, SysSet);
+    EagerF0::SysPlan.implements(&mut b, SysPlan);
+    EagerF2::SysSet.implements(&mut b, SysSet);
+    EagerF1::SysUnset.implements(&mut b, SysUnset);
 
     b.build()
 });
@@ -1316,18 +1461,13 @@ impl LibBuilder {
             let mut name_types: BTreeMap<Label, Type> = BTreeMap::new();
             for (n, f) in names_fns {
                 let t = &fn_map.get(f).unwrap().0;
-                match &t {
-                    Type::Fn(_, _) | Type::Forall(_, _) => {
-                        vals.push(Val::Fn(*f));
-                    }
-                    _ => {
-                        // Built-in is a constant like Int.maxInt.
-                        if let Some((_t, Impl::E0(eager0))) = fn_map.get(f) {
-                            vals.push(eager0.apply());
-                        } else {
-                            panic!("missing implementation for {:?}", f);
-                        }
-                    }
+                if matches!(t.unqualified_quick(), Type::Fn(_, _)) {
+                    vals.push(Val::Fn(*f));
+                } else if let Some((_t, Impl::E0(eager0))) = fn_map.get(f) {
+                    // Built-in is a constant such as Int.maxInt.
+                    vals.push(eager0.apply());
+                } else {
+                    panic!("missing implementation for {:?}", f);
                 }
                 name_types.insert(Label::String(n.clone()), t.clone());
             }

@@ -27,12 +27,13 @@ use crate::syntax::ast::Statement;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Shell implementation for use within scripts.
 pub struct Session {
     pub config: Config,
     /// The plan of the previous command.
-    pub code: Option<Box<Code>>,
+    pub code: Option<Arc<Code>>,
     /// The output lines of the previous command.
     pub out: Option<Vec<String>>,
 }

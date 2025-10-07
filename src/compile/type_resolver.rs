@@ -1039,13 +1039,6 @@ impl TypeResolver {
             }),
         ));
 
-        // if name == "set" {
-        // Temporary workaround. Resolve 'Sys.set' as if they wrote 'set'.
-        // if let Some(BindType::Val(term)) = env.get(name, self) {
-        //     self.equiv(&term, &v_field);
-        // }
-        // }
-
         // Create a record selector expression
         let selector_kind = ExprKind::RecordSelector(field_name.to_string());
         self.reg_expr(&selector_kind, &span, None, &v_fn)
@@ -1417,8 +1410,8 @@ impl TypeResolver {
         }
     }
 
-    /// Inverse of `record_label_from_set`. Extracts field names from a
-    /// sequence.
+    /// Inverse of [TypeResolver::record_label_from_set]. Extracts field names
+    /// from a sequence.
     fn field_list(sequence: &Sequence) -> Option<Vec<String>> {
         match sequence.op.name.as_str() {
             "record" => Some(Vec::new()),
@@ -1426,11 +1419,11 @@ impl TypeResolver {
                 let size = sequence.terms.len();
                 Some(ordinal_names(size))
             }
-            s if s.starts_with("record:") => {
+            s if s.starts_with("record`") => {
                 let fields: Vec<String> = sequence
                     .op
                     .name
-                    .split(':')
+                    .split('`')
                     .skip(1) // Skip "record" prefix
                     .map(std::string::ToString::to_string)
                     .collect();
@@ -1447,7 +1440,7 @@ impl TypeResolver {
     {
         let mut s = "record".to_string();
         for label in labels {
-            s.push(':');
+            s.push('`');
             s.push_str(&label.to_string());
         }
         s

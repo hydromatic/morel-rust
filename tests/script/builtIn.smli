@@ -319,9 +319,13 @@ getOpt;
 (* "val hd : 'a list -> 'a" maps to "List.hd" *)
 hd;
 > val it = fn : 'a list -> 'a
+set("mode", "evaluate");
+> val it = () : unit
 (* "val ignore : 'a -> unit" maps to "General.ignore" *)
 ignore;
 > val it = fn : 'a -> unit
+set("mode", "validate");
+> val it = () : unit
 (* "val implode : char list -> string" maps to "String.implode" *)
 implode;
 > val it = fn : char list -> string
@@ -4488,6 +4492,8 @@ env ();
 >   : (string * string) list
 
 (*) val plan : unit -> string
+set("mode", "evaluate");
+> val it = () : unit
 Sys.plan;
 > val it = fn : unit -> string
 1 + 2;
@@ -4504,6 +4510,8 @@ Sys.plan ();
 > val it =
 >   "apply(fnValue Sys.set, argCode tuple(constant(hybrid), constant(false)))"
 >   : string
+set("mode", "validate");
+> val it = () : unit
 
 (*) val show : string -> string option
 Sys.show;

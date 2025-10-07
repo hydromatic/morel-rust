@@ -104,6 +104,11 @@ impl Shell {
     ) -> Result<(), Error> {
         match prop {
             // lint: sort until '#}' where '##[^ }]'
+            "hybrid" => {
+                self.session.borrow_mut().config.hybrid =
+                    Some(val.expect_bool());
+                Ok(())
+            }
             "lineWidth" => {
                 self.config.line_width = Some(val.expect_int());
                 Ok(())
@@ -125,6 +130,37 @@ impl Shell {
                 Ok(())
             }
             _ => todo!("set_prop: {}", prop),
+        }
+    }
+
+    pub(crate) fn unset_prop(&mut self, prop: &str) -> Result<(), Error> {
+        match prop {
+            // lint: sort until '#}' where '##[^ }]'
+            "hybrid" => {
+                self.session.borrow_mut().config.hybrid = None;
+                Ok(())
+            }
+            "lineWidth" => {
+                self.config.line_width = None;
+                Ok(())
+            }
+            "mode" => {
+                self.config.mode = None;
+                Ok(())
+            }
+            "printDepth" => {
+                self.config.print_depth = None;
+                Ok(())
+            }
+            "printLength" => {
+                self.config.print_length = None;
+                Ok(())
+            }
+            "stringDepth" => {
+                self.config.string_depth = None;
+                Ok(())
+            }
+            _ => todo!("unset_prop: {}", prop),
         }
     }
 
@@ -393,6 +429,9 @@ impl Shell {
                 Effect::AddBinding(binding) => {
                     bindings.push(binding);
                 }
+                Effect::EmitCode(code) => {
+                    self.session.borrow_mut().code = Some(code);
+                }
                 Effect::EmitLine(line) => {
                     result.push_str(&line);
                     result.push('\n');
@@ -403,6 +442,9 @@ impl Shell {
                 }
                 Effect::SetShellProp(prop, val) => {
                     let _ = self.set_prop(&prop, &val);
+                }
+                Effect::UnsetShellProp(prop) => {
+                    let _ = self.unset_prop(&prop);
                 }
             }
         }
