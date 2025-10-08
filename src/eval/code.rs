@@ -24,6 +24,7 @@ use crate::eval::char::Char;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
+use crate::eval::math::Math;
 use crate::eval::option::Opt;
 use crate::eval::real::Real;
 use crate::eval::session::Session;
@@ -978,6 +979,8 @@ pub enum Eager0 {
     IntMinInt,
     IntPrecision,
     ListNil,
+    MathE,
+    MathPi,
     OptionNone,
     OrderEqual,
     OrderGreater,
@@ -1008,6 +1011,8 @@ impl Eager0 {
             IntMinInt => Val::Some(Box::new(Val::Int(i32::MIN))),
             IntPrecision => Val::Some(Box::new(Val::Int(32))),
             ListNil => Val::List(vec![]),
+            MathE => Val::Real(Math::E),
+            MathPi => Val::Real(Math::PI),
             OptionNone => Val::Unit,
             OrderEqual => Val::Int(0),
             OrderGreater => Val::Int(1),
@@ -1150,6 +1155,19 @@ pub enum Eager1 {
     IntToInt,
     IntToLarge,
     IntToString,
+    MathAcos,
+    MathAsin,
+    MathAtan,
+    MathCos,
+    MathCosh,
+    MathExp,
+    MathLn,
+    MathLog10,
+    MathSin,
+    MathSinh,
+    MathSqrt,
+    MathTan,
+    MathTanh,
     OptionIsSome,
     OptionJoin,
     OptionSome,
@@ -1225,6 +1243,19 @@ impl Eager1 {
             IntToInt => a0,
             IntToLarge => a0,
             IntToString => Val::String(Int::_to_string(a0.expect_int())),
+            MathAcos => Val::Real(Math::acos(a0.expect_real())),
+            MathAsin => Val::Real(Math::asin(a0.expect_real())),
+            MathAtan => Val::Real(Math::atan(a0.expect_real())),
+            MathCos => Val::Real(Math::cos(a0.expect_real())),
+            MathCosh => Val::Real(Math::cosh(a0.expect_real())),
+            MathExp => Val::Real(Math::exp(a0.expect_real())),
+            MathLn => Val::Real(Math::ln(a0.expect_real())),
+            MathLog10 => Val::Real(Math::log10(a0.expect_real())),
+            MathSin => Val::Real(Math::sin(a0.expect_real())),
+            MathSinh => Val::Real(Math::sinh(a0.expect_real())),
+            MathSqrt => Val::Real(Math::sqrt(a0.expect_real())),
+            MathTan => Val::Real(Math::tan(a0.expect_real())),
+            MathTanh => Val::Real(Math::tanh(a0.expect_real())),
             OptionIsSome => Val::Bool(Opt::is_some(&a0)),
             OptionJoin => Opt::join(&a0),
             OptionSome => Val::Some(Box::new(a0)),
@@ -1310,6 +1341,8 @@ pub enum Eager2 {
     IntTimes,
     ListOpAt,
     ListOpCons,
+    MathAtan2,
+    MathPow,
     OptionGetOpt,
     RealCopySign,
     RealDivide,
@@ -1417,6 +1450,16 @@ impl Eager2 {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
             ListOpCons => Val::List(List::cons(&a0, a1.expect_list())),
+            MathAtan2 => {
+                let y = a0.expect_real();
+                let x = a1.expect_real();
+                Val::Real(Math::atan2(y, x))
+            }
+            MathPow => {
+                let x = a0.expect_real();
+                let y = a1.expect_real();
+                Val::Real(Math::pow(x, y))
+            }
             OptionGetOpt => Opt::get_opt(&a0, &a1),
             RealCopySign => {
                 Val::Real(Real::copy_sign(a0.expect_real(), a1.expect_real()))
@@ -1995,6 +2038,23 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::ListOpAt.implements(&mut b, ListOpAt);
     Eager2::ListOpCons.implements(&mut b, ListOpCons);
     EagerF2::ListTabulate.implements(&mut b, ListTabulate);
+    Eager1::MathAcos.implements(&mut b, MathAcos);
+    Eager1::MathAsin.implements(&mut b, MathAsin);
+    Eager1::MathAtan.implements(&mut b, MathAtan);
+    Eager2::MathAtan2.implements(&mut b, MathAtan2);
+    Eager1::MathCos.implements(&mut b, MathCos);
+    Eager1::MathCosh.implements(&mut b, MathCosh);
+    Eager0::MathE.implements(&mut b, MathE);
+    Eager1::MathExp.implements(&mut b, MathExp);
+    Eager1::MathLn.implements(&mut b, MathLn);
+    Eager1::MathLog10.implements(&mut b, MathLog10);
+    Eager0::MathPi.implements(&mut b, MathPi);
+    Eager2::MathPow.implements(&mut b, MathPow);
+    Eager1::MathSin.implements(&mut b, MathSin);
+    Eager1::MathSinh.implements(&mut b, MathSinh);
+    Eager1::MathSqrt.implements(&mut b, MathSqrt);
+    Eager1::MathTan.implements(&mut b, MathTan);
+    Eager1::MathTanh.implements(&mut b, MathTanh);
     EagerF2::OptionApp.implements(&mut b, OptionApp);
     EagerF2::OptionCompose.implements(&mut b, OptionCompose);
     EagerF2::OptionComposePartial.implements(&mut b, OptionComposePartial);
