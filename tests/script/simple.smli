@@ -364,9 +364,6 @@ in
 end;
 > val it = ("two","other") : string * string
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) All the characters
 Sys.set ("printLength", 300);
 > val it = () : unit
@@ -419,6 +416,8 @@ List.tabulate(256, fn i => (i, Char.chr i));
 >    (250,#"\250"),(251,#"\251"),(252,#"\252"),(253,#"\253"),(254,#"\254"),
 >    (255,#"\255")] : (int * char) list
 Sys.unset "printLength";
+> val it = () : unit
+set("mode", "validate");
 > val it = () : unit
 
 String.size "tt";

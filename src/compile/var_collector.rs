@@ -190,7 +190,7 @@ impl Expr {
     pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
         match self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Apply(_, f, a) => {
+            Expr::Apply(_, f, a, _) => {
                 f.collect_vars(collector);
                 a.collect_vars(collector);
             }

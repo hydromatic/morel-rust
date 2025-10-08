@@ -19,6 +19,7 @@ use crate::compile::library::BuiltInFunction;
 use crate::eval::val::Val;
 use crate::syntax::ast;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::ops::Deref;
 use std::rc::Rc;
 
 /// A location in the source text.
@@ -84,6 +85,11 @@ impl Span {
             }
         }
         span
+    }
+
+    /// Converts this Span to a Pest span.
+    pub fn to_pest_span(&self) -> pest::Span<'_> {
+        pest::Span::new(self.input.deref(), self.start, self.end).unwrap()
     }
 }
 

@@ -47,7 +47,7 @@ impl Transformer for Inliner {
         let expr = expr.visit(env, self);
         match &expr {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Apply(_result_type, f, a) => {
+            Expr::Apply(_result_type, f, a, _) => {
                 if let Expr::RecordSelector(_fn_type, slot) = f.as_ref()
                     && let Expr::Literal(record_type, v) = a.as_ref()
                     && let Some(field_type) =
@@ -92,7 +92,7 @@ impl Expr {
     fn visit(&self, env: &Env, x: &dyn Transformer) -> Expr {
         match &self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Apply(result_type, f, a) => {
+            Expr::Apply(result_type, f, a, span) => {
                 let f2 = x.transform_expr(env, f);
                 let a2 = x.transform_expr(env, a);
                 match (&f2, &a2) {
@@ -106,6 +106,7 @@ impl Expr {
                         result_type.clone(),
                         Box::new(f2),
                         Box::new(a2),
+                        span.clone(),
                     ),
                 }
             }

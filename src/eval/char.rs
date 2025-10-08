@@ -15,12 +15,21 @@
 // language governing permissions and limitations under the
 // License.
 
-// lint: sort until '^$' erase 'pub '
-pub mod char;
-pub mod code;
-pub mod frame;
-pub mod int;
-pub mod list;
-pub mod order;
-pub mod session;
-pub mod val;
+use crate::compile::library::BuiltInExn;
+use crate::eval::code::Span;
+use crate::eval::val::Val;
+use crate::shell::main::MorelError;
+
+/// Support for the `char` primitive type and the `Char` structure.
+pub struct Char;
+
+impl Char {
+    /// Implements Morel `Char.chr i`. May throw [BuiltInExn::Chr].
+    pub(crate) fn chr(i: i32, span: &Span) -> Result<Val, MorelError> {
+        if !(0..=255).contains(&i) {
+            Err(MorelError::Runtime(BuiltInExn::Chr, span.clone()))
+        } else {
+            Ok(Val::Char(i as u8 as char))
+        }
+    }
+}

@@ -18,6 +18,7 @@
 use crate::compile::inliner::Env;
 use crate::compile::type_env::Id;
 use crate::compile::types::Type;
+use crate::eval::code::Span;
 use crate::eval::val::Val;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
@@ -59,7 +60,7 @@ pub enum Expr {
     Aggregate(Box<Type>, Box<Expr>, Box<Expr>), // 'over'
 
     /// `Apply(f, a)` represents `f a`, applying a function to an argument.
-    Apply(Box<Type>, Box<Expr>, Box<Expr>),
+    Apply(Box<Type>, Box<Expr>, Box<Expr>, Span),
 
     // Control structures. (There is no 'If'; use 'Case' instead.)
     Case(Box<Type>, Box<Expr>, Vec<Match>),
@@ -88,7 +89,7 @@ impl Expr {
     pub fn type_(&self) -> Box<Type> {
         match self {
             Expr::Aggregate(t, _, _) => t.clone(),
-            Expr::Apply(t, _, _) => t.clone(),
+            Expr::Apply(t, _, _, _) => t.clone(),
             Expr::Case(t, _, _) => t.clone(),
             Expr::Current(t) => t.clone(),
             Expr::Exists(t, _) => t.clone(),
@@ -110,11 +111,11 @@ impl Display for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(_t, a0, a1) => {
+            Expr::Aggregate(_, a0, a1) => {
                 write!(f, "({} over {})", a0, a1)
             }
-            Expr::Apply(_t, fx, arg) => write!(f, "{} {}", fx, arg),
-            Expr::Case(_t, e, arms) => {
+            Expr::Apply(_, fx, arg, _) => write!(f, "{} {}", fx, arg),
+            Expr::Case(_, e, arms) => {
                 write!(f, "case {} of ", e)?;
                 for (i, match_) in arms.iter().enumerate() {
                     if i > 0 {
@@ -124,9 +125,9 @@ impl Display for Expr {
                 }
                 Ok(())
             }
-            Expr::Current(_t) => write!(f, "current"),
-            Expr::Exists(_t, steps) => write!(f, "exists {:?}", steps),
-            Expr::Fn(_t, arms) => {
+            Expr::Current(_) => write!(f, "current"),
+            Expr::Exists(_, steps) => write!(f, "exists {:?}", steps),
+            Expr::Fn(_, arms) => {
                 write!(f, "fn ")?;
                 for (i, match_) in arms.iter().enumerate() {
                     if i > 0 {
@@ -136,17 +137,17 @@ impl Display for Expr {
                 }
                 Ok(())
             }
-            Expr::Forall(_t, steps) => write!(f, "forall {:?}", steps),
-            Expr::From(_t, steps) => write!(f, "from {:?}", steps),
-            Expr::Identifier(_t, name) => write!(f, "{}", name),
-            Expr::Let(_t, decls, body) => {
+            Expr::Forall(_, steps) => write!(f, "forall {:?}", steps),
+            Expr::From(_, steps) => write!(f, "from {:?}", steps),
+            Expr::Identifier(_, name) => write!(f, "{}", name),
+            Expr::Let(_, decls, body) => {
                 write!(f, "let ")?;
                 for decl in decls {
                     write!(f, "{}; ", decl)?;
                 }
                 write!(f, "in {}", body)
             }
-            Expr::List(_t, elems) => {
+            Expr::List(_, elems) => {
                 let elems_str = elems
                     .iter()
                     .map(|e| format!("{}", e))
@@ -154,10 +155,10 @@ impl Display for Expr {
                     .join(", ");
                 write!(f, "[{}]", elems_str)
             }
-            Expr::Literal(_t, lit) => write!(f, "{}", lit),
-            Expr::Ordinal(_t) => write!(f, "ordinal"),
-            Expr::RecordSelector(_t, name) => write!(f, "#{}", name),
-            Expr::Tuple(_t, elems) => {
+            Expr::Literal(_, lit) => write!(f, "{}", lit),
+            Expr::Ordinal(_) => write!(f, "ordinal"),
+            Expr::RecordSelector(_, name) => write!(f, "#{}", name),
+            Expr::Tuple(_, elems) => {
                 let elems_str = elems
                     .iter()
                     .map(|e| format!("{}", e))

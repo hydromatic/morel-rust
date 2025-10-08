@@ -36,8 +36,7 @@ set("mode", "evaluate");
 General;
 > val it = {ignore=fn,`op o`=fn}
 >   : {ignore:'a -> unit, `op o`:('b -> 'c) * ('d -> 'b) -> 'd -> 'c}
-set("mode", "validate");
-> val it = () : unit
+(*
 Char;
 > val it =
 >   {chr=fn,compare=fn,contains=fn,fromCString=fn,fromString=fn,isAlpha=fn,
@@ -58,8 +57,13 @@ Char;
 >      `op >`:char * char -> bool, `op >=`:char * char -> bool, ord:char -> int,
 >      pred:char -> char, succ:char -> char, toCString:char -> string,
 >      toLower:char -> char, toString:char -> string, toUpper:char -> char}
-set("mode", "evaluate");
-> val it = () : unit
+*)
+Char;
+> val it =
+>   {chr=fn,`op <`=fn,`op <=`=fn,`op <>`=fn,`op =`=fn,`op >`=fn,`op >=`=fn}
+>   : {chr:int -> char, `op <`:char * char -> bool, `op <=`:char * char -> bool,
+>      `op <>`:char * char -> bool, `op =`:char * char -> bool,
+>      `op >`:char * char -> bool, `op >=`:char * char -> bool}
 Int;
 > val it =
 >   {abs=fn,compare=fn,div=fn,fromInt=fn,fromLarge=fn,fromString=fn,max=fn,
@@ -78,6 +82,7 @@ set("mode", "validate");
 Interact;
 > val it = {use=fn,useSilently=fn}
 >   : {use:string -> unit, useSilently:string -> unit}
+(*
 List;
 > val it =
 >   {all=fn,app=fn,at=fn,collate=fn,concat=fn,drop=fn,except=fn,exists=fn,
@@ -104,6 +109,13 @@ List;
 >      rev:'be list -> 'be list, revAppend:'bf list * 'bf list -> 'bf list,
 >      tabulate:int * (int -> 'bg) -> 'bg list, take:'bh list * int -> 'bh list,
 >      tl:'bi list -> 'bi list}
+*)
+List;
+> val it = {nil=[],`op ::`=fn,`op @`=fn,tabulate=fn}
+>   : {nil:'a list, `op ::`:'b * 'b list -> 'b list,
+>      `op @`:'c list * 'c list -> 'c list, tabulate:int * (int -> 'd) -> 'd list}
+set("mode", "validate");
+> val it = () : unit
 ListPair;
 > val it =
 >   {all=fn,allEq=fn,app=fn,appEq=fn,exists=fn,foldl=fn,foldlEq=fn,foldr=fn,
@@ -285,8 +297,12 @@ app;
 ceil;
 > val it = fn : real -> int
 (* "val chr : int -> char" maps to "Char.chr" *)
+set("mode", "evaluate");
+> val it = () : unit
 chr;
 > val it = fn : int -> char
+set("mode", "validate");
+> val it = () : unit
 (* "val compare : 'a * 'a -> order" maps to "String.compare" *)
 String.compare;
 > val it = fn : string * string -> order
@@ -1597,6 +1613,8 @@ Sys.plan ();
 >   : string
 
 (*) val tabulate : int * (int -> 'a) -> 'a list
+set("mode", "evaluate");
+> val it = () : unit
 List.tabulate;
 > val it = fn : int * (int -> 'a) -> 'a list
 List.tabulate (5, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact end);
@@ -1605,6 +1623,8 @@ List.tabulate (1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact
 > val it = [1] : int list
 List.tabulate (0, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact end);
 > val it = [] : int list
+set("mode", "validate");
+> val it = () : unit
 List.tabulate (~1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact end);
 > uncaught exception Size
 >   raised at: stdIn:1.1-1.87
@@ -2373,6 +2393,8 @@ Char.maxOrd;
 
 (* [chr i] returns the character whose code is i.  Raises Chr if
    i<0 or i>maxOrd. *)
+set("mode", "evaluate");
+> val it = () : unit
 Char.chr;
 > val it = fn : int -> char
 Char.chr 65;
@@ -2386,6 +2408,8 @@ Char.chr 256;
 Char.chr 12345678;
 > uncaught exception Chr
 >   raised at: stdIn:1.1-1.18
+set("mode", "validate");
+> val it = () : unit
 
 (* [ord c] returns the code of character c. *)
 Char.ord;

@@ -24,6 +24,7 @@ use crate::compile::inliner::Env;
 use crate::compile::library::BuiltInFunction;
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
+use crate::eval::code::Span;
 use crate::eval::val::Val;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match,
@@ -243,6 +244,7 @@ impl<'a> Resolver<'a> {
     /// Resolves an AST expression to a core expression.
     pub fn resolve_expr(&self, expr: &Expr) -> CoreExpr {
         let t = expr.get_type(self.type_map).unwrap();
+        let span = Span::from_pest_span(&expr.span.to_pest_span());
         match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Aggregate(a0, a1) => CoreExpr::Aggregate(
@@ -251,19 +253,20 @@ impl<'a> Resolver<'a> {
                 Box::new(self.resolve_expr(a1)),
             ),
             ExprKind::AndAlso(a0, a1) => {
-                self.call2(t, BuiltInFunction::BoolAndAlso, a0, a1)
+                self.call2(t, BuiltInFunction::BoolAndAlso, &span, a0, a1)
             }
             ExprKind::Annotated(expr, _) => self.resolve_expr(expr),
             ExprKind::Append(a0, a1) => {
-                self.call2(t, BuiltInFunction::ListOpAt, a0, a1)
+                self.call2(t, BuiltInFunction::ListOpAt, &span, a0, a1)
             }
             ExprKind::Apply(func, arg) => CoreExpr::Apply(
                 t,
                 Box::new(self.resolve_expr(func)),
                 Box::new(self.resolve_expr(arg)),
+                Span::from_pest_span(&expr.span.to_pest_span()),
             ),
             ExprKind::Caret(a0, a1) => {
-                self.call2(t, BuiltInFunction::StringOpCaret, a0, a1)
+                self.call2(t, BuiltInFunction::StringOpCaret, &span, a0, a1)
             }
             ExprKind::Case(expr, matches) => CoreExpr::Case(
                 t,
@@ -271,33 +274,37 @@ impl<'a> Resolver<'a> {
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
             ExprKind::Cons(a0, a1) => {
-                self.call2(t, BuiltInFunction::ListOpCons, a0, a1)
+                self.call2(t, BuiltInFunction::ListOpCons, &span, a0, a1)
             }
             ExprKind::Current => CoreExpr::Current(t),
             ExprKind::Div(a0, a1) => {
-                self.call2(t, BuiltInFunction::IntDiv, a0, a1)
+                self.call2(t, BuiltInFunction::IntDiv, &span, a0, a1)
             }
             ExprKind::Divide(a0, a1) => {
-                self.call2(t, BuiltInFunction::RealDivide, a0, a1)
+                self.call2(t, BuiltInFunction::RealDivide, &span, a0, a1)
             }
             ExprKind::Equal(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpEq, a0, a1)
+                        self.call2(t, BuiltInFunction::IntOpEq, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpEq, a0, a1)
+                        self.call2(t, BuiltInFunction::RealOpEq, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => {
-                        self.call2(t, BuiltInFunction::StringOpEq, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::String) => self.call2(
+                        t,
+                        BuiltInFunction::StringOpEq,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpEq, a0, a1)
+                        self.call2(t, BuiltInFunction::CharOpEq, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Bool) => {
-                        self.call2(t, BuiltInFunction::BoolOpEq, a0, a1)
+                        self.call2(t, BuiltInFunction::BoolOpEq, &span, a0, a1)
                     }
-                    _ => self.call2(t, BuiltInFunction::GOpEq, a0, a1),
+                    _ => self.call2(t, BuiltInFunction::GOpEq, &span, a0, a1),
                 }
             }
             ExprKind::Exists(steps) => CoreExpr::Exists(
@@ -319,16 +326,20 @@ impl<'a> Resolver<'a> {
             ExprKind::GreaterThan(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpGt, a0, a1)
+                        self.call2(t, BuiltInFunction::IntOpGt, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpGt, a0, a1)
+                        self.call2(t, BuiltInFunction::RealOpGt, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => {
-                        self.call2(t, BuiltInFunction::StringOpGt, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::String) => self.call2(
+                        t,
+                        BuiltInFunction::StringOpGt,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpGt, a0, a1)
+                        self.call2(t, BuiltInFunction::CharOpGt, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -336,16 +347,20 @@ impl<'a> Resolver<'a> {
             ExprKind::GreaterThanOrEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpGe, a0, a1)
+                        self.call2(t, BuiltInFunction::IntOpGe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpGe, a0, a1)
+                        self.call2(t, BuiltInFunction::RealOpGe, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => {
-                        self.call2(t, BuiltInFunction::StringOpGe, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::String) => self.call2(
+                        t,
+                        BuiltInFunction::StringOpGe,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpGe, a0, a1)
+                        self.call2(t, BuiltInFunction::CharOpGe, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -375,21 +390,25 @@ impl<'a> Resolver<'a> {
                 )
             }
             ExprKind::Implies(a0, a1) => {
-                self.call2(t, BuiltInFunction::BoolImplies, a0, a1)
+                self.call2(t, BuiltInFunction::BoolImplies, &span, a0, a1)
             }
             ExprKind::LessThan(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpLt, a0, a1)
+                        self.call2(t, BuiltInFunction::IntOpLt, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpLt, a0, a1)
+                        self.call2(t, BuiltInFunction::RealOpLt, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => {
-                        self.call2(t, BuiltInFunction::StringOpLt, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::String) => self.call2(
+                        t,
+                        BuiltInFunction::StringOpLt,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpLt, a0, a1)
+                        self.call2(t, BuiltInFunction::CharOpLt, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -397,16 +416,20 @@ impl<'a> Resolver<'a> {
             ExprKind::LessThanOrEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpLe, a0, a1)
+                        self.call2(t, BuiltInFunction::IntOpLe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpLe, a0, a1)
+                        self.call2(t, BuiltInFunction::RealOpLe, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => {
-                        self.call2(t, BuiltInFunction::StringOpLe, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::String) => self.call2(
+                        t,
+                        BuiltInFunction::StringOpLe,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpLe, a0, a1)
+                        self.call2(t, BuiltInFunction::CharOpLe, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -430,24 +453,28 @@ impl<'a> Resolver<'a> {
             ExprKind::Minus(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntMinus, a0, a1)
+                        self.call2(t, BuiltInFunction::IntMinus, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpMinus, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::Real) => self.call2(
+                        t,
+                        BuiltInFunction::RealOpMinus,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     _ => todo!("resolve {:?}", a0),
                 }
             }
             ExprKind::Mod(a0, a1) => {
-                self.call2(t, BuiltInFunction::IntMod, a0, a1)
+                self.call2(t, BuiltInFunction::IntMod, &span, a0, a1)
             }
             ExprKind::Negate(a0) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call1(t, BuiltInFunction::IntNegate, a0)
+                        self.call1(t, BuiltInFunction::IntNegate, a0, &span)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call1(t, BuiltInFunction::RealNegate, a0)
+                        self.call1(t, BuiltInFunction::RealNegate, a0, &span)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -455,35 +482,43 @@ impl<'a> Resolver<'a> {
             ExprKind::NotEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpNe, a0, a1)
+                        self.call2(t, BuiltInFunction::IntOpNe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpNe, a0, a1)
+                        self.call2(t, BuiltInFunction::RealOpNe, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => {
-                        self.call2(t, BuiltInFunction::StringOpNe, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::String) => self.call2(
+                        t,
+                        BuiltInFunction::StringOpNe,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpNe, a0, a1)
+                        self.call2(t, BuiltInFunction::CharOpNe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Bool) => {
-                        self.call2(t, BuiltInFunction::BoolOpNe, a0, a1)
+                        self.call2(t, BuiltInFunction::BoolOpNe, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
             }
             ExprKind::OrElse(a0, a1) => {
-                self.call2(t, BuiltInFunction::BoolOrElse, a0, a1)
+                self.call2(t, BuiltInFunction::BoolOrElse, &span, a0, a1)
             }
             ExprKind::Ordinal => CoreExpr::Ordinal(t),
             ExprKind::Plus(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntPlus, a0, a1)
+                        self.call2(t, BuiltInFunction::IntPlus, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpPlus, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::Real) => self.call2(
+                        t,
+                        BuiltInFunction::RealOpPlus,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     _ => todo!("resolve {:?}", a0),
                 }
             }
@@ -501,11 +536,15 @@ impl<'a> Resolver<'a> {
                 let a0_type = a0.get_type(self.type_map).expect("type");
                 match a0_type.as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntTimes, a0, a1)
+                        self.call2(t, BuiltInFunction::IntTimes, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpTimes, a0, a1)
-                    }
+                    Type::Primitive(PrimitiveType::Real) => self.call2(
+                        t,
+                        BuiltInFunction::RealOpTimes,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     _ => todo!("resolve {:?}", a0),
                 }
             }
@@ -517,17 +556,24 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn call1(&self, t: Box<Type>, f: BuiltInFunction, a0: &Expr) -> CoreExpr {
+    fn call1(
+        &self,
+        t: Box<Type>,
+        f: BuiltInFunction,
+        a0: &Expr,
+        span: &Span,
+    ) -> CoreExpr {
         let fn_type = f.get_type();
         let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
         let c0 = self.resolve_expr(a0);
-        CoreExpr::Apply(t, Box::new(fn_literal), Box::new(c0))
+        CoreExpr::Apply(t, Box::new(fn_literal), Box::new(c0), span.clone())
     }
 
     fn call2(
         &self,
         t: Box<Type>,
         f: BuiltInFunction,
+        span: &Span,
         a0: &Expr,
         a1: &Expr,
     ) -> CoreExpr {
@@ -536,7 +582,7 @@ impl<'a> Resolver<'a> {
         let c0 = self.resolve_expr(a0);
         let c1 = self.resolve_expr(a1);
         let arg = CoreExpr::new_tuple(&[c0, c1]);
-        CoreExpr::Apply(t, Box::new(fn_literal), Box::new(arg))
+        CoreExpr::Apply(t, Box::new(fn_literal), Box::new(arg), span.clone())
     }
 
     /// Resolves an AST literal to a core value.

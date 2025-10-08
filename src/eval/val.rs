@@ -18,7 +18,7 @@
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Label;
 use crate::compile::types::Type;
-use crate::eval::code::{Code, Impl};
+use crate::eval::code::{Code, Impl, Span};
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
 use crate::syntax::parser;
@@ -166,6 +166,13 @@ impl Val {
         match self {
             Val::String(s) => s.clone(),
             _ => panic!("Expected string"),
+        }
+    }
+
+    pub(crate) fn expect_span(&self) -> Span {
+        match self {
+            Val::String(s) => Span::new(s),
+            _ => panic!("Expected span"),
         }
     }
 

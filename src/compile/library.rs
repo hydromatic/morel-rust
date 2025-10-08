@@ -84,6 +84,9 @@ pub enum BuiltInFunction {
     BoolOrElse,
     #[strum(props(name = "true", type = "bool"))]
     BoolTrue,
+    #[strum(props(p = "Char", name = "chr", global = true))]
+    #[strum(props(type = "int -> char", throws = "Chr"))]
+    CharChr,
     #[strum(props(p = "Char", name = "op =", type = "char * char -> bool"))]
     CharOpEq,
     #[strum(props(p = "Char", name = "op >=", type = "char * char -> bool"))]
@@ -208,6 +211,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "op ::", global = true))]
     #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
     ListOpCons,
+    #[strum(props(p = "List", name = "tabulate"))]
+    #[strum(props(type = "forall 1 int * (int -> 'a) -> 'a list"))]
+    ListTabulate,
     #[strum(props(p = "Option", name = "NONE", global = true))]
     #[strum(props(type = "forall 1 'a option", constructor = true))]
     OptionNone,
@@ -334,6 +340,40 @@ impl BuiltInRecord {
         }
     }
 }
+
+/// Built-in exception.
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+#[derive(
+    EnumCount, EnumString, EnumProperty, EnumIter, strum_macros::Display,
+)]
+pub enum BuiltInExn {
+    #[strum(props(p = "General"))]
+    Bind,
+    #[strum(props(p = "General"))]
+    Chr,
+}
+
+impl BuiltInExn {
+    pub(crate) fn package(&self) -> &'static str {
+        self.get_str("p").unwrap()
+    }
+}
+
+/*
+The following exceptions are in Morel Java but not yet in Morel Rust.
+
+DIV("General", "Div"),
+DOMAIN("General", "Domain"),
+EMPTY("List", "Empty"),
+OPTION("Option", "Option"),
+OVERFLOW("General", "Overflow"),
+ERROR("Interact", "Error"), // not in standard basis
+SIZE("General", "Size"),
+SUBSCRIPT("General", "Subscript [subscript out of bounds]"),
+UNEQUAL_LENGTHS("ListPair", "UnequalLengths"),
+UNORDERED("IEEEReal", "Unordered");
+ */
 
 /// Built-in function or record.
 #[repr(u8)]

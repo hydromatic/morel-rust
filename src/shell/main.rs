@@ -22,12 +22,13 @@
 #![allow(clippy::redundant_closure)]
 
 use crate::compile::inliner::Env;
+use crate::compile::library::BuiltInExn;
 use crate::compile::resolver;
 use crate::compile::type_env::Binding;
 use crate::compile::type_resolver::Resolved;
 use crate::compile::types::Type;
 use crate::compile::{compiler, inliner, library};
-use crate::eval::code::Effect;
+use crate::eval::code::{Effect, Span};
 use crate::eval::session::Config as SessionConfig;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
@@ -36,12 +37,12 @@ use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::prop::Mode;
 use crate::shell::utils::{prefix_lines, strip_prefix};
-use crate::syntax::ast::{Span, Statement};
+use crate::syntax::ast::Statement;
 use crate::syntax::parser;
 use rustc_version::version;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -526,8 +527,17 @@ pub enum MorelError {
     Bind,
 }
 
-pub enum BuiltInExn {
-    Bind,
+impl Display for MorelError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MorelError::Runtime(exn, loc) => {
+                writeln!(f, "uncaught exception {}", exn)?;
+                write!(f, "  raised at: {}", loc)
+            }
+            MorelError::Other => write!(f, "Other error"),
+            MorelError::Bind => write!(f, "Bind error"),
+        }
+    }
 }
 
 #[cfg(test)]

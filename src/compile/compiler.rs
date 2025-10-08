@@ -368,6 +368,19 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// As [Compiler::compile_args], but returns a list of `Box<Code>`.
+    #[allow(clippy::vec_box)]
+    fn compile_args_boxed(
+        &mut self,
+        cx: &Context,
+        expr: &Expr,
+    ) -> Vec<Box<Code>> {
+        self.compile_args(cx, expr)
+            .into_iter()
+            .map(Box::new)
+            .collect()
+    }
+
     /// Compiles the tuple arguments to "apply".
     pub fn compile_arg_list(
         &mut self,
@@ -443,11 +456,11 @@ impl<'a> Compiler<'a> {
     ) -> Code {
         match expr {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Apply(_, f, a) => match f.as_ref() {
+            Expr::Apply(_, f, a, span) => match f.as_ref() {
                 Expr::Literal(_t, Val::Fn(f)) => {
                     let impl_ = f.get_impl();
-                    let codes = self.compile_args(cx, a);
-                    Code::new_native(impl_, &codes)
+                    let codes = self.compile_args_boxed(cx, a);
+                    Code::new_native(impl_, &codes, span)
                 }
                 Expr::Identifier(_, name) => {
                     let arg_code = self.compile_arg(cx, a);
@@ -650,10 +663,8 @@ impl Action for ValDeclAction {
         // self.code is a function with unit argument.
         self.code.assert_supports_eval_mode(&EvalMode::EagerV1);
         match self.code.eval_f1(r, f, &Val::Unit) {
-            Err(_) => {
-                r.emit_effect(Effect::EmitLine(
-                    "error in val binding".to_string(),
-                ));
+            Err(e) => {
+                r.emit_effect(Effect::EmitLine(e.to_string()));
             }
             Ok(o) => {
                 let pretty = Self::get_pretty(&r.shell.config);
