@@ -210,17 +210,14 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                 if l.contains("lint: sort until")
                     && !l.contains("\"lint: sort until")
                 {
-                    match Sort::parse(l) {
-                        Ok(s) => {
-                            sort = Some(s);
-                        }
-                        Err(()) => {
-                            sort = None;
-                            warnings.push(format!(
-                                "{}:{}: Malformed 'sort until' directive: {}",
-                                file_name, line, l
-                            ));
-                        }
+                    if let Ok(s) = Sort::parse(l) {
+                        sort = Some(s);
+                    } else {
+                        sort = None;
+                        warnings.push(format!(
+                            "{}:{}: Malformed 'sort until' directive: {}",
+                            file_name, line, l
+                        ));
                     }
                 }
             });
@@ -292,12 +289,7 @@ impl Sort {
     }
 
     fn leading_spaces(s: &str) -> String {
-        for (i, c) in s.chars().enumerate() {
-            if c != ' ' {
-                return s[..i].to_string();
-            }
-        }
-        s.to_string()
+        s.chars().take_while(|&c| c == ' ').collect()
     }
 }
 
@@ -323,7 +315,7 @@ fn compile_pattern(pattern: &str, mut indent: &str) -> Option<Regex> {
     p = p.replace("#", format!("^{}", indent).as_str());
     Some(
         Regex::new(p.as_str())
-            .expect(format!("bad pattern {}", pattern).as_str()),
+            .unwrap_or_else(|_| panic!("bad pattern {}", pattern)),
     )
 }
 
@@ -338,11 +330,9 @@ impl FileType {
     /// Returns the appropriate header for a file based on its extension,
     /// or `None` if no header is needed.
     fn for_file(file_name: &str) -> Self {
-        let suffix = file_name.split('.').last();
-        if suffix.is_some() {
-            let option = SUFFIX_MAP.get(suffix.unwrap());
-            if option.is_some() {
-                let format = option.unwrap();
+        let suffix = file_name.split('.').next_back();
+        if let Some(suffix) = suffix {
+            if let Some(format) = SUFFIX_MAP.get(suffix) {
                 return FileType {
                     header: Some(format.header()),
                     text: true,

@@ -442,8 +442,10 @@ mod tests {
     #[test]
     fn test_are_contiguous_integers() {
         fn check(strings: &[&str]) -> bool {
-            let owned: Vec<String> =
-                strings.iter().map(|s| s.to_string()).collect();
+            let owned: Vec<String> = strings
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect();
             let refs: Vec<&String> = owned.iter().collect();
             types::are_contiguous_integers(&refs)
         }

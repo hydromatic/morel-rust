@@ -1333,7 +1333,8 @@ mod tests {
         let v8 = u.variable();
         vars.push(v8.clone());
 
-        let var_strings: Vec<_> = vars.iter().map(|v| v.to_string()).collect();
+        let var_strings: Vec<_> =
+            vars.iter().map(ToString::to_string).collect();
         assert_eq!(
             format!("{:?}", var_strings),
             "[\"T0\", \"T2\", \"T3\", \"T4\", \"T5\", \"T6\", \"T7\", \"T8\", \
