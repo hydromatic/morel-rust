@@ -300,7 +300,7 @@ Exception:
 | ---- | ---- | ----------- |
 | Bool.not | bool &rarr; bool | "not b" returns the logical negation of the boolean value `b`. |
 | Bool.op implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
-| Bool.to_string | bool &rarr; string | "to_string b" returns the string representation of `b`, either "true" or "false". |
+| Bool.toString | bool &rarr; string | "toString b" returns the string representation of `b`, either "true" or "false". |
 | Char.chr | int &rarr; char | "chr i" returns the character whose code is `i`. Raises `Chr` if `i` &lt; 0 or `i` &gt; `maxOrd`. |
 | Char.compare | char * char &rarr; order | "compare (c1, c2)" returns `LESS`, `EQUAL`, or `GREATER` according to whether its first argument is less than, equal to, or greater than the second. |
 | Char.toLower | char &rarr; char | "toLower c" returns the lowercase letter corresponding to `c`, if `c` is a letter (a to z or A to Z); otherwise returns `c`. |
@@ -333,6 +333,16 @@ Exception:
 | Int.toInt | int &rarr; int | "toInt i" converts a value from the default integer type to type `int`. Raises `Overflow` if the value does not fit. |
 | Int.toString | int &rarr; string | "toString i" converts a `int` into a `string`; equivalent to `(fmt StringCvt.DEC r)`. |
 | List.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; list | "tabulate (n, f)" returns a list of length `n` equal to `[f(0), f(1), ..., f(n-1)]`, created from left to right. Raises `Size` if `n` &lt; 0. |
+| Option.app | (&alpha; &rarr; unit) &rarr; &alpha; option &rarr; unit | "app f opt" applies the function `f` to the value `v` if `opt` is `SOME v`, and otherwise does nothing. |
+| Option.compose | (&alpha; &rarr; &beta;) * (&gamma; &rarr; &alpha; option) &rarr; &gamma; &rarr; &beta; option | "compose (f, g) a" returns `NONE` if `g(a)` is `NONE`; otherwise, if `g(a)` is `SOME v`, it returns `SOME (f v)`. |
+| Option.composePartial | (&alpha; &rarr; &beta; option) * (&gamma; &rarr; &alpha; option) &rarr; &gamma; &rarr; &beta; option | "composePartial (f, g) a" returns `NONE` if `g(a)` is `NONE`; otherwise, if `g(a)` is `SOME v`, returns `f(v)`. |
+| Option.map | &alpha; &rarr; &beta;) &rarr; &alpha; option &rarr; &beta; option | "map f opt" maps `NONE` to `NONE` and `SOME v` to `SOME (f v)`. |
+| Option.mapPartial | &alpha; &rarr; &beta; option) &rarr; &alpha; option &rarr; &beta; option | "mapPartial f opt" maps `NONE` to `NONE` and `SOME v` to `f(v)`. |
+| Option.getOpt | &alpha; option * &alpha; &rarr; &alpha; | "getOpt (opt, a)" returns `v` if `opt` is `SOME (v)`; otherwise returns `a`. |
+| Option.isSome | &alpha; option &rarr; bool | "isSome opt" returns `true` if `opt` is `SOME v`; otherwise returns `false`. |
+| Option.filter | (&alpha; &rarr; bool) &rarr; &alpha; &rarr; &alpha; option | "filter f a" returns `SOME a` if `f(a)` is `true`, `NONE` otherwise. |
+| Option.join | &alpha; option option &rarr; &alpha; option | "join opt" maps `NONE` to `NONE` and `SOME v` to `v`. |
+| Option.valOf | &alpha; option &rarr; &alpha; | "valOf opt" returns `v` if `opt` is `SOME v`, otherwise raises `Option`. |
 | Real.op * | real * real &rarr; real | "r1 * r2" is the product of `r1` and `r2`. The product of zero and an infinity produces NaN. Otherwise, if one argument is infinite, the result is infinite with the correct sign, e.g., -5 * (-infinity) = infinity, infinity * (-infinity) = -infinity. |
 | Real.op + | real * real &rarr; real | "r1 + r2" is the sum of `r1` and `r2`. If one argument is finite and the other infinite, the result is infinite with the correct sign, e.g., 5 - (-infinity) = infinity. We also have infinity + infinity = infinity and (-infinity) + (-infinity) = (-infinity). Any other combination of two infinities produces NaN. |
 | Real.op - | real * real &rarr; real | "r1 - r2" is the difference of `r1` and `r2`. If one argument is finite and the other infinite, the result is infinite with the correct sign, e.g., 5 - (-infinity) = infinity. We also have infinity + infinity = infinity and (-infinity) + (-infinity) = (-infinity). Any other combination of two infinities produces NaN. |

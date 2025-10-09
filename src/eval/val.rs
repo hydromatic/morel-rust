@@ -18,7 +18,7 @@
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Label;
 use crate::compile::types::Type;
-use crate::eval::code::{Code, Impl, Span};
+use crate::eval::code::{Code, Frame as CodeFrame, Impl, LIBRARY, Span};
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
 use crate::syntax::parser;
@@ -46,8 +46,6 @@ pub enum Val {
     List(Vec<Val>),
     /// Built-in function.
     Fn(BuiltInFunction),
-    /// Contents of a structure.
-    ImplList(Vec<Impl>),
 
     /// `Some(v)` represents the `Option` value `SOME v`. (The other `Option`
     /// value, `NONE`, is represented as [Val::Unit].)
@@ -77,7 +75,6 @@ pub enum Val {
     Type(Box<(String, Type)>),
     /// `Raw(value)` is printed to the output as-is, without any quoting.
     Raw(String),
-    Impl(Impl),
 
     /// A constant piece of code. TODO This is a short-term way of representing
     /// user-defined functions. Long-term, they should be handled by inlining.
@@ -180,6 +177,39 @@ impl Val {
         match self {
             Val::Char(c) => *c,
             _ => panic!("Expected char"),
+        }
+    }
+
+    /// Applies this value as a function to a single argument.
+    /// Handles Val::Code, Val::Closure, and Val::Fn (built-in functions).
+    pub(crate) fn apply_f1(
+        &self,
+        r: &mut crate::eval::code::EvalEnv,
+        f: &mut crate::eval::code::Frame,
+        arg: &Val,
+    ) -> Result<Val, crate::shell::main::MorelError> {
+        match self {
+            Val::Code(code) => code.eval_f1(r, f, arg),
+            Val::Closure(frame_def, matches, bound_vals) => {
+                CodeFrame::create_bind_and_eval(
+                    frame_def, matches, bound_vals, r, arg,
+                )
+            }
+            Val::Fn(built_in_fn) => {
+                let (_, impl_) = LIBRARY
+                    .fn_map
+                    .get(built_in_fn)
+                    .expect("Function not in library");
+                match impl_ {
+                    Impl::E1(eager1) => Ok(eager1.apply(arg.clone())),
+                    Impl::EF1(eagerf1) => eagerf1.apply(r, f, arg.clone()),
+                    _ => panic!(
+                        "Expected function with 1 argument, got {:?}",
+                        impl_
+                    ),
+                }
+            }
+            _ => panic!("Expected code, closure, or fn, got {:?}", self),
         }
     }
 }

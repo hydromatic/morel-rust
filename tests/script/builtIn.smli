@@ -337,9 +337,13 @@ foldl;
 (* "val foldr : ('a*'b->'b)-> 'b -> 'a list -> 'b" maps to "List.foldr" *)
 foldr;
 > val it = fn : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
+set("mode", "evaluate");
+> val it = () : unit
 (* "val getOpt : ('a option * 'a) -> 'a" maps to "Option.getOpt" *)
 getOpt;
 > val it = fn : 'a option * 'a -> 'a
+set("mode", "validate");
+> val it = () : unit
 (* "val hd : 'a list -> 'a" maps to "List.hd" *)
 hd;
 > val it = fn : 'a list -> 'a
@@ -351,11 +355,11 @@ ignore;
 (* "val implode : char list -> string" maps to "String.implode" *)
 implode;
 > val it = fn : char list -> string
-set("mode", "validate");
-> val it = () : unit
 (* "val isSome : 'a option -> bool" maps to "Option.isSome" *)
 isSome;
 > val it = fn : 'a option -> bool
+set("mode", "validate");
+> val it = () : unit
 (* "val length : 'a list -> int" maps to "List.length" *)
 length;
 > val it = fn : 'a list -> int
@@ -411,9 +415,13 @@ trunc;
 (* "val use : string -> unit" maps to "implementation dependent" *)
 use;
 > val it = fn : string -> unit
+set("mode", "evaluate");
+> val it = () : unit
 (* "val valOf : 'a option -> 'a" maps to "Option.valOf" *)
 valOf;
 > val it = fn : 'a option -> 'a
+set("mode", "validate");
+> val it = () : unit
 (* "val vector : 'a list -> 'a vector" maps to "Vector.fromList" *)
 vector;
 > val it = fn : 'a list -> 'a vector
@@ -2294,6 +2302,8 @@ List.map (fn x => (x, Math.tanh x))
 >   : (real * real) list
 
 (* Option ------------------------------------------------------ *)
+set("mode", "evaluate");
+> val it = () : unit
 (*) val getOpt : 'a option * 'a -> 'a
 Option.getOpt (SOME 1, 2);
 > val it = 1 : int
@@ -2325,13 +2335,15 @@ val noneInt = if true then NONE else SOME 0;
 > val noneInt = NONE : int option
 Sys.plan ();
 > val it =
->   "apply(fnCode match(true, constant([NONE]), _, apply(fnValue tyCon, argCode constant(0))), argCode constant(true))"
+>   "case(constant(true), true, constant([NONE]), _, apply(fnValue Option.some, argCode constant(0)))"
 >   : string
 Option.valOf noneInt;
 > uncaught exception Option
 >   raised at: stdIn:1.1-1.21
 Sys.plan ();
-> val it = "apply(fnValue Option.valOf, argCode constant([NONE]))" : string
+> val it =
+>   "apply2(fnValue Option.valOf, constant([NONE]), constant(stdIn:1.1-1.21))"
+>   : string
 
 (*) val filter : ('a -> bool) -> 'a -> 'a option
 Option.filter (fn x => x mod 2 = 0) 1;
@@ -2340,7 +2352,7 @@ Option.filter (fn x => x mod 2 = 0) 2;
 > val it = SOME 2 : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.filter, match(x, apply2(fnValue =, apply2(fnValue mod, get(name x), constant(2)), constant(0))), constant(2))"
+>   "apply2(fnValue Option.filter, fn(bind(0) => apply2(fnValue Int.opEq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), constant(2))"
 >   : string
 
 (*) val join : 'a option option -> 'a option
@@ -2386,7 +2398,7 @@ Option.mapPartial (fn s => if s = "" then NONE else (SOME (String.size s))) (SOM
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.mapPartial, match(s, apply(fnCode match(true, constant([NONE]), _, apply(fnValue tyCon, argCode apply(fnValue String.size, argCode get(name s)))), argCode apply2(fnValue =, get(name s), constant()))), apply(fnValue tyCon, argCode constant()))"
+>   "apply2(fnValue Option.mapPartial, fn(bind(0) => case(apply2(fnValue String.opEq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0))))), apply(fnValue Option.some, argCode constant()))"
 >   : string
 
 (*) val compose : ('a -> 'b) * ('c -> 'a option) -> 'c -> 'b option
@@ -2409,7 +2421,7 @@ Option.compose (String.size,
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply(fnCode apply2(fnValue Option.compose, constant(String.size), match(s, apply(fnCode match(true, constant([NONE]), _, apply(fnValue tyCon, argCode apply3(fnValue String.substring, get(name s), constant(0), apply(fnValue String.size, argCode get(name s))))), argCode apply2(fnValue =, get(name s), constant())))), argCode constant())"
+>   "apply2(fnValue Option.compose, tupleconstant(String.size), fn(bind(0) => case(apply2(fnValue String.opEq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.substring, argCode tuple(get(0), constant(0), apply(fnValue String.size, argCode get(0)), constant(stdIn:3.29-3.46)))))), , constant())"
 >   : string
 
 (*) val composePartial : ('a -> 'b option) * ('c -> 'a option) -> 'c -> 'b option
@@ -2423,8 +2435,11 @@ Option.composePartial (fn i => if i = 0 then NONE else (SOME i),
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply(fnCode apply2(fnValue Option.composePartial, match(i, apply(fnCode match(true, constant([NONE]), _, apply(fnValue tyCon, argCode get(name i))), argCode apply2(fnValue =, get(name i), constant(0)))), match(s, apply(fnCode match(true, constant([NONE]), _, apply(fnValue tyCon, argCode apply(fnValue String.size, argCode get(name s)))), argCode apply2(fnValue =, get(name s), constant())))), argCode constant())"
+>   "apply2(fnValue Option.composePartial, tuplefn(bind(0) => case(apply2(fnValue Int.opEq, get(0), constant(0)), true, constant([NONE]), _, apply(fnValue Option.some, argCode get(0)))), fn(bind(0) => case(apply2(fnValue String.opEq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0))))), , constant())"
 >   : string
+
+set("mode", "validate");
+> val it = () : unit
 
 (* Char -------------------------------------------------------- *)
 

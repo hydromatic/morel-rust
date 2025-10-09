@@ -22,6 +22,7 @@ pub mod code;
 pub mod frame;
 pub mod int;
 pub mod list;
+pub mod option;
 pub mod order;
 pub mod session;
 pub mod string;

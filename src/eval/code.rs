@@ -24,6 +24,7 @@ use crate::eval::char::Char;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
+use crate::eval::option::Opt;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::val::Val;
@@ -855,7 +856,7 @@ impl<'a> Frame<'a> {
         Self::eval(&mut val_vec, matches, r, arg)
     }
 
-    fn create_bind_and_eval(
+    pub(crate) fn create_bind_and_eval(
         frame_def: &FrameDef,
         matches: &[(Code, Code)],
         bound_vals: &[Val],
@@ -1059,7 +1060,7 @@ impl EagerF1 {
 
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
-    fn apply(
+    pub(crate) fn apply(
         &self,
         r: &mut EvalEnv,
         _f: &mut Frame,
@@ -1097,6 +1098,8 @@ pub enum Eager1 {
     IntToInt,
     IntToLarge,
     IntToString,
+    OptionIsSome,
+    OptionJoin,
     OptionSome,
     RealNegate,
     StringConcat,
@@ -1113,7 +1116,7 @@ impl Eager1 {
 
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
-    fn apply(&self, a0: Val) -> Val {
+    pub(crate) fn apply(&self, a0: Val) -> Val {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::Eager1::*;
 
@@ -1135,6 +1138,8 @@ impl Eager1 {
             IntToInt => a0,
             IntToLarge => a0,
             IntToString => Val::String(Int::_to_string(a0.expect_int())),
+            OptionIsSome => Val::Bool(Opt::is_some(&a0)),
+            OptionJoin => Opt::join(&a0),
             OptionSome => Val::Some(Box::new(a0)),
             RealNegate => Val::Real(-a0.expect_real()),
             StringConcat => {
@@ -1201,6 +1206,7 @@ pub enum Eager2 {
     IntTimes,
     ListOpAt,
     ListOpCons,
+    OptionGetOpt,
     RealDivide,
     RealOpEq,
     RealOpGe,
@@ -1293,6 +1299,7 @@ impl Eager2 {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
             ListOpCons => Val::List(List::cons(&a0, a1.expect_list())),
+            OptionGetOpt => Opt::get_opt(&a0, &a1),
             RealDivide => Val::Real(a0.expect_real() / a1.expect_real()),
             RealOpEq => Val::Bool(a0.expect_real() == a1.expect_real()),
             RealOpGe => Val::Bool(a0.expect_real() >= a1.expect_real()),
@@ -1352,6 +1359,13 @@ pub enum EagerF2 {
     // lint: sort until '#}'
     CharChr,
     ListTabulate,
+    OptionApp,
+    OptionCompose,
+    OptionComposePartial,
+    OptionFilter,
+    OptionMap,
+    OptionMapPartial,
+    OptionValOf,
     StringCollate,
     StringConcatWith,
     StringFields,
@@ -1390,6 +1404,19 @@ impl EagerF2 {
             ListTabulate => {
                 List::tabulate(r, f, a0.expect_int(), &a1.expect_code())
             }
+            OptionApp => Opt::app(r, f, &a0, &a1),
+            OptionCompose => {
+                let tuple = a0.expect_list();
+                Opt::compose(r, f, &tuple[0], &tuple[1], &a1)
+            }
+            OptionComposePartial => {
+                let tuple = a0.expect_list();
+                Opt::compose_partial(r, f, &tuple[0], &tuple[1], &a1)
+            }
+            OptionFilter => Opt::filter(r, f, &a0, &a1),
+            OptionMap => Opt::map(r, f, &a0, &a1),
+            OptionMapPartial => Opt::map_partial(r, f, &a0, &a1),
+            OptionValOf => Opt::val_of(&a0, &a1.expect_span()),
             StringCollate => {
                 let tuple = a1.expect_list();
                 if tuple.len() != 2 {
@@ -1779,8 +1806,18 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::ListOpAt.implements(&mut b, ListOpAt);
     Eager2::ListOpCons.implements(&mut b, ListOpCons);
     EagerF2::ListTabulate.implements(&mut b, ListTabulate);
+    EagerF2::OptionApp.implements(&mut b, OptionApp);
+    EagerF2::OptionCompose.implements(&mut b, OptionCompose);
+    EagerF2::OptionComposePartial.implements(&mut b, OptionComposePartial);
+    EagerF2::OptionFilter.implements(&mut b, OptionFilter);
+    Eager2::OptionGetOpt.implements(&mut b, OptionGetOpt);
+    Eager1::OptionIsSome.implements(&mut b, OptionIsSome);
+    Eager1::OptionJoin.implements(&mut b, OptionJoin);
+    EagerF2::OptionMap.implements(&mut b, OptionMap);
+    EagerF2::OptionMapPartial.implements(&mut b, OptionMapPartial);
     Eager0::OptionNone.implements(&mut b, OptionNone);
     Eager1::OptionSome.implements(&mut b, OptionSome);
+    EagerF2::OptionValOf.implements(&mut b, OptionValOf);
     Eager0::OrderEqual.implements(&mut b, OrderEqual);
     Eager0::OrderGreater.implements(&mut b, OrderGreater);
     Eager0::OrderLess.implements(&mut b, OrderLess);

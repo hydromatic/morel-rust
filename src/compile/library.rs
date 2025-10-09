@@ -224,12 +224,49 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "tabulate"))]
     #[strum(props(type = "forall 1 int * (int -> 'a) -> 'a list"))]
     ListTabulate,
+    #[strum(props(p = "Option", name = "app"))]
+    #[strum(props(type = "forall 1 ('a -> unit) -> 'a option -> unit"))]
+    OptionApp,
+    #[strum(props(p = "Option", name = "compose"))]
+    #[strum(props(
+        type = "forall 3 ('a -> 'b) * ('c -> 'a option) -> 'c -> 'b option"
+    ))]
+    OptionCompose,
+    #[strum(props(p = "Option", name = "composePartial"))]
+    #[strum(props(
+        type = "forall 3 ('a -> 'b option) * ('c -> 'a option) -> \
+                'c -> 'b option"
+    ))]
+    OptionComposePartial,
+    #[strum(props(p = "Option", name = "filter"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a -> 'a option"))]
+    OptionFilter,
+    #[strum(props(p = "Option", name = "getOpt", global = true))]
+    #[strum(props(type = "forall 1 'a option * 'a -> 'a"))]
+    OptionGetOpt,
+    #[strum(props(p = "Option", name = "isSome", global = true))]
+    #[strum(props(type = "forall 1 'a option -> bool"))]
+    OptionIsSome,
+    #[strum(props(p = "Option", name = "join"))]
+    #[strum(props(type = "forall 1 'a option option -> 'a option"))]
+    OptionJoin,
+    #[strum(props(p = "Option", name = "map"))]
+    #[strum(props(type = "forall 2 ('a -> 'b) -> 'a option -> 'b option"))]
+    OptionMap,
+    #[strum(props(p = "Option", name = "mapPartial"))]
+    #[strum(props(
+        type = "forall 2 ('a -> 'b option) -> 'a option -> 'b option"
+    ))]
+    OptionMapPartial,
     #[strum(props(p = "Option", name = "NONE", global = true))]
     #[strum(props(type = "forall 1 'a option", constructor = true))]
     OptionNone,
     #[strum(props(p = "Option", name = "SOME", global = true))]
     #[strum(props(type = "forall 1 'a -> 'a option", constructor = true))]
     OptionSome,
+    #[strum(props(p = "Option", name = "valOf", global = true))]
+    #[strum(props(type = "forall 1 'a option -> 'a", throws = "Option"))]
+    OptionValOf,
     #[strum(props(p = "Order", name = "EQUAL", global = true))]
     #[strum(props(type = "`order`", constructor = true))]
     OrderEqual,
@@ -402,6 +439,8 @@ pub enum BuiltInRecord {
     Int,
     #[strum(props(name = "List"))]
     List,
+    #[strum(props(name = "Option"))]
+    Option,
     #[strum(props(name = "String"))]
     String,
     #[strum(props(name = "Sys"))]
@@ -433,6 +472,8 @@ pub enum BuiltInExn {
     Bind,
     #[strum(props(p = "General"))]
     Chr,
+    #[strum(props(p = "Option"))]
+    Option,
     #[strum(props(p = "General", explain = "subscript out of bounds"))]
     Subscript,
 }
@@ -453,7 +494,6 @@ The following exceptions are in Morel Java but not yet in Morel Rust.
 DIV("General", "Div"),
 DOMAIN("General", "Domain"),
 EMPTY("List", "Empty"),
-OPTION("Option", "Option"),
 OVERFLOW("General", "Overflow"),
 ERROR("Interact", "Error"), // not in standard basis
 SIZE("General", "Size"),
