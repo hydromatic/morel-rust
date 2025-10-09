@@ -139,6 +139,10 @@ val (x, y) = (1, true);
 val {x, y} = {y = 1, x = true};
 >type x : bool
 >type y : int
+val r = {x = 1, y = true};
+>type r : {x:int, y:bool}
+val i = #x {x = 1, y = true};
+>type i : int
 
 val x = 1
 and y = ("hello", "world");
@@ -455,8 +459,6 @@ set("mode", "evaluate");
 > val it = ["a"] : string list
 ([1],true) :: [([2,3],false), ([],true)];
 > val it = [([1],true),([2,3],false),([],true)] : (int list * bool) list
-set("mode", "validate");
-> val it = () : unit
 
 (* `andalso` has higher precedence (2) than `orelse` (1). *)
 false andalso true orelse true;
@@ -470,6 +472,8 @@ false andalso (true orelse true);
    lower precedence than '.' (9). *)
 fun succ n = n + 1;
 > val succ = fn : int -> int
+set("mode", "validate");
+> val it = () : unit
 (* TODO add '~succ 3;', which should be parse error *)
 ~(succ 3);
 > val it = ~4 : int
@@ -477,10 +481,16 @@ succ (~ 3);
 > val it = ~2 : int
 succ ~ 3;
 > error
-{a=3, b=4}.a;
+set("mode", "evaluate");
+> val it = () : unit
+{a=3, b=true}.a;
 > val it = 3 : int
-~{a=3, b=4}.a;
+#b {a=3, b=true};
+> val it = true : bool
+~{a=3, b=true}.a;
 > val it = ~3 : int
+set("mode", "validate");
+> val it = () : unit
 
 (*) Functions
 fun f (a,b,c) = if a then b else c;

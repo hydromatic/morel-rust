@@ -16,13 +16,13 @@
  * language governing permissions and limitations under the
  * License.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printLength", 999);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
+> val it = () : unit
+set("mode", "validate");
 > val it = () : unit
 
 (* Until we have a real "print" function, we use "ignore" to

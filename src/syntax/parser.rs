@@ -475,7 +475,8 @@ impl MorelParser {
             [literal(l)] => ExprKind::Literal(l).wrap(input),
             [identifier_expr(e)] => e,
             [record_selector(r)] => {
-                ExprKind::RecordSelector(r.to_string()).wrap(input)
+                // Record selector "#a" becomes RecordSelector("a").
+                ExprKind::RecordSelector(r[1..].to_string()).wrap(input)
             },
             [_current(_)] => ExprKind::Current.wrap(input),
             [_ordinal(_)] => ExprKind::Ordinal.wrap(input),

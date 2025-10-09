@@ -103,11 +103,28 @@ impl Shell {
         val: &Val,
     ) -> Result<(), Error> {
         match prop {
+            // lint: sort until '#}' where '##[^ }]'
+            "lineWidth" => {
+                self.config.line_width = Some(val.expect_int());
+                Ok(())
+            }
             "mode" => {
                 self.config.mode = val.expect_string().parse().ok();
                 Ok(())
             }
-            _ => todo!(),
+            "printDepth" => {
+                self.config.print_depth = Some(val.expect_int());
+                Ok(())
+            }
+            "printLength" => {
+                self.config.print_length = Some(val.expect_int());
+                Ok(())
+            }
+            "stringDepth" => {
+                self.config.string_depth = Some(val.expect_int());
+                Ok(())
+            }
+            _ => todo!("set_prop: {}", prop),
         }
     }
 

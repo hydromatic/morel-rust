@@ -206,7 +206,7 @@ impl UnifierTask {
     /// Runs the unification.
     pub fn unify(&self) -> Result<Substitution, UnificationFailure> {
         let tracer = NullTracer; // switch to PrintTracer for debugging
-        self.unifier.unify(self.pairs.as_slice(), &tracer)
+        self.unifier.unify(self.pairs.as_slice(), &tracer, &[])
     }
 }
 

@@ -539,6 +539,10 @@ impl<'a> Compiler<'a> {
                 Code::new_list(&codes)
             }
             Expr::Literal(_t, val) => Code::new_constant(val.clone()),
+            Expr::RecordSelector(t, slot) => {
+                let (record_type, _) = t.expect_fn();
+                Code::new_nth(record_type, *slot)
+            }
             Expr::Tuple(_, args) => {
                 let codes = self.compile_arg_list(cx, args);
                 Code::new_tuple(&codes)

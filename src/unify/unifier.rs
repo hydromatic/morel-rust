@@ -24,6 +24,7 @@
 #![allow(clippy::collapsible_if)]
 
 use crate::unify;
+use im::HashSet;
 use std::cell::RefCell;
 use std::cmp::{PartialEq, max};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -312,6 +313,14 @@ pub struct Substitution {
 }
 
 impl Substitution {
+    fn from_result(p0: &HashMap<Rc<Var>, Term>) -> Self {
+        let mut map = BTreeMap::new();
+        p0.iter().for_each(|(k, v)| {
+            map.insert(k.clone(), v.clone());
+        });
+        Substitution { substitutions: map }
+    }
+
     fn resolve(&self) -> Self {
         if self.has_cycles() {
             return self.clone();
@@ -325,7 +334,7 @@ impl Substitution {
         }
     }
 
-    fn resolve_term(&self, term: &Term) -> Term {
+    pub fn resolve_term(&self, term: &Term) -> Term {
         let mut previous;
         let mut current = term.clone();
         loop {
@@ -1008,8 +1017,11 @@ impl Unifier {
         &self,
         term_pairs: &[(Term, Term)],
         _tracer: &dyn Tracer,
+        term_action_list: &[(Rc<Var>, Rc<dyn Action>)],
     ) -> Result<Substitution, UnificationFailure> {
         let tracer = &NullTracer; // switch to PrintTracer for debugging
+        let term_actions: HashMap<Rc<Var>, Rc<dyn Action>> =
+            term_action_list.iter().cloned().collect();
         if false {
             // Uncomment this section to generate a unit test.
             eprintln!(
@@ -1104,15 +1116,24 @@ impl Unifier {
                     }
                 }
 
-                /*
-                 if !term_actions.is_empty() {
-                    final Set<Variable> set = new HashSet<>();
-                    act(variable, term, work, new Substitution(result),
-                        termActions, set);
-                    checkArgument(set.isEmpty(), "Working set not empty: %s",
-                        set);
-                 }
-                */
+                if !term_actions.is_empty() {
+                    let mut active = HashSet::new();
+                    let substitution = Substitution::from_result(&work.result);
+                    self.act(
+                        &variable,
+                        &term,
+                        &mut work,
+                        &substitution,
+                        &term_actions,
+                        &mut active,
+                    );
+                    assert!(
+                        active.is_empty(),
+                        "Working set not empty: {:?}",
+                        active
+                    );
+                }
+
                 if let Some(failure) = work.substitute_list(&variable, &term) {
                     return Err(failure);
                 }
@@ -1148,6 +1169,106 @@ impl Unifier {
             return Ok(Substitution { substitutions });
         }
     }
+
+    fn act(
+        &self,
+        variable: &Rc<Var>,
+        term: &Term,
+        work: &mut Work,
+        substitution: &Substitution,
+        term_actions: &HashMap<Rc<Var>, Rc<dyn Action>>,
+        active: &mut HashSet<Rc<Var>>,
+    ) {
+        // To prevent infinite recursion, this method is a no-op if the variable
+        // is already in the working set.
+        if active.insert(variable.clone()).is_none() {
+            self.act2(variable, term, work, substitution, term_actions, active);
+
+            // Remove the variable from the working set.
+            active.remove(variable);
+        }
+    }
+
+    fn act2(
+        &self,
+        variable: &Rc<Var>,
+        term: &Term,
+        work: &mut Work,
+        substitution: &Substitution,
+        term_actions: &HashMap<Rc<Var>, Rc<dyn Action>>,
+        active: &mut HashSet<Rc<Var>>,
+    ) {
+        if let Some(action) = term_actions.get(variable) {
+            let mut to_add = Vec::new();
+            action.accept(variable, term, substitution, &mut to_add);
+            to_add
+                .iter()
+                .for_each(|(t1, t2)| work.add(t1.clone(), t2.clone()))
+        }
+        if let Term::Variable(variable) = term {
+            // Create a temporary list to prevent concurrent modification, in
+            // case the action appends to the list. Limit on depth, to prevent
+            // infinite recursion.
+            let term_pairs_copy = work.all_term_pairs();
+            term_pairs_copy.iter().for_each(|(left, right)| {
+                if left == term {
+                    self.act(
+                        variable,
+                        right,
+                        work,
+                        substitution,
+                        term_actions,
+                        active,
+                    );
+                }
+            });
+            // If the term is a variable, recurse to see whether there is an
+            // action for that variable. Limit on depth to prevent swapping
+            // back.
+            if active.len() < 2
+                && let Term::Variable(v) = term
+            {
+                self.act(
+                    v,
+                    &Term::Variable(variable.clone()),
+                    work,
+                    substitution,
+                    term_actions,
+                    active,
+                );
+            }
+        }
+        substitution
+            .substitutions
+            .iter()
+            .for_each(|(variable2, term)| {
+                // Substitution contains "variable2 -> variable"; call the
+                // actions of "variable2", because it too has just been unified.
+                if let Term::Variable(v) = term
+                    && v.id == variable.id
+                {
+                    self.act(
+                        variable2,
+                        term,
+                        work,
+                        substitution,
+                        term_actions,
+                        active,
+                    );
+                }
+            });
+    }
+}
+
+/// Called by the [Unifier] when a Term's type becomes known.
+pub trait Action {
+    fn accept(
+        &self,
+        variable: &Var,
+        term: &Term,
+        substitution: &Substitution,
+        term_pairs: &mut Vec<(Term, Term)>,
+    );
 }
 
 /// Test for Unifier.
@@ -1265,7 +1386,12 @@ impl UnifierTest {
         term_pairs: &[(Term, Term)],
         expected: &str,
     ) {
-        let result = self.unifier.unify(term_pairs, &NullTracer);
+        let term_actions = HashMap::new();
+        let term_actions_vec: Vec<(Rc<Var>, Rc<dyn Action>)> =
+            term_actions.into_iter().collect();
+        let result =
+            self.unifier
+                .unify(term_pairs, &NullTracer, &term_actions_vec);
         let substitution = result.unwrap().resolve();
         assert_eq!(substitution.to_string(), expected);
     }
@@ -1286,7 +1412,7 @@ impl UnifierTest {
     }
 
     fn assert_that_cannot_unify_pairs(&self, pair_list: &[(Term, Term)]) {
-        let _result = self.unifier.unify(pair_list, &NullTracer);
+        let _result = self.unifier.unify(pair_list, &NullTracer, &[]);
 
         // Mock assertion - in real implementation, check if result is not
         // Substitution
@@ -1725,7 +1851,7 @@ mod tests {
             (t9.clone(), t5.clone()),
         ];
 
-        let result = t.unifier.unify(&term_pairs, &NullTracer);
+        let result = t.unifier.unify(&term_pairs, &NullTracer, &[]);
         let expected = "[\
         ->(->(T5, ->(T7, T6)), ->(->(T5, T7), ->(T5, T6)))/T0, \
         ->(T5, ->(T7, T6))/T1, \
@@ -1782,7 +1908,7 @@ mod tests {
             (t0.clone(), string_.clone()), // "string = T0"
             (t0.clone(), string_.clone()), // "string = T0"
         ];
-        let result = t.unifier.unify(&term_pairs, &NullTracer);
+        let result = t.unifier.unify(&term_pairs, &NullTracer, &[]);
         let expected = "[\
             string/T0, \
             bool/T1, \

@@ -137,6 +137,9 @@ pub enum Code {
     Native2(Eager2, Box<Code>, Box<Code>),
     Native3(Eager3, Box<Code>, Box<Code>, Box<Code>),
     NativeF2(EagerV2, Box<Code>, Box<Code>),
+    /// `Nth(Type, slot)` returns the `slot`th element of a record.
+    /// The type must be a record type.
+    Nth(Box<Type>, usize),
     Tuple(Vec<Code>),
 }
 
@@ -317,6 +320,11 @@ impl Code {
         Self::new_tuple(codes)
     }
 
+    pub fn new_nth(type_: &Type, slot: usize) -> Code {
+        assert!(slot < type_.expect_record().1.len());
+        Code::Nth(Box::new(type_.clone()), slot)
+    }
+
     pub fn new_tuple(codes: &[Code]) -> Code {
         Code::Tuple(codes.to_vec())
     }
@@ -370,6 +378,9 @@ impl Code {
             }
             Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
             Code::NativeF2(_, _, _) => *mode == EvalMode::EagerV2,
+            Code::Nth(_, _) => {
+                *mode == EvalMode::Eager1 || *mode == EvalMode::EagerV0
+            }
             Code::Tuple(_) => *mode == EvalMode::EagerV0,
         }
     }
@@ -434,9 +445,9 @@ impl Code {
                 }
                 Ok(Val::Closure(frame_def.clone(), matches.clone(), values))
             }
-            Code::Fn(_, _) => {
-                // Fn is practically a literal. When evaluated, it returns
-                // itself.
+            Code::Fn(_, _) | Code::Nth(_, _) => {
+                // Fn and Nth are practically literals. When evaluated, they
+                // return themselves.
                 Ok(Val::Code(Box::new(self.clone())))
             }
             Code::GetLocal(frame_def, slot) => {
@@ -562,6 +573,7 @@ impl Code {
                 let code = r.link_codes[*slot].clone();
                 code.eval_f1(r, f, a0)
             }
+            Code::Nth(_, slot) => Ok(a0.expect_list()[*slot].clone()),
             _ => {
                 todo!("eval: {:?}", self)
             }

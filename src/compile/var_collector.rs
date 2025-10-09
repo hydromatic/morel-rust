@@ -217,6 +217,9 @@ impl Expr {
             Expr::Literal(_, _) => {
                 // no variables
             }
+            Expr::RecordSelector(_, _) => {
+                // no variables
+            }
             _ => todo!("collect_vars {:?}", self),
         }
     }

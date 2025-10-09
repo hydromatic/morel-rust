@@ -31,7 +31,9 @@ use crate::syntax::ast::{
     MorelNode, Pat, PatField, PatKind, Span, Statement, StatementKind,
     Type as AstType, TypeField, TypeKind, TypeScheme, ValBind,
 };
-use crate::unify::unifier::{NullTracer, Op, Sequence, Term, Unifier, Var};
+use crate::unify::unifier::{
+    Action, NullTracer, Op, Sequence, Substitution, Term, Unifier, Var,
+};
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
@@ -225,6 +227,7 @@ pub struct TypeResolver {
     overload_op: Rc<Op>,
     record_op: Rc<Op>,
     fn_op: Rc<Op>,
+    actions: Vec<(Rc<Var>, Rc<dyn Action>)>,
 }
 
 impl Default for TypeResolver {
@@ -248,6 +251,7 @@ impl TypeResolver {
         Self {
             warnings: Vec::new(),
             node_var_map: HashMap::new(),
+            actions: Vec::new(),
             terms: Vec::new(),
             next_id: 0,
             unifier,
@@ -289,27 +293,30 @@ impl TypeResolver {
             .map(|(var, term)| (term.clone(), Term::Variable(var.clone())))
             .collect();
 
-        let substitution =
-            match self.unifier.unify(term_pairs.as_ref(), &NullTracer) {
-                Ok(x) => {
-                    /*
+        let substitution = match self.unifier.unify(
+            term_pairs.as_ref(),
+            &NullTracer,
+            self.actions.as_ref(),
+        ) {
+            Ok(x) => {
+                if false {
                     eprintln!(
                         "Unification result: {:?}\n{}",
                         x.clone(),
                         self.terms_to_string()
                     );
-                     */
-                    x
                 }
-                Err(x) => {
-                    let string = self.terms_to_string();
-                    panic!(
-                        "Unification failed: {}\n\
+                x
+            }
+            Err(x) => {
+                let string = self.terms_to_string();
+                panic!(
+                    "Unification failed: {}\n\
                         term pairs: {}\n",
-                        x, string
-                    )
-                }
-            };
+                    x, string
+                )
+            }
+        };
 
         // Create a map with the results of unification.
         let mut type_map = TypeMap::new(&self.node_var_map);
@@ -804,39 +811,8 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Record(with_expr, labeled_expr_list) => {
-                // First, create a copy of expressions and their labels,
-                // sorted into the order that they will appear in the record
-                // type.
-                let mut label_expr_map: BTreeMap<Label, LabeledExpr> =
-                    BTreeMap::new();
-                for labeled_expr in labeled_expr_list {
-                    let label = if let Some(label_name) = &labeled_expr.label {
-                        Label::from(&label_name.name)
-                    } else {
-                        // Field has no label, so generate a temporary name.
-                        // FIXME The temporary name might overlap with later
-                        // explicit labels, and certain types of expressions
-                        // have an implicit label.
-                        let ordinal = label_expr_map.len() + 1;
-                        Label::Ordinal(ordinal)
-                    };
-                    label_expr_map.insert(label, labeled_expr.clone());
-                }
-
-                // Second, duplicate the record expression and its labels.
-                let mut label_terms: BTreeMap<Label, Term> = BTreeMap::new();
-                let mut labeled_expr_list2 = Vec::new();
-                for (label, labeled_expr) in &label_expr_map {
-                    let v2 = self.variable();
-                    let e2 =
-                        self.deduce_expr_type(env, &labeled_expr.expr, &v2);
-                    labeled_expr_list2.push(LabeledExpr {
-                        expr: e2,
-                        ..labeled_expr.clone()
-                    });
-                    label_terms.insert(label.clone(), Term::Variable(v2));
-                }
-                self.record_term(&label_terms, v);
+                let labeled_expr_list2 =
+                    self.deduce_record_type(env, labeled_expr_list, v);
                 let x = ExprKind::Record(with_expr.clone(), labeled_expr_list2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -955,7 +931,9 @@ impl TypeResolver {
             // When we resolve "v_rec" we can then deduce "v_field".
             let v_rec = self.variable();
             let v_field = self.variable();
-            self.deduce_record_selector_type(env, name, &v_rec, &v_field);
+            self.deduce_record_selector_type(
+                env, name, &arg.span, &v_rec, &v_field,
+            );
             self.fn_term(&v_rec, &v_field, &v_arg);
             self.reg_expr(&arg.kind, &arg.span, arg.id, &v_arg)
         } else {
@@ -966,8 +944,9 @@ impl TypeResolver {
             // "apply" is "#field arg" and has type "v";
             // "#field" has type "v_arg -> v";
             // "arg" has type "v_arg".
-            // When we resolve "v_arg" we can then deduce "v".
-            self.deduce_record_selector_type(env, name, &v_arg, v_result)
+            // When we resolve "v_arg", we can then deduce "v".
+            let span = fun.span.union(&arg.span);
+            self.deduce_record_selector_type(env, name, &span, &v_arg, v_result)
         } else {
             self.deduce_apply_fn_type(env, fun, &v_fn, &v_arg, v_result)
         };
@@ -1009,8 +988,9 @@ impl TypeResolver {
 
     fn deduce_record_selector_type(
         &mut self,
-        env: &dyn TypeEnv,
-        name: &String,
+        _env: &dyn TypeEnv,
+        field_name: &str,
+        span: &Span,
         v_rec: &Rc<Var>,
         v_field: &Rc<Var>,
     ) -> Expr {
@@ -1018,18 +998,93 @@ impl TypeResolver {
         let v_fn = self.variable();
         self.fn_term(v_rec, v_field, &v_fn);
 
-        if name == "set" {
-            // Temporary workaround. Resolve 'Sys.set' as if they wrote 'set'.
-            if let Some(BindType::Val(term)) = env.get(name, self) {
-                self.equiv(&term, &v_field);
+        struct ActionImpl {
+            field_name: String,
+            v_field: Rc<Var>,
+        }
+        impl Action for ActionImpl {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                // This function is called when we know the record type (v_rec).
+                // So now we can deduce the type of the field (v_field).
+                // If, say, v_rec is "{a: int, b: real}" and field_name = "b"
+                // (selector is "#b") we can deduce that v_field is "real".
+                if let Term::Sequence(sequence) = term
+                    && let Some(field_list) = TypeResolver::field_list(sequence)
+                    && let Some(i) =
+                        field_list.iter().position(|f| *f == self.field_name)
+                {
+                    let result2 = substitution
+                        .resolve_term(&Term::Variable(self.v_field.clone()));
+                    let term = sequence.terms.get(i).unwrap();
+                    let term2 = substitution.resolve_term(term);
+                    term_pairs.push((result2, term2));
+                }
             }
         }
+        self.actions.push((
+            v_rec.clone(),
+            Rc::new(ActionImpl {
+                field_name: field_name.to_string(),
+                v_field: v_field.clone(),
+            }),
+        ));
+
+        // if name == "set" {
+        // Temporary workaround. Resolve 'Sys.set' as if they wrote 'set'.
+        // if let Some(BindType::Val(term)) = env.get(name, self) {
+        //     self.equiv(&term, &v_field);
+        // }
+        // }
 
         // Create a record selector expression
-        let selector_kind = ExprKind::RecordSelector(name.clone());
-        // Minimal span since we don't have the original
-        let span = Span::zero("".into());
-        self.reg_expr(&selector_kind, &span, None, v_field)
+        let selector_kind = ExprKind::RecordSelector(field_name.to_string());
+        self.reg_expr(&selector_kind, &span, None, &v_fn)
+    }
+
+    fn deduce_record_type(
+        &mut self,
+        env: &dyn TypeEnv,
+        labeled_expr_list: &Vec<LabeledExpr>,
+        v: &Rc<Var>,
+    ) -> Vec<LabeledExpr> {
+        // First, create a copy of expressions and their labels,
+        // sorted into the order that they will appear in the record
+        // type.
+        let mut label_expr_map: BTreeMap<Label, LabeledExpr> = BTreeMap::new();
+        for labeled_expr in labeled_expr_list {
+            let label = if let Some(label_name) = &labeled_expr.label {
+                Label::from(&label_name.name)
+            } else {
+                // Field has no label, so generate a temporary name.
+                // FIXME The temporary name might overlap with later
+                // explicit labels, and certain types of expressions
+                // have an implicit label.
+                let ordinal = label_expr_map.len() + 1;
+                Label::Ordinal(ordinal)
+            };
+            label_expr_map.insert(label, labeled_expr.clone());
+        }
+
+        // Second, duplicate the record expression and its labels.
+        let mut label_terms: BTreeMap<Label, Term> = BTreeMap::new();
+        let mut labeled_expr_list2 = Vec::new();
+        for (label, labeled_expr) in &label_expr_map {
+            let v2 = self.variable();
+            let e2 = self.deduce_expr_type(env, &labeled_expr.expr, &v2);
+            labeled_expr_list2.push(LabeledExpr {
+                expr: e2,
+                ..labeled_expr.clone()
+            });
+            label_terms.insert(label.clone(), Term::Variable(v2));
+        }
+        self.record_term(&label_terms, v);
+        labeled_expr_list2
     }
 
     fn deduce_call1_type(

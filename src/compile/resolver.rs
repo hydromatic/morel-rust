@@ -493,7 +493,8 @@ impl<'a> Resolver<'a> {
                 CoreExpr::Tuple(t, resolved_fields)
             }
             ExprKind::RecordSelector(name) => {
-                let slot = t.lookup_field(name).unwrap();
+                let (param_type, _) = t.expect_fn();
+                let slot = param_type.lookup_field(name).unwrap();
                 CoreExpr::RecordSelector(t, slot)
             }
             ExprKind::Times(a0, a1) => {
