@@ -303,10 +303,17 @@ impl Pat {
         consumer: &mut impl FnMut((&Type, &str)),
     ) {
         match self {
-            Pat::Identifier(t, name) => (*consumer)((t, name.as_str())),
-            Pat::Tuple(_, pats) => {
-                pats.iter().for_each(|p| p.for_each_id_pat(consumer))
+            // lint: sort until '#}' where '##Pat::'
+            Pat::Cons(_, head, tail) => {
+                head.for_each_id_pat(consumer);
+                tail.for_each_id_pat(consumer);
             }
+            Pat::Constructor(_, _, pat) => {
+                if let Some(p) = pat {
+                    p.for_each_id_pat(consumer);
+                }
+            }
+            Pat::Identifier(t, name) => (*consumer)((t, name.as_str())),
             Pat::Record(_, pat_fields, _) => {
                 for field in pat_fields {
                     match field {
@@ -315,6 +322,9 @@ impl Pat {
                         PatField::Ellipsis => {}
                     }
                 }
+            }
+            Pat::Tuple(_, pats) => {
+                pats.iter().for_each(|p| p.for_each_id_pat(consumer))
             }
             _ => todo!("{:?}", self),
         }

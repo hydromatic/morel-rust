@@ -285,6 +285,10 @@ impl BuiltInFunction {
         self.get_str("name").unwrap()
     }
 
+    pub(crate) fn is_constructor(&self) -> bool {
+        self.get_bool("constructor").is_some_and(|b| b)
+    }
+
     pub(crate) fn is_global(&self) -> bool {
         self.get_bool("global").is_some_and(|b| b)
     }

@@ -18,6 +18,7 @@
 use crate::compile::core::{
     DatatypeBind, Decl, Expr, Match, Pat, TypeBind, ValBind,
 };
+use crate::compile::library::BuiltInFunction;
 use crate::compile::pretty::Pretty;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
@@ -312,9 +313,9 @@ impl<'a> Compiler<'a> {
                 let tail_code = self.compile_pat(cx, tail);
                 Code::new_bind_cons(&head_code, &tail_code)
             }
-            Pat::Constructor(_, name, p) => {
+            Pat::Constructor(type_, name, p) => {
                 let code = p.clone().map(|p2| self.compile_pat(cx, &p2));
-                Code::new_bind_constructor(name, &code)
+                Code::new_bind_constructor(type_, name, &code)
             }
             Pat::Identifier(_, name) => {
                 let slot = cx.frame_def.var_index(name);
@@ -538,7 +539,16 @@ impl<'a> Compiler<'a> {
                 let codes = self.compile_arg_list(cx, args);
                 Code::new_list(&codes)
             }
-            Expr::Literal(_t, val) => Code::new_constant(val.clone()),
+            Expr::Literal(_t, val) => {
+                if let Val::Fn(f) = val
+                    && f.is_constructor()
+                    && *f == BuiltInFunction::OptionNone
+                {
+                    Code::new_constant(Val::Unit)
+                } else {
+                    Code::new_constant(val.clone())
+                }
+            }
             Expr::RecordSelector(t, slot) => {
                 let (record_type, _) = t.expect_fn();
                 Code::new_nth(record_type, *slot)

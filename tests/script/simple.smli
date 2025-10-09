@@ -202,10 +202,16 @@ in
     (y, x)
   end
 end;
->type it : int option list * int
-(* TODO: evaluate:
 > val it = ([NONE],1) : int option list * int
-*)
+
+let
+  val foo =
+    fn SOME s => s
+     | NONE => "none"
+in
+  foo NONE
+end;
+> val it = "none" : string
 
 let
   val foo =
@@ -214,7 +220,7 @@ let
 in
   foo (SOME "hello")
 end;
->type it : string
+> val it = "hello" : string
 
 val rec len =
   fn nil => 0

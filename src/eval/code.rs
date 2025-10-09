@@ -169,9 +169,18 @@ impl Code {
         Code::BindCons(Box::new(h.clone()), Box::new(t.clone()))
     }
 
-    pub(crate) fn new_bind_constructor(name: &str, t: &Option<Code>) -> Code {
+    pub(crate) fn new_bind_constructor(
+        type_: &Type,
+        name: &str,
+        t: &Option<Code>,
+    ) -> Code {
         if let Some(t) = t {
             Code::BindConstructor(name.to_string(), Box::new(t.clone()))
+        } else if let Type::Data(type_name, _) = type_
+            && type_name == "option"
+        {
+            // Option value NONE is represented by Unit
+            Self::new_bind_literal(&Val::Unit)
         } else {
             Self::new_bind_literal(&Val::String(name.to_string()))
         }
@@ -541,7 +550,10 @@ impl Code {
             }
             Code::BindConstructor(_name, pat_code) => {
                 // Constructor call delegation to pattern
-                pat_code.eval_f1(r, f, a0)
+                match a0 {
+                    Val::Some(a) => pat_code.eval_f1(r, f, a),
+                    _ => Ok(Val::Bool(false)),
+                }
             }
             Code::BindList(codes) => {
                 let list = a0.expect_list();
