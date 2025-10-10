@@ -140,7 +140,11 @@ impl<'a> TermToTypeConverter<'a> {
                 "option" => {
                     assert_eq!(sequence.terms.len(), 1);
                     let args = vec![*self.term_type(&sequence.terms[0])];
-                    Box::new(Type::Named(args, sequence.op.name.clone()))
+                    Box::new(Type::Data(sequence.op.name.clone(), args))
+                }
+                "order" => {
+                    assert_eq!(sequence.terms.len(), 0);
+                    Box::new(Type::Data(sequence.op.name.clone(), vec![]))
                 }
                 "tuple" => {
                     let types = sequence

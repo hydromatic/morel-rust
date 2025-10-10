@@ -173,6 +173,15 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Option", name = "SOME", global = true))]
     #[strum(props(type = "forall 1 'a -> 'a option", constructor = true))]
     OptionSome,
+    #[strum(props(p = "Order", name = "EQUAL", global = true))]
+    #[strum(props(type = "`order`", constructor = true))]
+    OrderEqual,
+    #[strum(props(p = "Order", name = "GREATER", global = true))]
+    #[strum(props(type = "`order`", constructor = true))]
+    OrderGreater,
+    #[strum(props(p = "Order", name = "LESS", global = true))]
+    #[strum(props(type = "`order`", constructor = true))]
+    OrderLess,
     #[strum(props(p = "Real", name = "op /", global = true))]
     #[strum(props(type = "real * real -> real"))]
     RealDivide,

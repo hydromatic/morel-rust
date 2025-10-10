@@ -18,5 +18,6 @@
 // lint: sort until '^$' erase 'pub '
 pub mod code;
 pub mod frame;
+pub mod order;
 pub mod session;
 pub mod val;

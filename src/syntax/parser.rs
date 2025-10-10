@@ -2098,6 +2098,7 @@ mod test {
         ml("int * (int list)").assert_parse(Rule::type_);
         ml("{a: int, b: bool list}").assert_parse(Rule::type_);
         ml("int * int -> bool").assert_parse(Rule::type_);
+        ml("int * int option -> `order`").assert_parse(Rule::type_);
 
         let v = vec!["forall 2 int * int -> bool", ""];
         ml("forall 2 int * int -> bool")

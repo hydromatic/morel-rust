@@ -20,6 +20,7 @@ use crate::compile::types::Label;
 use crate::compile::types::Type;
 use crate::eval::code::{Code, Impl};
 use crate::eval::frame::FrameDef;
+use crate::eval::order::Order;
 use crate::syntax::parser;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -39,6 +40,7 @@ pub enum Val {
     Bool(bool),
     Char(char),
     Int(i32),
+    Order(Order),
     Real(f32),
     String(String),
     List(Vec<Val>),
@@ -46,6 +48,10 @@ pub enum Val {
     Fn(BuiltInFunction),
     /// Contents of a structure.
     ImplList(Vec<Impl>),
+
+    /// `Some(v)` represents the `Option` value `SOME v`. (The other `Option`
+    /// value, `NONE`, is represented as [Val::Unit].)
+    Some(Box<Val>),
 
     /// Wrapper that indicates that a value should be printed with its name
     /// and type.
@@ -135,6 +141,13 @@ impl Val {
         }
     }
 
+    pub(crate) fn expect_order(&self) -> Order {
+        match self {
+            Val::Order(i) => i.clone(),
+            _ => panic!("Expected order"),
+        }
+    }
+
     pub(crate) fn expect_real(&self) -> f32 {
         match self {
             Val::Real(r) => *r,
@@ -202,6 +215,7 @@ impl Display for Val {
                     write!(f, "{}", r)
                 }
             }
+            Val::Some(v) => write!(f, "SOME {}", v),
             Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),
             Val::Unit => write!(f, "()"),
             _ => todo!("{:?}", self),

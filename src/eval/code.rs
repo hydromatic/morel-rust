@@ -731,6 +731,9 @@ pub enum Eager0 {
     BoolTrue,
     ListNil,
     OptionNone,
+    OrderEqual,
+    OrderGreater,
+    OrderLess,
 }
 
 impl Eager0 {
@@ -741,10 +744,10 @@ impl Eager0 {
             Eager0::BoolFalse => Val::Bool(false),
             Eager0::BoolTrue => Val::Bool(true),
             Eager0::ListNil => Val::List(vec![]),
-            Eager0::OptionNone => {
-                // TODO: Proper option none implementation
-                Val::Unit
-            }
+            Eager0::OptionNone => Val::Unit,
+            Eager0::OrderEqual => Val::Int(0),
+            Eager0::OrderGreater => Val::Int(1),
+            Eager0::OrderLess => Val::Int(-1),
         }
     }
 
@@ -1151,6 +1154,9 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::ListOpCons.implements(&mut b, ListOpCons);
     Eager0::OptionNone.implements(&mut b, OptionNone);
     Eager1::OptionSome.implements(&mut b, OptionSome);
+    Eager0::OrderEqual.implements(&mut b, OrderEqual);
+    Eager0::OrderGreater.implements(&mut b, OrderGreater);
+    Eager0::OrderLess.implements(&mut b, OrderLess);
     Eager2::RealDivide.implements(&mut b, RealDivide);
     Eager1::RealNegate.implements(&mut b, RealNegate);
     Eager2::RealOpEq.implements(&mut b, RealOpEq);
@@ -1222,8 +1228,20 @@ impl LibBuilder {
             let mut vals = Vec::new();
             let mut name_types: BTreeMap<Label, Type> = BTreeMap::new();
             for (n, f) in names_fns {
-                vals.push(Val::Fn(*f));
                 let t = &fn_map.get(f).unwrap().0;
+                match &t {
+                    Type::Fn(_, _) | Type::Forall(_, _) => {
+                        vals.push(Val::Fn(*f));
+                    }
+                    _ => {
+                        // Built-in is a constant like Int.maxInt.
+                        if let Some((_t, Impl::E0(eager0))) = fn_map.get(f) {
+                            vals.push(eager0.apply());
+                        } else {
+                            panic!("missing implementation for {:?}", f);
+                        }
+                    }
+                }
                 name_types.insert(Label::String(n.clone()), t.clone());
             }
             let t = Type::Record(false, name_types.clone());

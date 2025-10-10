@@ -2892,6 +2892,18 @@ Int.toString;
 Int.toString ~345;
 > val it = "~345" : string
 
+(* Order ------------------------------------------------------- *)
+set("mode", "evaluate");
+> val it = () : unit
+LESS;
+> val it = LESS : order
+GREATER;
+> val it = GREATER : order
+EQUAL;
+> val it = EQUAL : order
+set("mode", "validate");
+> val it = () : unit
+
 (* Real -------------------------------------------------------- *)
 
 (*) val radix : int
