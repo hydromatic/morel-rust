@@ -25,6 +25,7 @@ use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
 use crate::eval::option::Opt;
+use crate::eval::real::Real;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::val::Val;
@@ -321,10 +322,11 @@ impl Code {
                 assert_eq!(codes.len(), 1);
                 Code::Native1(e1, codes[0].clone())
             }
-            Impl::E2(e2) => {
-                assert_eq!(codes.len(), 2);
-                Code::Native2(e2, codes[0].clone(), codes[1].clone())
-            }
+            Impl::E2(e2) => Code::Native2(
+                e2,
+                codes[0].clone(),
+                code_or_span(codes, span, 1),
+            ),
             Impl::E3(e3) => {
                 assert_eq!(codes.len(), 3);
                 Code::Native3(
@@ -534,6 +536,14 @@ impl Code {
             Code::Native2(eager, code0, code1) => {
                 let v0 = code0.eval_f0(r, f)?;
                 let v1 = code1.eval_f0(r, f)?;
+                // If v0 is a list and v1 is a span string, it means we're
+                // applying the function to a single tuple/record argument that
+                // should be unpacked.
+                if let (Val::List(list), Val::String(_)) = (&v0, &v1)
+                    && list.len() == 2
+                {
+                    return Ok(eager.apply(list[0].clone(), list[1].clone()));
+                }
                 Ok(eager.apply(v0, v1))
             }
             Code::Native3(eager, code0, code1, code2) => {
@@ -711,6 +721,7 @@ impl Display for Code {
             Code::Constant(_, v) => match v {
                 Val::Char(c) => write!(f, "constant({})", c),
                 Val::Fn(fun) => write!(f, "constant({})", fun.full_name()),
+                Val::Real(x) => write!(f, "constant({})", x),
                 Val::String(s) => write!(f, "constant({})", s),
                 Val::Unit => write!(f, "constant([NONE])"),
                 _ => write!(f, "constant({})", v),
@@ -971,6 +982,13 @@ pub enum Eager0 {
     OrderEqual,
     OrderGreater,
     OrderLess,
+    RealMaxFinite,
+    RealMinNormalPos,
+    RealMinPos,
+    RealNegInf,
+    RealPosInf,
+    RealPrecision,
+    RealRadix,
     StringMaxSize,
 }
 
@@ -994,6 +1012,14 @@ impl Eager0 {
             OrderEqual => Val::Int(0),
             OrderGreater => Val::Int(1),
             OrderLess => Val::Int(-1),
+            RealMaxFinite => Val::Real(f32::MAX),
+            RealMinNormalPos => Val::Real(f32::MIN_POSITIVE),
+            // Smallest denormalized positive (2^-149)
+            RealMinPos => Val::Real(1.4e-45_f32),
+            RealNegInf => Val::Real(f32::NEG_INFINITY),
+            RealPosInf => Val::Real(f32::INFINITY),
+            RealPrecision => Val::Int(24), // IEEE 754 single precision
+            RealRadix => Val::Int(2),
             StringMaxSize => Val::Int(i32::MAX),
         }
     }
@@ -1127,7 +1153,22 @@ pub enum Eager1 {
     OptionIsSome,
     OptionJoin,
     OptionSome,
+    RealAbs,
+    RealFromInt,
+    RealFromString,
+    RealIsFinite,
+    RealIsNan,
+    RealIsNormal,
     RealNegate,
+    RealRealCeil,
+    RealRealFloor,
+    RealRealMod,
+    RealRealRound,
+    RealRealTrunc,
+    RealSignBit,
+    RealSplit,
+    RealToManExp,
+    RealToString,
     StringConcat,
     StringExplode,
     StringImplode,
@@ -1187,7 +1228,22 @@ impl Eager1 {
             OptionIsSome => Val::Bool(Opt::is_some(&a0)),
             OptionJoin => Opt::join(&a0),
             OptionSome => Val::Some(Box::new(a0)),
+            RealAbs => Val::Real(Real::abs(a0.expect_real())),
+            RealFromInt => Val::Real(Real::from_int(a0.expect_int())),
+            RealFromString => Real::from_string(&a0.expect_string()),
+            RealIsFinite => Val::Bool(Real::is_finite(a0.expect_real())),
+            RealIsNan => Val::Bool(Real::is_nan(a0.expect_real())),
+            RealIsNormal => Val::Bool(Real::is_normal(a0.expect_real())),
             RealNegate => Val::Real(-a0.expect_real()),
+            RealRealCeil => Val::Real(Real::real_ceil(a0.expect_real())),
+            RealRealFloor => Val::Real(Real::real_floor(a0.expect_real())),
+            RealRealMod => Val::Real(Real::real_mod(a0.expect_real())),
+            RealRealRound => Val::Real(Real::real_round(a0.expect_real())),
+            RealRealTrunc => Val::Real(Real::real_trunc(a0.expect_real())),
+            RealSignBit => Val::Bool(Real::sign_bit(a0.expect_real())),
+            RealSplit => Real::split(a0.expect_real()),
+            RealToManExp => Real::to_man_exp(a0.expect_real()),
+            RealToString => Val::String(Real::to_string(a0.expect_real())),
             StringConcat => {
                 let strings = a0.expect_list();
                 Val::String(Str::concat(strings))
@@ -1255,7 +1311,11 @@ pub enum Eager2 {
     ListOpAt,
     ListOpCons,
     OptionGetOpt,
+    RealCopySign,
     RealDivide,
+    RealFromManExp,
+    RealMax,
+    RealMin,
     RealOpEq,
     RealOpGe,
     RealOpGt,
@@ -1265,6 +1325,9 @@ pub enum Eager2 {
     RealOpNe,
     RealOpPlus,
     RealOpTimes,
+    RealRem,
+    RealSameSign,
+    RealUnordered,
     StringCompare,
     StringIsPrefix,
     StringIsSubstring,
@@ -1355,7 +1418,17 @@ impl Eager2 {
             }
             ListOpCons => Val::List(List::cons(&a0, a1.expect_list())),
             OptionGetOpt => Opt::get_opt(&a0, &a1),
+            RealCopySign => {
+                Val::Real(Real::copy_sign(a0.expect_real(), a1.expect_real()))
+            }
             RealDivide => Val::Real(a0.expect_real() / a1.expect_real()),
+            RealFromManExp => {
+                // Type: {exp:int, man:real} -> real
+                // Record fields are passed in order: a0 = exp, a1 = man
+                Val::Real(Real::from_man_exp(a1.expect_real(), a0.expect_int()))
+            }
+            RealMax => Val::Real(Real::max(a0.expect_real(), a1.expect_real())),
+            RealMin => Val::Real(Real::min(a0.expect_real(), a1.expect_real())),
             RealOpEq => Val::Bool(a0.expect_real() == a1.expect_real()),
             RealOpGe => Val::Bool(a0.expect_real() >= a1.expect_real()),
             RealOpGt => Val::Bool(a0.expect_real() > a1.expect_real()),
@@ -1365,6 +1438,13 @@ impl Eager2 {
             RealOpNe => Val::Bool(a0.expect_real() != a1.expect_real()),
             RealOpPlus => Val::Real(a0.expect_real() + a1.expect_real()),
             RealOpTimes => Val::Real(a0.expect_real() * a1.expect_real()),
+            RealRem => Val::Real(Real::rem(a0.expect_real(), a1.expect_real())),
+            RealSameSign => {
+                Val::Bool(Real::same_sign(a0.expect_real(), a1.expect_real()))
+            }
+            RealUnordered => {
+                Val::Bool(Real::unordered(a0.expect_real(), a1.expect_real()))
+            }
             StringCompare => Val::Order(Str::compare(
                 &a0.expect_string(),
                 &a1.expect_string(),
@@ -1424,6 +1504,12 @@ pub enum EagerF2 {
     OptionMap,
     OptionMapPartial,
     OptionValOf,
+    RealCeil,
+    RealCheckFloat,
+    RealFloor,
+    RealRound,
+    RealSign,
+    RealTrunc,
     StringCollate,
     StringConcatWith,
     StringFields,
@@ -1478,6 +1564,14 @@ impl EagerF2 {
             OptionMap => Opt::map(r, f, &a0, &a1),
             OptionMapPartial => Opt::map_partial(r, f, &a0, &a1),
             OptionValOf => Opt::val_of(&a0, &a1.expect_span()),
+            RealCeil => Real::ceil(a0.expect_real(), &a1.expect_span()),
+            RealCheckFloat => {
+                Real::check_float(a0.expect_real(), &a1.expect_span())
+            }
+            RealFloor => Real::floor(a0.expect_real(), &a1.expect_span()),
+            RealRound => Real::round(a0.expect_real(), &a1.expect_span()),
+            RealSign => Real::sign(a0.expect_real(), &a1.expect_span()),
+            RealTrunc => Real::trunc(a0.expect_real(), &a1.expect_span()),
             StringCollate => {
                 let tuple = a1.expect_list();
                 if tuple.len() != 2 {
@@ -1529,6 +1623,7 @@ impl EagerF2 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum EagerF3 {
     // lint: sort until '#}'
+    RealCompare,
     StringSub,
 }
 
@@ -1557,6 +1652,11 @@ impl EagerF3 {
         use crate::eval::code::EagerF3::*;
 
         match &self {
+            RealCompare => Real::compare(
+                a0.expect_real(),
+                a1.expect_real(),
+                &a2.expect_span(),
+            ),
             StringSub => Str::sub(
                 &a0.expect_string(),
                 a1.expect_int(),
@@ -1910,7 +2010,26 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager0::OrderEqual.implements(&mut b, OrderEqual);
     Eager0::OrderGreater.implements(&mut b, OrderGreater);
     Eager0::OrderLess.implements(&mut b, OrderLess);
+    Eager1::RealFromInt.implements(&mut b, Real);
+    Eager1::RealAbs.implements(&mut b, RealAbs);
+    EagerF2::RealCeil.implements(&mut b, RealCeil);
+    EagerF2::RealCheckFloat.implements(&mut b, RealCheckFloat);
+    EagerF3::RealCompare.implements(&mut b, RealCompare);
+    Eager2::RealCopySign.implements(&mut b, RealCopySign);
     Eager2::RealDivide.implements(&mut b, RealDivide);
+    EagerF2::RealFloor.implements(&mut b, RealFloor);
+    Eager1::RealFromInt.implements(&mut b, RealFromInt);
+    Eager2::RealFromManExp.implements(&mut b, RealFromManExp);
+    Eager1::RealFromString.implements(&mut b, RealFromString);
+    Eager1::RealIsFinite.implements(&mut b, RealIsFinite);
+    Eager1::RealIsNan.implements(&mut b, RealIsNan);
+    Eager1::RealIsNormal.implements(&mut b, RealIsNormal);
+    Eager2::RealMax.implements(&mut b, RealMax);
+    Eager0::RealMaxFinite.implements(&mut b, RealMaxFinite);
+    Eager2::RealMin.implements(&mut b, RealMin);
+    Eager0::RealMinNormalPos.implements(&mut b, RealMinNormalPos);
+    Eager0::RealMinPos.implements(&mut b, RealMinPos);
+    Eager0::RealNegInf.implements(&mut b, RealNegInf);
     Eager1::RealNegate.implements(&mut b, RealNegate);
     Eager2::RealOpEq.implements(&mut b, RealOpEq);
     Eager2::RealOpGe.implements(&mut b, RealOpGe);
@@ -1921,6 +2040,24 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::RealOpNe.implements(&mut b, RealOpNe);
     Eager2::RealOpPlus.implements(&mut b, RealOpPlus);
     Eager2::RealOpTimes.implements(&mut b, RealOpTimes);
+    Eager0::RealPosInf.implements(&mut b, RealPosInf);
+    Eager0::RealPrecision.implements(&mut b, RealPrecision);
+    Eager0::RealRadix.implements(&mut b, RealRadix);
+    Eager1::RealRealCeil.implements(&mut b, RealRealCeil);
+    Eager1::RealRealFloor.implements(&mut b, RealRealFloor);
+    Eager1::RealRealMod.implements(&mut b, RealRealMod);
+    Eager1::RealRealRound.implements(&mut b, RealRealRound);
+    Eager1::RealRealTrunc.implements(&mut b, RealRealTrunc);
+    Eager2::RealRem.implements(&mut b, RealRem);
+    EagerF2::RealRound.implements(&mut b, RealRound);
+    Eager2::RealSameSign.implements(&mut b, RealSameSign);
+    EagerF2::RealSign.implements(&mut b, RealSign);
+    Eager1::RealSignBit.implements(&mut b, RealSignBit);
+    Eager1::RealSplit.implements(&mut b, RealSplit);
+    Eager1::RealToManExp.implements(&mut b, RealToManExp);
+    Eager1::RealToString.implements(&mut b, RealToString);
+    EagerF2::RealTrunc.implements(&mut b, RealTrunc);
+    Eager2::RealUnordered.implements(&mut b, RealUnordered);
     EagerF2::StringCollate.implements(&mut b, StringCollate);
     Eager2::StringCompare.implements(&mut b, StringCompare);
     Eager1::StringConcat.implements(&mut b, StringConcat);

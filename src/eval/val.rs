@@ -246,11 +246,8 @@ impl Display for Val {
             }
             Val::Raw(s) => write!(f, "{}", s),
             Val::Real(r) => {
-                if *r < 0.0 {
-                    write!(f, "-{}", -*r)
-                } else {
-                    write!(f, "{}", r)
-                }
+                // Use Real.toString to format real values
+                write!(f, "{}", crate::eval::real::Real::to_string(*r))
             }
             Val::Some(v) => write!(f, "SOME {}", v),
             Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),

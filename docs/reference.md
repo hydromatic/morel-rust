@@ -290,7 +290,12 @@ Datatype:
 Exception:
 * `Bind` (in structure `General`)
 * `Chr` (in structure `General`)
-* `Subscript` \[subscript out of bounds\] (in structure `General`)
+* `Div` (in structure `General`)
+* `Domain` (in structure `General`)
+* `Option` (in structure `Option`)
+* `Overflow` (in structure `Option`)
+* `Subscript` (in structure `General`)
+* `Unordered` (in structure `IEEEReal`)
 
 ## Built-in functions
 
@@ -380,6 +385,42 @@ Exception:
 | Real.op &gt; | real * real &rarr; bool | As "&lt;" |
 | Real.op &gt;= | real * real &rarr; bool | As "&lt;" |
 | Real.op ~ | real &rarr; real | "~ r" returns the negation of `r`. |
+| Real.abs | real &rarr; real | "abs r" returns the absolute value of `r`. |
+| Real.ceil | real &rarr; int | "floor r" produces `ceil(r)`, the smallest int not less than `r`. |
+| Real.checkFloat | real &rarr; real | "checkFloat x" raises `Overflow` if x is an infinity, and raises `Div` if x is NaN. Otherwise, it returns its argument. |
+| Real.compare | real * real &rarr; order | "compare (x, y)" returns `LESS`, `EQUAL`, or `GREATER` according to whether its first argument is less than, equal to, or greater than the second. It raises `IEEEReal.Unordered` on unordered arguments. |
+| Real.copySign | real * real &rarr; real | "copySign (x, y)" returns `x` with the sign of `y`, even if `y` is NaN. |
+| Real.floor | real &rarr; int | "floor r" produces `floor(r)`, the largest int not larger than `r`. |
+| Real.fromInt, real | int &rarr; real | "fromInt i" (also "real i") converts the integer `i` to a `real` value. If the absolute value of `i` is larger than `maxFinite`, then the appropriate infinity is returned. If `i` cannot be exactly represented as a `real` value, uses current rounding mode to determine the resulting value. |
+| Real.fromManExp | {exp:int, man:real} &rarr; real | "fromManExp r" returns `{man, exp}`, where `man` and `exp` are the mantissa and exponent of r, respectively. |
+| Real.fromString | string &rarr; real option | "fromString s" scans a `real` value from a string. Returns `SOME (r)` if a `real` value can be scanned from a prefix of `s`, ignoring any initial whitespace; otherwise, it returns `NONE`. This function is equivalent to `StringCvt.scanString scan`. |
+| Real.isFinite | real &rarr; bool | "isFinite x" returns true if x is neither NaN nor an infinity. |
+| Real.isNan | real &rarr; bool | "isNan x" returns true if x NaN. |
+| Real.isNormal | real &rarr; bool | "isNormal x" returns true if x is normal, i.e., neither zero, subnormal, infinite nor NaN. |
+| Real.max | real * real &rarr; real | "max (x, y)" returns the larger of the arguments. If exactly one argument is NaN, returns the other argument. If both arguments are NaN, returns NaN. |
+| Real.maxFinite | real | "maxFinite" is the maximum finite number. |
+| Real.min | real * real &rarr; real | "min (x, y)" returns the smaller of the arguments. If exactly one argument is NaN, returns the other argument. If both arguments are NaN, returns NaN. |
+| Real.minNormalPos | real | "minNormalPos" is the minimum non-zero normalized number. |
+| Real.minPos | real | "minPos" is the minimum non-zero positive number. |
+| Real.negInf | real | "negInf" is the negative infinity value. |
+| Real.posInf | real | "posInf" is the positive infinity value. |
+| Real.precision | int | "precision" is the number of digits, each between 0 and `radix` - 1, in the mantissa. Note that the precision includes the implicit (or hidden) bit used in the IEEE representation (e.g., the value of Real64.precision is 53). |
+| Real.radix | int | "radix" is the base of the representation, e.g., 2 or 10 for IEEE floating point. |
+| Real.realCeil | real &rarr; real | "realCeil r" produces `ceil(r)`, the smallest integer not less than `r`. |
+| Real.realFloor | real &rarr; real | "realFloor r" produces `floor(r)`, the largest integer not larger than `r`. |
+| Real.realMod | real &rarr; real | "realMod r" returns the fractional parts of `r`; `realMod` is equivalent to `#frac o split`. |
+| Real.realRound | real &rarr; real | "realRound r" rounds to the integer-valued real value that is nearest to `r`. In the case of a tie, it rounds to the nearest even integer. |
+| Real.realTrunc | real &rarr; real | "realTrunc r" rounds `r` towards zero. |
+| Real.rem | real * real &rarr; real | "rem (x, y)" returns the remainder `x - n * y`, where `n` = `trunc (x / y)`. The result has the same sign as `x` and has absolute value less than the absolute value of `y`. If `x` is an infinity or `y` is 0, `rem` returns NaN. If `y` is an infinity, rem returns `x`. |
+| Real.round | real &rarr; int | "round r" yields the integer nearest to `r`. In the case of a tie, it rounds to the nearest even integer. |
+| Real.sameSign | real * real &rarr; bool | "sameSign (r1, r2)" returns true if and only if `signBit r1` equals `signBit r2`. |
+| Real.sign | real &rarr; int | "sign r" returns ~1 if r is negative, 0 if r is zero, or 1 if r is positive. An infinity returns its sign; a zero returns 0 regardless of its sign. It raises `Domain` on NaN. |
+| Real.signBit | real &rarr; bool | "signBit r" returns true if and only if the sign of `r` (infinities, zeros, and NaN, included) is negative. |
+| Real.split | real &rarr; {frac:real, whole:real} | "split r" returns `{frac, whole}`, where `frac` and `whole` are the fractional and integral parts of `r`, respectively. Specifically, `whole` is integral, and `abs frac` &lt; 1.0. |
+| Real.trunc | real &rarr; int | "trunc r" rounds r towards zero. |
+| Real.toManExp | real &rarr; {man:real, exp:int} | "toManExp r" returns `{man, exp}`, where `man` and `exp` are the mantissa and exponent of r, respectively. |
+| Real.toString | real &rarr; string | "toString r" converts a `real` into a `string`; equivalent to `(fmt (StringCvt.GEN NONE) r)` |
+| Real.unordered | real * real &rarr; bool | "unordered (x, y)" returns true if x and y are unordered, i.e., at least one of x and y is NaN. |
 | String.collate | (char * char &rarr; order) &rarr; string * string &rarr; order | "collate (f, (s, t))" performs lexicographic comparison of the two strings using the given ordering `f` on characters. |
 | String.compare | string * string &rarr; order | "compare (s, t)" does a lexicographic comparison of the two strings using the ordering `Char.compare` on the characters. It returns `LESS`, `EQUAL`, or `GREATER`, if `s` is less than, equal to, or greater than `t`, respectively. |
 | String.fields | (char &rarr; bool) &rarr; string &rarr; string list | "fields f s" returns a list of fields derived from `s` from left to right. A field is a (possibly empty) maximal substring of `s` not containing any delimiter. A delimiter is a character satisfying the predicate `f`.  Two tokens may be separated by more than one delimiter, whereas two fields are separated by exactly one delimiter. For example, if the only delimiter is the character `#"\|"`, then the string `"\|abc\|\|def"` contains two tokens `"abc"` and `"def"`, whereas it contains the four fields `""`, `"abc"`, `""` and `"def"`. |

@@ -17,6 +17,7 @@
 
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
+use crate::eval::real::Real;
 use crate::eval::val::Val;
 use crate::shell::prop::Output as PropOutput;
 use crate::syntax::parser::{
@@ -545,7 +546,7 @@ impl Pretty {
             }
             PrimitiveType::Real => {
                 if let Val::Real(f) = value {
-                    write!(buf, "{}", f)?;
+                    buf.push_str(&Real::to_string(*f));
                 }
             }
             PrimitiveType::String => {

@@ -87,6 +87,18 @@ impl TypeBuilder {
                     Type::Named(vec![], name.clone())
                 }
             }
+            TypeKind::Record(fields) => {
+                use crate::compile::types::Label;
+                use std::collections::BTreeMap;
+
+                let mut field_map = BTreeMap::new();
+                for field in fields {
+                    let label = Label::String(field.label.name.clone());
+                    let field_type = *self.ast_to_type(&field.type_);
+                    field_map.insert(label, field_type);
+                }
+                Type::Record(false, field_map)
+            }
             TypeKind::Tuple(types) => {
                 let type_args: Vec<Type> =
                     types.iter().map(|t| *self.ast_to_type(t)).collect();
@@ -111,7 +123,8 @@ impl TypeBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compile::types::{PrimitiveType, Type};
+    use crate::compile::types::{Label, PrimitiveType, Type};
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_parse_type() {
@@ -135,5 +148,22 @@ mod tests {
                 Box::new(Type::Primitive(PrimitiveType::Bool))
             )
         );
+    }
+
+    #[test]
+    fn test_parse_record_type() {
+        let t = string_to_type("{exp:int, man:real}");
+
+        let mut expected_fields = BTreeMap::new();
+        expected_fields.insert(
+            Label::String("exp".to_string()),
+            Type::Primitive(PrimitiveType::Int),
+        );
+        expected_fields.insert(
+            Label::String("man".to_string()),
+            Type::Primitive(PrimitiveType::Real),
+        );
+
+        assert_eq!(*t, Type::Record(false, expected_fields));
     }
 }
