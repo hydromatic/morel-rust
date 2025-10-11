@@ -18,7 +18,7 @@
 use crate::compile::library::{BuiltIn, BuiltInFunction, BuiltInRecord};
 use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
-use crate::compile::types::{Label, Type};
+use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::bool::Bool;
 use crate::eval::char::Char;
 use crate::eval::frame::FrameDef;
@@ -117,8 +117,9 @@ pub enum Code {
     /// the expression.
     Case(Vec<Code>),
 
-    /// `Constant(val)` returns the value `val`.
-    Constant(Val),
+    /// `Constant(type, val)` returns the value `val`. The type lets us display
+    /// the value more intelligently.
+    Constant(Box<Type>, Val),
 
     /// `CreateClosure(frame, matches, binds)` creates a [Val::Closure] value
     /// that is similar to a function, but has a frame pre-populated with one
@@ -170,7 +171,7 @@ impl Code {
                 Box::new(a.clone()),
                 bind_codes,
             )
-        } else if let Code::Constant(Val::Code(c)) = f {
+        } else if let Code::Constant(_, Val::Code(c)) = f {
             Code::ApplyConstant(
                 Box::new(c.deref().clone()),
                 Box::new(a.clone()),
@@ -231,8 +232,8 @@ impl Code {
         Code::BindTuple(codes.to_vec())
     }
 
-    pub(crate) fn new_constant(v: Val) -> Code {
-        Code::Constant(v)
+    pub(crate) fn new_constant(type_: &Type, v: Val) -> Code {
+        Code::Constant(Box::new(type_.clone()), v)
     }
 
     pub(crate) fn new_create_closure(
@@ -334,7 +335,7 @@ impl Code {
             }
             Impl::EF0(ev0) => {
                 assert_eq!(codes.len(), 1);
-                assert!(matches!(*codes[0], Code::Constant(Val::Unit)));
+                assert!(matches!(*codes[0], Code::Constant(_, Val::Unit)));
                 Code::NativeF0(ev0)
             }
             Impl::EF1(ev1) => {
@@ -413,7 +414,7 @@ impl Code {
             Code::Case(_) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
             }
-            Code::Constant(_) => {
+            Code::Constant(_, _) => {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
             Code::CreateClosure(_, _, _) => *mode == EvalMode::EagerF0,
@@ -493,7 +494,7 @@ impl Code {
                 }
                 Err(MorelError::Bind)
             }
-            Code::Constant(c) => Ok(c.clone()),
+            Code::Constant(_, c) => Ok(c.clone()),
             Code::CreateClosure(frame_def, matches, bind_codes) => {
                 let mut values = Vec::with_capacity(bind_codes.len());
                 for bind_code in bind_codes {
@@ -655,7 +656,7 @@ impl Code {
                 }
                 panic!("Match not exhaustive")
             }
-            Code::Constant(v) => Ok(v.clone()),
+            Code::Constant(_, v) => Ok(v.clone()),
             Code::Fn(frame_def, pat_expr_codes) => {
                 Frame::create_and_eval(frame_def, pat_expr_codes, r, a0)
             }
@@ -693,7 +694,10 @@ fn code_or_span(codes: &[Box<Code>], span: &Span, n: usize) -> Box<Code> {
         codes[n].clone()
     } else {
         assert_eq!(codes.len(), n);
-        Box::new(Code::Constant(Val::String(span.0.clone())))
+        Box::new(Code::new_constant(
+            &Type::Primitive(PrimitiveType::String),
+            Val::String(span.0.clone()),
+        ))
     }
 }
 
@@ -701,9 +705,11 @@ impl Display for Code {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Code::BindLiteral(v) => write!(f, "{}", v),
-            Code::Constant(v) => match v {
+            Code::Constant(_, v) => match v {
                 Val::Char(c) => write!(f, "constant({})", c),
+                Val::Fn(fun) => write!(f, "constant({})", fun.full_name()),
                 Val::String(s) => write!(f, "constant({})", s),
+                Val::Unit => write!(f, "constant([NONE])"),
                 _ => write!(f, "constant({})", v),
             },
             Code::Fn(_, matches) => {

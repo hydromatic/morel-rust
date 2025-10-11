@@ -488,11 +488,11 @@ impl<'a> Compiler<'a> {
                     let fn_code = self.compile_arg(cx, f);
                     Code::new_apply(&fn_code, &arg_code, &[])
                 }
-                Expr::Identifier(_, name) => {
+                Expr::Identifier(type_, name) => {
                     let arg_code = self.compile_arg(cx, a);
                     let fn_code =
                         if let Some(Val::Code(code)) = &cx.env.get(name) {
-                            Code::new_constant(Val::Code(code.clone()))
+                            Code::new_constant(type_, Val::Code(code.clone()))
                         } else {
                             self.compile_arg(cx, f)
                         };
@@ -585,14 +585,14 @@ impl<'a> Compiler<'a> {
                 let codes = self.compile_arg_list(cx, args);
                 Code::new_list(&codes)
             }
-            Expr::Literal(_t, val) => {
+            Expr::Literal(type_, val) => {
                 if let Val::Fn(f) = val
                     && f.is_constructor()
                     && *f == BuiltInFunction::OptionNone
                 {
-                    Code::new_constant(Val::Unit)
+                    Code::new_constant(type_, Val::Unit)
                 } else {
-                    Code::new_constant(val.clone())
+                    Code::new_constant(type_, val.clone())
                 }
             }
             Expr::RecordSelector(t, slot) => {

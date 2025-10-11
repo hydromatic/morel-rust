@@ -366,6 +366,16 @@ impl BuiltInFunction {
         self.get_str("name").unwrap()
     }
 
+    /// Returns "p.name" if there is a package `p`, otherwise just "name".
+    pub(crate) fn full_name(&self) -> String {
+        let name = self.get_str("name").unwrap();
+        if let Some(p) = self.get_str("p") {
+            format!("{}.{}", p, name)
+        } else {
+            name.to_string()
+        }
+    }
+
     pub(crate) fn is_constructor(&self) -> bool {
         self.get_bool("constructor").is_some_and(|b| b)
     }
