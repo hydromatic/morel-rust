@@ -79,9 +79,14 @@ pub enum BuiltInFunction {
     BoolOpEq,
     #[strum(props(p = "Bool", name = "op <>", type = "bool * bool -> bool"))]
     BoolOpNe,
+    #[strum(props(p = "Bool", name = "not", global = true))]
+    #[strum(props(type = "bool -> bool"))]
+    BoolOpNot,
     #[strum(props(p = "Bool", name = "op orelse", global = true))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolOrElse,
+    #[strum(props(p = "Bool", name = "toString", type = "bool -> string"))]
+    BoolToString,
     #[strum(props(name = "true", type = "bool"))]
     BoolTrue,
     #[strum(props(p = "Char", name = "chr", global = true))]
@@ -377,6 +382,8 @@ impl BuiltInFunction {
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInRecord {
     // lint: sort until '^}$' where '##[A-Z]'
+    #[strum(props(name = "Bool"))]
+    Bool,
     #[strum(props(name = "Char"))]
     Char,
     #[strum(props(name = "General"))]

@@ -19,6 +19,7 @@ use crate::compile::library::{BuiltIn, BuiltInFunction, BuiltInRecord};
 use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
 use crate::compile::types::{Label, Type};
+use crate::eval::bool::Bool;
 use crate::eval::char::Char;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
@@ -1070,6 +1071,8 @@ impl EagerF1 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum Eager1 {
     // lint: sort until '#}'
+    BoolOpNot,
+    BoolToString,
     CharToLower,
     GeneralIgnore,
     IntAbs,
@@ -1103,6 +1106,8 @@ impl Eager1 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            BoolOpNot => Val::Bool(Bool::not(a0.expect_bool())),
+            BoolToString => Val::String(Bool::to_string(a0.expect_bool())),
             CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
             GeneralIgnore => Val::Unit,
             IntAbs => Val::Int(a0.expect_int().abs()),
@@ -1224,7 +1229,9 @@ impl Eager2 {
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             BoolAndAlso => Val::Bool(a0.expect_bool() && a1.expect_bool()),
-            BoolImplies => Val::Bool(!a0.expect_bool() || a1.expect_bool()),
+            BoolImplies => {
+                Val::Bool(Bool::implies(a0.expect_bool(), a1.expect_bool()))
+            }
             BoolOpEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
             BoolOpNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
             BoolOrElse => Val::Bool(a0.expect_bool() || a1.expect_bool()),
@@ -1699,7 +1706,9 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::BoolImplies.implements(&mut b, BoolImplies);
     Eager2::BoolOpEq.implements(&mut b, BoolOpEq);
     Eager2::BoolOpNe.implements(&mut b, BoolOpNe);
+    Eager1::BoolOpNot.implements(&mut b, BoolOpNot);
     Eager2::BoolOrElse.implements(&mut b, BoolOrElse);
+    Eager1::BoolToString.implements(&mut b, BoolToString);
     Eager0::BoolTrue.implements(&mut b, BoolTrue);
     EagerF2::CharChr.implements(&mut b, CharChr);
     Eager2::CharCompare.implements(&mut b, CharCompare);

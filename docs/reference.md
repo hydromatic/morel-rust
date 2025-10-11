@@ -298,7 +298,9 @@ Exception:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
+| Bool.not | bool &rarr; bool | "not b" returns the logical negation of the boolean value `b`. |
 | Bool.op implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
+| Bool.to_string | bool &rarr; string | "to_string b" returns the string representation of `b`, either "true" or "false". |
 | Char.chr | int &rarr; char | "chr i" returns the character whose code is `i`. Raises `Chr` if `i` &lt; 0 or `i` &gt; `maxOrd`. |
 | Char.compare | char * char &rarr; order | "compare (c1, c2)" returns `LESS`, `EQUAL`, or `GREATER` according to whether its first argument is less than, equal to, or greater than the second. |
 | Char.toLower | char &rarr; char | "toLower c" returns the lowercase letter corresponding to `c`, if `c` is a letter (a to z or A to Z); otherwise returns `c`. |

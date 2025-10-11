@@ -15,14 +15,28 @@
 // language governing permissions and limitations under the
 // License.
 
-// lint: sort until '^$' erase 'pub '
-pub mod bool;
-pub mod char;
-pub mod code;
-pub mod frame;
-pub mod int;
-pub mod list;
-pub mod order;
-pub mod session;
-pub mod string;
-pub mod val;
+/// Support for the `bool` primitive type and the `Bool` structure.
+pub struct Bool;
+
+impl Bool {
+    /// Computes the Morel expression `Bool.not b`.
+    ///
+    /// Returns the logical negation of the boolean value `b`.
+    pub(crate) fn not(b: bool) -> bool {
+        !b
+    }
+
+    /// Computes the Morel expression `Bool.implies (b1, b2)`.
+    ///
+    /// Returns `true` if `b1` is `false` or `b2` is `true`.
+    pub(crate) fn implies(b1: bool, b2: bool) -> bool {
+        !b1 || b2
+    }
+
+    /// Computes the Morel expression `Bool.toString b`.
+    ///
+    /// Returns the string representation of `b`, either "true" or "false".
+    pub(crate) fn to_string(b: bool) -> String {
+        if b { "true" } else { "false" }.to_string()
+    }
+}

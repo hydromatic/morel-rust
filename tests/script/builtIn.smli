@@ -362,9 +362,13 @@ length;
 (* "val map : ('a -> 'b) -> 'a list -> 'b list" maps to "List.map" *)
 map;
 > val it = fn : ('a -> 'b) -> 'a list -> 'b list
+set("mode", "evaluate");
+> val it = () : unit
 (* "val not : bool -> bool" maps to "Bool.not" *)
 not;
 > val it = fn : bool -> bool
+set("mode", "validate");
+> val it = () : unit
 (* "val null : 'a list -> bool" maps to "List.null" *)
 null;
 > val it = fn : 'a list -> bool
@@ -706,6 +710,38 @@ Sys.plan ();
 > val it =
 >   "apply2(fnValue Bag.tabulate, constant(-1), let1(matchCode match(fact, match(n, apply(fnCode match(true, constant(1), _, apply2(fnValue *, get(name n), apply(fnCode link, argCode apply2(fnValue -, get(name n), constant(1))))), argCode apply2(fnValue =, get(name n), constant(0))))), resultCode get(name fact)))"
 >   : string
+
+(* Bool -------------------------------------------------------- *)
+Bool;
+> val it =
+>   {not=fn,`op <>`=fn,`op =`=fn,`op andalso`=fn,`op if`=fn,`op implies`=fn,
+>    `op orelse`=fn,toString=fn}
+>   : {not:bool -> bool, `op <>`:bool * bool -> bool, `op =`:bool * bool -> bool,
+>      `op andalso`:bool * bool -> bool, `op if`:bool * 'a * 'a -> 'a,
+>      `op implies`:bool * bool -> bool, `op orelse`:bool * bool -> bool,
+>      toString:bool -> string}
+Bool.`op not`;
+> val it = fn : bool -> bool
+Bool.`op not` true;
+> val it = false : bool
+Bool.`op not` false;
+> val it = true : bool
+Bool.`op implies`;
+> val it = fn : bool * bool -> bool
+Bool.`op implies` (true, true);
+> val it = true : bool
+Bool.`op implies` (true, false);
+> val it = false : bool
+Bool.`op implies` (false, true);
+> val it = true : bool
+Bool.`op implies` (false, false);
+> val it = true : bool
+Bool.to_string;
+> val it = fn : bool -> string
+Bool.to_string true;
+> val it = "true" : string
+Bool.to_string false;
+> val it = "false" : string
 
 (* Either ------------------------------------------------------ *)
 Either;
