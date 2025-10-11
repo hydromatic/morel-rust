@@ -801,7 +801,7 @@ impl TypeResolver {
             ExprKind::Mod(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op mod", left, right, v);
-                let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
+                let x = ExprKind::Mod(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Negate(e) => {
