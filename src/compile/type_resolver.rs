@@ -50,6 +50,7 @@ pub struct Resolved {
     pub decl: Decl,
     pub type_map: TypeMap,
     pub bindings: Vec<TypeBinding>,
+    pub base_line: usize,
 }
 
 /// Maps AST nodes to their resolved types.
@@ -328,10 +329,22 @@ impl TypeResolver {
             type_map.var_term_map.insert(v, term);
         }
 
+        // If the code begins with a comment, compute the offset of the first
+        // line of code after the comment. This allows us to report the correct
+        // position of errors when there are commented-out lines before them.
+        let pest_span = decl2.span.to_pest_span();
+        let start = pest_span.start_pos();
+        let base_line = if start.line_col().1 == 1 {
+            start.line_col().0 - 1
+        } else {
+            0
+        };
+
         Resolved {
             decl: decl2,
             type_map,
             bindings: Vec::new(), // TODO: populate bindings
+            base_line,
         }
     }
 

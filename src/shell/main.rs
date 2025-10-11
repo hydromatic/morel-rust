@@ -241,7 +241,7 @@ impl Shell {
             write!(writer, "{}", line_buffer)?;
             writer.flush()?;
 
-            let line = line_buffer.trim();
+            let line = line_buffer.trim_end();
             if line.is_empty() {
                 continue;
             }

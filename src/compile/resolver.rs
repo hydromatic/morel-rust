@@ -35,7 +35,7 @@ use std::collections::{HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
 pub fn resolve(resolved: &Resolved) -> CoreDecl {
-    let resolver = Resolver::new(&resolved.type_map);
+    let resolver = Resolver::new(&resolved.type_map, resolved.base_line);
     resolver.resolve_decl(&resolved.decl)
 }
 
@@ -73,6 +73,7 @@ pub fn resolve(resolved: &Resolved) -> CoreDecl {
 ///   [CoreDecl::NonRecVal] and [CoreDecl::RecVal].
 pub struct Resolver<'a> {
     type_map: &'a TypeMap,
+    base_line: usize,
 }
 
 /// Helper struct representing a pattern-expression pair with position info.
@@ -173,8 +174,11 @@ impl ResolvedValDecl {
 
 impl<'a> Resolver<'a> {
     /// Creates a new resolver with the given type map.
-    pub fn new(type_map: &'a TypeMap) -> Self {
-        Self { type_map }
+    pub fn new(type_map: &'a TypeMap, base_line: usize) -> Self {
+        Self {
+            type_map,
+            base_line,
+        }
     }
 
     /// Resolves an AST declaration to a core declaration.
@@ -244,7 +248,8 @@ impl<'a> Resolver<'a> {
     /// Resolves an AST expression to a core expression.
     pub fn resolve_expr(&self, expr: &Expr) -> CoreExpr {
         let t = expr.get_type(self.type_map).unwrap();
-        let span = Span::from_pest_span(&expr.span.to_pest_span());
+        let span =
+            Span::from_pest_span(&expr.span.to_pest_span(), self.base_line);
         match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Aggregate(a0, a1) => CoreExpr::Aggregate(
@@ -263,7 +268,7 @@ impl<'a> Resolver<'a> {
                 t,
                 Box::new(self.resolve_expr(func)),
                 Box::new(self.resolve_expr(arg)),
-                Span::from_pest_span(&expr.span.to_pest_span()),
+                Span::from_pest_span(&expr.span.to_pest_span(), self.base_line),
             ),
             ExprKind::Caret(a0, a1) => {
                 self.call2(t, BuiltInFunction::StringOpCaret, &span, a0, a1)

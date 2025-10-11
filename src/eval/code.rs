@@ -795,12 +795,17 @@ impl Span {
         Span(s.to_string())
     }
 
-    pub fn from_pest_span(span: &pest::Span) -> Self {
-        let start = span.start_pos().line_col();
-        let end = span.end_pos().line_col();
+    pub fn from_pest_span(span: &pest::Span, base_line: usize) -> Self {
+        let start_pos = span.start_pos();
+        let end_pos = span.end_pos();
+        let start = start_pos.line_col();
+        let end = end_pos.line_col();
         Self::new(&format!(
             "stdIn:{}.{}-{}.{}",
-            start.0, start.1, end.0, end.1
+            start.0 - base_line,
+            start.1,
+            end.0 - base_line,
+            end.1
         ))
     }
 }
