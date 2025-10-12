@@ -56,4 +56,15 @@ impl List {
         }
         Ok(Val::List(list))
     }
+
+    pub(crate) fn map(
+        r: &mut EvalEnv,
+        f: &mut Frame,
+        func: &Code,
+        list: &[Val],
+    ) -> Result<Val, MorelError> {
+        let results: Result<Vec<Val>, _> =
+            list.iter().map(|v| func.eval_f1(r, f, v)).collect();
+        Ok(Val::List(results?))
+    }
 }

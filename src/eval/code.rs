@@ -960,6 +960,9 @@ pub enum Eager0 {
     // lint: sort until '#}'
     BoolFalse,
     BoolTrue,
+    CharMaxChar,
+    CharMaxOrd,
+    CharMinChar,
     IntMaxInt,
     IntMinInt,
     IntPrecision,
@@ -980,6 +983,9 @@ impl Eager0 {
             // lint: sort until '#}' where '##[A-Z]'
             BoolFalse => Val::Bool(false),
             BoolTrue => Val::Bool(true),
+            CharMaxChar => Val::Char(Char::MAX_CHAR),
+            CharMaxOrd => Val::Int(Char::MAX_ORD),
+            CharMinChar => Val::Char(Char::MIN_CHAR),
             IntMaxInt => Val::Some(Box::new(Val::Int(i32::MAX))),
             IntMinInt => Val::Some(Box::new(Val::Int(i32::MIN))),
             IntPrecision => Val::Some(Box::new(Val::Int(32))),
@@ -1087,7 +1093,27 @@ pub enum Eager1 {
     // lint: sort until '#}'
     BoolOpNot,
     BoolToString,
+    CharFromCString,
+    CharFromInt,
+    CharFromString,
+    CharIsAlpha,
+    CharIsAlphaNum,
+    CharIsAscii,
+    CharIsCntrl,
+    CharIsDigit,
+    CharIsGraph,
+    CharIsHexDigit,
+    CharIsLower,
+    CharIsOctDigit,
+    CharIsPrint,
+    CharIsPunct,
+    CharIsSpace,
+    CharIsUpper,
+    CharOrd,
+    CharToCString,
     CharToLower,
+    CharToString,
+    CharToUpper,
     GeneralIgnore,
     IntAbs,
     IntFromInt,
@@ -1124,7 +1150,27 @@ impl Eager1 {
             // lint: sort until '#}' where '##[A-Z]'
             BoolOpNot => Val::Bool(Bool::not(a0.expect_bool())),
             BoolToString => Val::String(Bool::to_string(a0.expect_bool())),
+            CharFromCString => Char::from_c_string(&a0.expect_string()),
+            CharFromInt => Char::from_int(a0.expect_int()),
+            CharFromString => Char::from_string(&a0.expect_string()),
+            CharIsAlpha => Val::Bool(Char::is_alpha(a0.expect_char())),
+            CharIsAlphaNum => Val::Bool(Char::is_alpha_num(a0.expect_char())),
+            CharIsAscii => Val::Bool(Char::is_ascii(a0.expect_char())),
+            CharIsCntrl => Val::Bool(Char::is_cntrl(a0.expect_char())),
+            CharIsDigit => Val::Bool(Char::is_digit(a0.expect_char())),
+            CharIsGraph => Val::Bool(Char::is_graph(a0.expect_char())),
+            CharIsHexDigit => Val::Bool(Char::is_hex_digit(a0.expect_char())),
+            CharIsLower => Val::Bool(Char::is_lower(a0.expect_char())),
+            CharIsOctDigit => Val::Bool(Char::is_oct_digit(a0.expect_char())),
+            CharIsPrint => Val::Bool(Char::is_print(a0.expect_char())),
+            CharIsPunct => Val::Bool(Char::is_punct(a0.expect_char())),
+            CharIsSpace => Val::Bool(Char::is_space(a0.expect_char())),
+            CharIsUpper => Val::Bool(Char::is_upper(a0.expect_char())),
+            CharOrd => Val::Int(Char::ord(a0.expect_char())),
+            CharToCString => Val::String(Char::to_c_string(a0.expect_char())),
             CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
+            CharToString => Val::String(Char::to_string(a0.expect_char())),
+            CharToUpper => Val::Char(Char::to_upper(a0.expect_char())),
             GeneralIgnore => Val::Unit,
             IntAbs => Val::Int(a0.expect_int().abs()),
             IntFromInt => a0,
@@ -1180,6 +1226,8 @@ pub enum Eager2 {
     BoolOpNe,
     BoolOrElse,
     CharCompare,
+    CharContains,
+    CharNotContains,
     CharOpEq,
     CharOpGe,
     CharOpGt,
@@ -1257,6 +1305,13 @@ impl Eager2 {
             CharCompare => {
                 Val::Order(Char::compare(a0.expect_char(), a1.expect_char()))
             }
+            CharContains => {
+                Val::Bool(Char::contains(&a0.expect_string(), a1.expect_char()))
+            }
+            CharNotContains => Val::Bool(Char::not_contains(
+                &a0.expect_string(),
+                a1.expect_char(),
+            )),
             CharOpEq => Val::Bool(a0.expect_char() == a1.expect_char()),
             CharOpGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
             CharOpGt => Val::Bool(a0.expect_char() > a1.expect_char()),
@@ -1358,6 +1413,9 @@ impl Eager2 {
 pub enum EagerF2 {
     // lint: sort until '#}'
     CharChr,
+    CharPred,
+    CharSucc,
+    ListMap,
     ListTabulate,
     OptionApp,
     OptionCompose,
@@ -1401,6 +1459,9 @@ impl EagerF2 {
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
+            CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
+            CharSucc => Char::succ(a0.expect_char(), &a1.expect_span()),
+            ListMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
             ListTabulate => {
                 List::tabulate(r, f, a0.expect_int(), &a1.expect_code())
             }
@@ -1752,13 +1813,40 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager0::BoolTrue.implements(&mut b, BoolTrue);
     EagerF2::CharChr.implements(&mut b, CharChr);
     Eager2::CharCompare.implements(&mut b, CharCompare);
+    Eager2::CharContains.implements(&mut b, CharContains);
+    Eager1::CharFromCString.implements(&mut b, CharFromCString);
+    Eager1::CharFromInt.implements(&mut b, CharFromInt);
+    Eager1::CharFromString.implements(&mut b, CharFromString);
+    Eager1::CharIsAlpha.implements(&mut b, CharIsAlpha);
+    Eager1::CharIsAlphaNum.implements(&mut b, CharIsAlphaNum);
+    Eager1::CharIsAscii.implements(&mut b, CharIsAscii);
+    Eager1::CharIsCntrl.implements(&mut b, CharIsCntrl);
+    Eager1::CharIsDigit.implements(&mut b, CharIsDigit);
+    Eager1::CharIsGraph.implements(&mut b, CharIsGraph);
+    Eager1::CharIsHexDigit.implements(&mut b, CharIsHexDigit);
+    Eager1::CharIsLower.implements(&mut b, CharIsLower);
+    Eager1::CharIsOctDigit.implements(&mut b, CharIsOctDigit);
+    Eager1::CharIsPrint.implements(&mut b, CharIsPrint);
+    Eager1::CharIsPunct.implements(&mut b, CharIsPunct);
+    Eager1::CharIsSpace.implements(&mut b, CharIsSpace);
+    Eager1::CharIsUpper.implements(&mut b, CharIsUpper);
+    Eager0::CharMaxChar.implements(&mut b, CharMaxChar);
+    Eager0::CharMaxOrd.implements(&mut b, CharMaxOrd);
+    Eager0::CharMinChar.implements(&mut b, CharMinChar);
+    Eager2::CharNotContains.implements(&mut b, CharNotContains);
     Eager2::CharOpEq.implements(&mut b, CharOpEq);
     Eager2::CharOpGe.implements(&mut b, CharOpGe);
     Eager2::CharOpGt.implements(&mut b, CharOpGt);
     Eager2::CharOpLe.implements(&mut b, CharOpLe);
     Eager2::CharOpLt.implements(&mut b, CharOpLt);
     Eager2::CharOpNe.implements(&mut b, CharOpNe);
+    Eager1::CharOrd.implements(&mut b, CharOrd);
+    EagerF2::CharPred.implements(&mut b, CharPred);
+    EagerF2::CharSucc.implements(&mut b, CharSucc);
+    Eager1::CharToCString.implements(&mut b, CharToCString);
     Eager1::CharToLower.implements(&mut b, CharToLower);
+    Eager1::CharToString.implements(&mut b, CharToString);
+    Eager1::CharToUpper.implements(&mut b, CharToUpper);
     Custom::GOpEq.implements(&mut b, GOpEq);
     Custom::GOpGe.implements(&mut b, GOpGe);
     Custom::GOpGt.implements(&mut b, GOpGt);
@@ -1802,6 +1890,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::IntToInt.implements(&mut b, IntToInt);
     Eager1::IntToLarge.implements(&mut b, IntToLarge);
     Eager1::IntToString.implements(&mut b, IntToString);
+    EagerF2::ListMap.implements(&mut b, ListMap);
     Eager0::ListNil.implements(&mut b, ListNil);
     Eager2::ListOpAt.implements(&mut b, ListOpAt);
     Eager2::ListOpCons.implements(&mut b, ListOpCons);

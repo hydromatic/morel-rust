@@ -95,6 +95,53 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Char", name = "compare"))]
     #[strum(props(type = "char * char -> `order`"))]
     CharCompare,
+    #[strum(props(p = "Char", name = "contains"))]
+    #[strum(props(type = "string -> char -> bool"))]
+    CharContains,
+    #[strum(props(p = "Char", name = "fromCString"))]
+    #[strum(props(type = "string -> char option"))]
+    CharFromCString,
+    #[strum(props(p = "Char", name = "fromInt"))]
+    #[strum(props(type = "int -> char option"))]
+    CharFromInt,
+    #[strum(props(p = "Char", name = "fromString"))]
+    #[strum(props(type = "string -> char option"))]
+    CharFromString,
+    #[strum(props(p = "Char", name = "isAlpha", type = "char -> bool"))]
+    CharIsAlpha,
+    #[strum(props(p = "Char", name = "isAlphaNum", type = "char -> bool"))]
+    CharIsAlphaNum,
+    #[strum(props(p = "Char", name = "isAscii", type = "char -> bool"))]
+    CharIsAscii,
+    #[strum(props(p = "Char", name = "isCntrl", type = "char -> bool"))]
+    CharIsCntrl,
+    #[strum(props(p = "Char", name = "isDigit", type = "char -> bool"))]
+    CharIsDigit,
+    #[strum(props(p = "Char", name = "isGraph", type = "char -> bool"))]
+    CharIsGraph,
+    #[strum(props(p = "Char", name = "isHexDigit", type = "char -> bool"))]
+    CharIsHexDigit,
+    #[strum(props(p = "Char", name = "isLower", type = "char -> bool"))]
+    CharIsLower,
+    #[strum(props(p = "Char", name = "isOctDigit", type = "char -> bool"))]
+    CharIsOctDigit,
+    #[strum(props(p = "Char", name = "isPrint", type = "char -> bool"))]
+    CharIsPrint,
+    #[strum(props(p = "Char", name = "isPunct", type = "char -> bool"))]
+    CharIsPunct,
+    #[strum(props(p = "Char", name = "isSpace", type = "char -> bool"))]
+    CharIsSpace,
+    #[strum(props(p = "Char", name = "isUpper", type = "char -> bool"))]
+    CharIsUpper,
+    #[strum(props(p = "Char", name = "maxChar", type = "char"))]
+    CharMaxChar,
+    #[strum(props(p = "Char", name = "maxOrd", type = "int"))]
+    CharMaxOrd,
+    #[strum(props(p = "Char", name = "minChar", type = "char"))]
+    CharMinChar,
+    #[strum(props(p = "Char", name = "notContains"))]
+    #[strum(props(type = "string -> char -> bool"))]
+    CharNotContains,
     #[strum(props(p = "Char", name = "op =", type = "char * char -> bool"))]
     CharOpEq,
     #[strum(props(p = "Char", name = "op >=", type = "char * char -> bool"))]
@@ -107,8 +154,23 @@ pub enum BuiltInFunction {
     CharOpLt,
     #[strum(props(p = "Char", name = "op <>", type = "char * char -> bool"))]
     CharOpNe,
+    #[strum(props(p = "Char", name = "ord", global = true))]
+    #[strum(props(type = "char -> int"))]
+    CharOrd,
+    #[strum(props(p = "Char", name = "pred", throws = "Chr"))]
+    #[strum(props(type = "char -> char"))]
+    CharPred,
+    #[strum(props(p = "Char", name = "succ", throws = "Chr"))]
+    #[strum(props(type = "char -> char"))]
+    CharSucc,
+    #[strum(props(p = "Char", name = "toCString", type = "char -> string"))]
+    CharToCString,
     #[strum(props(p = "Char", name = "toLower", type = "char -> char"))]
     CharToLower,
+    #[strum(props(p = "Char", name = "toString", type = "char -> string"))]
+    CharToString,
+    #[strum(props(p = "Char", name = "toUpper", type = "char -> char"))]
+    CharToUpper,
     #[strum(props(name = "op =", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpEq,
@@ -212,6 +274,9 @@ pub enum BuiltInFunction {
     IntToLarge,
     #[strum(props(p = "Int", name = "toString", type = "int -> string"))]
     IntToString,
+    #[strum(props(p = "List", name = "map", global = true))]
+    #[strum(props(type = "forall 2 ('a -> 'b) -> 'a list -> 'b list"))]
+    ListMap,
     #[strum(props(p = "List", name = "nil", global = true))]
     #[strum(props(type = "forall 1 'a list", constructor = true))]
     ListNil,

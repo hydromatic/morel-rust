@@ -303,7 +303,34 @@ Exception:
 | Bool.toString | bool &rarr; string | "toString b" returns the string representation of `b`, either "true" or "false". |
 | Char.chr | int &rarr; char | "chr i" returns the character whose code is `i`. Raises `Chr` if `i` &lt; 0 or `i` &gt; `maxOrd`. |
 | Char.compare | char * char &rarr; order | "compare (c1, c2)" returns `LESS`, `EQUAL`, or `GREATER` according to whether its first argument is less than, equal to, or greater than the second. |
+| Char.contains | char &rarr; string &rarr; bool | "contains s c" returns true if character `c` occurs in the string `s`; false otherwise. The function, when applied to `s`, builds a table and returns a function which uses table lookup to decide whether a given character is in the string or not. Hence it is relatively expensive to compute `val p = contains s` but very fast to compute `p(c)` for any given character. |
+| Char.fromCString | string &rarr; char option | "fromCString s" scans a `char` value from a string. Returns `SOME (r)` if a `char` value can be scanned from a prefix of `s`, ignoring any initial whitespace; otherwise, it returns `NONE`. Equivalent to `StringCvt.scanString (scan StringCvt.ORD)`. |
+| Char.fromInt | int &rarr; char option | "fromInt i" converts an `int` into a `char`. Raises `Chr` if `i` &lt; 0 or `i` &gt; `maxOrd`. |
+| Char.fromString | string &rarr; char option | "fromString s" attempts to scan a character or ML escape sequence from the string `s`. Does not skip leading whitespace. For instance, `fromString "\\065"` equals `#"A"`. |
+| Char.isAlpha | char &rarr; bool | "isAlpha c" returns true if `c` is a letter (lowercase or uppercase). |
+| Char.isAlphaNum | char &rarr; bool | "isAlphaNum c" returns true if `c` is alphanumeric (a letter or a decimal digit). |
+| Char.isAscii | char &rarr; bool | "isAscii c" returns true if 0 &le; `ord c` &le; 127 `c`. |
+| Char.isCntrl | char &rarr; bool | "isCntrl c" returns true if `c` is a control character, that is, if `not (isPrint c)`. |
+| Char.isDigit | char &rarr; bool | "isDigit c" returns true if `c` is a decimal digit (0 to 9). |
+| Char.isGraph | char &rarr; bool | "isGraph c" returns true if `c` is a graphical character, that is, it is printable and not a whitespace character. |
+| Char.isHexDigit | char &rarr; bool | "isHexDigit c" returns true if `c` is a hexadecimal digit. |
+| Char.isLower | char &rarr; bool | "isLower c" returns true if `c` is a hexadecimal digit (0 to 9 or a to f or A to F). |
+| Char.isOctDigit | char &rarr; bool | "isOctDigit c" returns true if `c` is an octal digit. |
+| Char.isPrint | char &rarr; bool | "isPrint c" returns true if `c` is a printable character (space or visible). |
+| Char.isPunct | char &rarr; bool | "isPunct c" returns true if `c` is a punctuation character, that is, graphical but not alphanumeric. |
+| Char.isSpace | char &rarr; bool | "isSpace c" returns true if `c` is a whitespace character (blank, newline, tab, vertical tab, new page). |
+| Char.isUpper | char &rarr; bool | "isUpper c" returns true if `c` is an uppercase letter (A to Z). |
+| Char.maxOrd | int | "maxOrd" is the greatest character code; it equals `ord maxChar`. |
+| Char.maxChar | int | "maxChar" is the greatest character in the ordering `&lt;`. |
+| Char.minChar | char | "minChar" is the minimal (most negative) character representable by `char`. If a value is `NONE`, `char` can represent all negative integers, within the limits of the heap size. If `precision` is `SOME (n)`, then we have `minChar` = -2<sup>(n-1)</sup>. |
+| Char.notContains | char &rarr; string &rarr; bool | "notContains s c" returns true if character `c` does not occur in the string `s`; false otherwise. Works by construction of a lookup table in the same way as `Char.contains`. |
+| Char.ord | char &rarr; int | "ord c" returns the code of character `c`. |
+| Char.pred | char &rarr; char | "pred c" returns the predecessor of `c`. Raises `Subscript` if `c` is `minOrd`. |
+| Char.succ | char &rarr; char | "succ c" returns the character immediately following `c`, or raises `Chr` if `c` = `maxChar` |
+| Char.toCString | char &rarr; string | "toCString c" converts a `char` into a `string`; equivalent to `(fmt StringCvt.ORD r)`. |
 | Char.toLower | char &rarr; char | "toLower c" returns the lowercase letter corresponding to `c`, if `c` is a letter (a to z or A to Z); otherwise returns `c`. |
+| Char.toString | char &rarr; string | "toString c" converts a `char` into a `string`; equivalent to `(fmt StringCvt.ORD r)`. |
+| Char.toUpper | char &rarr; char | "toUpper c" returns the uppercase letter corresponding to `c`, if `c` is a letter (a to z or A to Z); otherwise returns `c`. |
 | General.ignore | &alpha; &rarr; unit | "ignore x" always returns `unit`. The function evaluates its argument but throws away the value. |
 | General.op o | (&beta; &rarr; &gamma;) (&alpha; &rarr; &beta;) &rarr; &alpha; &rarr; &gamma; | "f o g" is the function composition of `f` and `g`. Thus, `(f o g) a` is equivalent to `f (g a)`. |
 | Int.op * | int * int &rarr; int | "i * j" is the product of `i` and `j`. It raises `Overflow` when the result is not representable. |
@@ -332,6 +359,7 @@ Exception:
 | Int.sign | int &rarr; int | "sign i" returns ~1, 0, or 1 when `i` is less than, equal to, or greater than 0, respectively. |
 | Int.toInt | int &rarr; int | "toInt i" converts a value from the default integer type to type `int`. Raises `Overflow` if the value does not fit. |
 | Int.toString | int &rarr; string | "toString i" converts a `int` into a `string`; equivalent to `(fmt StringCvt.DEC r)`. |
+| List.map | (&alpha; &rarr; &beta;) &rarr; &alpha; list &rarr; &beta; list | "map f l" applies `f` to each element of `l` from left to right, returning the list of results. |
 | List.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; list | "tabulate (n, f)" returns a list of length `n` equal to `[f(0), f(1), ..., f(n-1)]`, created from left to right. Raises `Size` if `n` &lt; 0. |
 | Option.app | (&alpha; &rarr; unit) &rarr; &alpha; option &rarr; unit | "app f opt" applies the function `f` to the value `v` if `opt` is `SOME v`, and otherwise does nothing. |
 | Option.compose | (&alpha; &rarr; &beta;) * (&gamma; &rarr; &alpha; option) &rarr; &gamma; &rarr; &beta; option | "compose (f, g) a" returns `NONE` if `g(a)` is `NONE`; otherwise, if `g(a)` is `SOME v`, it returns `SOME (f v)`. |
