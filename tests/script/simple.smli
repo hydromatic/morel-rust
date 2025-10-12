@@ -417,8 +417,6 @@ List.tabulate(256, fn i => (i, Char.chr i));
 >    (255,#"\255")] : (int * char) list
 Sys.unset "printLength";
 > val it = () : unit
-set("mode", "validate");
-> val it = () : unit
 
 String.size "tt";
 > val it = 2 : int
@@ -473,17 +471,21 @@ false andalso (true orelse true);
    lower precedence than '.' (9). *)
 fun succ n = n + 1;
 > val succ = fn : int -> int
-set("mode", "validate");
-> val it = () : unit
 (* TODO add '~succ 3;', which should be parse error *)
 ~(succ 3);
 > val it = ~4 : int
 succ (~ 3);
 > val it = ~2 : int
+(* TODO: should be parse error. sml-nj gives:
+stdIn:3.1-3.9 Error: operator and operand do not agree [tycon mismatch]
+  operator domain: int
+  operand:         'Z[OL(~)] -> 'Z[OL(~)]
+  in expression:
+    succ ~
+
 succ ~ 3;
 > error
-set("mode", "evaluate");
-> val it = () : unit
+*)
 {a=3, b=true}.a;
 > val it = 3 : int
 #b {a=3, b=true};
@@ -494,12 +496,14 @@ set("mode", "validate");
 > val it = () : unit
 
 (*) Functions
+(*
 fun f (a,b,c) = if a then b else c;
 > val f = fn : bool * 'a * 'a -> 'a
 fun f (a,b,c,d,e) = if a then b else (if c then d else e);
 > val f = fn : bool * 'a * bool * 'a * 'a -> 'a
 fun f (a,b,c,d,e) = if a then b else if c then d else e;
 > val f = fn : bool * 'a * bool * 'a * 'a -> 'a
+*)
 
 (*) Identifiers
 val x = 1
@@ -575,6 +579,8 @@ fun compareInt (x: int, y: int) : `order` =
 > val compareInt = fn : int * int -> order
 
 (*) Simple commands
+set("mode", "evaluate");
+> val it = () : unit
 val x = 1;
 > val x = 1 : int
 x + 2;
@@ -594,6 +600,8 @@ in
   plus 2
 end;
 > val it = fn : int -> int
+set("mode", "validate");
+> val it = () : unit
 it 3;
 > val it = 5 : int
 

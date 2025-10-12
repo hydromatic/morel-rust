@@ -15,8 +15,11 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::type_env::{EmptyTypeEnv, FunTypeEnv, TypeEnv};
+use crate::compile::type_env::{
+    BindType, EmptyTypeEnv, FunTypeEnv, SimpleTypeEnv, TypeEnv, TypeEnvBuilder,
+};
 use crate::compile::type_resolver::{Resolved, TypeResolver};
+use crate::compile::types::Type;
 use crate::eval::code::Code;
 use crate::eval::val::Val;
 use crate::shell::ShellResult;
@@ -24,6 +27,8 @@ use crate::shell::error::Error;
 use crate::shell::main::MorelError;
 use crate::shell::prop::{Configurable, Output, Prop, PropVal};
 use crate::syntax::ast::Statement;
+use crate::unify::unifier::Term;
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -36,7 +41,14 @@ pub struct Session {
     pub code: Option<Arc<Code>>,
     /// The output lines of the previous command.
     pub out: Option<Vec<String>>,
+    /// The accumulated type environment (bindings from previous statements).
+    pub type_env: Rc<dyn TypeEnv>,
+    // Debug ID to track session instances
+    // pub debug_id: usize,
 }
+
+// static SESSION_COUNTER: std::sync::atomic::AtomicUsize =
+//     std::sync::atomic::AtomicUsize::new(0);
 
 impl Default for Session {
     fn default() -> Self {
@@ -47,10 +59,17 @@ impl Default for Session {
 impl Session {
     /// Creates a session.
     pub fn new() -> Self {
+        // Initialize type environment with built-in functions
+        let empty_type_env = EmptyTypeEnv {};
+        let type_env = FunTypeEnv {
+            parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
+        };
         Session {
             config: Config::default(),
             code: None,
             out: None,
+            type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
+            // debug_id: id,
         }
     }
 
@@ -107,12 +126,40 @@ impl Session {
     /// Deduces a statement's type. The statement is represented by an AST node.
     pub fn deduce_type_inner(&mut self, node: &Statement) -> Resolved {
         let mut type_resolver = TypeResolver::new();
-        let empty_type_env = EmptyTypeEnv {};
-        let type_env = FunTypeEnv {
-            parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
-        };
 
-        type_resolver.deduce_type(&type_env, node)
+        // Use the accumulated type environment from previous statements
+        let resolved = type_resolver.deduce_type(&*self.type_env, node);
+
+        // Update the accumulated environment with new bindings from this
+        // statement. We need to convert the resolved types to terms using the
+        // NEW type_resolver (the one that will be used for the NEXT statement),
+        // so we accumulate binding information and will apply it when creating
+        // the next TypeResolver.
+        let mut new_bindings = Vec::new();
+        for binding in &resolved.bindings {
+            if binding.kind == crate::compile::type_resolver::BindingKind::Val {
+                // Store the binding with its type - we'll convert to term
+                // when the next TypeResolver is created.
+                // For now, use a TypeScheme to represent the type.
+                new_bindings.push((
+                    binding.name.clone(),
+                    binding.resolved_type.clone(),
+                ));
+            }
+        }
+
+        // Convert types to terms using a FreshTypeEnv that knows how to
+        // convert types on-demand
+        if !new_bindings.is_empty() {
+            let bindings_map: HashMap<String, Type> =
+                new_bindings.into_iter().collect();
+            self.type_env = Rc::new(ResolvedTypeEnv {
+                parent: self.type_env.clone(),
+                bindings: bindings_map,
+            }) as Rc<dyn TypeEnv>;
+        }
+
+        resolved
     }
 }
 
@@ -199,6 +246,65 @@ impl Configurable for Config {
                 }
             }
             _ => todo!("get: prop {}", prop.name()),
+        }
+    }
+}
+
+/// Type environment that stores resolved types from previous statements
+/// and converts them to terms on-demand.
+pub struct ResolvedTypeEnv {
+    pub parent: Rc<dyn TypeEnv>,
+    pub bindings: HashMap<String, Type>,
+}
+
+impl TypeEnv for ResolvedTypeEnv {
+    fn get(&self, name: &str, t: &mut TypeResolver) -> Option<BindType> {
+        if let Some(type_) = self.bindings.get(name) {
+            // Convert the type to a term using the current TypeResolver
+            let term = t.type_to_term(type_);
+            Some(BindType::Val(Term::Variable(term)))
+        } else {
+            self.parent.get(name, t)
+        }
+    }
+
+    fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
+        // We can't directly store a Term, so just create a new SimpleTypeEnv.
+        let mut bindings = HashMap::new();
+        bindings.insert(name, term);
+        Rc::new(SimpleTypeEnv {
+            parent: Rc::new(self.clone()),
+            bindings,
+        })
+    }
+
+    fn bind_all(&self, bindings: &[(String, Term)]) -> Rc<dyn TypeEnv> {
+        let binding_map = bindings.iter().cloned().collect();
+        Rc::new(SimpleTypeEnv {
+            parent: Rc::new(self.clone()),
+            bindings: binding_map,
+        })
+    }
+
+    fn builder(&self) -> TypeEnvBuilder {
+        // We need to return a builder based on THIS environment, not the
+        // parent. Since we can't directly create a TypeEnvBuilder (private
+        // field), we create an empty SimpleTypeEnv with self as parent, then
+        // get its builder.
+        let self_rc: Rc<dyn TypeEnv> = Rc::new(self.clone());
+        Rc::new(SimpleTypeEnv {
+            parent: self_rc,
+            bindings: HashMap::new(),
+        })
+        .builder()
+    }
+}
+
+impl Clone for ResolvedTypeEnv {
+    fn clone(&self) -> Self {
+        ResolvedTypeEnv {
+            parent: self.parent.clone(),
+            bindings: self.bindings.clone(),
         }
     }
 }

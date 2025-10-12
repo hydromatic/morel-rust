@@ -706,6 +706,9 @@ impl Action for ValDeclAction {
                         Val::new_typed(&id, v2.clone(), &p2.type_());
                     let _ = pretty.pretty(&mut line, &p2.type_(), &typed_val);
 
+                    let binding =
+                        Binding::of_name_value(id.as_str(), &Some(v2.clone()));
+                    r.emit_effect(Effect::AddBinding(binding));
                     r.emit_effect(Effect::EmitLine(line));
                 });
             }

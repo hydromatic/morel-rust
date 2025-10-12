@@ -340,11 +340,116 @@ impl TypeResolver {
             0
         };
 
+        // Extract bindings from the declaration
+        let mut bindings = Vec::new();
+        Self::collect_bindings_from_decl(&decl2, &type_map, &mut bindings);
+
         Resolved {
             decl: decl2,
             type_map,
-            bindings: Vec::new(), // TODO: populate bindings
+            bindings,
             base_line,
+        }
+    }
+
+    /// Collects bindings from a declaration.
+    fn collect_bindings_from_decl(
+        decl: &Decl,
+        type_map: &TypeMap,
+        bindings: &mut Vec<TypeBinding>,
+    ) {
+        match &decl.kind {
+            DeclKind::Val(_rec, _inst, val_binds) => {
+                for val_bind in val_binds {
+                    Self::collect_bindings_from_pat(
+                        &val_bind.pat,
+                        type_map,
+                        bindings,
+                    );
+                }
+            }
+            DeclKind::Fun(_fun_binds) => {
+                // Fun declarations are converted to Val declarations,
+                // so this shouldn't happen
+            }
+            _ => {
+                // Other declaration types don't create value bindings
+            }
+        }
+    }
+
+    /// Collects bindings from a pattern.
+    fn collect_bindings_from_pat(
+        pat: &Pat,
+        type_map: &TypeMap,
+        bindings: &mut Vec<TypeBinding>,
+    ) {
+        match &pat.kind {
+            PatKind::Identifier(name) => {
+                if let Some(id) = pat.id {
+                    if let Some(resolved_type) = type_map.get_type(id) {
+                        bindings.push(TypeBinding {
+                            name: name.clone(),
+                            resolved_type: *resolved_type,
+                            kind: BindingKind::Val,
+                        });
+                    }
+                }
+            }
+            PatKind::As(name, inner_pat) => {
+                // The 'as' pattern binds the name
+                if let Some(id) = pat.id {
+                    if let Some(resolved_type) = type_map.get_type(id) {
+                        bindings.push(TypeBinding {
+                            name: name.clone(),
+                            resolved_type: *resolved_type,
+                            kind: BindingKind::Val,
+                        });
+                    }
+                }
+                // Also collect from the inner pattern
+                Self::collect_bindings_from_pat(inner_pat, type_map, bindings);
+            }
+            PatKind::Tuple(pats) => {
+                for p in pats {
+                    Self::collect_bindings_from_pat(p, type_map, bindings);
+                }
+            }
+            PatKind::List(pats) => {
+                for p in pats {
+                    Self::collect_bindings_from_pat(p, type_map, bindings);
+                }
+            }
+            PatKind::Record(fields, _ellipsis) => {
+                for field in fields {
+                    match field {
+                        PatField::Labeled(_span, _name, p) => {
+                            Self::collect_bindings_from_pat(
+                                p, type_map, bindings,
+                            );
+                        }
+                        PatField::Anonymous(_span, p) => {
+                            Self::collect_bindings_from_pat(
+                                p, type_map, bindings,
+                            );
+                        }
+                        PatField::Ellipsis(_span) => {}
+                    }
+                }
+            }
+            PatKind::Cons(left, right) => {
+                Self::collect_bindings_from_pat(left, type_map, bindings);
+                Self::collect_bindings_from_pat(right, type_map, bindings);
+            }
+            PatKind::Annotated(inner_pat, _type) => {
+                Self::collect_bindings_from_pat(inner_pat, type_map, bindings);
+            }
+            PatKind::Constructor(_name, Some(inner_pat)) => {
+                Self::collect_bindings_from_pat(inner_pat, type_map, bindings);
+            }
+            _ => {
+                // Other patterns don't create bindings
+            }
         }
     }
 

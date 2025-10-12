@@ -26,7 +26,7 @@ use crate::compile::library::BuiltInExn;
 use crate::compile::resolver;
 use crate::compile::type_env::Binding;
 use crate::compile::type_resolver::Resolved;
-use crate::compile::types::Type;
+use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::{compiler, inliner, library};
 use crate::eval::code::{Effect, Span};
 use crate::eval::session::Config as SessionConfig;
@@ -400,6 +400,12 @@ impl Shell {
 
         let env = Env::empty();
         let mut map: BTreeMap<&str, (Type, Option<Val>)> = BTreeMap::new();
+        self.environment.bindings.iter().for_each(|(k, v)| {
+            map.insert(
+                k,
+                (Type::Primitive(PrimitiveType::Unit), Some(v.clone())),
+            );
+        });
         library::populate_env(&mut map);
         let env2 = env.multi(&map);
         let decl2 = inliner::inline_decl(&env2, &decl);
@@ -449,6 +455,14 @@ impl Shell {
                 }
             }
         }
+
+        // Add bindings to the runtime environment
+        for binding in bindings {
+            if let Some(value) = &binding.value {
+                self.environment.bind(binding.id.name.clone(), value);
+            }
+        }
+
         Ok(result)
     }
 

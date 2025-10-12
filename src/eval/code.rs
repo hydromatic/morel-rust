@@ -392,7 +392,9 @@ impl Code {
     fn supports_eval_mode(&self, mode: &EvalMode) -> bool {
         match self {
             // lint: sort until '#}' where '##Code::'
-            Code::Apply(_, _) => *mode == EvalMode::Eager0,
+            Code::Apply(_, _) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
             Code::ApplyClosure(_, _, _) => *mode == EvalMode::Eager0,
             Code::ApplyConstant(_, _) => *mode == EvalMode::Eager0,
             Code::Bind(_) => *mode == EvalMode::Eager0,
