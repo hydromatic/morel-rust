@@ -26,6 +26,7 @@ use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
 use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame, Impl};
 use crate::eval::frame::FrameDef;
+use crate::eval::order::Order;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::Shell;
@@ -33,6 +34,7 @@ use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::Environment;
 use crate::shell::prop::Prop;
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
@@ -465,17 +467,40 @@ impl<'a> Compiler<'a> {
                     // provided.
                     Code::new_native(impl_, &codes, span)
                 }
-                // Handle curried application of EV2 and E2 functions like
-                // String.map and String.isPrefix. Pattern:
-                //   (String.map f) s => String.map (f, s)
-                Expr::Apply(_, inner_f, first_arg, span) => {
-                    if let Expr::Literal(_t, Val::Fn(func)) = inner_f.as_ref()
+                // Handle curried application of EF3 functions like
+                // List.foldl. Pattern:
+                //   ((List.foldl f) init) list => List.foldl (f, init, list)
+                Expr::Apply(_, middle_f, second_arg, _) => {
+                    if let Expr::Apply(_, inner_f, first_arg, span) =
+                        middle_f.as_ref()
+                        && let Expr::Literal(_t, Val::Fn(func)) =
+                            inner_f.as_ref()
+                        && matches!(func.get_impl(), Impl::EF3(_))
+                    {
+                        // This is a curried call to an EF3 function.
+                        // Gather all three arguments.
+                        let arg1_code =
+                            Box::new(self.compile_arg(cx, first_arg));
+                        let arg2_code =
+                            Box::new(self.compile_arg(cx, second_arg));
+                        let arg3_code = Box::new(self.compile_arg(cx, a));
+                        return Code::new_native(
+                            func.get_impl(),
+                            &[arg1_code, arg2_code, arg3_code],
+                            span,
+                        );
+                    }
+
+                    // Handle curried application of EV2 and E2 functions like
+                    // String.map and String.isPrefix. Pattern:
+                    //   (String.map f) s => String.map (f, s)
+                    if let Expr::Literal(_t, Val::Fn(func)) = middle_f.as_ref()
                         && matches!(func.get_impl(), Impl::EF2(_) | Impl::E2(_))
                     {
                         // This is a curried call to an EF2 or E2 function.
                         // Gather both arguments.
                         let arg1_code =
-                            Box::new(self.compile_arg(cx, first_arg));
+                            Box::new(self.compile_arg(cx, second_arg));
                         let arg2_code = Box::new(self.compile_arg(cx, a));
                         return Code::new_native(
                             func.get_impl(),
@@ -586,14 +611,21 @@ impl<'a> Compiler<'a> {
                 Code::new_list(&codes)
             }
             Expr::Literal(type_, val) => {
-                if let Val::Fn(f) = val
-                    && f.is_constructor()
-                    && *f == BuiltInFunction::OptionNone
-                {
-                    Code::new_constant(type_, Val::Unit)
-                } else {
-                    Code::new_constant(type_, val.clone())
-                }
+                // Convert zero-argument constructors to their values
+                let val2 = match val {
+                    Val::Fn(BuiltInFunction::OptionNone) => Val::Unit,
+                    Val::Fn(BuiltInFunction::OrderLess) => {
+                        Val::Order(Order(Ordering::Less))
+                    }
+                    Val::Fn(BuiltInFunction::OrderEqual) => {
+                        Val::Order(Order(Ordering::Equal))
+                    }
+                    Val::Fn(BuiltInFunction::OrderGreater) => {
+                        Val::Order(Order(Ordering::Greater))
+                    }
+                    _ => val.clone(),
+                };
+                Code::new_constant(type_, val2.clone())
             }
             Expr::RecordSelector(t, slot) => {
                 let (record_type, _) = t.expect_fn();

@@ -1189,10 +1189,7 @@ impl MorelParser {
                         t,
                         |acc, t2| {
                             let span = acc.span.union(&t2.span);
-                            let type_args = match &acc.kind {
-                                TypeKind::Tuple(types) => types.clone(),
-                                _ => vec![acc.clone()],
-                            };
+                            let type_args = vec![acc.clone()];
                         TypeKind::App(type_args, Box::new(t2.clone()))
                             .spanned(&span)
                     }

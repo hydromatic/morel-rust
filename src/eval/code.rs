@@ -26,11 +26,13 @@ use crate::eval::int::Int;
 use crate::eval::list::List;
 use crate::eval::math::Math;
 use crate::eval::option::Opt;
+use crate::eval::order::Order;
 use crate::eval::real::Real;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::val::Val;
 use crate::shell::main::{MorelError, Shell};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::iter::zip;
@@ -701,6 +703,22 @@ impl Code {
         // All matches succeeded. Return true.
         Ok(Val::Bool(true))
     }
+
+    fn write_codes(
+        f: &mut Formatter,
+        prefix: &str,
+        codes: &[Code],
+        suffix: &str,
+    ) -> std::fmt::Result {
+        write!(f, "{}", prefix)?;
+        for (i, code) in codes.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", code)?;
+        }
+        write!(f, "{}", suffix)
+    }
 }
 
 fn code_or_span(codes: &[Box<Code>], span: &Span, n: usize) -> Box<Code> {
@@ -718,8 +736,19 @@ fn code_or_span(codes: &[Box<Code>], span: &Span, n: usize) -> Box<Code> {
 impl Display for Code {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Code::BindLiteral(v) => write!(f, "{}", v),
-            Code::Constant(_, v) => match v {
+            // lint: sort until '#}' where '##Self::'
+            Self::ApplyConstant(fn_code, arg_code) => {
+                write!(f, "apply(fn {} arg {})", fn_code, arg_code)
+            }
+            Self::Bind(v) => write!(f, "bind({} = {})", v.0, v.1),
+            Self::BindLiteral(v) => write!(f, "{}", v),
+            Self::BindSlot(_, slot) => write!(f, "bind({})", slot),
+            Self::BindTuple(codes) => {
+                Self::write_codes(f, "bindTuple(", codes, ")")
+            }
+            Self::BindWildcard => write!(f, "_"),
+            Self::Case(codes) => Self::write_codes(f, "case(", codes, ")"),
+            Self::Constant(_, v) => match v {
                 Val::Char(c) => write!(f, "constant({})", c),
                 Val::Fn(fun) => write!(f, "constant({})", fun.full_name()),
                 Val::Real(x) => write!(f, "constant({})", x),
@@ -727,7 +756,7 @@ impl Display for Code {
                 Val::Unit => write!(f, "constant([NONE])"),
                 _ => write!(f, "constant({})", v),
             },
-            Code::Fn(_, matches) => {
+            Self::Fn(_, matches) => {
                 write!(f, "fn(")?;
                 let mut first = true;
                 for (pat, expr) in matches {
@@ -740,10 +769,16 @@ impl Display for Code {
                 }
                 write!(f, ")")
             }
-            Code::Native1(eager, code0) => {
+            Self::GetLocal(_, slot) => write!(f, "get({})", slot),
+            Self::Let(codes, result_code) => {
+                Self::write_codes(f, "let(", codes, "")?;
+                write!(f, " in {})", result_code)
+            }
+            Self::Link(slot, name) => write!(f, "link({}, {})", slot, name),
+            Self::Native1(eager, code0) => {
                 write!(f, "apply(fnValue {}, argCode {})", eager.plan(), code0)
             }
-            Code::Native2(eager, code0, code1) => {
+            Self::Native2(eager, code0, code1) => {
                 write!(
                     f,
                     "apply2(fnValue {}, {}, {})",
@@ -752,7 +787,7 @@ impl Display for Code {
                     code1,
                 )
             }
-            Code::NativeF2(eager, code0, code1) => {
+            Self::NativeF2(eager, code0, code1) => {
                 write!(
                     f,
                     "apply2(fnValue {}, {}, {})",
@@ -761,7 +796,7 @@ impl Display for Code {
                     code1,
                 )
             }
-            Code::NativeF3(eager, code0, code1, code2) => {
+            Self::NativeF3(eager, code0, code1, code2) => {
                 write!(
                     f,
                     "apply(fnValue {}, argCode tuple({}, {}, {}))",
@@ -771,7 +806,7 @@ impl Display for Code {
                     code2
                 )
             }
-            Code::NativeF4(eager, code0, code1, code2, code3) => {
+            Self::NativeF4(eager, code0, code1, code2, code3) => {
                 write!(
                     f,
                     "apply(fnValue {}, argCode tuple({}, {}, {}, {}))",
@@ -782,26 +817,7 @@ impl Display for Code {
                     code3
                 )
             }
-            Code::Tuple(codes) => {
-                write!(f, "tuple")?;
-                for code in codes {
-                    write!(f, "{}, ", code)?;
-                }
-                Ok(())
-            }
-            Code::BindSlot(_, slot) => write!(f, "bind({})", slot),
-            Code::BindWildcard => write!(f, "_"),
-            Code::Case(codes) => {
-                write!(f, "case(")?;
-                for (i, code) in codes.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", code)?;
-                }
-                write!(f, ")")
-            }
-            Code::GetLocal(_, slot) => write!(f, "get({})", slot),
+            Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
             _ => todo!("fmt: {:?}", self),
         }
     }
@@ -1014,9 +1030,9 @@ impl Eager0 {
             MathE => Val::Real(Math::E),
             MathPi => Val::Real(Math::PI),
             OptionNone => Val::Unit,
-            OrderEqual => Val::Int(0),
-            OrderGreater => Val::Int(1),
-            OrderLess => Val::Int(-1),
+            OrderEqual => Val::Order(Order(Ordering::Equal)),
+            OrderGreater => Val::Order(Order(Ordering::Greater)),
+            OrderLess => Val::Order(Order(Ordering::Less)),
             RealMaxFinite => Val::Real(f32::MAX),
             RealMinNormalPos => Val::Real(f32::MIN_POSITIVE),
             // Smallest denormalized positive (2^-149)
@@ -1155,6 +1171,11 @@ pub enum Eager1 {
     IntToInt,
     IntToLarge,
     IntToString,
+    ListConcat,
+    ListGetItem,
+    ListLength,
+    ListNull,
+    ListRev,
     MathAcos,
     MathAsin,
     MathAtan,
@@ -1243,6 +1264,11 @@ impl Eager1 {
             IntToInt => a0,
             IntToLarge => a0,
             IntToString => Val::String(Int::_to_string(a0.expect_int())),
+            ListConcat => Val::List(List::concat(a0.expect_list())),
+            ListGetItem => List::get_item(a0.expect_list()),
+            ListLength => Val::Int(List::length(a0.expect_list())),
+            ListNull => Val::Bool(List::null(a0.expect_list())),
+            ListRev => Val::List(List::rev(a0.expect_list())),
             MathAcos => Val::Real(Math::acos(a0.expect_real())),
             MathAsin => Val::Real(Math::asin(a0.expect_real())),
             MathAtan => Val::Real(Math::atan(a0.expect_real())),
@@ -1339,8 +1365,12 @@ pub enum Eager2 {
     IntRem,
     IntSameSign,
     IntTimes,
+    ListAt,
+    ListExcept,
+    ListIntersect,
     ListOpAt,
     ListOpCons,
+    ListRevAppend,
     MathAtan2,
     MathPow,
     OptionGetOpt,
@@ -1446,10 +1476,22 @@ impl Eager2 {
                 Val::Bool((n1 >= 0 && n2 >= 0) || (n1 < 0 && n2 < 0))
             }
             IntTimes => Val::Int(a0.expect_int() * a1.expect_int()),
+            ListAt => {
+                Val::List(List::append(a0.expect_list(), a1.expect_list()))
+            }
+            ListExcept => {
+                Val::List(List::except(a0.expect_list(), a1.expect_list()))
+            }
+            ListIntersect => {
+                Val::List(List::intersect(a0.expect_list(), a1.expect_list()))
+            }
             ListOpAt => {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
             ListOpCons => Val::List(List::cons(&a0, a1.expect_list())),
+            ListRevAppend => {
+                Val::List(List::rev_append(a0.expect_list(), a1.expect_list()))
+            }
             MathAtan2 => {
                 let y = a0.expect_real();
                 let x = a1.expect_real();
@@ -1538,8 +1580,19 @@ pub enum EagerF2 {
     CharChr,
     CharPred,
     CharSucc,
+    ListAll,
+    ListApp,
+    ListCollate,
+    ListExists,
+    ListFilter,
+    ListFind,
+    ListHd,
+    ListLast,
     ListMap,
-    ListTabulate,
+    ListMapPartial,
+    ListMapi,
+    ListPartition,
+    ListTl,
     OptionApp,
     OptionCompose,
     OptionComposePartial,
@@ -1590,10 +1643,49 @@ impl EagerF2 {
             CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
             CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
             CharSucc => Char::succ(a0.expect_char(), &a1.expect_span()),
-            ListMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
-            ListTabulate => {
-                List::tabulate(r, f, a0.expect_int(), &a1.expect_code())
+            ListAll => Ok(Val::Bool(List::all(
+                r,
+                f,
+                &a0.expect_code(),
+                a1.expect_list(),
+            )?)),
+            ListApp => {
+                List::app(r, f, &a0.expect_code(), a1.expect_list())?;
+                Ok(Val::Unit)
             }
+            ListCollate => {
+                let tuple = a1.expect_list();
+                let list1 = tuple[0].expect_list();
+                let list2 = tuple[1].expect_list();
+                Ok(Val::Order(List::collate(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    list1,
+                    list2,
+                )?))
+            }
+            ListExists => Ok(Val::Bool(List::exists(
+                r,
+                f,
+                &a0.expect_code(),
+                a1.expect_list(),
+            )?)),
+            ListFilter => {
+                List::filter(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            ListFind => List::find(r, f, &a0.expect_code(), a1.expect_list()),
+            ListHd => List::hd(a0.expect_list(), &a1.expect_span()),
+            ListLast => List::last(a0.expect_list(), &a1.expect_span()),
+            ListMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
+            ListMapPartial => {
+                List::map_partial(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            ListMapi => List::mapi(r, f, &a0.expect_code(), a1.expect_list()),
+            ListPartition => {
+                List::partition(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            ListTl => List::tl(a0.expect_list(), &a1.expect_span()),
             OptionApp => Opt::app(r, f, &a0, &a1),
             OptionCompose => {
                 let tuple = a0.expect_list();
@@ -1666,6 +1758,12 @@ impl EagerF2 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum EagerF3 {
     // lint: sort until '#}'
+    ListDrop,
+    ListFoldl,
+    ListFoldr,
+    ListNth,
+    ListTabulate,
+    ListTake,
     RealCompare,
     StringSub,
 }
@@ -1685,8 +1783,8 @@ impl EagerF3 {
     #[allow(clippy::needless_pass_by_value)]
     fn apply(
         &self,
-        _r: &mut EvalEnv,
-        _f: &mut Frame,
+        r: &mut EvalEnv,
+        f: &mut Frame,
         a0: Val,
         a1: Val,
         a2: Val,
@@ -1695,6 +1793,28 @@ impl EagerF3 {
         use crate::eval::code::EagerF3::*;
 
         match &self {
+            ListDrop => {
+                List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
+            }
+            ListFoldl => {
+                List::foldl(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            ListFoldr => {
+                List::foldr(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            ListNth => {
+                List::nth(a0.expect_list(), a1.expect_int(), &a2.expect_span())
+            }
+            ListTabulate => List::tabulate(
+                r,
+                f,
+                a0.expect_int(),
+                &a1.expect_code(),
+                &a2.expect_span(),
+            ),
+            ListTake => {
+                List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
+            }
             RealCompare => Real::compare(
                 a0.expect_real(),
                 a1.expect_real(),
@@ -2033,11 +2153,37 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::IntToInt.implements(&mut b, IntToInt);
     Eager1::IntToLarge.implements(&mut b, IntToLarge);
     Eager1::IntToString.implements(&mut b, IntToString);
+    EagerF2::ListAll.implements(&mut b, ListAll);
+    EagerF2::ListApp.implements(&mut b, ListApp);
+    Eager2::ListAt.implements(&mut b, ListAt);
+    EagerF2::ListCollate.implements(&mut b, ListCollate);
+    Eager1::ListConcat.implements(&mut b, ListConcat);
+    EagerF3::ListDrop.implements(&mut b, ListDrop);
+    Eager2::ListExcept.implements(&mut b, ListExcept);
+    EagerF2::ListExists.implements(&mut b, ListExists);
+    EagerF2::ListFilter.implements(&mut b, ListFilter);
+    EagerF2::ListFind.implements(&mut b, ListFind);
+    EagerF3::ListFoldl.implements(&mut b, ListFoldl);
+    EagerF3::ListFoldr.implements(&mut b, ListFoldr);
+    Eager1::ListGetItem.implements(&mut b, ListGetItem);
+    EagerF2::ListHd.implements(&mut b, ListHd);
+    Eager2::ListIntersect.implements(&mut b, ListIntersect);
+    EagerF2::ListLast.implements(&mut b, ListLast);
+    Eager1::ListLength.implements(&mut b, ListLength);
     EagerF2::ListMap.implements(&mut b, ListMap);
+    EagerF2::ListMapPartial.implements(&mut b, ListMapPartial);
+    EagerF2::ListMapi.implements(&mut b, ListMapi);
     Eager0::ListNil.implements(&mut b, ListNil);
+    EagerF3::ListNth.implements(&mut b, ListNth);
+    Eager1::ListNull.implements(&mut b, ListNull);
     Eager2::ListOpAt.implements(&mut b, ListOpAt);
     Eager2::ListOpCons.implements(&mut b, ListOpCons);
-    EagerF2::ListTabulate.implements(&mut b, ListTabulate);
+    EagerF2::ListPartition.implements(&mut b, ListPartition);
+    Eager1::ListRev.implements(&mut b, ListRev);
+    Eager2::ListRevAppend.implements(&mut b, ListRevAppend);
+    EagerF3::ListTabulate.implements(&mut b, ListTabulate);
+    EagerF3::ListTake.implements(&mut b, ListTake);
+    EagerF2::ListTl.implements(&mut b, ListTl);
     Eager1::MathAcos.implements(&mut b, MathAcos);
     Eager1::MathAsin.implements(&mut b, MathAsin);
     Eager1::MathAtan.implements(&mut b, MathAtan);

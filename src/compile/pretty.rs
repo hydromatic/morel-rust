@@ -603,7 +603,7 @@ impl Pretty {
             Val::Some(v) => {
                 self.pretty_raw(buf, indent, line_end, depth, "SOME ")?;
                 return self
-                    .pretty1(buf, indent, line_end, depth, &BOOL, v, 0, 0);
+                    .pretty1(buf, indent, line_end, depth, &args[0], v, 0, 0);
             }
             Val::Unit => {
                 if name == "option" {
@@ -685,34 +685,6 @@ impl Pretty {
 
         match type_ref {
             // lint: sort until '#}' where '##Type::'
-            Type::Data(name, arg_types) => {
-                const OP: Op = Op::APPLY;
-                let mut buf2 = String::new();
-                match arg_types.len() {
-                    0 => {}
-                    1 => {
-                        let t = Val::new_type("", &arg_types[0]);
-                        self.pretty1(
-                            buf, indent2, line_end, depth, &BOOL, &t, 0, 0,
-                        )?;
-                        buf2.push(' ');
-                    }
-                    _ => {
-                        let mut prefix = "(";
-                        for arg_type in arg_types {
-                            let t = Val::new_type(prefix, arg_type);
-                            self.pretty1(
-                                buf, indent2, line_end, depth, &BOOL, &t, 0, 0,
-                            )?;
-                            prefix = ", ";
-                        }
-                        buf2.push(')');
-                        buf2.push(' ');
-                    }
-                }
-                append_id(&mut buf2, name.as_str());
-                self.pretty_raw(buf, indent2, line_end, depth, buf2.as_str())
-            }
             Type::Fn(param_type, result_type) => {
                 const OP: Op = Op::FN;
                 let v_param = Val::new_type("", param_type);
@@ -737,11 +709,13 @@ impl Pretty {
                 left,
                 right,
             ),
-            Type::Named(args, name) => {
+            Type::Named(args, name) | Type::Data(name, args) => {
+                const OP: Op = Op::APPLY;
                 if args.len() == 1 {
                     let v_arg = Val::new_type("", &args[0]);
                     self.pretty1(
-                        buf, indent2, line_end, depth, &BOOL, &v_arg, left, 0,
+                        buf, indent2, line_end, depth, &BOOL, &v_arg, left,
+                        OP.right,
                     )?;
                     buf.push(' ');
                 } else if args.len() > 1 {

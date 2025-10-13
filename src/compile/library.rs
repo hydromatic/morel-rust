@@ -274,21 +274,104 @@ pub enum BuiltInFunction {
     IntToLarge,
     #[strum(props(p = "Int", name = "toString", type = "int -> string"))]
     IntToString,
+    #[strum(props(p = "List", name = "all"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a list -> bool"))]
+    ListAll,
+    #[strum(props(p = "List", name = "app", global = true))]
+    #[strum(props(type = "forall 1 ('a -> unit) -> 'a list -> unit"))]
+    ListApp,
+    #[strum(props(p = "List", name = "at"))]
+    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    ListAt,
+    #[strum(props(p = "List", name = "collate"))]
+    #[strum(props(
+        type = "forall 1 ('a * 'a -> `order`) -> 'a list * 'a list -> \
+                `order`"
+    ))]
+    ListCollate,
+    #[strum(props(p = "List", name = "concat"))]
+    #[strum(props(type = "forall 1 'a list list -> 'a list"))]
+    ListConcat,
+    #[strum(props(p = "List", name = "drop", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
+    ListDrop,
+    #[strum(props(p = "List", name = "except"))]
+    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    ListExcept,
+    #[strum(props(p = "List", name = "exists"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a list -> bool"))]
+    ListExists,
+    #[strum(props(p = "List", name = "filter"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a list -> 'a list"))]
+    ListFilter,
+    #[strum(props(p = "List", name = "find"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a list -> 'a option"))]
+    ListFind,
+    #[strum(props(p = "List", name = "foldl", global = true))]
+    #[strum(props(type = "forall 2 ('a * 'b -> 'b) -> 'b -> 'a list -> 'b"))]
+    ListFoldl,
+    #[strum(props(p = "List", name = "foldr", global = true))]
+    #[strum(props(type = "forall 2 ('a * 'b -> 'b) -> 'b -> 'a list -> 'b"))]
+    ListFoldr,
+    #[strum(props(p = "List", name = "getItem"))]
+    #[strum(props(type = "forall 1 'a list -> ('a * 'a list) option"))]
+    ListGetItem,
+    #[strum(props(p = "List", name = "hd", global = true, throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a list -> 'a"))]
+    ListHd,
+    #[strum(props(p = "List", name = "intersect"))]
+    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    ListIntersect,
+    #[strum(props(p = "List", name = "last", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a list -> 'a"))]
+    ListLast,
+    #[strum(props(p = "List", name = "length", global = true))]
+    #[strum(props(type = "forall 1 'a list -> int"))]
+    ListLength,
     #[strum(props(p = "List", name = "map", global = true))]
     #[strum(props(type = "forall 2 ('a -> 'b) -> 'a list -> 'b list"))]
     ListMap,
+    #[strum(props(p = "List", name = "mapPartial"))]
+    #[strum(props(type = "forall 2 ('a -> 'b option) -> 'a list -> 'b list"))]
+    ListMapPartial,
+    #[strum(props(p = "List", name = "mapi"))]
+    #[strum(props(type = "forall 2 (int * 'a -> 'b) -> 'a list -> 'b list"))]
+    ListMapi,
     #[strum(props(p = "List", name = "nil", global = true))]
     #[strum(props(type = "forall 1 'a list", constructor = true))]
     ListNil,
+    #[strum(props(p = "List", name = "nth", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a list * int -> 'a"))]
+    ListNth,
+    #[strum(props(p = "List", name = "null", global = true))]
+    #[strum(props(type = "forall 1 'a list -> bool"))]
+    ListNull,
     #[strum(props(p = "List", name = "op @", global = true))]
     #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
     ListOpAt,
     #[strum(props(p = "List", name = "op ::", global = true))]
     #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
     ListOpCons,
-    #[strum(props(p = "List", name = "tabulate"))]
+    #[strum(props(p = "List", name = "partition"))]
+    #[strum(props(
+        type = "forall 1 ('a -> bool) -> 'a list -> 'a list * 'a list"
+    ))]
+    ListPartition,
+    #[strum(props(p = "List", name = "rev", global = true))]
+    #[strum(props(type = "forall 1 'a list -> 'a list"))]
+    ListRev,
+    #[strum(props(p = "List", name = "revAppend"))]
+    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    ListRevAppend,
+    #[strum(props(p = "List", name = "tabulate", throws = "Size"))]
     #[strum(props(type = "forall 1 int * (int -> 'a) -> 'a list"))]
     ListTabulate,
+    #[strum(props(p = "List", name = "take", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
+    ListTake,
+    #[strum(props(p = "List", name = "tl", global = true, throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a list -> 'a list"))]
+    ListTl,
     #[strum(props(p = "Math", name = "acos", type = "real -> real"))]
     MathAcos,
     #[strum(props(p = "Math", name = "asin", type = "real -> real"))]
@@ -668,10 +751,14 @@ pub enum BuiltInExn {
     Div,
     #[strum(props(p = "General", explain = "domain error"))]
     Domain,
+    #[strum(props(p = "List"))]
+    Empty,
     #[strum(props(p = "Option"))]
     Option,
     #[strum(props(p = "General", explain = "overflow"))]
     Overflow,
+    #[strum(props(p = "General"))]
+    Size,
     #[strum(props(p = "General", explain = "subscript out of bounds"))]
     Subscript,
     #[strum(props(p = "IEEEReal"))]

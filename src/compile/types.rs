@@ -174,13 +174,17 @@ impl Type {
                 write!(f, " list")
             }
             Type::Named(args, name) | Type::Data(name, args) => {
-                const OP: Op = Op::LIST;
                 if args.len() == 1 {
-                    args.first().unwrap().describe(f, left, OP.left)?;
+                    // For single type argument, use APPLY precedence
+                    const OP: Op = Op::APPLY;
+                    args.first().unwrap().describe(f, left, OP.right)?;
+                    write!(f, " {}", name)
                 } else {
+                    // For multiple type arguments, use LIST precedence
+                    const OP: Op = Op::LIST;
                     Self::describe_list(args, f, &OP, left, right)?;
+                    write!(f, " {}", name)
                 }
-                write!(f, " {}", name)
             }
             Type::Primitive(p) => f.write_str(p.as_str()),
             Type::Record(progressive, fields) => {

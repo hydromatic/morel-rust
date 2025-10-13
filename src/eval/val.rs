@@ -244,6 +244,7 @@ impl Display for Val {
                 }
                 write!(f, "]")
             }
+            Val::Order(o) => write!(f, "{}", o.name()),
             Val::Raw(s) => write!(f, "{}", s),
             Val::Real(r) => {
                 // Use Real.toString to format real values

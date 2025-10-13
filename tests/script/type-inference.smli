@@ -258,4 +258,10 @@ in
 end;
 > val it : int list
 
+(*) Parameterized type with a tuple as its argument.
+:t fn opt => case opt of
+     NONE => NONE
+   | SOME (x, [y]) => SOME (y ^ "!", x + 1);
+> val it : (int * string list) option -> (string * int) option
+
 (*) End type-inference.smli
