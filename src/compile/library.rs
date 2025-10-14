@@ -249,6 +249,63 @@ pub enum BuiltInFunction {
     CharToString,
     #[strum(props(p = "Char", name = "toUpper", type = "char -> char"))]
     CharToUpper,
+    #[strum(props(p = "Either", name = "app"))]
+    #[strum(props(
+        type = "forall 2 ('a -> unit) * ('b -> unit) -> ('a,'b) either -> unit"
+    ))]
+    EitherApp,
+    #[strum(props(p = "Either", name = "appLeft"))]
+    #[strum(props(type = "forall 2 ('a -> unit) -> ('a,'b) either -> unit"))]
+    EitherAppLeft,
+    #[strum(props(p = "Either", name = "appRight"))]
+    #[strum(props(type = "forall 2 ('a -> unit) -> ('b,'a) either -> unit"))]
+    EitherAppRight,
+    #[strum(props(p = "Either", name = "asLeft"))]
+    #[strum(props(type = "forall 2 ('a,'b) either -> 'a option"))]
+    EitherAsLeft,
+    #[strum(props(p = "Either", name = "asRight"))]
+    #[strum(props(type = "forall 2 ('a,'b) either -> 'b option"))]
+    EitherAsRight,
+    #[strum(props(p = "Either", name = "fold"))]
+    #[strum(props(
+        type = "forall 3 ('a * 'c -> 'c) * ('b * 'c -> 'c) -> 'c -> ('a,'b) \
+        either -> 'c"
+    ))]
+    EitherFold,
+    #[strum(props(name = "INL", global = true))]
+    #[strum(props(type = "forall 2 'a -> ('a,'b) either", constructor = true))]
+    EitherInl,
+    #[strum(props(name = "INR", global = true))]
+    #[strum(props(type = "forall 2 'b -> ('a,'b) either", constructor = true))]
+    EitherInr,
+    #[strum(props(p = "Either", name = "isLeft"))]
+    #[strum(props(type = "forall 2 ('a,'b) either -> bool"))]
+    EitherIsLeft,
+    #[strum(props(p = "Either", name = "isRight"))]
+    #[strum(props(type = "forall 2 ('a,'b) either -> bool"))]
+    EitherIsRight,
+    #[strum(props(p = "Either", name = "map"))]
+    #[strum(props(
+        type = "forall 4 ('a -> 'c) * ('b -> 'd) -> ('a,'b) either -> \
+        ('c,'d) either"
+    ))]
+    EitherMap,
+    #[strum(props(p = "Either", name = "mapLeft"))]
+    #[strum(props(
+        type = "forall 3 ('a -> 'c) -> ('a,'b) either -> ('c,'b) either"
+    ))]
+    EitherMapLeft,
+    #[strum(props(p = "Either", name = "mapRight"))]
+    #[strum(props(
+        type = "forall 3 ('a -> 'c) -> ('b,'a) either -> ('b,'c) either"
+    ))]
+    EitherMapRight,
+    #[strum(props(p = "Either", name = "partition"))]
+    #[strum(props(type = "forall 2 ('a,'b) either list -> 'a list * 'b list"))]
+    EitherPartition,
+    #[strum(props(p = "Either", name = "proj"))]
+    #[strum(props(type = "forall 1 ('a,'a) either -> 'a"))]
+    EitherProj,
     #[strum(props(name = "op =", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GOpEq,
@@ -856,6 +913,8 @@ pub enum BuiltInRecord {
     Bool,
     #[strum(props(name = "Char"))]
     Char,
+    #[strum(props(name = "Either"))]
+    Either,
     #[strum(props(name = "General"))]
     General,
     #[strum(props(name = "Int"))]

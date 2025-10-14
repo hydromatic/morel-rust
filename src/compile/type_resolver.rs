@@ -122,10 +122,25 @@ impl<'a> TermToTypeConverter<'a> {
     fn term_type(&mut self, term: &Term) -> Box<Type> {
         match term {
             Term::Sequence(sequence) => match sequence.op.name.as_str() {
+                // lint: sort until '#}' where '##["]'
+                "bag" => {
+                    assert_eq!(sequence.terms.len(), 1);
+                    let type_ = self.term_type(&sequence.terms[0]);
+                    Box::new(Type::Bag(type_))
+                }
                 "bool" | "char" | "int" | "real" | "string" | "unit" => {
                     let primitive_type =
                         PrimitiveType::parse_name(&sequence.op.name).unwrap();
                     Box::new(Type::Primitive(primitive_type))
+                }
+                "either" => {
+                    assert_eq!(sequence.terms.len(), 2);
+                    let arg1 = *self.term_type(&sequence.terms[0]);
+                    let arg2 = *self.term_type(&sequence.terms[1]);
+                    Box::new(Type::Data(
+                        sequence.op.name.clone(),
+                        vec![arg1, arg2],
+                    ))
                 }
                 "fn" => {
                     assert_eq!(sequence.terms.len(), 2);
@@ -137,11 +152,6 @@ impl<'a> TermToTypeConverter<'a> {
                     assert_eq!(sequence.terms.len(), 1);
                     let type_ = self.term_type(&sequence.terms[0]);
                     Box::new(Type::List(type_))
-                }
-                "bag" => {
-                    assert_eq!(sequence.terms.len(), 1);
-                    let type_ = self.term_type(&sequence.terms[0]);
-                    Box::new(Type::Bag(type_))
                 }
                 "option" => {
                     assert_eq!(sequence.terms.len(), 1);
@@ -1437,6 +1447,18 @@ impl TypeResolver {
                     let v2 = self.variable();
                     self.type_term(&arguments[0], subst, &v2);
                     self.bag_term(Term::Variable(v2), v);
+                } else if name == "either" {
+                    assert_eq!(arguments.len(), 2);
+                    // Either requires a tuple of the two type arguments
+                    let v1 = self.variable();
+                    self.type_term(&arguments[0], subst, &v1);
+                    let v2 = self.variable();
+                    self.type_term(&arguments[1], subst, &v2);
+                    let op = self.unifier.op("either", Some(2));
+                    let sequence = self
+                        .unifier
+                        .apply(op, &[Term::Variable(v1), Term::Variable(v2)]);
+                    self.equiv(&Term::Sequence(sequence), v);
                 } else {
                     let mut terms = Vec::new();
                     for argument in arguments {
@@ -1976,10 +1998,11 @@ impl<'a> TypeToTermConverter<'a> {
                 if let TypeKind::Id(name) = t.kind.clone() {
                     let mut terms = Vec::new();
                     let mut args2 = Vec::new();
-                    for arg in args {
+                    let flat_args = AstType::flatten(args);
+                    for arg in flat_args {
                         let v2 = self.type_resolver.variable();
                         terms.push(Term::Variable(v2.clone()));
-                        let arg2 = self.type_term(arg, subst, &v2);
+                        let arg2 = self.type_term(&arg, subst, &v2);
                         args2.push(arg2);
                     }
                     let op = self

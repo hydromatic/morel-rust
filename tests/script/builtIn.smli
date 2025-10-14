@@ -778,8 +778,6 @@ Bool.toString false;
 > val it = "false" : string
 
 (* Either ------------------------------------------------------ *)
-set("mode", "validate");
-> val it = () : unit
 Either;
 > val it =
 >   {app=fn,appLeft=fn,appRight=fn,asLeft=fn,asRight=fn,fold=fn,isLeft=fn,
@@ -879,6 +877,9 @@ Either.partition [yes, ten];
 > val it = ([true],[10]) : bool list * int list
 
 (* Fn ---------------------------------------------------------- *)
+set("mode", "validate");
+> val it = () : unit
+
 Fn;
 > val it =
 >   {apply=fn,const=fn,curry=fn,equal=fn,flip=fn,id=fn,notEqual=fn,`op o`=fn,

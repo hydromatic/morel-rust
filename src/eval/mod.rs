@@ -19,6 +19,7 @@
 pub mod bool;
 pub mod char;
 pub mod code;
+pub mod either;
 pub mod frame;
 pub mod int;
 pub mod list;

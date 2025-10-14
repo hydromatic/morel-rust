@@ -21,6 +21,7 @@ use crate::compile::type_parser;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::bool::Bool;
 use crate::eval::char::Char;
+use crate::eval::either::Either;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
@@ -1169,6 +1170,14 @@ pub enum Eager1 {
     CharToLower,
     CharToString,
     CharToUpper,
+    EitherAsLeft,
+    EitherAsRight,
+    EitherInl,
+    EitherInr,
+    EitherIsLeft,
+    EitherIsRight,
+    EitherPartition,
+    EitherProj,
     GeneralIgnore,
     IntAbs,
     IntFromInt,
@@ -1267,6 +1276,14 @@ impl Eager1 {
             CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
             CharToString => Val::String(Char::to_string(a0.expect_char())),
             CharToUpper => Val::Char(Char::to_upper(a0.expect_char())),
+            EitherAsLeft => Either::as_left(&a0),
+            EitherAsRight => Either::as_right(&a0),
+            EitherInl => Val::Inl(Box::new(a0)),
+            EitherInr => Val::Inr(Box::new(a0)),
+            EitherIsLeft => Val::Bool(Either::is_left(&a0)),
+            EitherIsRight => Val::Bool(Either::is_right(&a0)),
+            EitherPartition => Either::partition(a0.expect_list()),
+            EitherProj => Either::proj(&a0),
             GeneralIgnore => Val::Unit,
             IntAbs => Val::Int(a0.expect_int().abs()),
             IntFromInt => a0,
@@ -1614,6 +1631,12 @@ pub enum EagerF2 {
     CharChr,
     CharPred,
     CharSucc,
+    EitherApp,
+    EitherAppLeft,
+    EitherAppRight,
+    EitherMap,
+    EitherMapLeft,
+    EitherMapRight,
     LPAll,
     LPAllEq,
     LPApp,
@@ -1724,6 +1747,25 @@ impl EagerF2 {
             CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
             CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
             CharSucc => Char::succ(a0.expect_char(), &a1.expect_span()),
+            EitherApp => {
+                let tuple = a0.expect_list();
+                Either::app(r, f, &tuple[0], &tuple[1], &a1)?;
+                Ok(Val::Unit)
+            }
+            EitherAppLeft => {
+                Either::app_left(r, f, &a0.expect_code(), &a1)?;
+                Ok(Val::Unit)
+            }
+            EitherAppRight => {
+                Either::app_right(r, f, &a0.expect_code(), &a1)?;
+                Ok(Val::Unit)
+            }
+            EitherMap => {
+                let tuple = a0.expect_list();
+                Either::map(r, f, &tuple[0], &tuple[1], &a1)
+            }
+            EitherMapLeft => Either::map_left(r, f, &a0.expect_code(), &a1),
+            EitherMapRight => Either::map_right(r, f, &a0.expect_code(), &a1),
             LPAll => {
                 let tuple = a1.expect_list();
                 let result = ListPair::all(
@@ -1893,6 +1935,7 @@ pub enum EagerF3 {
     BagFold,
     BagTabulate,
     BagTake,
+    EitherFold,
     LPAppEq,
     LPFoldl,
     LPFoldr,
@@ -1948,6 +1991,10 @@ impl EagerF3 {
             ),
             BagTake => {
                 List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
+            }
+            EitherFold => {
+                let tuple = a0.expect_list();
+                Either::fold(r, f, &tuple[0], &tuple[1], &a1, &a2)
             }
             LPAppEq => {
                 let tuple = a1.expect_list();
@@ -2371,6 +2418,21 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::CharToLower.implements(&mut b, CharToLower);
     Eager1::CharToString.implements(&mut b, CharToString);
     Eager1::CharToUpper.implements(&mut b, CharToUpper);
+    EagerF2::EitherApp.implements(&mut b, EitherApp);
+    EagerF2::EitherAppLeft.implements(&mut b, EitherAppLeft);
+    EagerF2::EitherAppRight.implements(&mut b, EitherAppRight);
+    Eager1::EitherAsLeft.implements(&mut b, EitherAsLeft);
+    Eager1::EitherAsRight.implements(&mut b, EitherAsRight);
+    EagerF3::EitherFold.implements(&mut b, EitherFold);
+    Eager1::EitherInl.implements(&mut b, EitherInl);
+    Eager1::EitherInr.implements(&mut b, EitherInr);
+    Eager1::EitherIsLeft.implements(&mut b, EitherIsLeft);
+    Eager1::EitherIsRight.implements(&mut b, EitherIsRight);
+    EagerF2::EitherMap.implements(&mut b, EitherMap);
+    EagerF2::EitherMapLeft.implements(&mut b, EitherMapLeft);
+    EagerF2::EitherMapRight.implements(&mut b, EitherMapRight);
+    Eager1::EitherPartition.implements(&mut b, EitherPartition);
+    Eager1::EitherProj.implements(&mut b, EitherProj);
     Custom::GOpEq.implements(&mut b, GOpEq);
     Custom::GOpGe.implements(&mut b, GOpGe);
     Custom::GOpGt.implements(&mut b, GOpGt);

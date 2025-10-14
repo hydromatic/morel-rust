@@ -925,6 +925,16 @@ impl Display for Type {
                     .join(", ");
                 write!(f, "{}<{}>", t, args_str)
             }
+            TypeKind::Composite(types) => {
+                write!(f, "(")?;
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", t)?;
+                }
+                write!(f, ")")
+            }
             TypeKind::Con(name) => write!(f, "{}", name),
             TypeKind::Expression(expr) => write!(f, "<expr:{}>", expr),
             TypeKind::Fn(t1, t2) => write!(f, "({} -> {})", t1, t2),
@@ -967,6 +977,10 @@ pub enum TypeKind {
     /// type to `int`.
     App(Vec<Type>, Box<Type>),
     Expression(Box<Expr>),
+    /// `Composite(types)` is not really a type, just the argument to type
+    /// application. For example, `(int, string) either` comes out of the parser
+    /// as `App(Composite([int, string]), Id(either))`.
+    Composite(Vec<Type>),
 }
 
 impl TypeKind {
@@ -1092,6 +1106,27 @@ impl Type {
         Type {
             span: span.clone(),
             ..self.clone()
+        }
+    }
+
+    /// Expands any [TypeKind::Composite] types in the list to their
+    /// constituent types.
+    pub fn flatten(types: &[Type]) -> Vec<Type> {
+        let mut result = Vec::new();
+        Self::flatten_(types, &mut result);
+        result
+    }
+
+    fn flatten_(types: &[Type], flat_types: &mut Vec<Type>) {
+        for t in types {
+            match &t.kind {
+                TypeKind::Composite(types2) => {
+                    Self::flatten_(types2, flat_types);
+                }
+                _ => {
+                    flat_types.push(t.clone());
+                }
+            }
         }
     }
 }

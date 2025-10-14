@@ -1249,7 +1249,7 @@ impl MorelParser {
                 match types.len() {
                     0 => TypeKind::Unit.wrap(input),
                     1 => types[0].with_span(&input_to_span(&input)),
-                    _ => TypeKind::Tuple(types).wrap(input),
+                    _ => TypeKind::Composite(types).wrap(input),
                 }
             },
         ))

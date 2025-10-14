@@ -51,6 +51,12 @@ pub enum Val {
     /// value, `NONE`, is represented as [Val::Unit].)
     Some(Box<Val>),
 
+    /// `Inl(v)` represents the `Either` value `INL v`.
+    Inl(Box<Val>),
+
+    /// `Inr(v)` represents the `Either` value `INR v`.
+    Inr(Box<Val>),
+
     /// Wrapper that indicates that a value should be printed with its name
     /// and type.
     ///
@@ -223,6 +229,8 @@ impl Display for Val {
                 write!(f, "#\"{}\"", parser::string_to_string(&c.to_string()))
             }
             Val::Fn(func) => write!(f, "{:?}", func),
+            Val::Inl(v) => write!(f, "INL {}", v),
+            Val::Inr(v) => write!(f, "INR {}", v),
             Val::Int(i) => {
                 if *i < 0 {
                     let s = i.to_string();

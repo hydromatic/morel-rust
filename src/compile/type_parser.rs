@@ -52,8 +52,9 @@ impl TypeBuilder {
         Box::new(match &t.kind {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, base_type) => {
+                let flat_args = AstType::flatten(args);
                 let arg_types: Vec<Type> =
-                    args.iter().map(|t| *self.ast_to_type(t)).collect();
+                    flat_args.iter().map(|t| *self.ast_to_type(t)).collect();
                 let base = self.ast_to_type(base_type);
 
                 // Check if this is a list type application
@@ -62,6 +63,11 @@ impl TypeBuilder {
                         Type::List(Box::new(
                             arg_types.into_iter().next().unwrap(),
                         ))
+                    } else if name == "option" && args.len() == 1
+                        || name == "either" && args.len() == 2
+                        || name == "order" && args.is_empty()
+                    {
+                        Type::Data(name.clone(), arg_types)
                     } else {
                         Type::Named(arg_types, name.clone())
                     }

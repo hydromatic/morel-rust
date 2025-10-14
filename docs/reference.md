@@ -364,6 +364,19 @@ Exception:
 | Char.toLower | char &rarr; char | "toLower c" returns the lowercase letter corresponding to `c`, if `c` is a letter (a to z or A to Z); otherwise returns `c`. |
 | Char.toString | char &rarr; string | "toString c" converts a `char` into a `string`; equivalent to `(fmt StringCvt.ORD r)`. |
 | Char.toUpper | char &rarr; char | "toUpper c" returns the uppercase letter corresponding to `c`, if `c` is a letter (a to z or A to Z); otherwise returns `c`. |
+| Either.isLeft | ('left, 'right) either &rarr; bool | "isLeft sm" returns true if `sm` is a left value. |
+| Either.isRight | ('left, 'right) either &rarr; bool | "isRight sm" returns true if `sm` is a right value. |
+| Either.asLeft | ('left, 'right) either &rarr; 'left option | "asLeft sm" returns `SOME (x)` if `sm` is a left value with contents `x`, otherwise it returns `NONE`. |
+| Either.asRight | ('left, 'right) either &rarr; 'right option | "asRight sm" returns `SOME (x)` if `sm` is a right value with contents `x`, otherwise it returns `NONE`. |
+| Either.map | ('ldom -&gt; 'lrng) * ('rdom -&gt; 'rrng) -&gt; ('ldom, 'rdom) either -&gt; ('lrng, 'rrng) either | "map (fl, fr) sm" maps `fl` over the contents of left values and `fr` over the contents of right values. |
+| Either.mapLeft | ('ldom -&gt; 'lrng) -&gt; ('ldom, 'rdom) either -&gt; ('lrng, 'rdom) either | "mapLeft f sm" maps the function `f` over the contents of left values and acts as the identity on right values. |
+| Either.mapRight | ('rdom -&gt; 'rrng) -&gt; ('ldom, 'rdom) either -&gt; ('ldom, 'rrng) either | "mapRight f sm" maps the function `f` over the contents of right values and acts as the identity on left values. |
+| Either.app | ('left -&gt; unit) * ('right -&gt; unit) -&gt; ('left, 'right) either -&gt; unit | "app (fl, fr) sm" applies `fl` to the contents of left values and `fr` to the contents of right values. |
+| Either.appLeft | ('left -&gt; unit) -&gt; ('left, 'right) either -&gt; unit | "appLeft f sm" applies `f` to the contents of left values and ignores right values. |
+| Either.appRight | ('right -&gt; unit) -&gt; ('left, 'right) either -&gt; unit | "appRight f sm" applies `f` to the contents of right values and ignores left values. |
+| Either.fold | ('left * 'b -&gt; 'b) * ('right * 'b -&gt; 'b) -&gt; 'b -&gt; ('left, 'right) either -&gt; 'b | "fold (fl, fr) init sm" computes `fx (v, init)`, where `v` is the contents of `sm` and `fx` is either `fl` (if `sm` is a left value) or `fr` (if `sm` is a right value). |
+| Either.proj | ('a, 'a) either -&gt; 'a | "proj sm" projects out the contents of `sm`. |
+| Either.partition | ('left, 'right) either list -&gt; ('left list * 'right list) | "partition sms" partitions the list of sum values into a list of left values and a list of right values. |
 | General.ignore | &alpha; &rarr; unit | "ignore x" always returns `unit`. The function evaluates its argument but throws away the value. |
 | General.op o | (&beta; &rarr; &gamma;) (&alpha; &rarr; &beta;) &rarr; &alpha; &rarr; &gamma; | "f o g" is the function composition of `f` and `g`. Thus, `(f o g) a` is equivalent to `f (g a)`. |
 | Int.op * | int * int &rarr; int | "i * j" is the product of `i` and `j`. It raises `Overflow` when the result is not representable. |
