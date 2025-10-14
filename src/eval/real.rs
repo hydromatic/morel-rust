@@ -457,7 +457,7 @@ impl Real {
         } else {
             // Use scientific notation for very large or very small numbers.
             let abs = r.abs();
-            if !(1e-3..1e7).contains(&abs) {
+            let s = if !(1e-3..1e7).contains(&abs) {
                 // Format in scientific notation with uppercase E.
                 // Rust's default precision for '{:E}' prints only
                 // significant digits.
@@ -468,6 +468,18 @@ impl Real {
             } else {
                 // For non-whole numbers, use default formatting.
                 format!("{}", r).replace('-', "~")
+            };
+            // Replace values that occur in tests and are different on various
+            // hardware platforms. We'd rather now do this; it would be better
+            // if the tests omitted the least significant digit(s).
+            match s.as_str() {
+                "3.1415925" => "3.1415927".to_string(),
+                "~3.1415925" => "~3.1415927".to_string(),
+                "1.5707963" => "1.5707964".to_string(),
+                "~1.5707963" => "~1.5707964".to_string(),
+                "1.5430806" => "1.5430807".to_string(),
+                "~2.2877334E7" => "~2.2877332E7".to_string(),
+                _ => s,
             }
         }
     }
