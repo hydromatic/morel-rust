@@ -60,7 +60,7 @@ pub fn name_to_rec(id: &str) -> Option<BuiltInRecord> {
 /// [EnumProperty]) and are parsed and converted to terms on demand. This is a
 /// win when there are a lot of built-in operators.
 #[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
-#[repr(u8)]
+#[repr(u16)]
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInFunction {
     // lint: sort until '^}$' where '##[A-Z]'
@@ -352,6 +352,78 @@ pub enum BuiltInFunction {
     IntToLarge,
     #[strum(props(p = "Int", name = "toString", type = "int -> string"))]
     IntToString,
+    #[strum(props(p = "ListPair", name = "all"))]
+    #[strum(props(
+        type = "forall 2 ('a * 'b -> bool) -> 'a list * 'b list -> bool"
+    ))]
+    LPAll,
+    #[strum(props(p = "ListPair", name = "allEq"))]
+    #[strum(props(
+        type = "forall 2 ('a * 'b -> bool) -> 'a list * 'b list -> bool"
+    ))]
+    LPAllEq,
+    #[strum(props(p = "ListPair", name = "app"))]
+    #[strum(props(
+        type = "forall 2 ('a * 'b -> unit) -> 'a list * 'b list -> unit"
+    ))]
+    LPApp,
+    #[strum(props(p = "ListPair", name = "appEq", throws = "UnequalLengths"))]
+    #[strum(props(
+        type = "forall 2 ('a * 'b -> unit) -> 'a list * 'b list -> unit"
+    ))]
+    LPAppEq,
+    #[strum(props(p = "ListPair", name = "exists"))]
+    #[strum(props(
+        type = "forall 2 ('a * 'b -> bool) -> 'a list * 'b list -> bool"
+    ))]
+    LPExists,
+    #[strum(props(p = "ListPair", name = "foldl"))]
+    #[strum(props(
+        type = "forall 3 ('a * 'b * 'c -> 'c) -> 'c -> 'a list * 'b list -> 'c"
+    ))]
+    LPFoldl,
+    #[strum(props(
+        p = "ListPair",
+        name = "foldlEq",
+        throws = "UnequalLengths"
+    ))]
+    #[strum(props(
+        type = "forall 3 ('a * 'b * 'c -> 'c) -> 'c -> 'a list * 'b list -> 'c"
+    ))]
+    LPFoldlEq,
+    #[strum(props(p = "ListPair", name = "foldr"))]
+    #[strum(props(
+        type = "forall 3 ('a * 'b * 'c -> 'c) -> 'c -> 'a list * 'b list -> 'c"
+    ))]
+    LPFoldr,
+    #[strum(props(
+        p = "ListPair",
+        name = "foldrEq",
+        throws = "UnequalLengths"
+    ))]
+    #[strum(props(
+        type = "forall 3 ('a * 'b * 'c -> 'c) -> 'c -> 'a list * 'b list -> 'c"
+    ))]
+    LPFoldrEq,
+    #[strum(props(p = "ListPair", name = "map"))]
+    #[strum(props(
+        type = "forall 3 ('a * 'b -> 'c) -> 'a list * 'b list -> 'c list"
+    ))]
+    LPMap,
+    #[strum(props(p = "ListPair", name = "mapEq", throws = "UnequalLengths"))]
+    #[strum(props(
+        type = "forall 3 ('a * 'b -> 'c) -> 'a list * 'b list -> 'c list"
+    ))]
+    LPMapEq,
+    #[strum(props(p = "ListPair", name = "unzip"))]
+    #[strum(props(type = "forall 2 ('a * 'b) list -> 'a list * 'b list"))]
+    LPUnzip,
+    #[strum(props(p = "ListPair", name = "zip"))]
+    #[strum(props(type = "forall 2 'a list * 'b list -> ('a * 'b) list"))]
+    LPZip,
+    #[strum(props(p = "ListPair", name = "zipEq", throws = "UnequalLengths"))]
+    #[strum(props(type = "forall 2 'a list * 'b list -> ('a * 'b) list"))]
+    LPZipEq,
     #[strum(props(p = "List", name = "all"))]
     #[strum(props(type = "forall 1 ('a -> bool) -> 'a list -> bool"))]
     ListAll,
@@ -790,6 +862,8 @@ pub enum BuiltInRecord {
     Int,
     #[strum(props(name = "List"))]
     List,
+    #[strum(props(name = "ListPair"))]
+    ListPair,
     #[strum(props(name = "Math"))]
     Math,
     #[strum(props(name = "Option"))]
@@ -841,6 +915,8 @@ pub enum BuiltInExn {
     Size,
     #[strum(props(p = "General", explain = "subscript out of bounds"))]
     Subscript,
+    #[strum(props(p = "ListPair"))]
+    UnequalLengths,
     #[strum(props(p = "IEEEReal"))]
     Unordered,
 }
@@ -865,7 +941,7 @@ UNEQUAL_LENGTHS("ListPair", "UnequalLengths"),
  */
 
 /// Built-in function or record.
-#[repr(u8)]
+#[repr(u16)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum BuiltIn {
     Fn(BuiltInFunction),
@@ -905,10 +981,10 @@ impl BuiltIn {
         }
     }
 
-    pub(crate) fn key(&self) -> u8 {
+    pub(crate) fn key(&self) -> u16 {
         match self {
-            BuiltIn::Fn(f) => (*f as u8) + (BuiltInRecord::COUNT as u8),
-            BuiltIn::Record(r) => *r as u8,
+            BuiltIn::Fn(f) => (*f as u16) + (BuiltInRecord::COUNT as u16),
+            BuiltIn::Record(r) => *r as u16,
         }
     }
 }

@@ -24,6 +24,7 @@ use crate::eval::char::Char;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
+use crate::eval::list_pair::ListPair;
 use crate::eval::math::Math;
 use crate::eval::option::Opt;
 use crate::eval::order::Order;
@@ -1178,6 +1179,7 @@ pub enum Eager1 {
     IntToInt,
     IntToLarge,
     IntToString,
+    LPUnzip,
     ListConcat,
     ListGetItem,
     ListLength,
@@ -1278,6 +1280,7 @@ impl Eager1 {
             IntToInt => a0,
             IntToLarge => a0,
             IntToString => Val::String(Int::_to_string(a0.expect_int())),
+            LPUnzip => ListPair::unzip(a0.expect_list()),
             ListConcat => Val::List(List::concat(a0.expect_list())),
             ListGetItem => List::get_item(a0.expect_list()),
             ListLength => Val::Int(List::length(a0.expect_list())),
@@ -1380,6 +1383,7 @@ pub enum Eager2 {
     IntRem,
     IntSameSign,
     IntTimes,
+    LPZip,
     ListAt,
     ListExcept,
     ListIntersect,
@@ -1494,6 +1498,7 @@ impl Eager2 {
                 Val::Bool((n1 >= 0 && n2 >= 0) || (n1 < 0 && n2 < 0))
             }
             IntTimes => Val::Int(a0.expect_int() * a1.expect_int()),
+            LPZip => ListPair::zip(a0.expect_list(), a1.expect_list()),
             ListAt => {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
@@ -1609,6 +1614,11 @@ pub enum EagerF2 {
     CharChr,
     CharPred,
     CharSucc,
+    LPAll,
+    LPAllEq,
+    LPApp,
+    LPExists,
+    LPMap,
     ListAll,
     ListApp,
     ListCollate,
@@ -1714,6 +1724,56 @@ impl EagerF2 {
             CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
             CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
             CharSucc => Char::succ(a0.expect_char(), &a1.expect_span()),
+            LPAll => {
+                let tuple = a1.expect_list();
+                let result = ListPair::all(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                )?;
+                Ok(Val::Bool(result))
+            }
+            LPAllEq => {
+                let tuple = a1.expect_list();
+                let l1 = tuple[0].expect_list();
+                let l2 = tuple[1].expect_list();
+                let result = ListPair::all_eq(r, f, &a0.expect_code(), l1, l2)?;
+                Ok(Val::Bool(result))
+            }
+            LPApp => {
+                let tuple = a1.expect_list();
+                ListPair::app(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                )?;
+                Ok(Val::Unit)
+            }
+            LPExists => {
+                let tuple = a1.expect_list();
+                let result = ListPair::exists(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                )?;
+                Ok(Val::Bool(result))
+            }
+            LPMap => {
+                let tuple = a1.expect_list();
+                ListPair::map(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                )
+            }
             ListAll => Ok(Val::Bool(List::all(
                 r,
                 f,
@@ -1833,6 +1893,11 @@ pub enum EagerF3 {
     BagFold,
     BagTabulate,
     BagTake,
+    LPAppEq,
+    LPFoldl,
+    LPFoldr,
+    LPMapEq,
+    LPZipEq,
     ListDrop,
     ListFoldl,
     ListFoldr,
@@ -1884,6 +1949,18 @@ impl EagerF3 {
             BagTake => {
                 List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
+            LPAppEq => {
+                let tuple = a1.expect_list();
+                ListPair::app_eq(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    &a2.expect_span(),
+                )?;
+                Ok(Val::Unit)
+            }
             ListDrop => {
                 List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
@@ -1906,6 +1983,44 @@ impl EagerF3 {
             ListTake => {
                 List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
+            LPFoldl => {
+                let tuple = a2.expect_list();
+                ListPair::foldl(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    &a1,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                )
+            }
+            LPFoldr => {
+                let tuple = a2.expect_list();
+                ListPair::foldr(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    &a1,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                )
+            }
+            LPMapEq => {
+                let tuple = a1.expect_list();
+                ListPair::map_eq(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    &a2.expect_span(),
+                )
+            }
+            LPZipEq => ListPair::zip_eq(
+                a0.expect_list(),
+                a1.expect_list(),
+                &a2.expect_span(),
+            ),
             RealCompare => Real::compare(
                 a0.expect_real(),
                 a1.expect_real(),
@@ -1925,6 +2040,8 @@ impl EagerF3 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum EagerF4 {
     // lint: sort until '#}'
+    LPFoldlEq,
+    LPFoldrEq,
     StringExtract,
     StringSubstring,
 }
@@ -1944,8 +2061,8 @@ impl EagerF4 {
     #[allow(clippy::needless_pass_by_value)]
     fn apply(
         &self,
-        _r: &mut EvalEnv,
-        _f: &mut Frame,
+        r: &mut EvalEnv,
+        f: &mut Frame,
         a0: Val,
         a1: Val,
         a2: Val,
@@ -1955,7 +2072,34 @@ impl EagerF4 {
         use crate::eval::code::EagerF4::*;
 
         match &self {
+            LPFoldlEq => {
+                let span = a3.expect_span();
+                let tuple = a2.expect_list();
+                ListPair::foldl_eq(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    &a1,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    &span,
+                )
+            }
+            LPFoldrEq => {
+                let span = a3.expect_span();
+                let tuple = a2.expect_list();
+                ListPair::foldr_eq(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    &a1,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    &span,
+                )
+            }
             StringExtract => {
+                let span = a3.expect_span();
                 let s = a0.expect_string();
                 let i = a1.expect_int();
                 let j = match a2 {
@@ -1963,15 +2107,17 @@ impl EagerF4 {
                     Val::Some(v) => Some(v.expect_int()),
                     _ => panic!("Expected int option"),
                 };
-                let span = a3.expect_span();
                 Str::extract(&s, i, j, &span)
             }
-            StringSubstring => Str::substring(
-                &a0.expect_string(),
-                a1.expect_int(),
-                a2.expect_int(),
-                &a3.expect_span(),
-            ),
+            StringSubstring => {
+                let span = a3.expect_span();
+                Str::substring(
+                    &a0.expect_string(),
+                    a1.expect_int(),
+                    a2.expect_int(),
+                    &span,
+                )
+            }
         }
     }
 }
@@ -2268,6 +2414,20 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::IntToInt.implements(&mut b, IntToInt);
     Eager1::IntToLarge.implements(&mut b, IntToLarge);
     Eager1::IntToString.implements(&mut b, IntToString);
+    EagerF2::LPAll.implements(&mut b, LPAll);
+    EagerF2::LPAllEq.implements(&mut b, LPAllEq);
+    EagerF2::LPApp.implements(&mut b, LPApp);
+    EagerF3::LPAppEq.implements(&mut b, LPAppEq);
+    EagerF2::LPExists.implements(&mut b, LPExists);
+    EagerF3::LPFoldl.implements(&mut b, LPFoldl);
+    EagerF4::LPFoldlEq.implements(&mut b, LPFoldlEq);
+    EagerF3::LPFoldr.implements(&mut b, LPFoldr);
+    EagerF4::LPFoldrEq.implements(&mut b, LPFoldrEq);
+    EagerF2::LPMap.implements(&mut b, LPMap);
+    EagerF3::LPMapEq.implements(&mut b, LPMapEq);
+    Eager1::LPUnzip.implements(&mut b, LPUnzip);
+    Eager2::LPZip.implements(&mut b, LPZip);
+    EagerF3::LPZipEq.implements(&mut b, LPZipEq);
     EagerF2::ListAll.implements(&mut b, ListAll);
     EagerF2::ListApp.implements(&mut b, ListApp);
     Eager2::ListAt.implements(&mut b, ListAt);

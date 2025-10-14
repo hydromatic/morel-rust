@@ -471,7 +471,7 @@ impl<'a> Compiler<'a> {
                 // List.foldl. Pattern:
                 //   ((List.foldl f) init) list => List.foldl (f, init, list)
                 Expr::Apply(_, middle_f, second_arg, _) => {
-                    if let Expr::Apply(_, inner_f, first_arg, span) =
+                    if let Expr::Apply(_, inner_f, first_arg, _) =
                         middle_f.as_ref()
                         && let Expr::Literal(_t, Val::Fn(func)) =
                             inner_f.as_ref()
@@ -487,6 +487,48 @@ impl<'a> Compiler<'a> {
                         return Code::new_native(
                             func.get_impl(),
                             &[arg1_code, arg2_code, arg3_code],
+                            span,
+                        );
+                    }
+
+                    // Handle curried application of EF4 functions like
+                    // ListPair.foldlEq. Pattern:
+                    //   ((ListPair.foldlEq f) init) tuple =>
+                    //   ListPair.foldlEq (f, init, tuple)
+                    if let Expr::Apply(_, inner_f, first_arg, _) =
+                        middle_f.as_ref()
+                        && let Expr::Literal(_t, Val::Fn(func)) =
+                            inner_f.as_ref()
+                        && matches!(func.get_impl(), Impl::EF4(_))
+                    {
+                        // This is a curried call to an EF4 function.
+                        // Gather all three arguments.
+                        let arg1_code =
+                            Box::new(self.compile_arg(cx, first_arg));
+                        let arg2_code =
+                            Box::new(self.compile_arg(cx, second_arg));
+                        let arg3_code = Box::new(self.compile_arg(cx, a));
+                        return Code::new_native(
+                            func.get_impl(),
+                            &[arg1_code, arg2_code, arg3_code],
+                            span,
+                        );
+                    }
+
+                    // Handle curried application of 2-argument EF3 functions
+                    // like ListPair.allEq. Pattern:
+                    //   (ListPair.allEq f) tuple => ListPair.allEq (f, tuple)
+                    if let Expr::Literal(_t, Val::Fn(func)) = middle_f.as_ref()
+                        && matches!(func.get_impl(), Impl::EF3(_))
+                    {
+                        // This is a curried call to a 2-argument EF3 function.
+                        // Gather both arguments.
+                        let arg1_code =
+                            Box::new(self.compile_arg(cx, second_arg));
+                        let arg2_code = Box::new(self.compile_arg(cx, a));
+                        return Code::new_native(
+                            func.get_impl(),
+                            &[arg1_code, arg2_code],
                             span,
                         );
                     }

@@ -22,12 +22,10 @@ Sys.set ("printLength", 999);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
-set("mode", "validate");
-> val it = () : unit
 
 (* Until we have a real "print" function, we use "ignore" to
    suppress the output of expressions. *)
-fun print x = ignore x;
+fun print x = General.ignore x;
 > val print = fn : 'a -> unit
 
 (* Structures -------------------------------------------------- *)
@@ -1749,9 +1747,6 @@ Sys.plan ();
 >   : string
 
 (* ListPair ---------------------------------------------------- *)
-set("mode", "validate");
-> val it = () : unit
-
 (* The ListPair structure provides operations on pairs of lists. The
    operations fall into two categories. Those in the first category,
    whose names do not end in "Eq", do not require that the lists have
@@ -1990,8 +1985,6 @@ ListPair.zipEq ([], ["a", "b"]);
    is a NaN, the return value is a NaN. In a list of rules specifying
    the behavior of a function in special cases, the first matching
    rule defines the semantics. *)
-set("mode", "evaluate");
-> val it = () : unit
 
 (* "acos x" returns the arc cosine of x. acos is the inverse of cos.
    Its result is guaranteed to be in the closed interval [0, pi]. If
