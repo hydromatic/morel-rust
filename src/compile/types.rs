@@ -33,6 +33,9 @@ pub enum Type {
     /// `List(element_type)` represents the type `element_type list`.
     List(Box<Type>),
 
+    /// `Bag(element_type)` represents the type `element_type bag`.
+    Bag(Box<Type>),
+
     /// `Tuple(args)` represents the type `arg0 * ... * argN`.
     Tuple(Vec<Type>),
     Variable(TypeVariable),
@@ -152,6 +155,16 @@ impl Type {
         match self {
             // lint: sort until '#}' where '##Type::'
             Type::Alias(name, _, _) => f.write_str(name),
+            Type::Bag(elem_type) => {
+                const OP: Op = Op::APPLY;
+                if left > OP.left || right > OP.right {
+                    write!(f, "(")?;
+                    self.describe(f, 0, 0)?;
+                    return write!(f, ")");
+                }
+                elem_type.describe(f, left, OP.right)?;
+                write!(f, " bag")
+            }
             Type::Fn(param, result) => {
                 const OP: Op = Op::FN;
                 if left > OP.left || right > OP.right {

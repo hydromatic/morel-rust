@@ -64,6 +64,84 @@ pub fn name_to_rec(id: &str) -> Option<BuiltInRecord> {
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInFunction {
     // lint: sort until '^}$' where '##[A-Z]'
+    /// `bag` is a synonym for `Bag.fromList`
+    #[strum(props(name = "bag", global = true))]
+    #[strum(props(type = "forall 1 'a list -> 'a bag"))]
+    Bag,
+    #[strum(props(p = "Bag", name = "all"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a bag -> bool"))]
+    BagAll,
+    #[strum(props(p = "Bag", name = "app"))]
+    #[strum(props(type = "forall 1 ('a -> unit) -> 'a bag -> unit"))]
+    BagApp,
+    #[strum(props(p = "Bag", name = "at"))]
+    #[strum(props(type = "forall 1 'a bag * 'a bag -> 'a bag"))]
+    BagAt,
+    #[strum(props(p = "Bag", name = "collate"))]
+    #[strum(props(
+        type = "forall 1 ('a * 'a -> `order`) -> 'a bag * 'a bag -> \
+                `order`"
+    ))]
+    BagCollate,
+    #[strum(props(p = "Bag", name = "concat"))]
+    #[strum(props(type = "forall 1 'a bag list -> 'a bag"))]
+    BagConcat,
+    #[strum(props(p = "Bag", name = "drop", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a bag * int -> 'a bag"))]
+    BagDrop,
+    #[strum(props(p = "Bag", name = "exists"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a bag -> bool"))]
+    BagExists,
+    #[strum(props(p = "Bag", name = "filter"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a bag -> 'a bag"))]
+    BagFilter,
+    #[strum(props(p = "Bag", name = "find"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a bag -> 'a option"))]
+    BagFind,
+    #[strum(props(p = "Bag", name = "fold"))]
+    #[strum(props(type = "forall 2 ('a * 'b -> 'b) -> 'b -> 'a bag -> 'b"))]
+    BagFold,
+    #[strum(props(p = "Bag", name = "fromList"))]
+    #[strum(props(type = "forall 1 'a list -> 'a bag"))]
+    BagFromList,
+    #[strum(props(p = "Bag", name = "getItem"))]
+    #[strum(props(type = "forall 1 'a bag -> ('a * 'a bag) option"))]
+    BagGetItem,
+    #[strum(props(p = "Bag", name = "hd", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a"))]
+    BagHd,
+    #[strum(props(p = "Bag", name = "length"))]
+    #[strum(props(type = "forall 1 'a bag -> int"))]
+    BagLength,
+    #[strum(props(p = "Bag", name = "map"))]
+    #[strum(props(type = "forall 2 ('a -> 'b) -> 'a bag -> 'b bag"))]
+    BagMap,
+    #[strum(props(p = "Bag", name = "mapPartial"))]
+    #[strum(props(type = "forall 2 ('a -> 'b option) -> 'a bag -> 'b bag"))]
+    BagMapPartial,
+    #[strum(props(p = "Bag", name = "nil", global = true))]
+    #[strum(props(type = "forall 1 'a bag", constructor = true))]
+    BagNil,
+    #[strum(props(p = "Bag", name = "null"))]
+    #[strum(props(type = "forall 1 'a bag -> bool"))]
+    BagNull,
+    #[strum(props(p = "Bag", name = "partition"))]
+    #[strum(props(
+        type = "forall 1 ('a -> bool) -> 'a bag -> 'a bag * 'a bag"
+    ))]
+    BagPartition,
+    #[strum(props(p = "Bag", name = "tabulate", throws = "Size"))]
+    #[strum(props(type = "forall 1 int * (int -> 'a) -> 'a bag"))]
+    BagTabulate,
+    #[strum(props(p = "Bag", name = "take", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a bag * int -> 'a bag"))]
+    BagTake,
+    #[strum(props(p = "Bag", name = "tl", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a bag"))]
+    BagTl,
+    #[strum(props(p = "Bag", name = "toList"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a list"))]
+    BagToList,
     #[strum(props(p = "Bool", name = "op andalso", global = true))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolAndAlso,
@@ -700,6 +778,8 @@ impl BuiltInFunction {
 #[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
 pub enum BuiltInRecord {
     // lint: sort until '^}$' where '##[A-Z]'
+    #[strum(props(name = "Bag"))]
+    Bag,
     #[strum(props(name = "Bool"))]
     Bool,
     #[strum(props(name = "Char"))]
@@ -878,7 +958,10 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
                             None
                         } else if let Type::Fn(_, _) = t {
                             Some(Val::Fn(*f))
-                        } else if f == &BuiltInFunction::ListNil {
+                        } else if f == &BuiltInFunction::ListNil
+                            || f == &BuiltInFunction::BagNil
+                        {
+                            // Both List.nil and Bag.nil are empty Val::List
                             Some(Val::List(Vec::new()))
                         } else {
                             None

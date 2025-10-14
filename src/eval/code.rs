@@ -1138,6 +1138,13 @@ impl EagerF1 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum Eager1 {
     // lint: sort until '#}'
+    Bag,
+    BagConcat,
+    BagFromList,
+    BagGetItem,
+    BagLength,
+    BagNull,
+    BagToList,
     BoolOpNot,
     BoolToString,
     CharFromCString,
@@ -1228,6 +1235,13 @@ impl Eager1 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            Bag => a0, // as BagFromList
+            BagConcat => Val::List(List::concat(a0.expect_list())),
+            BagFromList => a0, // Already a Val::List
+            BagGetItem => List::get_item(a0.expect_list()),
+            BagLength => Val::Int(List::length(a0.expect_list())),
+            BagNull => Val::Bool(List::null(a0.expect_list())),
+            BagToList => a0, // Already a Val::List
             BoolOpNot => Val::Bool(Bool::not(a0.expect_bool())),
             BoolToString => Val::String(Bool::to_string(a0.expect_bool())),
             CharFromCString => Char::from_c_string(&a0.expect_string()),
@@ -1333,6 +1347,7 @@ impl Eager1 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum Eager2 {
     // lint: sort until '#}'
+    BagAt,
     BoolAndAlso,
     BoolImplies,
     BoolOpEq,
@@ -1421,6 +1436,9 @@ impl Eager2 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            BagAt => {
+                Val::List(List::append(a0.expect_list(), a1.expect_list()))
+            }
             BoolAndAlso => Val::Bool(a0.expect_bool() && a1.expect_bool()),
             BoolImplies => {
                 Val::Bool(Bool::implies(a0.expect_bool(), a1.expect_bool()))
@@ -1577,6 +1595,17 @@ impl Eager2 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum EagerF2 {
     // lint: sort until '#}'
+    BagAll,
+    BagApp,
+    BagCollate,
+    BagExists,
+    BagFilter,
+    BagFind,
+    BagHd,
+    BagMap,
+    BagMapPartial,
+    BagPartition,
+    BagTl,
     CharChr,
     CharPred,
     CharSucc,
@@ -1640,6 +1669,48 @@ impl EagerF2 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            // Bag functions use List implementations
+            BagAll => Ok(Val::Bool(List::all(
+                r,
+                f,
+                &a0.expect_code(),
+                a1.expect_list(),
+            )?)),
+            BagApp => {
+                List::app(r, f, &a0.expect_code(), a1.expect_list())?;
+                Ok(Val::Unit)
+            }
+            BagCollate => {
+                let tuple = a1.expect_list();
+                let bag1 = tuple[0].expect_list();
+                let bag2 = tuple[1].expect_list();
+                Ok(Val::Order(List::collate(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    bag1,
+                    bag2,
+                )?))
+            }
+            BagExists => Ok(Val::Bool(List::exists(
+                r,
+                f,
+                &a0.expect_code(),
+                a1.expect_list(),
+            )?)),
+            BagFilter => {
+                List::filter(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            BagFind => List::find(r, f, &a0.expect_code(), a1.expect_list()),
+            BagHd => List::hd(a0.expect_list(), &a1.expect_span()),
+            BagMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
+            BagMapPartial => {
+                List::map_partial(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            BagPartition => {
+                List::partition(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            BagTl => List::tl(a0.expect_list(), &a1.expect_span()),
             CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
             CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
             CharSucc => Char::succ(a0.expect_char(), &a1.expect_span()),
@@ -1758,6 +1829,10 @@ impl EagerF2 {
 #[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
 pub enum EagerF3 {
     // lint: sort until '#}'
+    BagDrop,
+    BagFold,
+    BagTabulate,
+    BagTake,
     ListDrop,
     ListFoldl,
     ListFoldr,
@@ -1793,6 +1868,22 @@ impl EagerF3 {
         use crate::eval::code::EagerF3::*;
 
         match &self {
+            BagDrop => {
+                List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
+            }
+            BagFold => {
+                List::foldl(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            BagTabulate => List::tabulate(
+                r,
+                f,
+                a0.expect_int(),
+                &a1.expect_code(),
+                &a2.expect_span(),
+            ),
+            BagTake => {
+                List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
+            }
             ListDrop => {
                 List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
@@ -2064,6 +2155,30 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
 
     let mut b: LibBuilder = Default::default();
     // lint: sort until '^$' erase '^.*, '
+    Eager1::Bag.implements(&mut b, Bag);
+    EagerF2::BagAll.implements(&mut b, BagAll);
+    EagerF2::BagApp.implements(&mut b, BagApp);
+    Eager2::BagAt.implements(&mut b, BagAt);
+    EagerF2::BagCollate.implements(&mut b, BagCollate);
+    Eager1::BagConcat.implements(&mut b, BagConcat);
+    EagerF3::BagDrop.implements(&mut b, BagDrop);
+    EagerF2::BagExists.implements(&mut b, BagExists);
+    EagerF2::BagFilter.implements(&mut b, BagFilter);
+    EagerF2::BagFind.implements(&mut b, BagFind);
+    EagerF3::BagFold.implements(&mut b, BagFold);
+    Eager1::BagFromList.implements(&mut b, BagFromList);
+    Eager1::BagGetItem.implements(&mut b, BagGetItem);
+    EagerF2::BagHd.implements(&mut b, BagHd);
+    Eager1::BagLength.implements(&mut b, BagLength);
+    EagerF2::BagMap.implements(&mut b, BagMap);
+    EagerF2::BagMapPartial.implements(&mut b, BagMapPartial);
+    Eager0::ListNil.implements(&mut b, BagNil);
+    Eager1::BagNull.implements(&mut b, BagNull);
+    EagerF2::BagPartition.implements(&mut b, BagPartition);
+    EagerF3::BagTabulate.implements(&mut b, BagTabulate);
+    EagerF3::BagTake.implements(&mut b, BagTake);
+    EagerF2::BagTl.implements(&mut b, BagTl);
+    Eager1::BagToList.implements(&mut b, BagToList);
     Eager2::BoolAndAlso.implements(&mut b, BoolAndAlso);
     Eager0::BoolFalse.implements(&mut b, BoolFalse);
     Eager3::BoolIf.implements(&mut b, BoolIf);

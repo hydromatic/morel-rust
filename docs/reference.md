@@ -305,6 +305,31 @@ Exception:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
+| Bag.nil | &alpha; bag | "nil" is the empty bag. |
+| Bag.null | &alpha; bag &rarr; bool | "null b" returns `true` if the bag `b` is empty. |
+| Bag.fromList | &alpha; list &rarr; &alpha; bag | "fromList l" creates a new bag from `l`, whose length is `length l` and whose elements are the same as those of `l`. Raises `Size` if `maxLen` &lt; `n`. |
+| Bag.toList | &alpha; bag &rarr; &alpha; list | "toList b" creates a new bag from `b`, whose length is `length b` and whose elements are the same as those of `b`. Raises `Size` if `maxLen` &lt; `n`. |
+| Bag.length | &alpha; bag &rarr; int | "length b" returns the number of elements in the bag `b`. |
+| Bag.at | &alpha; bag * &alpha; bag &rarr; &alpha; bag | "at (b1, b2)" returns the bag that is the concatenation of `b1` and `b2`. |
+| Bag.hd | &alpha; bag &rarr; &alpha; | "hd b" returns an arbitrary element of bag `b`. Raises `Empty` if `b` is `nil`. |
+| Bag.tl | &alpha; bag &rarr; &alpha; bag | "tl b" returns all but one arbitrary element of bag `b`. Raises `Empty` if `b` is `nil`. |
+| Bag.getItem | &alpha; bag &rarr; * (&alpha; * &alpha; bag) option | "getItem b" returns `NONE` if the bag `b` is empty, and `SOME (hd b, tl b)` otherwise (applying `hd` and `tl` simultaneously so that they choose/remove the same arbitrary element). |
+| Bag.take | &alpha; bag * int &rarr; &alpha; bag | "take (b, i)" returns an arbitrary `i` elements of the bag `b`. Raises `Subscript` if `i` &lt; 0 or `i` &gt; `length l`. We have `take(b, length b)` = `b`. |
+| Bag.drop | &alpha; bag * int &rarr; &alpha; bag | "drop (b, i)" returns what is left after dropping an arbitrary `i` elements of the bag `b`. Raises `Subscript` if `i` &lt; 0 or `i` &gt; `length l`.<br><br>We have `drop(b, length b)` = `[]`. |
+| Bag.concat | &alpha; bag bag &rarr; &alpha; bag | "concat b" returns the bag that is the concatenation of all the bags in `b`. |
+| Bag.app | (&alpha; &rarr; unit) &rarr; &alpha; bag &rarr; unit | "app f b" applies `f` to the elements of `b`. |
+| Bag.map | (&alpha; &rarr; &beta;) &rarr; &alpha; bag &rarr; &beta; bag | "map f b" applies `f` to each element of `b`, returning the bag of results. This is equivalent to:  <pre>fromList (List.map f (foldr (fn (a,l) =&gt; a::l) [] b))</pre> |
+| Bag.mapPartial | (&alpha; &rarr; &beta; option) &rarr; &alpha; bag &rarr; &beta; bag | "mapPartial f b" applies `f` to each element of `b`, returning a bag of results, with `SOME` stripped, where `f` was defined. `f` is not defined for an element of `b` if `f` applied to the element returns `NONE`. The above expression is equivalent to:  <pre>((map valOf) o (filter isSome) o (map f)) b`</pre> |
+| Bag.find | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; &alpha; option | "find f b" applies `f` to each element `x` of the bag `b`, in arbitrary order, until `f x` evaluates to `true`. It returns `SOME (x)` if such an `x` exists; otherwise it returns `NONE`. |
+| Bag.filter | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; &alpha; bag | "filter f b" applies `f` to each element `x` of `b` and returns the bag of those `x` for which `f x` evaluated to `true`. |
+| Bag.partition | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; &alpha; bag * &alpha; bag | "partition f b" applies `f` to each element `x` of `b`, in arbitrary order, and returns a pair `(pos, neg)` where `pos` is the bag of those `x` for which `f x` evaluated to `true`, and `neg` is the bag of those for which `f x` evaluated to `false`. |
+| Bag.fold | (&alpha; * &beta; &rarr; &beta;) &rarr; &beta; &rarr; &alpha; bag &rarr; &beta; | "fold f init (bag \[x1, x2, ..., xn\])" returns `f(xn, ... , f(x2, f(x1, init))...)` (for some arbitrary reordering of the elements `xi`) or `init` if the bag is empty. |
+| Bag.exists | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; bool | "exists f b" applies `f` to each element `x` of the bag `b`, in arbitrary order, until `f(x)` evaluates to `true`; it returns `true` if such an `x` exists and `false` otherwise. |
+| Bag.all | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; bool | "all f b" applies `f` to each element `x` of the bag `b`, in arbitrary order, until `f(x)` evaluates to `false`; it returns `false` if such an `x` exists and `true` otherwise. It is equivalent to `not(exists (not o f) b))`. |
+| Bag.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; bag | "tabulate (n, f)" returns a bag of length `n` equal to `[f(0), f(1), ..., f(n-1)]`. This is equivalent to the expression:  <pre>fromList (List.tabulate (n, f))</pre>  Raises `Size` if `n` &lt; 0. |
+| Bag.collate | (&alpha; * &alpha; &rarr; order) &rarr; &alpha; bag * &alpha; bag &rarr; order | "collate f (l1, l2)" performs lexicographic comparison of the two bags using the given ordering `f` on the bag elements. |
+| Bool.not | bool &rarr; bool | "not b" returns the logical inverse of `b`. |
+| Bool.op implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
 | Bool.not | bool &rarr; bool | "not b" returns the logical negation of the boolean value `b`. |
 | Bool.op implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
 | Bool.toString | bool &rarr; string | "toString b" returns the string representation of `b`, either "true" or "false". |

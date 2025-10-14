@@ -41,6 +41,7 @@ impl Type {
     fn is_collection(&self) -> bool {
         match &self {
             Type::List(_) => true,
+            Type::Bag(_) => true,
             Type::Data(name, _) => name == "bag",
             _ => false,
         }
@@ -56,6 +57,7 @@ impl Type {
     fn arg(&self, index: usize) -> Option<&Type> {
         match self {
             Type::List(inner) if index == 0 => Some(inner),
+            Type::Bag(inner) if index == 0 => Some(inner),
             Type::Data(_name, args) => args.get(index),
             _ => None,
         }
@@ -65,6 +67,7 @@ impl Type {
         match &self {
             // lint: sort until '#}' where '##Type::'
             Type::Alias(_, _, _) => "alias".to_string(),
+            Type::Bag(_) => "bag".to_string(),
             Type::Data(name, _) => name.clone(),
             Type::Fn(_, _) => "function".to_string(),
             Type::Forall(_, _) => "forall".to_string(),
@@ -342,6 +345,16 @@ impl Pretty {
 
         match current_type {
             // lint: sort until '#}' where '##Type::'
+            Type::Bag(element_type) => {
+                self.print_list(
+                    buf,
+                    indent,
+                    line_end,
+                    depth,
+                    element_type,
+                    value.expect_list(),
+                )?;
+            }
             Type::Data(name, arg_types) => {
                 self.pretty_data_type(
                     buf, indent, line_end, depth, name, arg_types, value,
@@ -685,6 +698,17 @@ impl Pretty {
 
         match type_ref {
             // lint: sort until '#}' where '##Type::'
+            Type::Bag(element_type) => self.pretty_collection_type(
+                buf,
+                indent2,
+                line_end,
+                depth,
+                type_ref,
+                "bag",
+                element_type,
+                left,
+                right,
+            ),
             Type::Fn(param_type, result_type) => {
                 const OP: Op = Op::FN;
                 let v_param = Val::new_type("", param_type);
@@ -900,6 +924,7 @@ impl TypeVarRenumberer {
                 Box::new(self.visit(type_)),
                 self.visit_list(args.as_slice()),
             ),
+            Type::Bag(inner) => Type::Bag(Box::new(self.visit(inner))),
             Type::Data(name, args) => {
                 Type::Data(name.clone(), self.visit_list(args.as_slice()))
             }

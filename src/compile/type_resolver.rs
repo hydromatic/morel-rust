@@ -138,6 +138,11 @@ impl<'a> TermToTypeConverter<'a> {
                     let type_ = self.term_type(&sequence.terms[0]);
                     Box::new(Type::List(type_))
                 }
+                "bag" => {
+                    assert_eq!(sequence.terms.len(), 1);
+                    let type_ = self.term_type(&sequence.terms[0]);
+                    Box::new(Type::Bag(type_))
+                }
                 "option" => {
                     assert_eq!(sequence.terms.len(), 1);
                     let args = vec![*self.term_type(&sequence.terms[0])];
@@ -1420,6 +1425,11 @@ impl TypeResolver {
                 // After type inference is complete, we can deduce the true type
                 // bottom-up. Thus, '[1: t]' has "t list" as its type.
                 self.type_term(&type_, subst, v)
+            }
+            Type::Bag(element_type) => {
+                let v2 = self.variable();
+                self.type_term(element_type, subst, &v2);
+                self.bag_term(Term::Variable(v2), v);
             }
             Type::Data(name, arguments) => {
                 if name == "bag" {

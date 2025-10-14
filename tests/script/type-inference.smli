@@ -264,4 +264,9 @@ end;
    | SOME (x, [y]) => SOME (y ^ "!", x + 1);
 > val it : (int * string list) option -> (string * int) option
 
+:t bag [1, 2];
+> val it : int bag
+:t Bag.concat [bag [1, 2], bag.nil];
+> val it : int bag
+
 (*) End type-inference.smli

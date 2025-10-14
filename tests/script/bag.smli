@@ -18,8 +18,6 @@
  *
  * Bags vs lists, and relational operators between the two
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printDepth", 6);
@@ -29,9 +27,11 @@ Sys.set ("printLength", 64);
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
+(*
 useSilently "scott.smli";
 > [opening scott.smli]
 > val it = () : unit
+*)
 
 (*) constants
 bag [1,2,3];
@@ -45,6 +45,8 @@ bag [[1],[2],[3]];
 
 (*) check that we get good error messages when we apply a list function to
 (*) a bag, and vice versa
+set("mode", "validate");
+> val it = () : unit
 String.size 1;
 > 0.0-0.0 Error: Cannot deduce type: conflict: int vs string
 >   raised at: 0.0-0.0
@@ -58,6 +60,8 @@ List.length Bag.nil;
 Bag.length List.nil;
 > val it = 0 : int
 *)
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) assign to variables
 val intList = [1,2,1,3];
@@ -75,6 +79,9 @@ val recList = [{i=1,b=true}, {i=2,b=false}, {i=1,b=false}];
 >   : {b:bool, i:int} list
 val recBag = bag recList;
 > val recBag = [{b=true,i=1},{b=false,i=2},{b=false,i=1}] : {b:bool, i:int} bag
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) empty 'from' is ordered
 from;
