@@ -866,6 +866,80 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "unset", global = true))]
     #[strum(props(type = "forall 1 string -> unit"))]
     SysUnset,
+    /// `vector` is a synonym for `Vector.fromList`
+    #[strum(props(name = "vector", global = true, throws = "Size"))]
+    #[strum(props(type = "forall 1 'a list -> 'a vector"))]
+    Vector,
+    #[strum(props(p = "Vector", name = "all"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a vector -> bool"))]
+    VectorAll,
+    #[strum(props(p = "Vector", name = "app"))]
+    #[strum(props(type = "forall 1 ('a -> unit) -> 'a vector -> unit"))]
+    VectorApp,
+    #[strum(props(p = "Vector", name = "appi"))]
+    #[strum(props(type = "forall 1 (int * 'a -> unit) -> 'a vector -> unit"))]
+    VectorAppi,
+    #[strum(props(p = "Vector", name = "collate"))]
+    #[strum(props(
+        type = "forall 1 ('a * 'a -> `order`) -> 'a vector * 'a vector -> \
+                `order`"
+    ))]
+    VectorCollate,
+    #[strum(props(p = "Vector", name = "concat", throws = "Size"))]
+    #[strum(props(type = "forall 1 'a vector list -> 'a vector"))]
+    VectorConcat,
+    #[strum(props(p = "Vector", name = "exists"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a vector -> bool"))]
+    VectorExists,
+    #[strum(props(p = "Vector", name = "find"))]
+    #[strum(props(type = "forall 1 ('a -> bool) -> 'a vector -> 'a option"))]
+    VectorFind,
+    #[strum(props(p = "Vector", name = "findi"))]
+    #[strum(props(
+        type = "forall 1 (int * 'a -> bool) -> 'a vector -> (int * 'a) option"
+    ))]
+    VectorFindi,
+    #[strum(props(p = "Vector", name = "foldl"))]
+    #[strum(props(type = "forall 2 ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b"))]
+    VectorFoldl,
+    #[strum(props(p = "Vector", name = "foldli"))]
+    #[strum(props(
+        type = "forall 2 (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b"
+    ))]
+    VectorFoldli,
+    #[strum(props(p = "Vector", name = "foldr"))]
+    #[strum(props(type = "forall 2 ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b"))]
+    VectorFoldr,
+    #[strum(props(p = "Vector", name = "foldri"))]
+    #[strum(props(
+        type = "forall 2 (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b"
+    ))]
+    VectorFoldri,
+    #[strum(props(p = "Vector", name = "fromList", throws = "Size"))]
+    #[strum(props(type = "forall 1 'a list -> 'a vector"))]
+    VectorFromList,
+    #[strum(props(p = "Vector", name = "length"))]
+    #[strum(props(type = "forall 1 'a vector -> int"))]
+    VectorLength,
+    #[strum(props(p = "Vector", name = "map"))]
+    #[strum(props(type = "forall 2 ('a -> 'b) -> 'a vector -> 'b vector"))]
+    VectorMap,
+    #[strum(props(p = "Vector", name = "mapi"))]
+    #[strum(props(
+        type = "forall 2 (int * 'a -> 'b) -> 'a vector -> 'b vector"
+    ))]
+    VectorMapi,
+    #[strum(props(p = "Vector", name = "maxLen", type = "int"))]
+    VectorMaxLen,
+    #[strum(props(p = "Vector", name = "sub", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a vector * int -> 'a"))]
+    VectorSub,
+    #[strum(props(p = "Vector", name = "tabulate", throws = "Size"))]
+    #[strum(props(type = "forall 1 int * (int -> 'a) -> 'a vector"))]
+    VectorTabulate,
+    #[strum(props(p = "Vector", name = "update", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a vector * int * 'a -> 'a vector"))]
+    VectorUpdate,
 }
 
 impl BuiltInFunction {
@@ -933,6 +1007,8 @@ pub enum BuiltInRecord {
     String,
     #[strum(props(name = "Sys"))]
     Sys,
+    #[strum(props(name = "Vector"))]
+    Vector,
 }
 
 impl BuiltInRecord {

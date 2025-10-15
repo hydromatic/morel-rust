@@ -179,6 +179,11 @@ impl<'a> TermToTypeConverter<'a> {
                     }
                     Box::new(Type::Record(false, fields))
                 }
+                "vector" => {
+                    assert_eq!(sequence.terms.len(), 1);
+                    let args = vec![*self.term_type(&sequence.terms[0])];
+                    Box::new(Type::Data(sequence.op.name.clone(), args))
+                }
                 _ => todo!("{:?}", term),
             },
             Term::Variable(v) => {

@@ -33,6 +33,7 @@ use crate::eval::real::Real;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::val::Val;
+use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
@@ -1011,6 +1012,7 @@ pub enum Eager0 {
     RealPrecision,
     RealRadix,
     StringMaxSize,
+    VectorMaxLen,
 }
 
 impl Eager0 {
@@ -1044,6 +1046,7 @@ impl Eager0 {
             RealPrecision => Val::Int(24), // IEEE 754 single precision
             RealRadix => Val::Int(2),
             StringMaxSize => Val::Int(i32::MAX),
+            VectorMaxLen => Val::Int(Vector::max_len()),
         }
     }
 
@@ -1231,6 +1234,10 @@ pub enum Eager1 {
     StringImplode,
     StringSize,
     StringStr,
+    Vector,
+    VectorConcat,
+    VectorFromList,
+    VectorLength,
 }
 
 impl Eager1 {
@@ -1351,6 +1358,16 @@ impl Eager1 {
             StringStr => {
                 let c = a0.expect_char();
                 Val::String(c.to_string())
+            }
+            Vector => a0, // as VectorFromList
+            VectorConcat => {
+                use crate::eval::vector::Vector as VectorOps;
+                VectorOps::concat(a0.expect_list())
+            }
+            VectorFromList => a0, // Already a Val::List
+            VectorLength => {
+                use crate::eval::vector::Vector as VectorOps;
+                Val::Int(VectorOps::length(a0.expect_list()))
             }
         }
     }
@@ -1675,6 +1692,15 @@ pub enum EagerF2 {
     StringTokens,
     StringTranslate,
     SysSet,
+    VectorAll,
+    VectorApp,
+    VectorAppi,
+    VectorCollate,
+    VectorExists,
+    VectorFind,
+    VectorFindi,
+    VectorMap,
+    VectorMapi,
 }
 
 impl EagerF2 {
@@ -1920,6 +1946,46 @@ impl EagerF2 {
                 r.emit_effect(Effect::SetShellProp(prop, val));
                 Ok(Val::Unit)
             }
+            VectorAll => Ok(Val::Bool(List::all(
+                r,
+                f,
+                &a0.expect_code(),
+                a1.expect_list(),
+            )?)),
+            VectorApp => {
+                Vector::app(r, f, &a0.expect_code(), a1.expect_list())?;
+                Ok(Val::Unit)
+            }
+            VectorAppi => {
+                Vector::appi(r, f, &a0.expect_code(), a1.expect_list())?;
+                Ok(Val::Unit)
+            }
+            VectorCollate => {
+                let tuple = a1.expect_list();
+                let vec1 = tuple[0].expect_list();
+                let vec2 = tuple[1].expect_list();
+                Ok(Val::Order(List::collate(
+                    r,
+                    f,
+                    &a0.expect_code(),
+                    vec1,
+                    vec2,
+                )?))
+            }
+            VectorExists => Ok(Val::Bool(List::exists(
+                r,
+                f,
+                &a0.expect_code(),
+                a1.expect_list(),
+            )?)),
+            VectorFind => List::find(r, f, &a0.expect_code(), a1.expect_list()),
+            VectorFindi => {
+                Vector::findi(r, f, &a0.expect_code(), a1.expect_list())
+            }
+            VectorMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
+            VectorMapi => {
+                Vector::mapi(r, f, &a0.expect_code(), a1.expect_list())
+            }
         }
     }
 }
@@ -1949,6 +2015,12 @@ pub enum EagerF3 {
     ListTake,
     RealCompare,
     StringSub,
+    VectorFoldl,
+    VectorFoldli,
+    VectorFoldr,
+    VectorFoldri,
+    VectorSub,
+    VectorTabulate,
 }
 
 impl EagerF3 {
@@ -2078,6 +2150,30 @@ impl EagerF3 {
                 a1.expect_int(),
                 &a2.expect_span(),
             ),
+            VectorFoldl => {
+                List::foldl(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            VectorFoldli => {
+                Vector::foldli(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            VectorFoldr => {
+                List::foldr(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            VectorFoldri => {
+                Vector::foldri(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            }
+            VectorSub => Vector::sub(
+                a0.expect_list(),
+                a1.expect_int(),
+                &a2.expect_span(),
+            ),
+            VectorTabulate => List::tabulate(
+                r,
+                f,
+                a0.expect_int(),
+                &a1.expect_code(),
+                &a2.expect_span(),
+            ),
         }
     }
 }
@@ -2091,6 +2187,7 @@ pub enum EagerF4 {
     LPFoldrEq,
     StringExtract,
     StringSubstring,
+    VectorUpdate,
 }
 
 impl EagerF4 {
@@ -2164,6 +2261,10 @@ impl EagerF4 {
                     a2.expect_int(),
                     &span,
                 )
+            }
+            VectorUpdate => {
+                let span = a3.expect_span();
+                Vector::update(a0.expect_list(), a1.expect_int(), a2, &span)
             }
         }
     }
@@ -2630,6 +2731,27 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF0::SysPlan.implements(&mut b, SysPlan);
     EagerF2::SysSet.implements(&mut b, SysSet);
     EagerF1::SysUnset.implements(&mut b, SysUnset);
+    Eager1::Vector.implements(&mut b, Vector);
+    EagerF2::VectorAll.implements(&mut b, VectorAll);
+    EagerF2::VectorApp.implements(&mut b, VectorApp);
+    EagerF2::VectorAppi.implements(&mut b, VectorAppi);
+    EagerF2::VectorCollate.implements(&mut b, VectorCollate);
+    Eager1::VectorConcat.implements(&mut b, VectorConcat);
+    EagerF2::VectorExists.implements(&mut b, VectorExists);
+    EagerF2::VectorFind.implements(&mut b, VectorFind);
+    EagerF2::VectorFindi.implements(&mut b, VectorFindi);
+    EagerF3::VectorFoldl.implements(&mut b, VectorFoldl);
+    EagerF3::VectorFoldli.implements(&mut b, VectorFoldli);
+    EagerF3::VectorFoldr.implements(&mut b, VectorFoldr);
+    EagerF3::VectorFoldri.implements(&mut b, VectorFoldri);
+    Eager1::VectorFromList.implements(&mut b, VectorFromList);
+    Eager1::VectorLength.implements(&mut b, VectorLength);
+    EagerF2::VectorMap.implements(&mut b, VectorMap);
+    EagerF2::VectorMapi.implements(&mut b, VectorMapi);
+    Eager0::VectorMaxLen.implements(&mut b, VectorMaxLen);
+    EagerF3::VectorSub.implements(&mut b, VectorSub);
+    EagerF3::VectorTabulate.implements(&mut b, VectorTabulate);
+    EagerF4::VectorUpdate.implements(&mut b, VectorUpdate);
 
     b.build()
 });

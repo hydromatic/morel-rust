@@ -31,3 +31,4 @@ pub mod real;
 pub mod session;
 pub mod string;
 pub mod val;
+pub mod vector;

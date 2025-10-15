@@ -287,6 +287,10 @@ Datatype:
 * `datatype 'a option = NONE | SOME of 'a` (in structure `Option`)
 * `datatype 'a order = LESS | EQUAL | GREATER` (in structure `General`)
 
+Eqtype:
+* `eqtype 'a bag = 'a bag` (in structure `Bag`)
+* `eqtype 'a vector = 'a vector` (in structure `Vector`)
+
 Exception:
 * `Bind` (in structure `General`)
 * `Chr` (in structure `General`)
@@ -546,6 +550,26 @@ Exception:
 | Sys.plan | unit &rarr; string | "plan ()" prints the plan of the most recently executed expression. |
 | Sys.set | string * &alpha; &rarr; unit | "set (property, value)" sets the value of `property` to `value`. (See [Properties](#properties) below.) |
 | Sys.unset | string &rarr; unit | "unset property" clears the current the value of `property`. |
+| Vector.all | (&alpha; &rarr; bool) &rarr; &alpha; vector &rarr; bool | "all f vec" applies `f` to each element `x` of the vector `vec`, from left to right, until `f(x)` evaluates to `false`. It returns `false` if such an `x` exists; otherwise it returns `true`. It is equivalent to `not(exists (not o f) vec)`. |
+| Vector.app | (&alpha; &rarr; unit) &rarr; &alpha; vector &rarr; unit | "app f vec" applies the function `f` to the elements of a vector in left to right order (i.e., in order of increasing indices).<br><br>It is equivalent to <pre>List.app f (foldr (fn (a,l) =&gt; a::l) [] vec)</pre> |
+| Vector.appi | (int * &alpha; &rarr; unit) &rarr; &alpha; vector &rarr; unit | "appi f vec" applies the function `f` to the elements of a vector in left to right order (i.e., in order of increasing indices).<br><br>It is equivalent to <pre>List.app f (foldri (fn (i,a,l) =&gt; (i,a)::l) [] vec)</pre> |
+| Vector.collate |  | "collate f (v1, v2)" performs lexicographic comparison of the two vectors using the given ordering `f` on elements. |
+| Vector.concat | &alpha; vector list &rarr; &alpha; vector | "concat l" returns the vector that is the concatenation of the vectors in the list `l`.  Raises `Size` if the total length of these vectors exceeds `maxLen` |
+| Vector.exists |  | "exists f vec" applies `f` to each element `x` of the vector `vec`, from left to right (i.e., increasing indices), until `f(x)` evaluates to `true`; it returns `true` if such an `x` exists and `false` otherwise. |
+| Vector.find | (&alpha; &rarr; bool) &rarr; &alpha; vector &rarr; &alpha; option | "find f vec" applies `f` to each element `x` of the vector `vec`, from left to right, until `f(x)` evaluates to `true`. It returns `SOME (x)` if such an `x` exists; otherwise it returns `NONE`. |
+| Vector.findi | (int * &alpha; &rarr; bool) &rarr; &alpha; vector &rarr; (int * &alpha;) option | "findi f vec" applies `f` to each element `x` and element index `i` of the vector `vec`, from left to right, until `f(i, x)` evaluates to `true`. It returns `SOME (i, x)` if such an `x` exists; otherwise it returns `NONE`. |
+| Vector.foldl | (&alpha; * &beta; &rarr; &beta;) &rarr; &beta; &rarr; &alpha; vector &rarr; &beta; | "foldl f init vec" folds the function `f` over all the elements of vector `vec`, left to right, using the initial value `init`. |
+| Vector.foldli | (int * &alpha; * &beta; &rarr; &beta;) &rarr; &beta; &rarr; &alpha; vector &rarr; &beta; | "foldli f init vec" folds the function `f` over all the (index, element) pairs of vector `vec`, left to right, using the initial value `init`. |
+| Vector.foldr | (&alpha; * &beta; &rarr; &beta;) &rarr; &beta; &rarr; &alpha; vector &rarr; &beta; | "foldr f init vec" folds the function `f` over all the elements of vector `vec`, right to left, using the initial value `init`. |
+| Vector.foldri | (int * &alpha; * &beta; &rarr; &beta;) &rarr; &beta; &rarr; &alpha; vector &rarr; &beta; | "foldri f init vec" folds the function `f` over all the (index, element) pairs of vector `vec`, right to left, using the initial value `init`. |
+| Vector.fromList | &alpha; list &rarr; &alpha; vector | "fromList l" creates a new vector from `l`, whose length is `length l` and with the `i`<sup>th</sup> element of `l` used as the `i`<sup>th</sup> element of the vector. Raises `Size` if `maxLen` &lt; `n`. |
+| Vector.length | &alpha; vector &rarr; int | "length v" returns the number of elements in the vector `v`. |
+| Vector.map | (&alpha; &rarr; &beta;) &rarr; &alpha; vector &rarr; &beta; vector | "map f vec" applies the function `f` to the elements of the argument vector `vec`.<br><br>It is equivalent to <pre>fromList (List.map f (foldr (fn (a,l) =&gt; a::l) [] vec))</pre> |
+| Vector.mapi | (int * &alpha; &rarr; &beta;) &rarr; &alpha; vector &rarr; &beta; vector | "mapi f vec" applies the function `f` to the elements of the argument vector `vec`, supplying the vector index and element as arguments to each call.<br><br>It is equivalent to <pre>fromList (List.map f (foldri (fn (i,a,l) =&gt; (i,a)::l) [] vec))</pre> |
+| Vector.maxLen | int | "maxLen" returns the maximum length of vectors supported in this implementation. |
+| Vector.sub | &alpha; vector * int &rarr; &alpha; | "sub (vec, i)" returns the `i`<sup>th</sup> element of vector `vec`. Raises `Subscript` if `i` &lt; 0 or `size vec` &le; `i`. |
+| Vector.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; vector | "tabulate (n, f)" returns a vector of length `n` equal to `[f(0), f(1), ..., f(n-1)]`, created from left to right. This is equivalent to the expression  <pre>fromList (List.tabulate (n, f))</pre>  Raises `Size` if `n` &lt; 0 or `maxLen` &lt; `n`. |
+| Vector.update | &alpha; vector * int * &alpha; &rarr; &alpha; vector | "update (vec, i, x)" returns a new vector, identical to `vec`, except the `i`<sup>th</sup> element of `vec` is set to `x`. Raises `Subscript` if `i` &lt; 0 or `size vec` &le; `i`. |
 
 {% comment %}END TABLE{% endcomment %}
 
