@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 
 /// Represents a resolved type in the system.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Type {
     Primitive(PrimitiveType),
     Fn(Box<Type>, Box<Type>),
@@ -239,7 +239,7 @@ impl Display for Type {
 }
 
 /// Primitive types in the ML-like language.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum PrimitiveType {
     Unit,
     Bool,
@@ -275,7 +275,7 @@ impl PrimitiveType {
 }
 
 /// Type variable.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TypeVariable {
     pub id: usize,
 }
@@ -324,7 +324,7 @@ impl TypeVariable {
 /// Label for a field in a record type.
 ///
 /// Has a sort order that puts numeric fields first, in numeric order.
-#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum Label {
     Ordinal(usize),
     String(String),
@@ -506,7 +506,7 @@ pub(crate) fn ordinal_names(n: usize) -> Vec<String> {
 }
 
 /// Substitution mapping type variables to unifier variables.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub enum Subst {
     Empty,

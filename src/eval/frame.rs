@@ -26,7 +26,7 @@ use std::fmt::Write;
 /// [crate::eval::code::Code::Fn],
 /// [crate::eval::code::Code::CreateClosure])
 /// because it aids debugging.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct FrameDef {
     pub bound_vars: Vec<Binding>,
     pub local_vars: Vec<Binding>,

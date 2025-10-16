@@ -57,7 +57,7 @@ trait FromTerm {
 ///
 /// Operators often have the same arity every time they are used,
 /// but we don't enforce this.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Term {
     Sequence(Sequence),
     Variable(Rc<Var>),
@@ -154,7 +154,7 @@ impl Display for Term {
 ///
 /// Its id is unique within a Unifier,
 /// and disjoint from Op id values.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Var {
     pub name: String,
     pub id: i32,
@@ -223,7 +223,7 @@ impl FromTerm for Rc<Var> {
 /// (e.g. `p(a, q(b, c))`).
 ///
 /// Its id is unique within a Unifier.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Op {
     pub name: String,
     arity: Option<usize>,
@@ -231,7 +231,7 @@ pub struct Op {
 }
 
 /// A Sequence is an operator with a list of terms.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Sequence {
     pub op: Rc<Op>,
     pub terms: Vec<Term>,
@@ -307,7 +307,7 @@ impl<'a> Display for Sequence {
 }
 
 /// Substitution.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Substitution {
     pub substitutions: BTreeMap<Rc<Var>, Term>,
 }
@@ -845,7 +845,7 @@ impl<'a> Work<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Kind {
     Delete,
     SeqSeq,

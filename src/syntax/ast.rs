@@ -23,7 +23,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 /// A location in the source text.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Span {
     input: Rc<str>,
     /// # Safety
@@ -107,7 +107,7 @@ pub trait MorelNode {
 }
 
 /// Abstract syntax tree (AST) of a statement (expression or declaration).
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Statement {
     pub kind: StatementKind,
     pub span: Span,
@@ -132,7 +132,7 @@ impl MorelNode for Statement {
 }
 
 /// Kind of statement.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum StatementKind {
     Expr(ExprKind<Expr>),
     Decl(DeclKind),
@@ -148,7 +148,7 @@ impl Display for StatementKind {
 }
 
 /// Abstract syntax tree (AST) of an expression.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Expr {
     pub kind: ExprKind<Expr>,
     pub span: Span,
@@ -176,7 +176,7 @@ impl Display for Expr {
 }
 
 /// Kind of expression.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum ExprKind<SubExpr> {
     Literal(Literal),
     Identifier(String),
@@ -390,7 +390,7 @@ impl Display for ExprKind<Expr> {
 ///
 /// Used in expressions and patterns, via [`ExprKind::Literal`] and
 /// [`PatKind::Literal`].
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Literal {
     pub kind: LiteralKind,
     pub span: Span,
@@ -404,7 +404,7 @@ impl Display for Literal {
 }
 
 /// Kind of literal.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum LiteralKind {
     Fn(BuiltInFunction),
     Int(String),
@@ -441,7 +441,7 @@ impl Display for LiteralKind {
 }
 
 /// Label within a record expression or record pattern.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Label {
     pub span: Span,
     pub name: String,
@@ -457,7 +457,7 @@ impl Label {
 }
 
 /// Labeled expression in a record.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct LabeledExpr {
     pub label: Option<Label>,
     pub expr: Expr,
@@ -473,14 +473,14 @@ impl LabeledExpr {
 }
 
 /// Match in a `case` or `fn` expression.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Match {
     pub pat: Pat,
     pub expr: Expr,
 }
 
 /// Abstract syntax tree (AST) of a step in a query.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Step {
     pub kind: StepKind,
     pub span: Span,
@@ -489,7 +489,7 @@ pub struct Step {
 impl Step {}
 
 /// Kind of step in a query.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum StepKind {
     Compute(Box<Expr>),
     Distinct,
@@ -522,7 +522,7 @@ impl StepKind {
 }
 
 /// Abstract syntax tree (AST) of a pattern.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Pat {
     pub kind: PatKind,
     pub span: Span,
@@ -596,7 +596,7 @@ impl Display for Pat {
 /// A few names have evolved from Morel-Java.
 /// `Constructor` is equivalent to `class ConPat` or `class Con0Pat`;
 /// `Cons` is equivalent to `class ConsPat` in Morel-Java.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum PatKind {
     Wildcard,
     Identifier(String),
@@ -668,7 +668,7 @@ impl Display for PatKind {
 /// Abstract syntax tree (AST) of a field in a record pattern.
 /// It can be labeled, anonymous, or ellipsis.
 /// For example, `{ label = x, y, ... }` has one of each.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum PatField {
     Labeled(Span, String, Pat), // e.g. `named = x`
     Anonymous(Span, Pat),       // e.g. `y`
@@ -676,7 +676,7 @@ pub enum PatField {
 }
 
 /// Abstract syntax tree (AST) of a declaration.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Decl {
     pub kind: DeclKind,
     pub span: Span,
@@ -714,7 +714,7 @@ impl Display for Decl {
 }
 
 /// Kind of declaration.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum DeclKind {
     /// `Val(rec, inst, binds)` represents a value declaration such as
     /// `val rec x = 0 and f = fn i => f(i - 1)`.
@@ -767,7 +767,7 @@ impl Display for DeclKind {
 }
 
 /// Value binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ValBind {
     pub pat: Pat,
     pub type_annotation: Option<Box<Type>>,
@@ -800,7 +800,7 @@ impl Display for ValBind {
 ///
 /// E.g. `fun f 0 = 1 | f n = n * f (n - 1)`
 /// is a function binding with name `f` and two matches.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FunBind {
     pub span: Span,
     pub name: String,
@@ -826,7 +826,7 @@ impl Display for FunBind {
 ///
 /// E.g. `f 0: int = 1` are `f n = n * f (n - 1)`
 /// are each matches with one pattern. The first has a type.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FunMatch {
     pub span: Span,
     pub name: String,
@@ -848,7 +848,7 @@ impl Display for FunMatch {
 }
 
 /// Type binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TypeBind {
     pub span: Span,
     pub type_vars: Vec<String>,
@@ -863,7 +863,7 @@ impl Display for TypeBind {
 }
 
 /// Datatype binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct DatatypeBind {
     pub span: Span,
     pub type_vars: Vec<String>,
@@ -884,7 +884,7 @@ impl Display for DatatypeBind {
 }
 
 /// Constructor binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ConBind {
     pub span: Span,
     pub name: String,
@@ -906,7 +906,7 @@ impl Display for ConBind {
 }
 
 /// Abstract syntax tree (AST) of a type.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Type {
     pub kind: TypeKind,
     pub span: Span,
@@ -963,7 +963,7 @@ impl Display for Type {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum TypeKind {
     Unit,
     Id(String),
@@ -1024,7 +1024,7 @@ impl Display for TypeScheme {
 }
 
 /// Type field in record types.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TypeField {
     pub label: Label,
     pub type_: Type,

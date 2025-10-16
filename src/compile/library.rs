@@ -59,9 +59,9 @@ pub fn name_to_rec(id: &str) -> Option<BuiltInRecord> {
 /// The types are held as string properties (accessible via strum's
 /// [EnumProperty]) and are parsed and converted to terms on demand. This is a
 /// win when there are a lot of built-in operators.
-#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 #[repr(u16)]
-#[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
+#[derive(EnumCount, EnumIter, EnumProperty, EnumString)]
 pub enum BuiltInFunction {
     // lint: sort until '^}$' where '##[A-Z]'
     /// `bag` is a synonym for `Bag.fromList`
@@ -976,9 +976,9 @@ impl BuiltInFunction {
 
 /// List of built-in records. They represent structures of the standard basis
 /// library, including `General`, `Int` and `String`.
-#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 #[repr(u8)]
-#[derive(EnumCount, EnumString, EnumProperty, EnumIter)]
+#[derive(EnumCount, EnumIter, EnumProperty, EnumString)]
 pub enum BuiltInRecord {
     // lint: sort until '^}$' where '##[A-Z]'
     #[strum(props(name = "Bag"))]
@@ -1026,10 +1026,10 @@ impl BuiltInRecord {
 }
 
 /// Built-in exception.
-#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 #[repr(u8)]
 #[derive(
-    EnumCount, EnumString, EnumProperty, EnumIter, strum_macros::Display,
+    EnumCount, EnumIter, EnumProperty, EnumString, strum_macros::Display,
 )]
 pub enum BuiltInExn {
     #[strum(props(p = "General"))]
@@ -1077,7 +1077,7 @@ UNEQUAL_LENGTHS("ListPair", "UnequalLengths"),
 
 /// Built-in function or record.
 #[repr(u16)]
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum BuiltIn {
     Fn(BuiltInFunction),
     Record(BuiltInRecord),

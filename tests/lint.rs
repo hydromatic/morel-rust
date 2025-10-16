@@ -66,6 +66,22 @@ static HEADER_LINES: &[&str] = &[
     "License.",
 ];
 
+/// Standard derive traits in priority order.
+/// These traits come first, followed by non-standard traits in
+/// alphabetical order.
+static STANDARD_DERIVE_TRAITS: &[&str] = &[
+    "Copy",
+    "Clone",
+    "Eq",
+    "PartialEq",
+    "Ord",
+    "PartialOrd",
+    "Hash",
+    "Debug",
+    "Display",
+    "Default",
+];
+
 /// Comment format information for different file types.
 struct CommentFormat {
     line_prefix: &'static str,
@@ -117,6 +133,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     let vec_space = concat!("{}{}", "vec!", " ");
     let vec_paren = concat!("{}{}", "vec!", "(");
     let impl_regex = Regex::new("^ *impl ").unwrap();
+    let derive_regex = Regex::new(r"#\[derive\(([^)]+)\)\]").unwrap();
     if file_type.header.is_some() {
         let contents = fs::read_to_string(file_name).unwrap();
         if !contents.starts_with(file_type.header.unwrap().as_str()) {
@@ -226,6 +243,31 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                         warnings.push(format!(
                             "{}:{}: Malformed 'sort until' directive: {}",
                             file_name, line, l
+                        ));
+                    }
+                }
+                // Check for alphabetically sorted derive macros
+                if let Some(caps) = derive_regex.captures(l) {
+                    let traits_str = caps.get(1).unwrap().as_str();
+                    let traits: Vec<&str> =
+                        traits_str.split(',').map(|s| s.trim()).collect();
+
+                    // Map each trait to (priority_index, trait_name)
+                    let mut sorted_traits: Vec<&str> = traits.clone();
+                    sorted_traits.sort_by_key(|trait_name| {
+                        let index = STANDARD_DERIVE_TRAITS
+                            .iter()
+                            .position(|&s| s == *trait_name)
+                            .unwrap_or(usize::MAX);
+                        (index, *trait_name)
+                    });
+
+                    if traits != sorted_traits {
+                        warnings.push(format!(
+                            "{}:{}: Derive should be: #[derive({})]",
+                            file_name,
+                            line,
+                            sorted_traits.join(", ")
                         ));
                     }
                 }

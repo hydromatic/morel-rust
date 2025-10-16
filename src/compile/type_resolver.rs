@@ -45,7 +45,7 @@ use types::ordinal_names;
 pub const PROGRESSIVE_LABEL: &str = "z$dummy";
 
 /// Result of type resolution containing the resolved AST and type information.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Resolved {
     pub decl: Decl,
     pub type_map: TypeMap,
@@ -54,7 +54,7 @@ pub struct Resolved {
 }
 
 /// Maps AST nodes to their resolved types.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TypeMap {
     // Maps from AST node ID to unifier variable.
     pub node_var_map: HashMap<i32, Rc<Var>>,
@@ -214,7 +214,7 @@ impl Display for TypeMap {
 }
 
 /// Binding of a name to a type.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TypeBinding {
     pub name: String,
     pub resolved_type: Type,
@@ -222,7 +222,7 @@ pub struct TypeBinding {
 }
 
 /// Kind of binding (value, type constructor, etc.).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum BindingKind {
     Val,
     Type,

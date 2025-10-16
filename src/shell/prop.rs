@@ -90,7 +90,7 @@ macro_rules! define_props {
             required: $required:expr,
         }
     ),* $(,)?) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
         pub enum Prop {
             $(
                 #[doc = $doc]
@@ -368,7 +368,7 @@ define_props! {
 }
 
 /// Allowed values for the Output property.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Output {
     /// Classic output type, same as Standard ML. The default.
     Classic,
@@ -398,7 +398,7 @@ impl FromStr for Output {
 }
 
 /// How thoroughly to execute a statement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Mode {
     Parse,
     Validate,

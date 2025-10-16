@@ -24,13 +24,13 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 
 /// Core tree of a statement (expression or declaration).
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Statement {
     pub kind: StatementKind,
 }
 
 /// Kind of statement.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum StatementKind {
     Expr(Expr),
     Decl(Decl),
@@ -46,7 +46,7 @@ impl Display for StatementKind {
 }
 
 /// Expression.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Literal(Box<Type>, Val),
     Identifier(Box<Type>, String),
@@ -171,7 +171,7 @@ impl Display for Expr {
 }
 
 /// Match in a `case`.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Match {
     pub pat: Pat,
     pub expr: Expr,
@@ -184,7 +184,7 @@ impl Display for Match {
 }
 
 /// Abstract syntax tree (AST) of a step in a query.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Step {
     pub kind: StepKind,
 }
@@ -192,7 +192,7 @@ pub struct Step {
 impl Step {}
 
 /// Kind of step in a query.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum StepKind {
     Compute(Box<Expr>),
     Distinct,
@@ -222,7 +222,7 @@ impl StepKind {
 }
 
 /// Pattern in core representation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Pat {
     Wildcard(Box<Type>),
     /// `Identifier(t, name)` is a pattern that matches any expression and
@@ -386,7 +386,7 @@ impl Display for Pat {
 /// Abstract syntax tree (AST) of a field in a record pattern.
 /// It can be labeled, anonymous, or ellipsis.
 /// For example, `{ label = x, y, ... }` has one of each.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum PatField {
     Labeled(String, Box<Pat>), // e.g. `named = x`
     Anonymous(Box<Pat>),       // e.g. `y`
@@ -394,7 +394,7 @@ pub enum PatField {
 }
 
 /// Declaration.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Decl {
     /// Non-recursive value binding.
     NonRecVal(Box<ValBind>),
@@ -527,7 +527,7 @@ impl Display for Decl {
 }
 
 /// Value binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ValBind {
     pub pat: Pat,
     pub t: Type,
@@ -558,7 +558,7 @@ impl Display for ValBind {
 ///
 /// E.g. `fun f 0 = 1 | f n = n * f (n - 1)`
 /// is a function binding with name `f` and two matches.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FunBind {
     pub name: String,
     pub matches: Vec<FunMatch>,
@@ -583,7 +583,7 @@ impl Display for FunBind {
 ///
 /// E.g. `f 0: int = 1` are `f n = n * f (n - 1)`
 /// are each matches with one pattern. The first has a type.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FunMatch {
     pub name: String,
     pub pats: Vec<Pat>,
@@ -604,7 +604,7 @@ impl Display for FunMatch {
 }
 
 /// Type binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TypeBind {
     pub type_vars: Vec<String>,
     pub name: String,
@@ -618,7 +618,7 @@ impl Display for TypeBind {
 }
 
 /// Datatype binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct DatatypeBind {
     pub type_vars: Vec<String>,
     pub name: String,
@@ -638,7 +638,7 @@ impl Display for DatatypeBind {
 }
 
 /// Constructor binding.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ConBind {
     pub name: String,
     pub type_: Option<Type>,

@@ -203,7 +203,7 @@ impl ValBind {
     }
 }
 /// Environment for inlining.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Env {
     map: im::HashMap<String, (Type, Option<Val>)>,
 }

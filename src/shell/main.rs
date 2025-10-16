@@ -56,7 +56,7 @@ pub struct Shell {
 }
 
 /// Simple environment for storing bindings.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Environment {
     bindings: HashMap<String, Val>,
 }

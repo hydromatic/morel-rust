@@ -77,14 +77,14 @@ pub struct Resolver<'a> {
 }
 
 /// Helper struct representing a pattern-expression pair with position info.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct PatExpr {
     pat: CorePat,
     expr: CoreExpr,
 }
 
 /// Resolved value declaration that mirrors the Java ResolvedValDecl.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct ResolvedValDecl {
     rec: bool,
     composite: bool,

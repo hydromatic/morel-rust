@@ -33,7 +33,7 @@ use std::sync::Arc;
 ///
 /// Passing [Val] by value is OK because it is small.
 /// We box the arguments to [Val::Typed] to keep it small.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 #[allow(clippy::needless_pass_by_value)]
 pub enum Val {
     Unit,

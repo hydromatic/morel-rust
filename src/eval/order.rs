@@ -20,7 +20,7 @@ use std::cmp::Ordering;
 /// Support for Morel's `order` enum type.
 ///
 /// The representation is the same as Rust's built-in [Ordering] type.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Order(pub Ordering);
 
 impl Order {

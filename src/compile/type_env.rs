@@ -29,7 +29,7 @@ use std::rc::Rc;
 use strum::EnumProperty;
 
 /// What kind of value is bound?
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum BindType {
     Val(Term),
     Constructor(Term),
@@ -173,7 +173,7 @@ impl TypeEnv for FunTypeEnv {
 }
 
 /// Empty type environment.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct EmptyTypeEnv;
 
 /// Simple type environment backed by a HashMap,
@@ -226,7 +226,7 @@ impl TypeEnvBuilder {
 /// val (w, x) as y = (1, 2)
 /// and z = 3
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Id {
     pub name: String,
     pub ordinal: usize,
@@ -245,7 +245,7 @@ impl Id {
 /// Binding of a name to a type and a value.
 ///
 /// Used in [crate::shell::main::Environment].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Binding {
     pub id: Id,
     // pub term: Term,

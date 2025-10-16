@@ -68,7 +68,7 @@ pub enum EvalMode {
 /// as `Sys.set("output", "tabular")` do not modify the session while the
 /// command is executing; the shell mutates its own and the session state after
 /// the command completes.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Effect {
     // lint: sort until '#}' where '##[A-Z]'
     /// Adds a binding to the environment.
@@ -86,7 +86,7 @@ pub enum Effect {
 }
 
 /// Generated code that can be evaluated.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Code {
     // lint: sort until '#}' where '##[A-Z][A-Za-z0-9]*\('
     /// `Apply(fn_code, arg_code)` calls a function.
@@ -827,7 +827,7 @@ impl Display for Code {
 }
 
 /// Code location.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Span(String);
 
 impl Span {
@@ -968,7 +968,7 @@ impl EvalEnv<'_> {
 }
 
 /// Implementation of a function is an [Eager2] or ...
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Impl {
     // lint: sort until '#}'
     Custom,
@@ -986,7 +986,7 @@ pub enum Impl {
 pub struct Applicable;
 
 /// Function implementation that takes no arguments (constants).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Eager0 {
     // lint: sort until '#}'
     BoolFalse,
@@ -1059,7 +1059,7 @@ impl Eager0 {
 
 /// Function implementation that takes no arguments and an evaluation
 /// environment.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum EagerF0 {
     // lint: sort until '#}'
     SysPlan,
@@ -1103,7 +1103,7 @@ impl EagerF0 {
 /// are eagerly evaluated before the function is called -- but allows the
 /// implementation to have side effects such as modifying the state of the
 /// session.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum EagerF1 {
     // lint: sort until '#}'
     SysUnset,
@@ -1140,7 +1140,7 @@ impl EagerF1 {
 
 /// Function implementation that takes one argument.
 /// The argument is eagerly evaluated before the function is called.
-#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum Eager1 {
     // lint: sort until '#}'
     Bag,
@@ -1381,7 +1381,7 @@ impl Eager1 {
 
 /// Function implementation that takes two arguments.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum Eager2 {
     // lint: sort until '#}'
     BagAt,
@@ -1631,7 +1631,7 @@ impl Eager2 {
 /// are eagerly evaluated before the function is called -- but allows the
 /// implementation to have side effects such as modifying the state of the
 /// session.
-#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF2 {
     // lint: sort until '#}'
     BagAll,
@@ -1994,7 +1994,7 @@ impl EagerF2 {
 /// values). The arguments are eagerly evaluated before the function is called
 /// -- but allows the implementation to have side effects such as modifying the
 /// state of the session.
-#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF3 {
     // lint: sort until '#}'
     BagDrop,
@@ -2180,7 +2180,7 @@ impl EagerF3 {
 
 /// Function implementation that takes four arguments, the fourth being a span.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Clone, Copy, Debug, strum_macros::Display, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF4 {
     // lint: sort until '#}'
     LPFoldlEq,
@@ -2272,7 +2272,7 @@ impl EagerF4 {
 
 /// Function implementation that takes three arguments.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Eager3 {
     // lint: sort until '#}'
     BoolIf,
