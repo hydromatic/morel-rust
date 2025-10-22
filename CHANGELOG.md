@@ -66,21 +66,21 @@ Key features:
  * Evaluation is complete (but not very efficient) for simple
    expressions including lists, lambdas and closures.
  * There are 256 built-in functions in 14 structures.
-   `[Bool](https://smlfamily.github.io/Basis/bool.html)`,
-   `[Char](https://smlfamily.github.io/Basis/char.html)`,
-   `[General](https://smlfamily.github.io/Basis/general.html)`,
-   `[Int](https://smlfamily.github.io/Basis/int.html)`,
-   `[List](https://smlfamily.github.io/Basis/list.html)`,
-   `[ListPair](https://smlfamily.github.io/Basis/list.html)`,
-   `[Math](https://smlfamily.github.io/Basis/math.html)`,
-   `[Option](https://smlfamily.github.io/Basis/option.html)`,
-   `[Real](https://smlfamily.github.io/Basis/real.html)`,
-   `[String](https://smlfamily.github.io/Basis/string.html)`, and
-   `[Vector](https://smlfamily.github.io/Basis/vector.html)`
-   are based on the Standard ML Basis Library,
-   `[Either](https://github.com/SMLFamily/BasisLibrary/wiki/2015-002-Addition-of-Either-module)`,
-   is a proposed extension to the Standard ML Basis Library, and
-   `Bag`,
+   [`Bool`](https://smlfamily.github.io/Basis/bool.html),
+   [`Char`](https://smlfamily.github.io/Basis/char.html),
+   [`General`](https://smlfamily.github.io/Basis/general.html),
+   [`Int`](https://smlfamily.github.io/Basis/int.html),
+   [`List`](https://smlfamily.github.io/Basis/list.html),
+   [`ListPair`](https://smlfamily.github.io/Basis/list.html),
+   [`Math`](https://smlfamily.github.io/Basis/math.html),
+   [`Option`](https://smlfamily.github.io/Basis/option.html),
+   [`Real`](https://smlfamily.github.io/Basis/real.html),
+   [`String`](https://smlfamily.github.io/Basis/string.html), and
+   [`Vector`](https://smlfamily.github.io/Basis/vector.html)
+   are based on the Standard ML Basis Library;
+   [`Either`](https://github.com/SMLFamily/BasisLibrary/wiki/2015-002-Addition-of-Either-module)
+   is a proposed extension to the Standard ML Basis Library; and
+   `Bag` and
    `Sys`
    are Morel-specific.
 
