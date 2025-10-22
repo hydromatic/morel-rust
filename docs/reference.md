@@ -35,12 +35,11 @@ and then lists its built-in
 [Properties](#properties) affect the execution strategy and the
 behavior of the shell.
 
-As of release 0.1, Morel Rust (the Rust implementation of the Morel
+As of release 0.2, Morel Rust (the Rust implementation of the Morel
 language) has fewer features than Morel Java (the
-[Java implementation](https://github.com/hydromatic/morel)).
-For example, Morel Java version 0.7 supports query expressions
-(`from`, `exists`, `forall`), and has a larger library of built-in
-functions, including exceptions and `List` and `Bag` data types.
+[Java implementation](https://github.com/hydromatic/morel)).  For
+example, Morel Java version 0.7 supports query expressions (`from`,
+`exists`, `forall`), and allows `type` and `datatype` declarations.
 Hopefully, Morel Rust will support these features in the future.
 
 See the
@@ -409,8 +408,6 @@ Exception:
 | Int.sign | int &rarr; int | "sign i" returns ~1, 0, or 1 when `i` is less than, equal to, or greater than 0, respectively. |
 | Int.toInt | int &rarr; int | "toInt i" converts a value from the default integer type to type `int`. Raises `Overflow` if the value does not fit. |
 | Int.toString | int &rarr; string | "toString i" converts a `int` into a `string`; equivalent to `(fmt StringCvt.DEC r)`. |
-| List.map | (&alpha; &rarr; &beta;) &rarr; &alpha; list &rarr; &beta; list | "map f l" applies `f` to each element of `l` from left to right, returning the list of results. |
-| List.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; list | "tabulate (n, f)" returns a list of length `n` equal to `[f(0), f(1), ..., f(n-1)]`, created from left to right. Raises `Size` if `n` &lt; 0. |
 | Math.acos | real &rarr; real | "acos x" returns the arc cosine of `x`. `acos` is the inverse of `cos`. Its result is guaranteed to be in the closed interval \[0, pi\]. If the magnitude of `x` exceeds 1.0, returns NaN. |
 | Math.asin | real &rarr; real | "asin x" returns the arc sine of `x`. `asin` is the inverse of `sin`. Its result is guaranteed to be in the closed interval \[-pi / 2, pi / 2\]. If the magnitude of `x` exceeds 1.0, returns NaN. |
 | Math.atan | real &rarr; real | "atan x" returns the arc tangent of `x`. `atan` is the inverse of `tan`. For finite arguments, the result is guaranteed to be in the open interval (-pi / 2, pi / 2). If `x` is +infinity, it returns pi / 2; if `x` is -infinity, it returns -pi / 2. |

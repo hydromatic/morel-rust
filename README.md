@@ -38,7 +38,7 @@ $ cargo build; ./target/main
 
 ```bash
 $ cargo run
-morel-rust version 0.1.0 (rust version 1.89.0)
+morel-rust version 0.2.0 (rust version 1.90.0)
 - "Hello, world!";
 > val it = "Hello, world!" : string
 ```
@@ -50,7 +50,7 @@ Type control+D to exit the shell.
 * [Morel Rust language reference](docs/reference.md)
 * [Morel Java language reference](https://github.com/hydromatic/morel/blob/main/docs/reference.md)
 * [Query reference](https://github.com/hydromatic/morel/blob/main/docs/query.md)
-* [Change log](HISTORY.md)
+* [Change log](CHANGELOG.md)
 * Reading [test scripts](tests/script)
   can be instructive; try, for example,
   [builtIn.smli](tests/script/builtIn.smli)
@@ -62,4 +62,4 @@ Type control+D to exit the shell.
 * Blog: http://blog.hydromatic.net
 * Source code: https://github.com/hydromatic/morel-rust
 * Issues: https://github.com/hydromatic/morel-rust/issues
-* <a href="HISTORY.md">Release notes and history</a>
+* <a href="CHANGELOG.md">Change log and release notes</a>
