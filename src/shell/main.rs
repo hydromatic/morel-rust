@@ -36,7 +36,7 @@ use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::prop::Mode;
-use crate::shell::utils::{prefix_lines, strip_prefix};
+use crate::shell::utils::prefix_lines;
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
 use rustc_version::version;
@@ -310,14 +310,42 @@ impl Shell {
         code: &str,
         expected_output: Option<&str>,
     ) -> ShellResult<String> {
+        // Check if the statement contains ':t' on any line (type-only mode)
+        // :t can appear on any line of a multi-line expression
+        let (type_only, actual_code) = {
+            let mut type_only_flag = false;
+            let mut result = String::new();
+
+            for line in code.lines() {
+                let trimmed_line = line.trim_start();
+                if trimmed_line.starts_with(":t") {
+                    type_only_flag = true;
+                    // Remove the :t prefix and any whitespace after it
+                    let stripped =
+                        trimmed_line.strip_prefix(":t").unwrap().trim_start();
+                    result.push_str(stripped);
+                } else {
+                    result.push_str(line);
+                }
+                result.push('\n');
+            }
+
+            // Remove the trailing newline that we added
+            if result.ends_with('\n') {
+                result.pop();
+            }
+
+            (type_only_flag, result)
+        };
+
         // Try to parse the statement
-        let statement = match parser::parse_statement(code) {
+        let statement = match parser::parse_statement(&actual_code) {
             Err(e) => {
                 let string = e.to_string();
-                println!("Failed to parse: {}, err {}", code, string);
+                println!("Failed to parse: {}, err {}", &actual_code, string);
                 return Err(Error::Parse(format!(
                     "Failed to parse: {}, err {}",
-                    code, string,
+                    &actual_code, string,
                 )));
             }
             Ok(statement) => statement,
@@ -337,7 +365,7 @@ impl Shell {
 
         if matches!(statement_mode, Mode::Parse | Mode::Validate)
             && expected_output.is_some()
-            && !expected_output.unwrap().starts_with(">type")
+            && !type_only
         {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions.
@@ -345,18 +373,12 @@ impl Shell {
             return Ok(expected_output.unwrap().to_string());
         }
 
-        if matches!(statement_mode, Mode::Validate | Mode::Evaluate)
-            && expected_output.is_some()
-            && expected_output.unwrap().starts_with(">type")
-        {
-            // We are running in idempotent mode,
-            // and we cannot yet evaluate expressions,
-            // but we can deduce their type.
-            let _expected_type =
-                strip_prefix(">type ", expected_output.unwrap()).trim();
+        if type_only {
+            // We are running in type-only mode (via :t prefix).
+            // Deduce the type without evaluating.
             let output = self.deduce_type(&statement);
             return match &output {
-                Ok(s) => Ok(prefix_lines(">type", s.as_str())),
+                Ok(s) => Ok(prefix_lines(">", s.as_str())),
                 Err(_) => output,
             };
         }
@@ -386,7 +408,7 @@ impl Shell {
                     }
                 }
                 .to_string();
-                type_string.push_str(&format!("{} : {}\n", name, s));
+                type_string.push_str(&format!("val {} : {}\n", name, s));
             };
             resolved.decl.for_each_id_pat(closure);
         }

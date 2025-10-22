@@ -1,0 +1,261 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * Type inference tests.
+ *
+ * Generally, each test will use ':t' prefix before the expression,
+ * so that Morel just infers the type, and does not execute.
+ *)
+Sys.set ("lineWidth", 78);
+> val it = () : unit
+
+(*) Type tests
+:t #"h";
+> val it : char
+:t "hello";
+> val it : string
+:t 1;
+> val it : int
+:t ~1.0;
+> val it : real
+:t 6.02e~23;
+> val it : real
+:t ~6.02e~23;
+> val it : real
+:t ~6e~23;
+> val it : real
+:t 6e~23;
+> val it : real
+:t 6E~23;
+> val it : real
+:t 6E23;
+> val it : real
+:t ();
+> val it : unit
+:t true;
+> val it : bool
+:t false;
+> val it : bool
+:t (1);
+> val it : int
+
+:t (1, true);
+> val it : int * bool
+:t (false, 1, (true, false));
+> val it : bool * int * (bool * bool)
+:t (false, 1, (true, "a"), 2);
+> val it : bool * int * (bool * string) * int
+:t [1,2];
+> val it : int list
+:t [[1,2]];
+> val it : int list list
+:t [(1,2)];
+> val it : (int * int) list
+:t (1, [2]);
+> val it : int * int list
+:t (1, [2], 3);
+> val it : int * int list * int
+:t {a=1, b="two"};
+> val it : {a:int, b:string}
+:t fn () => 3;
+> val it : unit -> int
+:t fn () => fn () => 4;
+> val it : unit -> unit -> int
+:t (fn () => 5, fn () => 6);
+> val it : (unit -> int) * (unit -> int)
+:t fn () => (5, fn () => 6);
+> val it : unit -> int * (unit -> int)
+:t fn f => fn g => fn x => g (f x);
+> val it : ('a -> 'b) -> ('b -> 'c) -> 'a -> 'c
+:t fn (f, g) => fn x => f (g x);
+> val it : ('a -> 'b) * ('c -> 'a) -> 'c -> 'b
+:t fn x: int => true;
+> val it : int -> bool
+:t fn (x: int, y: string) => (true, [1]);
+> val it : int * string -> bool * int list
+:t {f = fn () => 0, g = 1};
+> val it : {f:unit -> int, g:int}
+:t fn {f: unit -> int, g: int} => true;
+> val it : {f:unit -> int, g:int} -> bool
+:t fn x => fn f => f x;
+> val it : 'a -> ('a -> 'b) -> 'b
+:t fn (x, y) => x andalso y;
+> val it : bool * bool -> bool
+:t fn (x, y) => x orelse y;
+> val it : bool * bool -> bool
+:t fn (x, y) => x implies y;
+> val it : bool * bool -> bool
+:t fn (x, y) => x < y;
+> val it : 'a * 'a -> bool
+:t fn (x, y) => x <= y;
+> val it : 'a * 'a -> bool
+:t fn (x, y) => x > y;
+> val it : 'a * 'a -> bool
+:t fn (x, y) => x >= y;
+> val it : 'a * 'a -> bool
+:t fn (x, y) => x = y;
+> val it : 'a * 'a -> bool
+:t fn (x, y) => x <> y;
+> val it : 'a * 'a -> bool
+:t fn (x, y) => x + y + 0;
+> val it : int * int -> int
+:t fn (x, y) => x - y + 0;
+> val it : int * int -> int
+:t fn (x, y) => x mod y;
+> val it : int * int -> int
+:t fn (x, y) => x div y;
+> val it : int * int -> int
+:t fn (x, y) => x / y;
+> val it : real * real -> real
+:t fn (x, y) => x * y * 1;
+> val it : int * int -> int
+:t fn NONE => 0;
+> val it : 'a option -> int
+:t fn (SOME x) => 0;
+> val it : 'a option -> int
+:t fn (SOME x) => x + 1;
+> val it : int option -> int
+:t fn nil => 0;
+> val it : 'a list -> int
+:t fn (h :: t) => 0;
+> val it : 'a list -> int
+:t fn ("hello" :: t) => 0;
+> val it : string list -> int
+:t val x = 1;
+> val x : int
+:t val (x, y) = (1, true);
+> val x : int
+> val y : bool
+:t val {x, y} = {y = 1, x = true};
+> val x : bool
+> val y : int
+:t val r = {x = 1, y = true};
+> val r : {x:int, y:bool}
+:t val i = #x {x = 1, y = true};
+> val i : int
+
+:t val x = 1
+and y = ("hello", "world");
+> val x : int
+> val y : string * string
+
+:t let
+  val x = 1
+in
+  [x]
+end;
+> val it : int list
+
+:t let
+  val ((x, y), z) = ((1, 2), 3)
+in
+  [x + y + z]
+end;
+> val it : int list
+
+:t if 1 < 2 then [3] else [4];
+> val it : int list
+
+:t case (1, true) of
+  (1, false) => 0
+| (n, true) => n + 1
+| _ => ~1;
+> val it : int
+
+:t let
+  val rec fact =
+    fn n => if n = 0 then 1 else n * (fact (n - 1))
+in
+  fact 5
+end;
+> val it : int
+
+:t let
+  val SOME x = (SOME "hello")
+in
+  x
+end;
+> val it : string
+
+(* You can mix constructors (SOME) and 'op ::' in patterns,
+ * and constructors have the higher precedence. *)
+:t let
+  val option_list = [SOME 1, NONE]
+in
+  let
+    val SOME x :: y = option_list
+  in
+    (y, x)
+  end
+end;
+> val it : int option list * int
+
+:t let
+  val foo =
+    fn SOME s => s
+     | NONE => "none"
+in
+  foo NONE
+end;
+> val it : string
+
+:t let
+  val foo =
+    fn SOME s => s
+     | NONE => "none"
+in
+  foo (SOME "hello")
+end;
+> val it : string
+
+:t val rec len =
+  fn nil => 0
+   | (h :: t) => 1 + (len t);
+> val len : 'a list -> int
+
+:t val rec len =
+  fn nil => 0;
+> val len : 'a list -> int
+
+:t fun len nil = 0
+  | len (h :: t) = 1 + (len t);
+> val len : 'a list -> int
+
+:t val x: string = "hello";
+> val x : string
+:t fun hello1 (s: string) = "hello!";
+> val hello1 : string -> string
+:t fun hello2 (n: int): string = "hello!";
+> val hello2 : int -> string
+:t fun hello3 (name: string, code: int): string = "hello!";
+> val hello3 : string * int -> string
+:t fun hello2 (name: string) (code : int): string = "hello!";
+> val hello2 : string -> int -> string
+:t fun plus_list x (y :: z) = x + y;
+> val plus_list : 'a -> 'a list -> 'a
+:t fun plus x y = x + y;
+> val plus : 'a -> 'a -> 'a
+:t let
+  fun map f [] = []
+    | map f (x::xs) = f x :: map f xs
+in
+  map (fn x => x + 1) [1, 2, 3]
+end;
+> val it : int list
+
+(*) End type-inference.smli

@@ -135,6 +135,11 @@ fn type_alias() {
 }
 
 #[test]
+fn type_inference() {
+    run_script("tests/script/type-inference.smli");
+}
+
+#[test]
 fn type_() {
     run_script("tests/script/type.smli");
 }
