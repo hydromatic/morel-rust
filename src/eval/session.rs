@@ -43,6 +43,9 @@ pub struct Session {
     pub out: Option<Vec<String>>,
     /// The accumulated type environment (bindings from previous statements).
     pub type_env: Rc<dyn TypeEnv>,
+    /// Accumulated type bindings from all statements. When a name is redefined,
+    /// the HashMap::insert naturally overwrites the old binding.
+    pub type_bindings: HashMap<String, Type>,
     // Debug ID to track session instances
     // pub debug_id: usize,
 }
@@ -69,6 +72,7 @@ impl Session {
             code: None,
             out: None,
             type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
+            type_bindings: HashMap::new(),
             // debug_id: id,
         }
     }
@@ -131,31 +135,31 @@ impl Session {
         let resolved = type_resolver.deduce_type(&*self.type_env, node);
 
         // Update the accumulated environment with new bindings from this
-        // statement. We need to convert the resolved types to terms using the
-        // NEW type_resolver (the one that will be used for the NEXT statement),
-        // so we accumulate binding information and will apply it when creating
-        // the next TypeResolver.
-        let mut new_bindings = Vec::new();
+        // statement. We store bindings in a single HashMap; when a name is
+        // redefined, HashMap::insert overwrites the old binding, preventing
+        // memory growth from shadowed values.
+        let mut has_new_bindings = false;
         for binding in &resolved.bindings {
             if binding.kind == crate::compile::type_resolver::BindingKind::Val {
-                // Store the binding with its type - we'll convert to term
-                // when the next TypeResolver is created.
-                // For now, use a TypeScheme to represent the type.
-                new_bindings.push((
+                self.type_bindings.insert(
                     binding.name.clone(),
                     binding.resolved_type.clone(),
-                ));
+                );
+                has_new_bindings = true;
             }
         }
 
-        // Convert types to terms using a FreshTypeEnv that knows how to
-        // convert types on-demand
-        if !new_bindings.is_empty() {
-            let bindings_map: HashMap<String, Type> =
-                new_bindings.into_iter().collect();
+        // Rebuild the type environment if there are new bindings.
+        // We keep the FunTypeEnv (built-ins) as the base and create a single
+        // ResolvedTypeEnv with all accumulated bindings.
+        if has_new_bindings {
+            let empty_type_env = EmptyTypeEnv {};
+            let fun_type_env = FunTypeEnv {
+                parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
+            };
             self.type_env = Rc::new(ResolvedTypeEnv {
-                parent: self.type_env.clone(),
-                bindings: bindings_map,
+                parent: Rc::new(fun_type_env) as Rc<dyn TypeEnv>,
+                bindings: self.type_bindings.clone(),
             }) as Rc<dyn TypeEnv>;
         }
 
@@ -270,20 +274,15 @@ impl TypeEnv for ResolvedTypeEnv {
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
         // We can't directly store a Term, so just create a new SimpleTypeEnv.
-        let mut bindings = HashMap::new();
-        bindings.insert(name, term);
-        Rc::new(SimpleTypeEnv {
-            parent: Rc::new(self.clone()),
-            bindings,
-        })
+        SimpleTypeEnv::with_parent_and_binding(
+            Rc::new(self.clone()),
+            name,
+            term,
+        )
     }
 
     fn bind_all(&self, bindings: &[(String, Term)]) -> Rc<dyn TypeEnv> {
-        let binding_map = bindings.iter().cloned().collect();
-        Rc::new(SimpleTypeEnv {
-            parent: Rc::new(self.clone()),
-            bindings: binding_map,
-        })
+        SimpleTypeEnv::with_parent_and_bindings(Rc::new(self.clone()), bindings)
     }
 
     fn builder(&self) -> TypeEnvBuilder {

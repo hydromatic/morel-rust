@@ -57,20 +57,15 @@ impl TypeEnv for EmptyTypeEnv {
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
-        let mut bindings = HashMap::new();
-        bindings.insert(name, term);
-        Rc::new(SimpleTypeEnv {
-            parent: Rc::new(self.clone()),
-            bindings,
-        })
+        SimpleTypeEnv::with_parent_and_binding(
+            Rc::new(self.clone()),
+            name,
+            term,
+        )
     }
 
     fn bind_all(&self, bindings: &[(String, Term)]) -> Rc<dyn TypeEnv> {
-        let binding_map = bindings.iter().cloned().collect();
-        Rc::new(SimpleTypeEnv {
-            parent: Rc::new(self.clone()),
-            bindings: binding_map,
-        })
+        SimpleTypeEnv::with_parent_and_bindings(Rc::new(self.clone()), bindings)
     }
 
     fn builder(&self) -> TypeEnvBuilder {
@@ -147,22 +142,17 @@ impl TypeEnv for FunTypeEnv {
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
         // Cannot mutate a FunTypeEnv. Create a SimpleTypeEnv with this
         // FunTypeEnv as its parent.
-        let mut bindings = HashMap::new();
-        bindings.insert(name, term);
-        Rc::new(SimpleTypeEnv {
-            parent: Rc::new(self.clone()),
-            bindings,
-        })
+        SimpleTypeEnv::with_parent_and_binding(
+            Rc::new(self.clone()),
+            name,
+            term,
+        )
     }
 
     fn bind_all(&self, bindings: &[(String, Term)]) -> Rc<dyn TypeEnv> {
         // Cannot mutate a FunTypeEnv. Create a SimpleTypeEnv with this
         // FunTypeEnv as its parent.
-        let binding_map = bindings.iter().cloned().collect();
-        Rc::new(SimpleTypeEnv {
-            parent: Rc::new(self.clone()),
-            bindings: binding_map,
-        })
+        SimpleTypeEnv::with_parent_and_bindings(Rc::new(self.clone()), bindings)
     }
 
     fn builder(&self) -> TypeEnvBuilder {
@@ -182,6 +172,31 @@ pub struct EmptyTypeEnv;
 pub struct SimpleTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
     pub bindings: HashMap<String, Term>,
+}
+
+impl SimpleTypeEnv {
+    /// Creates a new SimpleTypeEnv with a parent and a single binding.
+    pub fn with_parent_and_binding(
+        parent: Rc<dyn TypeEnv>,
+        name: String,
+        term: Term,
+    ) -> Rc<dyn TypeEnv> {
+        let mut bindings = HashMap::new();
+        bindings.insert(name, term);
+        Rc::new(SimpleTypeEnv { parent, bindings })
+    }
+
+    /// Creates a new SimpleTypeEnv with a parent and multiple bindings.
+    pub fn with_parent_and_bindings(
+        parent: Rc<dyn TypeEnv>,
+        bindings: &[(String, Term)],
+    ) -> Rc<dyn TypeEnv> {
+        let binding_map = bindings.iter().cloned().collect();
+        Rc::new(SimpleTypeEnv {
+            parent,
+            bindings: binding_map,
+        })
+    }
 }
 
 /// Type alias for the resolver function to reduce complexity.
