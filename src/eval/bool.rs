@@ -19,12 +19,7 @@
 pub struct Bool;
 
 impl Bool {
-    /// Computes the Morel expression `Bool.not b`.
-    ///
-    /// Returns the logical negation of the boolean value `b`.
-    pub(crate) fn not(b: bool) -> bool {
-        !b
-    }
+    // lint: sort until '#}' where '##pub'
 
     /// Computes the Morel expression `Bool.implies (b1, b2)`.
     ///
@@ -33,9 +28,17 @@ impl Bool {
         !b1 || b2
     }
 
+    /// Computes the Morel expression `Bool.not b`.
+    ///
+    /// Returns the logical negation of the boolean value `b`.
+    pub(crate) fn not(b: bool) -> bool {
+        !b
+    }
+
     /// Computes the Morel expression `Bool.toString b`.
     ///
     /// Returns the string representation of `b`, either "true" or "false".
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_string(b: bool) -> String {
         if b { "true" } else { "false" }.to_string()
     }

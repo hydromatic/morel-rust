@@ -560,6 +560,7 @@ impl Pat {
     pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(i32, &str)) {
         match &self.kind {
             // lint: sort until '#}' where '##PatKind::'
+            PatKind::Annotated(p, _) => p.for_each_id_pat(consumer),
             PatKind::Identifier(name) => {
                 (*consumer)(self.id.unwrap(), name.as_str())
             }
