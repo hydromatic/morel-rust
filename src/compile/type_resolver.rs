@@ -1565,6 +1565,69 @@ impl TypeResolver {
         }
     }
 
+    /// Splits a string into a list of substrings, using a separator
+    /// character, taking into account quoted substrings.
+    ///
+    /// For example, `split_quoted("a,'b,c',d", ',', '\'')` returns the list
+    /// `["a", "b,c", "d"]`.
+    fn split_quoted(s: &str, sep: char, quote: char) -> Vec<String> {
+        if s.is_empty() {
+            return Vec::new();
+        }
+
+        let mut result = Vec::new();
+        let mut current = String::new();
+        let mut in_quote = false;
+
+        for c in s.chars() {
+            if c == quote {
+                in_quote = !in_quote;
+            } else if c == sep && !in_quote {
+                result.push(current.clone());
+                current.clear();
+            } else {
+                current.push(c);
+            }
+        }
+
+        // Add the last part
+        result.push(current);
+
+        result
+    }
+
+    /// Inverse of [TypeResolver::split_quoted].
+    ///
+    /// For example, `join_quoted(&["a", "b,c", "d"], ',', '\'')` returns
+    /// `"a,'b,c',d"`.
+    fn join_quoted<I>(strings: I, sep: char, quote: char) -> String
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
+        let mut result = String::new();
+        let mut first = true;
+
+        for s in strings {
+            if !first {
+                result.push(sep);
+            }
+            first = false;
+
+            let s_ref = s.as_ref();
+            // Quote the string if it contains the separator
+            if s_ref.contains(sep) {
+                result.push(quote);
+                result.push_str(s_ref);
+                result.push(quote);
+            } else {
+                result.push_str(s_ref);
+            }
+        }
+
+        result
+    }
+
     /// Inverse of [TypeResolver::record_label_from_set]. Extracts field names
     /// from a sequence.
     fn field_list(sequence: &Sequence) -> Option<Vec<String>> {
@@ -1574,14 +1637,9 @@ impl TypeResolver {
                 let size = sequence.terms.len();
                 Some(ordinal_names(size))
             }
-            s if s.starts_with("record`") => {
-                let fields: Vec<String> = sequence
-                    .op
-                    .name
-                    .split('`')
-                    .skip(1) // Skip "record" prefix
-                    .map(std::string::ToString::to_string)
-                    .collect();
+            s if s.starts_with("record:") => {
+                let fields =
+                    Self::split_quoted(&s["record:".len()..], ':', '`');
                 Some(fields)
             }
             _ => None,
@@ -1593,12 +1651,9 @@ impl TypeResolver {
     where
         I: IntoIterator<Item = Label>,
     {
-        let mut s = "record".to_string();
-        for label in labels {
-            s.push('`');
-            s.push_str(&label.to_string());
-        }
-        s
+        let label_strs: Vec<String> =
+            labels.into_iter().map(|l| l.to_string()).collect();
+        format!("record:{}", Self::join_quoted(&label_strs, ':', '`'))
     }
 
     /// Generates ordinal names for tuple fields: ["1", "2", "3", ...]
@@ -2157,6 +2212,28 @@ constraints of clauses don't agree [tycon mismatch]";
 mod tests {
     use super::*;
     use crate::compile::types::{PrimitiveType, Type, TypeVariable};
+
+    /// Tests [TypeResolver::split_quoted] and [TypeResolver::join_quoted].
+    #[test]
+    fn test_split_join() {
+        fn check_split_join(s: &str, expected: Vec<&str>) {
+            let result = TypeResolver::split_quoted(s, ',', '\'');
+            assert_eq!(result, expected);
+            assert_eq!(TypeResolver::join_quoted(&expected, ',', '\''), s);
+        }
+
+        check_split_join("", vec![]);
+        check_split_join("a,'b,c',d", vec!["a", "b,c", "d"]);
+        check_split_join(",a,,bc,", vec!["", "a", "", "bc", ""]);
+        // Test with colon separator and backtick quote (what we use for
+        // record fields)
+        let result = TypeResolver::split_quoted("a:`b:c`:d", ':', '`');
+        assert_eq!(result, vec!["a", "b:c", "d"]);
+        assert_eq!(
+            TypeResolver::join_quoted(&["a", "b:c", "d"], ':', '`'),
+            "a:`b:c`:d"
+        );
+    }
 
     /// Tests conversion of the following type scheme to unifier terms:
     /// ```sml
