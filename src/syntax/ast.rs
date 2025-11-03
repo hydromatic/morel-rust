@@ -728,6 +728,7 @@ pub enum DeclKind {
     Over(String),
     Type(Vec<TypeBind>),
     Datatype(Vec<DatatypeBind>),
+    Signature(Vec<SigBind>),
 }
 
 impl DeclKind {
@@ -753,6 +754,7 @@ impl Display for DeclKind {
                 fmt_list(f, funs, " | ")
             }
             DeclKind::Over(name) => write!(f, "over {}", name),
+            DeclKind::Signature(sigs) => fmt_list(f, sigs, " and "),
             DeclKind::Type(types) => {
                 write!(f, "type ")?;
                 fmt_list(f, types, "; ")
@@ -907,6 +909,190 @@ impl Display for ConBind {
                 None => "".to_string(),
             }
         )
+    }
+}
+
+/// Signature binding.
+/// For example, `signature STACK = sig ... end`.
+#[derive(Clone, Debug)]
+pub struct SigBind {
+    pub span: Span,
+    pub name: String,
+    pub specs: Vec<Spec>,
+}
+
+impl Display for SigBind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "signature {} = sig ", self.name)?;
+        for spec in &self.specs {
+            write!(f, "{}; ", spec)?;
+        }
+        write!(f, "end")
+    }
+}
+
+/// Specification within a signature.
+#[derive(Clone, Debug)]
+pub struct Spec {
+    pub kind: SpecKind,
+    pub span: Span,
+}
+
+impl Display for Spec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        std::fmt::Display::fmt(&self.kind, f)
+    }
+}
+
+/// Kind of specification within a signature.
+#[derive(Clone, Debug)]
+pub enum SpecKind {
+    /// Value specification: `val name : type [and name : type]*`
+    Val(Vec<ValDesc>),
+    /// Type specification: `type ['a] name [= type] [and ...]*`
+    Type(Vec<TypeDesc>),
+    /// Datatype specification: `datatype ['a] name = con [| con]* [and ...]*`
+    Datatype(Vec<DatatypeDesc>),
+    /// Exception specification: `exception name [of type] [and ...]*`
+    Exception(Vec<ExnDesc>),
+}
+
+impl SpecKind {
+    pub fn spanned(&self, span: &Span) -> Spec {
+        Spec {
+            kind: self.clone(),
+            span: span.clone(),
+        }
+    }
+}
+
+impl Display for SpecKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            SpecKind::Val(descs) => {
+                write!(f, "val ")?;
+                fmt_list(f, descs, " and ")
+            }
+            SpecKind::Type(descs) => {
+                write!(f, "type ")?;
+                fmt_list(f, descs, " and ")
+            }
+            SpecKind::Datatype(descs) => {
+                write!(f, "datatype ")?;
+                fmt_list(f, descs, " and ")
+            }
+            SpecKind::Exception(descs) => {
+                write!(f, "exception ")?;
+                fmt_list(f, descs, " and ")
+            }
+        }
+    }
+}
+
+/// Value description in a signature.
+/// For example, `empty : 'a stack`.
+#[derive(Clone, Debug)]
+pub struct ValDesc {
+    pub span: Span,
+    pub name: String,
+    pub type_: Type,
+}
+
+impl Display for ValDesc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{} : {}", self.name, self.type_)
+    }
+}
+
+/// Type description in a signature.
+/// For example, `type 'a stack` or `type int_pair = int * int`.
+#[derive(Clone, Debug)]
+pub struct TypeDesc {
+    pub span: Span,
+    pub type_vars: Vec<String>,
+    pub name: String,
+    pub type_: Option<Type>,
+}
+
+impl Display for TypeDesc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        if !self.type_vars.is_empty() {
+            if self.type_vars.len() == 1 {
+                write!(f, "{} ", self.type_vars[0])?;
+            } else {
+                write!(f, "(")?;
+                fmt_list(f, &self.type_vars, ", ")?;
+                write!(f, ") ")?;
+            }
+        }
+        write!(f, "{}", self.name)?;
+        if let Some(t) = &self.type_ {
+            write!(f, " = {}", t)?;
+        }
+        Ok(())
+    }
+}
+
+/// Datatype description in a signature.
+/// For example, `datatype 'a tree = Leaf | Node of 'a * 'a tree * 'a tree`.
+#[derive(Clone, Debug)]
+pub struct DatatypeDesc {
+    pub span: Span,
+    pub type_vars: Vec<String>,
+    pub name: String,
+    pub constructors: Vec<ConDesc>,
+}
+
+impl Display for DatatypeDesc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        if !self.type_vars.is_empty() {
+            if self.type_vars.len() == 1 {
+                write!(f, "{} ", self.type_vars[0])?;
+            } else {
+                write!(f, "(")?;
+                fmt_list(f, &self.type_vars, ", ")?;
+                write!(f, ") ")?;
+            }
+        }
+        write!(f, "{} = ", self.name)?;
+        fmt_list(f, &self.constructors, " | ")
+    }
+}
+
+/// Constructor description in a datatype specification.
+#[derive(Clone, Debug)]
+pub struct ConDesc {
+    pub span: Span,
+    pub name: String,
+    pub type_: Option<Type>,
+}
+
+impl Display for ConDesc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{}", self.name)?;
+        if let Some(t) = &self.type_ {
+            write!(f, " of {}", t)?;
+        }
+        Ok(())
+    }
+}
+
+/// Exception description in a signature.
+/// For example, `exception Empty` or `exception Error of string`.
+#[derive(Clone, Debug)]
+pub struct ExnDesc {
+    pub span: Span,
+    pub name: String,
+    pub type_: Option<Type>,
+}
+
+impl Display for ExnDesc {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{}", self.name)?;
+        if let Some(t) = &self.type_ {
+            write!(f, " of {}", t)?;
+        }
+        Ok(())
     }
 }
 

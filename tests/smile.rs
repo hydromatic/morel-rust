@@ -122,6 +122,11 @@ fn scott() {
 }
 
 #[test]
+fn signature() {
+    run_script("tests/script/signature.smli");
+}
+
+#[test]
 fn simple() {
     run_script("tests/script/simple.smli");
 }

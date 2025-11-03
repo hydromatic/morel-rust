@@ -491,6 +491,15 @@ impl TypeResolver {
                 let val_decl = self.convert_fun_to_val(env, fun_binds);
                 self.deduce_decl_type(env, &val_decl, term_map)
             }
+            DeclKind::Signature(_) => {
+                // Signatures don't have types themselves in the type system.
+                // They are purely compile-time constructs for defining
+                // interfaces. For now, we just return the original
+                // declaration unchanged.
+                // TODO: Implement proper signature type checking once
+                // structures are added.
+                decl.clone()
+            }
             _ => todo!("{:?}", decl.kind),
         }
     }
@@ -2229,15 +2238,15 @@ mod tests {
     /// Tests [TypeResolver::split_quoted] and [TypeResolver::join_quoted].
     #[test]
     fn test_split_join() {
-        fn check_split_join(s: &str, expected: Vec<&str>) {
+        fn check_split_join(s: &str, expected: &[&str]) {
             let result = TypeResolver::split_quoted(s, ',', '\'');
             assert_eq!(result, expected);
-            assert_eq!(TypeResolver::join_quoted(&expected, ',', '\''), s);
+            assert_eq!(TypeResolver::join_quoted(expected, ',', '\''), s);
         }
 
-        check_split_join("", vec![]);
-        check_split_join("a,'b,c',d", vec!["a", "b,c", "d"]);
-        check_split_join(",a,,bc,", vec!["", "a", "", "bc", ""]);
+        check_split_join("", &[]);
+        check_split_join("a,'b,c',d", &["a", "b,c", "d"]);
+        check_split_join(",a,,bc,", &["", "a", "", "bc", ""]);
         // Test with colon separator and backtick quote (what we use for
         // record fields)
         let result = TypeResolver::split_quoted("a:`b:c`:d", ':', '`');

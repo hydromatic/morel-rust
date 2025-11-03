@@ -195,6 +195,20 @@ impl<'a> Resolver<'a> {
                 unreachable!("Should have been desugared already")
             }
             DeclKind::Over(name) => CoreDecl::Over(name.clone()),
+            DeclKind::Signature(_) => {
+                // Signatures are not yet implemented in the core language.
+                // For now, we treat them as no-ops by creating a unit
+                // binding.
+                // TODO: Implement signature resolution once structures are
+                // added.
+                let unit_type = Box::new(Type::Primitive(PrimitiveType::Unit));
+                CoreDecl::NonRecVal(Box::new(CoreValBind {
+                    pat: CorePat::Tuple(unit_type.clone(), vec![]),
+                    t: *unit_type.clone(),
+                    expr: CoreExpr::Tuple(unit_type, vec![]),
+                    overload_pat: None,
+                }))
+            }
             DeclKind::Type(type_binds) => CoreDecl::Type(
                 type_binds
                     .iter()

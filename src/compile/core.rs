@@ -291,6 +291,9 @@ impl Pat {
             Pat::Identifier(_, _name) => {
                 consumer(Box::new(self.clone()), val);
             }
+            Pat::Tuple(_, pats) if pats.is_empty() => {
+                // Unit pattern - no bindings to process
+            }
             _ => {
                 todo!("{:?}", self);
             }

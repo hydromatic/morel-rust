@@ -27,7 +27,8 @@ This document describes the grammar of Morel
 [expressions](#expressions),
 [patterns](#patterns),
 [types](#types),
-[declarations](#declarations)),
+[declarations](#declarations),
+[modules](#modules)),
 and then lists its built-in
 [operators](#built-in-operators),
 [types](#built-in-types),
@@ -77,7 +78,8 @@ In Standard ML but not in Morel:
 * data type replication (`type`)
 * `withtype` in `datatype` declaration
 * abstract type (`abstype`)
-* modules (`structure` and `signature`)
+* `structure` module (signatures are supported for parsing and
+  pretty-printing, but not yet for constraining structures)
 * local declarations (`local`)
 * operator declarations (`nonfix`, `infix`, `infixr`)
 * `open`
@@ -210,6 +212,7 @@ In Standard ML but not in Morel:
 <i>dec</i> &rarr; <i>vals</i> <i>valbind</i>              value
     | <b>fun</b> <i>funbind</i>               function
     | <b>datatype</b> <i>datbind</i>          data type
+    | <b>signature</b> <i>sigbind</i>         signature
     | <i>empty</i>
     | <i>dec<sub>1</sub></i> [<b>;</b>] <i>dec<sub>2</sub></i>              sequence
 <i>valbind</i> &rarr; <i>pat</i> <b>=</b> <i>exp</i> [ <b>and</b> <i>valbind</i> ]*
@@ -235,6 +238,111 @@ In Standard ML but not in Morel:
 <i>vars</i> &rarr; <i>var</i>
     | '<b>(</b>' <i>var</i> [<b>,</b> <i>var</i>]* '<b>)</b>'
 </pre>
+
+### Modules
+
+<pre>
+<i>sigbind</i> &rarr; <i>id</i> <b>=</b> <b>sig</b> <i>spec</i> <b>end</b> [ <b>and</b> <i>sigbind</i> ]*
+                                signature
+<i>spec</i> &rarr; <b>val</b> <i>valdesc</i>              value
+    | <b>type</b> <i>typdesc</i>              abstract type
+    | <b>type</b> <i>typbind</i>              type abbreviation
+    | <b>datatype</b> <i>datdesc</i>          data type
+    | <b>exception</b> <i>exndesc</i>         exception
+    | <i>empty</i>
+    | <i>spec<sub>1</sub></i> [<b>;</b>] <i>spec<sub>2</sub></i>           sequence
+<i>valdesc</i> &rarr; <i>id</i> <b>:</b> <i>typ</i> [ <b>and</b> <i>valdesc</i> ]*
+                                value specification
+<i>typdesc</i> &rarr; [ <i>vars</i> ] <i>id</i> [ <b>and</b> <i>typdesc</i> ]*
+                                type specification
+<i>datdesc</i> &rarr; <i>datdescItem</i> [ <b>and</b> <i>datdescItem</i> ]*
+                                datatype specification
+<i>datdescItem</i> &rarr; [ <i>vars</i> ] <i>id</i> <b>=</b> <i>conbind</i>
+<i>exndesc</i> &rarr; <i>id</i> [ <b>of</b> <i>typ</i> ] [ <b>and</b> <i>exndesc</i> ]*
+                                exception specification
+</pre>
+
+A **signature** defines an interface that specifies types,
+values, datatypes, and exceptions without providing
+implementations. Signatures are used to document module
+interfaces and, in future versions of Morel, will be used to
+constrain structure implementations.
+
+Signature declarations appear at the top level (see grammar in
+[Declarations](#declarations)).
+
+#### Specifications
+
+A signature body contains **specifications** that describe the
+interface:
+
+**Value specifications** declare the type of a value without
+defining it:
+```sml
+val empty : 'a stack
+val push : 'a * 'a stack -> 'a stack
+```
+
+**Type specifications** can be abstract (no definition) or
+concrete (type alias):
+```sml
+type 'a stack              (* abstract type *)
+type point = real * real   (* concrete type alias *)
+type ('k, 'v) map          (* abstract with multiple params *)
+```
+
+**Datatype specifications** describe algebraic datatypes:
+```sml
+datatype 'a tree = Leaf | Node of 'a * 'a tree * 'a tree
+```
+
+**Exception specifications** declare exceptions:
+```sml
+exception Empty                  (* exception without payload *)
+exception QueueError of string   (* exception with payload *)
+```
+
+#### Examples
+
+A simple signature with abstract type and value specifications:
+
+```sml
+signature STACK =
+sig
+  type 'a stack
+  exception Empty
+  val empty : 'a stack
+  val isEmpty : 'a stack -> bool
+  val push : 'a * 'a stack -> 'a stack
+  val pop : 'a stack -> 'a stack
+  val top : 'a stack -> 'a
+end
+```
+
+Multiple signatures declared together using `and`:
+
+```sml
+signature EQ =
+sig
+  type t
+  val eq : t * t -> bool
+end
+and ORD =
+sig
+  type t
+  val lt : t * t -> bool
+  val le : t * t -> bool
+end
+```
+
+#### Current Limitations
+
+The current implementation supports parsing and
+pretty-printing signatures but does not yet support:
+* Structure declarations that implement signatures
+* Signature refinement (`where type`)
+* Signature sharing constraints
+* Signature inclusion
 
 ### Notation
 
@@ -314,7 +422,7 @@ Exception:
 | Bag.fromList | &alpha; list &rarr; &alpha; bag | "fromList l" creates a new bag from `l`, whose length is `length l` and whose elements are the same as those of `l`. Raises `Size` if `maxLen` &lt; `n`. |
 | Bag.toList | &alpha; bag &rarr; &alpha; list | "toList b" creates a new bag from `b`, whose length is `length b` and whose elements are the same as those of `b`. Raises `Size` if `maxLen` &lt; `n`. |
 | Bag.length | &alpha; bag &rarr; int | "length b" returns the number of elements in the bag `b`. |
-| Bag.at | &alpha; bag * &alpha; bag &rarr; &alpha; bag | "at (b1, b2)" returns the bag that is the concatenation of `b1` and `b2`. |
+| Bag.@ | &alpha; bag * &alpha; bag &rarr; &alpha; bag | "b1 @ b2" returns the bag that is the concatenation of `b1` and `b2`. |
 | Bag.hd | &alpha; bag &rarr; &alpha; | "hd b" returns an arbitrary element of bag `b`. Raises `Empty` if `b` is `nil`. |
 | Bag.tl | &alpha; bag &rarr; &alpha; bag | "tl b" returns all but one arbitrary element of bag `b`. Raises `Empty` if `b` is `nil`. |
 | Bag.getItem | &alpha; bag &rarr; * (&alpha; * &alpha; bag) option | "getItem b" returns `NONE` if the bag `b` is empty, and `SOME (hd b, tl b)` otherwise (applying `hd` and `tl` simultaneously so that they choose/remove the same arbitrary element). |
@@ -332,10 +440,9 @@ Exception:
 | Bag.all | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; bool | "all f b" applies `f` to each element `x` of the bag `b`, in arbitrary order, until `f(x)` evaluates to `false`; it returns `false` if such an `x` exists and `true` otherwise. It is equivalent to `not(exists (not o f) b))`. |
 | Bag.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; bag | "tabulate (n, f)" returns a bag of length `n` equal to `[f(0), f(1), ..., f(n-1)]`. This is equivalent to the expression:  <pre>fromList (List.tabulate (n, f))</pre>  Raises `Size` if `n` &lt; 0. |
 | Bag.collate | (&alpha; * &alpha; &rarr; order) &rarr; &alpha; bag * &alpha; bag &rarr; order | "collate f (l1, l2)" performs lexicographic comparison of the two bags using the given ordering `f` on the bag elements. |
-| Bool.not | bool &rarr; bool | "not b" returns the logical inverse of `b`. |
-| Bool.op implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
+| Bool.fromString | string &rarr; bool option | "fromString s" scans a `bool` value from the string `s`. Returns `SOME (true)` if `s` is "true", `SOME (false)` if `s` is "false", and `NONE` otherwise. |
+| Bool.implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
 | Bool.not | bool &rarr; bool | "not b" returns the logical negation of the boolean value `b`. |
-| Bool.op implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
 | Bool.toString | bool &rarr; string | "toString b" returns the string representation of `b`, either "true" or "false". |
 | Char.chr | int &rarr; char | "chr i" returns the character whose code is `i`. Raises `Chr` if `i` &lt; 0 or `i` &gt; `maxOrd`. |
 | Char.compare | char * char &rarr; order | "compare (c1, c2)" returns `LESS`, `EQUAL`, or `GREATER` according to whether its first argument is less than, equal to, or greater than the second. |
@@ -381,17 +488,17 @@ Exception:
 | Either.proj | ('a, 'a) either -&gt; 'a | "proj sm" projects out the contents of `sm`. |
 | Either.partition | ('left, 'right) either list -&gt; ('left list * 'right list) | "partition sms" partitions the list of sum values into a list of left values and a list of right values. |
 | General.ignore | &alpha; &rarr; unit | "ignore x" always returns `unit`. The function evaluates its argument but throws away the value. |
-| General.op o | (&beta; &rarr; &gamma;) (&alpha; &rarr; &beta;) &rarr; &alpha; &rarr; &gamma; | "f o g" is the function composition of `f` and `g`. Thus, `(f o g) a` is equivalent to `f (g a)`. |
-| Int.op * | int * int &rarr; int | "i * j" is the product of `i` and `j`. It raises `Overflow` when the result is not representable. |
-| Int.op + | int * int &rarr; int | "i + j" is the sum of `i` and `j`. It raises `Overflow` when the result is not representable. |
-| Int.op - | int * int &rarr; int | "i - j" is the difference of `i` and `j`. It raises `Overflow` when the result is not representable. |
-| Int.op div | int * int &rarr; int | "i div j" returns the greatest integer less than or equal to the quotient of i by j, i.e., `floor(i / j)`. It raises `Overflow` when the result is not representable, or Div when `j = 0`. Note that rounding is towards negative infinity, not zero. |
-| Int.op mod | int * int &rarr; int | "i mod j" returns the remainder of the division of i by j. It raises `Div` when `j = 0`. When defined, `(i mod j)` has the same sign as `j`, and `(i div j) * j + (i mod j) = i`. |
-| Int.op &lt; | int * int &rarr; bool | "i &lt; j" returns true if i is less than j. |
-| Int.op &lt;= | int * int &rarr; bool | "i &lt; j" returns true if i is less than or equal to j. |
-| Int.op &gt; | int * int &rarr; bool | "i &lt; j" returns true if i is greater than j. |
-| Int.op &gt;= | int * int &rarr; bool | "i &lt; j" returns true if i is greater than or equal to j. |
-| Int.op ~ | int &rarr; int | "~ i" returns the negation of `i`. |
+| General.o | (&beta; &rarr; &gamma;) * (&alpha; &rarr; &beta;) &rarr; &alpha; &rarr; &gamma; | "f o g" is the function composition of `f` and `g`. Thus, `(f o g) a` is equivalent to `f (g a)`. |
+| Int.* | int * int &rarr; int | "i * j" is the product of `i` and `j`. It raises `Overflow` when the result is not representable. |
+| Int.+ | int * int &rarr; int | "i + j" is the sum of `i` and `j`. It raises `Overflow` when the result is not representable. |
+| Int.- | int * int &rarr; int | "i - j" is the difference of `i` and `j`. It raises `Overflow` when the result is not representable. |
+| Int.div | int * int &rarr; int | "i div j" returns the greatest integer less than or equal to the quotient of i by j, i.e., `floor(i / j)`. It raises `Overflow` when the result is not representable, or Div when `j = 0`. Note that rounding is towards negative infinity, not zero. |
+| Int.mod | int * int &rarr; int | "i mod j" returns the remainder of the division of i by j. It raises `Div` when `j = 0`. When defined, `(i mod j)` has the same sign as `j`, and `(i div j) * j + (i mod j) = i`. |
+| Int.< | int * int &rarr; bool | "i &lt; j" returns true if i is less than j. |
+| Int.<= | int * int &rarr; bool | "i &lt; j" returns true if i is less than or equal to j. |
+| Int.> | int * int &rarr; bool | "i &lt; j" returns true if i is greater than j. |
+| Int.>= | int * int &rarr; bool | "i &lt; j" returns true if i is greater than or equal to j. |
+| Int.~ | int &rarr; int | "~ i" returns the negation of `i`. |
 | Int.abs | int &rarr; int | "abs i" returns the absolute value of `i`. |
 | Int.compare | int * int &rarr; order | "compare (i, j)" returns `LESS`, `EQUAL`, or `GREATER` according to whether its first argument is less than, equal to, or greater than the second. |
 | Int.fromInt, int | int &rarr; int | "fromInt i" converts a value from type `int` to the default integer type. Raises `Overflow` if the value does not fit. |
@@ -428,7 +535,7 @@ Exception:
 | List.nil | &alpha; list | "nil" is the empty list. |
 | List.null | &alpha; list &rarr; bool | "null l" returns `true` if the list `l` is empty. |
 | List.length | &alpha; list &rarr; int | "length l" returns the number of elements in the list `l`. |
-| List.op @ | &alpha; list * &alpha; list &rarr; &alpha; list | "l1 @ l2" returns the list that is the concatenation of `l1` and `l2`. |
+| List.@ | &alpha; list * &alpha; list &rarr; &alpha; list | "l1 @ l2" returns the list that is the concatenation of `l1` and `l2`. |
 | List.at | &alpha; list * &alpha; list &rarr; &alpha; list | "at (l1, l2)" is equivalent to "l1 @ l2". |
 | List.hd | &alpha; list &rarr; &alpha; | "hd l" returns the first element of `l`. Raises `Empty` if `l` is `nil`. |
 | List.tl | &alpha; list &rarr; &alpha; list | "tl l" returns all but the first element of `l`. Raises `Empty` if `l` is `nil`. |
@@ -479,15 +586,15 @@ Exception:
 | Option.filter | (&alpha; &rarr; bool) &rarr; &alpha; &rarr; &alpha; option | "filter f a" returns `SOME a` if `f(a)` is `true`, `NONE` otherwise. |
 | Option.join | &alpha; option option &rarr; &alpha; option | "join opt" maps `NONE` to `NONE` and `SOME v` to `v`. |
 | Option.valOf | &alpha; option &rarr; &alpha; | "valOf opt" returns `v` if `opt` is `SOME v`, otherwise raises `Option`. |
-| Real.op * | real * real &rarr; real | "r1 * r2" is the product of `r1` and `r2`. The product of zero and an infinity produces NaN. Otherwise, if one argument is infinite, the result is infinite with the correct sign, e.g., -5 * (-infinity) = infinity, infinity * (-infinity) = -infinity. |
-| Real.op + | real * real &rarr; real | "r1 + r2" is the sum of `r1` and `r2`. If one argument is finite and the other infinite, the result is infinite with the correct sign, e.g., 5 - (-infinity) = infinity. We also have infinity + infinity = infinity and (-infinity) + (-infinity) = (-infinity). Any other combination of two infinities produces NaN. |
-| Real.op - | real * real &rarr; real | "r1 - r2" is the difference of `r1` and `r2`. If one argument is finite and the other infinite, the result is infinite with the correct sign, e.g., 5 - (-infinity) = infinity. We also have infinity + infinity = infinity and (-infinity) + (-infinity) = (-infinity). Any other combination of two infinities produces NaN. |
-| Real.op / | real * real &rarr; real | "r1 / r2" is the quotient of `r1` and `r2`. We have 0 / 0 = NaN and +-infinity / +-infinity = NaN. Dividing a finite, non-zero number by a zero, or an infinity by a finite number produces an infinity with the correct sign. (Note that zeros are signed.) A finite number divided by an infinity is 0 with the correct sign. |
-| Real.op &lt; | real * real &rarr; bool | "x &lt; y" returns true if x is less than y. Return false on unordered arguments, i.e., if either argument is NaN, so that the usual reversal of comparison under negation does not hold, e.g., `a &lt; b` is not the same as `not (a &gt;= b)`. |
-| Real.op &lt;= | real * real &rarr; bool | As "&lt;" |
-| Real.op &gt; | real * real &rarr; bool | As "&lt;" |
-| Real.op &gt;= | real * real &rarr; bool | As "&lt;" |
-| Real.op ~ | real &rarr; real | "~ r" returns the negation of `r`. |
+| Real.* | real * real &rarr; real | "r1 * r2" is the product of `r1` and `r2`. The product of zero and an infinity produces NaN. Otherwise, if one argument is infinite, the result is infinite with the correct sign, e.g., -5 * (-infinity) = infinity, infinity * (-infinity) = -infinity. |
+| Real.+ | real * real &rarr; real | "r1 + r2" is the sum of `r1` and `r2`. If one argument is finite and the other infinite, the result is infinite with the correct sign, e.g., 5 - (-infinity) = infinity. We also have infinity + infinity = infinity and (-infinity) + (-infinity) = (-infinity). Any other combination of two infinities produces NaN. |
+| Real.- | real * real &rarr; real | "r1 - r2" is the difference of `r1` and `r2`. If one argument is finite and the other infinite, the result is infinite with the correct sign, e.g., 5 - (-infinity) = infinity. We also have infinity + infinity = infinity and (-infinity) + (-infinity) = (-infinity). Any other combination of two infinities produces NaN. |
+| Real./ | real * real &rarr; real | "r1 / r2" is the quotient of `r1` and `r2`. We have 0 / 0 = NaN and +-infinity / +-infinity = NaN. Dividing a finite, non-zero number by a zero, or an infinity by a finite number produces an infinity with the correct sign. (Note that zeros are signed.) A finite number divided by an infinity is 0 with the correct sign. |
+| Real.< | real * real &rarr; bool | "x &lt; y" returns true if x is less than y. Return false on unordered arguments, i.e., if either argument is NaN, so that the usual reversal of comparison under negation does not hold, e.g., `a &lt; b` is not the same as `not (a &gt;= b)`. |
+| Real.<= | real * real &rarr; bool | As "&lt;" |
+| Real.> | real * real &rarr; bool | As "&lt;" |
+| Real.>= | real * real &rarr; bool | As "&lt;" |
+| Real.~ | real &rarr; real | "~ r" returns the negation of `r`. |
 | Real.abs | real &rarr; real | "abs r" returns the absolute value of `r`. |
 | Real.ceil | real &rarr; int | "floor r" produces `ceil(r)`, the smallest int not less than `r`. |
 | Real.checkFloat | real &rarr; real | "checkFloat x" raises `Overflow` if x is an infinity, and raises `Div` if x is NaN. Otherwise, it returns its argument. |
@@ -527,7 +634,7 @@ Exception:
 | String.collate | (char * char &rarr; order) &rarr; string * string &rarr; order | "collate (f, (s, t))" performs lexicographic comparison of the two strings using the given ordering `f` on characters. |
 | String.compare | string * string &rarr; order | "compare (s, t)" does a lexicographic comparison of the two strings using the ordering `Char.compare` on the characters. It returns `LESS`, `EQUAL`, or `GREATER`, if `s` is less than, equal to, or greater than `t`, respectively. |
 | String.fields | (char &rarr; bool) &rarr; string &rarr; string list | "fields f s" returns a list of fields derived from `s` from left to right. A field is a (possibly empty) maximal substring of `s` not containing any delimiter. A delimiter is a character satisfying the predicate `f`.  Two tokens may be separated by more than one delimiter, whereas two fields are separated by exactly one delimiter. For example, if the only delimiter is the character `#"\|"`, then the string `"\|abc\|\|def"` contains two tokens `"abc"` and `"def"`, whereas it contains the four fields `""`, `"abc"`, `""` and `"def"`. |
-| String.op ^ | string * string &rarr; string | "s ^ t" is the concatenation of the strings `s` and `t`. This raises `Size` if `\|s\| + \|t\| &gt; maxSize`. |
+| String.^ | string * string &rarr; string | "s ^ t" is the concatenation of the strings `s` and `t`. This raises `Size` if `\|s\| + \|t\| &gt; maxSize`. |
 | String.concat | string list &rarr; string | "concat l" is the concatenation of all the strings in `l`. This raises `Size` if the sum of all the sizes is greater than `maxSize`. |
 | String.concatWith | string &rarr; string list &rarr; string | "concatWith s l" returns the concatenation of the strings in the list `l` using the string `s` as a separator. This raises `Size` if the size of the resulting string would be greater than `maxSize`. |
 | String.explode | string &rarr; char list | "explode s" is the list of characters in the string `s`. |

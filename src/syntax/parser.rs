@@ -16,10 +16,11 @@
 // License.
 
 use crate::syntax::ast::{
-    ConBind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, FunMatch,
-    Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField, PatKind,
-    Span, Statement, StatementKind, Step, StepKind, Type, TypeBind, TypeField,
-    TypeKind, TypeScheme, ValBind,
+    ConBind, ConDesc, DatatypeBind, DatatypeDesc, Decl, DeclKind, ExnDesc,
+    Expr, ExprKind, FunBind, FunMatch, Label, LabeledExpr, Literal,
+    LiteralKind, Match, Pat, PatField, PatKind, SigBind, Span, Spec, SpecKind,
+    Statement, StatementKind, Step, StepKind, Type, TypeBind, TypeDesc,
+    TypeField, TypeKind, TypeScheme, ValBind, ValDesc,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
@@ -138,6 +139,13 @@ impl TypeKind {
 impl StepKind {
     #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Step {
+        self.spanned(&input_to_span(&input))
+    }
+}
+
+impl SpecKind {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn wrap(&self, input: ParseInput) -> Spec {
         self.spanned(&input_to_span(&input))
     }
 }
@@ -995,6 +1003,7 @@ impl MorelParser {
             [over_decl(d)] => d.wrap(input),
             [type_decl(d)] => d.wrap(input),
             [datatype_decl(d)] => d.wrap(input),
+            [sig_decl(d)] => d.wrap(input),
         ))
     }
 
@@ -1154,6 +1163,162 @@ impl MorelParser {
             [identifier(i), _of(_), type_(t)] => {
                 let span = input_to_span(&input);
                 ConBind {span, name: i.to_string(), type_: Some(t)}
+            },
+        ))
+    }
+
+    fn sig_decl(input: ParseInput) -> ParseResult<DeclKind> {
+        Ok(match_nodes!(input.children();
+            [_signature(_), sig_bind(bind), _and(_), sig_bind(rest)..] => {
+                let mut binds = vec![bind];
+                binds.extend(rest.collect::<Vec<_>>());
+                DeclKind::Signature(binds)
+            },
+            [_signature(_), sig_bind(bind)] => DeclKind::Signature(vec![bind]),
+        ))
+    }
+
+    fn sig_bind(input: ParseInput) -> ParseResult<SigBind> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), _sig(_), spec(specs).., _end(_)] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                let specs = specs.collect();
+                SigBind {span, name, specs}
+            },
+        ))
+    }
+
+    fn spec(input: ParseInput) -> ParseResult<Spec> {
+        Ok(match_nodes!(input.children();
+            [val_spec(s)] => s.wrap(input),
+            [type_spec(s)] => s.wrap(input),
+            [datatype_spec(s)] => s.wrap(input),
+            [exception_spec(s)] => s.wrap(input),
+        ))
+    }
+
+    fn val_spec(input: ParseInput) -> ParseResult<SpecKind> {
+        Ok(match_nodes!(input.children();
+            [_val(_), val_desc(desc), _and(_), val_desc(rest)..] => {
+                let mut descs = vec![desc];
+                descs.extend(rest.collect::<Vec<_>>());
+                SpecKind::Val(descs)
+            },
+            [_val(_), val_desc(desc)] => SpecKind::Val(vec![desc]),
+        ))
+    }
+
+    fn val_desc(input: ParseInput) -> ParseResult<ValDesc> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), type_(t)] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                ValDesc {span, name, type_: t}
+            },
+        ))
+    }
+
+    fn type_spec(input: ParseInput) -> ParseResult<SpecKind> {
+        Ok(match_nodes!(input.children();
+            [_type(_), type_desc(desc), _and(_), type_desc(rest)..] => {
+                let mut descs = vec![desc];
+                descs.extend(rest.collect::<Vec<_>>());
+                SpecKind::Type(descs)
+            },
+            [_type(_), type_desc(desc)] => SpecKind::Type(vec![desc]),
+        ))
+    }
+
+    fn type_desc(input: ParseInput) -> ParseResult<TypeDesc> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                TypeDesc {span, type_vars: vec![], name, type_: None}
+            },
+            [identifier(i), type_(t)] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                TypeDesc {span, type_vars: vec![], name, type_: Some(t)}
+            },
+            [type_vars(vars), identifier(i)] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                TypeDesc {span, type_vars: vars, name, type_: None}
+            },
+            [type_vars(vars), identifier(i), type_(t)] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                TypeDesc {span, type_vars: vars, name, type_: Some(t)}
+            },
+        ))
+    }
+
+    fn datatype_spec(input: ParseInput) -> ParseResult<SpecKind> {
+        Ok(match_nodes!(input.children();
+            [_datatype(_), datatype_desc(desc), _and(_),
+             datatype_desc(rest)..] => {
+                let mut descs = vec![desc];
+                descs.extend(rest.collect::<Vec<_>>());
+                SpecKind::Datatype(descs)
+            },
+            [_datatype(_), datatype_desc(desc)] => {
+                SpecKind::Datatype(vec![desc])
+            },
+        ))
+    }
+
+    fn datatype_desc(input: ParseInput) -> ParseResult<DatatypeDesc> {
+        Ok(match_nodes!(input.children();
+            [identifier(i), con_desc(cons)..] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                let constructors = cons.collect();
+                DatatypeDesc {span, type_vars: vec![], name, constructors}
+            },
+            [type_vars(vars), identifier(i), con_desc(cons)..] => {
+                let span = input_to_span(&input);
+                let name = i.to_string();
+                let constructors = cons.collect();
+                DatatypeDesc {span, type_vars: vars, name, constructors}
+            },
+        ))
+    }
+
+    fn con_desc(input: ParseInput) -> ParseResult<ConDesc> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => {
+                let span = input_to_span(&input);
+                ConDesc {span, name: i.to_string(), type_: None}
+            },
+            [identifier(i), _of(_), type_(t)] => {
+                let span = input_to_span(&input);
+                ConDesc {span, name: i.to_string(), type_: Some(t)}
+            },
+        ))
+    }
+
+    fn exception_spec(input: ParseInput) -> ParseResult<SpecKind> {
+        Ok(match_nodes!(input.children();
+            [_exception(_), exn_desc(desc), _and(_), exn_desc(rest)..] => {
+                let mut descs = vec![desc];
+                descs.extend(rest.collect::<Vec<_>>());
+                SpecKind::Exception(descs)
+            },
+            [_exception(_), exn_desc(desc)] => SpecKind::Exception(vec![desc]),
+        ))
+    }
+
+    fn exn_desc(input: ParseInput) -> ParseResult<ExnDesc> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => {
+                let span = input_to_span(&input);
+                ExnDesc {span, name: i.to_string(), type_: None}
+            },
+            [identifier(i), _of(_), type_(t)] => {
+                let span = input_to_span(&input);
+                ExnDesc {span, name: i.to_string(), type_: Some(t)}
             },
         ))
     }
@@ -1436,6 +1601,10 @@ impl MorelParser {
         Ok(())
     }
 
+    fn _exception(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
     fn _exists(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
@@ -1537,6 +1706,14 @@ impl MorelParser {
     }
 
     fn _require(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _sig(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _signature(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
@@ -2176,6 +2353,89 @@ mod test {
         buf.clear();
         append_id(&mut buf, "with`tick");
         assert_eq!(buf, "`with``tick`");
+    }
+
+    #[test]
+    fn test_parse_signature() {
+        // Test basic signature - use statement to verify it parses correctly
+        ml("signature STACK = sig end")
+            .assert_statement(is("signature STACK = sig end"));
+
+        // Test signature with value spec
+        ml("signature STACK = sig val empty : 'a stack end").assert_statement(
+            is("signature STACK = sig val empty : stack<'a>; end"),
+        );
+
+        // Test the full STACK signature from the example
+        let stack_sig = r#"signature STACK = sig
+            type 'a stack
+            exception Empty
+            val empty : 'a stack
+            val push : 'a -> 'a stack -> 'a stack
+            val pop : 'a stack -> 'a * 'a stack
+            val top : 'a stack -> 'a
+            val isEmpty : 'a stack -> bool
+        end"#;
+        ml(stack_sig).assert_statement(|s| {
+            assert!(s.starts_with("signature STACK = sig"));
+            assert!(s.contains("type 'a stack"));
+            assert!(s.contains("exception Empty"));
+            assert!(s.contains("val empty"));
+        });
+
+        // Test signature with multiple value specs using 'and'
+        ml("signature S = sig val x : int and y : bool end").assert_statement(
+            |s| {
+                assert!(s.contains("val x : int and y : bool"));
+            },
+        );
+
+        // Test signature with type spec
+        ml("signature S = sig type t end")
+            .assert_statement(is("signature S = sig type t; end"));
+        ml("signature S = sig type t = int end")
+            .assert_statement(is("signature S = sig type t = int; end"));
+        ml("signature S = sig type 'a t end")
+            .assert_statement(is("signature S = sig type 'a t; end"));
+
+        // Test signature with datatype spec
+        ml("signature S = sig datatype t = A | B end").assert_statement(|s| {
+            assert!(s.contains("datatype t = A | B"));
+        });
+        ml("signature S = sig datatype 'a t = Leaf | Node of 'a end")
+            .assert_statement(|s| {
+                assert!(s.contains("datatype 'a t"));
+                assert!(s.contains("Leaf"));
+                assert!(s.contains("Node of"));
+            });
+
+        // Test signature with exception spec
+        ml("signature S = sig exception Empty end")
+            .assert_statement(is("signature S = sig exception Empty; end"));
+        ml("signature S = sig exception Error of string end").assert_statement(
+            |s| {
+                assert!(s.contains("exception Error of"));
+            },
+        );
+
+        // Test multiple signatures with 'and'
+        ml("signature S1 = sig end and S2 = sig end").assert_statement(|s| {
+            assert!(s.contains("S1"));
+            assert!(s.contains("S2"));
+        });
+    }
+
+    #[test]
+    fn test_parse_signature_statement() {
+        // Test that we can parse a complete signature as a statement
+        // Note: Type applications are printed as 'stack<'a>' not ''a stack'
+        ml("signature STACK = sig val empty : 'a stack end").assert_statement(
+            is("signature STACK = sig val empty : stack<'a>; end"),
+        );
+
+        // Test signature with multiple specs
+        ml("signature S = sig type t val x : t end")
+            .assert_statement(is("signature S = sig type t; val x : t; end"));
     }
 
     #[test]

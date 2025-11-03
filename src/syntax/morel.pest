@@ -36,6 +36,7 @@ keywords = {
   | _else
   | _end
   | _except
+  | _exception
   | _exists
   | _fn
   | _forall
@@ -62,6 +63,8 @@ keywords = {
   | _over
   | _rec
   | _require
+  | _sig
+  | _signature
   | _skip
   | _take
   | _then
@@ -89,6 +92,7 @@ _elem = @{ "elem" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _else = @{ "else" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _end = @{ "end" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _except = @{ "except" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_exception = @{ "exception" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _exists = @{ "exists" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _fn = @{ "fn" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _forall = @{ "forall" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -115,6 +119,8 @@ _orelse = @{ "orelse" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _over = @{ "over" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _rec = @{ "rec" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _require = @{ "require" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_sig = @{ "sig" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_signature = @{ "signature" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _skip = @{ "skip" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _take = @{ "take" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _then = @{ "then" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -377,6 +383,7 @@ decl = {
   | type_decl
   | over_decl
   | datatype_decl
+  | sig_decl
 }
 
 val_decl = { _val ~ _inst? ~ _rec? ~ val_bind ~ and_val_bind* }
@@ -400,6 +407,29 @@ type_bind = { type_vars? ~ identifier ~ "=" ~ type_ }
 datatype_decl = { _datatype ~ datatype_bind ~ (_and ~ datatype_bind)* }
 datatype_bind = { type_vars? ~ identifier ~ "=" ~ con_bind ~ ("|" ~ con_bind)* }
 con_bind = { identifier ~ (_of ~ type_)? }
+
+sig_decl = { _signature ~ sig_bind ~ (_and ~ sig_bind)* }
+sig_bind = { identifier ~ "=" ~ _sig ~ spec* ~ _end }
+
+spec = {
+    val_spec
+  | type_spec
+  | datatype_spec
+  | exception_spec
+}
+
+val_spec = { _val ~ val_desc ~ (_and ~ val_desc)* }
+val_desc = { identifier ~ ":" ~ type_ }
+
+type_spec = { _type ~ type_desc ~ (_and ~ type_desc)* }
+type_desc = { type_vars? ~ identifier ~ ("=" ~ type_)? }
+
+datatype_spec = { _datatype ~ datatype_desc ~ (_and ~ datatype_desc)* }
+datatype_desc = { type_vars? ~ identifier ~ "=" ~ con_desc ~ ("|" ~ con_desc)* }
+con_desc = { identifier ~ (_of ~ type_)? }
+
+exception_spec = { _exception ~ exn_desc ~ (_and ~ exn_desc)* }
+exn_desc = { identifier ~ (_of ~ type_)? }
 
 // -- Types -----------------------------------------------
 
