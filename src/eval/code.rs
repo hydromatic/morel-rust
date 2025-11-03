@@ -1150,7 +1150,8 @@ pub enum Eager1 {
     BagLength,
     BagNull,
     BagToList,
-    BoolOpNot,
+    BoolFromString,
+    BoolNot,
     BoolToString,
     CharFromCString,
     CharFromInt,
@@ -1260,7 +1261,8 @@ impl Eager1 {
             BagLength => Val::Int(List::length(a0.expect_list())),
             BagNull => Val::Bool(List::null(a0.expect_list())),
             BagToList => a0, // Already a Val::List
-            BoolOpNot => Val::Bool(Bool::not(a0.expect_bool())),
+            BoolFromString => Bool::from_string(&a0.expect_string()),
+            BoolNot => Val::Bool(Bool::not(a0.expect_bool())),
             BoolToString => Val::String(Bool::to_string(a0.expect_bool())),
             CharFromCString => Char::from_c_string(&a0.expect_string()),
             CharFromInt => Char::from_int(a0.expect_int()),
@@ -1386,32 +1388,32 @@ pub enum Eager2 {
     // lint: sort until '#}'
     BagAt,
     BoolAndAlso,
+    BoolEq,
     BoolImplies,
-    BoolOpEq,
-    BoolOpNe,
+    BoolNe,
     BoolOrElse,
     CharCompare,
     CharContains,
+    CharEq,
+    CharGe,
+    CharGt,
+    CharLe,
+    CharLt,
+    CharNe,
     CharNotContains,
-    CharOpEq,
-    CharOpGe,
-    CharOpGt,
-    CharOpLe,
-    CharOpLt,
-    CharOpNe,
-    GeneralOpO,
+    GeneralO,
     IntCompare,
     IntDiv,
+    IntEq,
+    IntGe,
+    IntGt,
+    IntLe,
+    IntLt,
     IntMax,
     IntMin,
     IntMinus,
     IntMod,
-    IntOpEq,
-    IntOpGe,
-    IntOpGt,
-    IntOpLe,
-    IntOpLt,
-    IntOpNe,
+    IntNe,
     IntPlus,
     IntQuot,
     IntRem,
@@ -1419,49 +1421,48 @@ pub enum Eager2 {
     IntTimes,
     LPZip,
     ListAt,
+    ListCons,
     ListExcept,
     ListIntersect,
-    ListOpAt,
-    ListOpCons,
     ListRevAppend,
     MathAtan2,
     MathPow,
     OptionGetOpt,
     RealCopySign,
     RealDivide,
+    RealEq,
     RealFromManExp,
+    RealGe,
+    RealGt,
+    RealLe,
+    RealLt,
     RealMax,
     RealMin,
-    RealOpEq,
-    RealOpGe,
-    RealOpGt,
-    RealOpLe,
-    RealOpLt,
-    RealOpMinus,
-    RealOpNe,
-    RealOpPlus,
-    RealOpTimes,
+    RealMinus,
+    RealNe,
+    RealPlus,
     RealRem,
     RealSameSign,
+    RealTimes,
     RealUnordered,
+    StringCaret,
     StringCompare,
+    StringEq,
+    StringGe,
+    StringGt,
     StringIsPrefix,
     StringIsSubstring,
     StringIsSuffix,
-    StringOpCaret,
-    StringOpEq,
-    StringOpGe,
-    StringOpGt,
-    StringOpLe,
-    StringOpLt,
-    StringOpNe,
+    StringLe,
+    StringLt,
+    StringNe,
 }
 
 impl Eager2 {
     fn plan(&self) -> String {
         match self {
             Eager2::IntPlus => "+".to_string(),
-            Eager2::StringOpCaret => "^".to_string(),
+            Eager2::StringCaret => "^".to_string(),
             _ => camel_to_dotted(&self.to_string()),
         }
     }
@@ -1478,11 +1479,11 @@ impl Eager2 {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
             BoolAndAlso => Val::Bool(a0.expect_bool() && a1.expect_bool()),
+            BoolEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
             BoolImplies => {
                 Val::Bool(Bool::implies(a0.expect_bool(), a1.expect_bool()))
             }
-            BoolOpEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
-            BoolOpNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
+            BoolNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
             BoolOrElse => Val::Bool(a0.expect_bool() || a1.expect_bool()),
             CharCompare => {
                 Val::Order(Char::compare(a0.expect_char(), a1.expect_char()))
@@ -1490,31 +1491,31 @@ impl Eager2 {
             CharContains => {
                 Val::Bool(Char::contains(&a0.expect_string(), a1.expect_char()))
             }
+            CharEq => Val::Bool(a0.expect_char() == a1.expect_char()),
+            CharGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
+            CharGt => Val::Bool(a0.expect_char() > a1.expect_char()),
+            CharLe => Val::Bool(a0.expect_char() <= a1.expect_char()),
+            CharLt => Val::Bool(a0.expect_char() < a1.expect_char()),
+            CharNe => Val::Bool(a0.expect_char() != a1.expect_char()),
             CharNotContains => Val::Bool(Char::not_contains(
                 &a0.expect_string(),
                 a1.expect_char(),
             )),
-            CharOpEq => Val::Bool(a0.expect_char() == a1.expect_char()),
-            CharOpGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
-            CharOpGt => Val::Bool(a0.expect_char() > a1.expect_char()),
-            CharOpLe => Val::Bool(a0.expect_char() <= a1.expect_char()),
-            CharOpLt => Val::Bool(a0.expect_char() < a1.expect_char()),
-            CharOpNe => Val::Bool(a0.expect_char() != a1.expect_char()),
-            GeneralOpO => Val::Unit,
+            GeneralO => Val::Unit,
             IntCompare => {
                 Val::Order(Int::compare(a0.expect_int(), a1.expect_int()))
             }
             IntDiv => Val::Int(Int::div(a0.expect_int(), a1.expect_int())),
+            IntEq => Val::Bool(a0.expect_int() == a1.expect_int()),
+            IntGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
+            IntGt => Val::Bool(a0.expect_int() > a1.expect_int()),
+            IntLe => Val::Bool(a0.expect_int() <= a1.expect_int()),
+            IntLt => Val::Bool(a0.expect_int() < a1.expect_int()),
             IntMax => Val::Int(a0.expect_int().max(a1.expect_int())),
             IntMin => Val::Int(a0.expect_int().min(a1.expect_int())),
             IntMinus => Val::Int(a0.expect_int() - a1.expect_int()),
             IntMod => Val::Int(Int::_mod(a0.expect_int(), a1.expect_int())),
-            IntOpEq => Val::Bool(a0.expect_int() == a1.expect_int()),
-            IntOpGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
-            IntOpGt => Val::Bool(a0.expect_int() > a1.expect_int()),
-            IntOpLe => Val::Bool(a0.expect_int() <= a1.expect_int()),
-            IntOpLt => Val::Bool(a0.expect_int() < a1.expect_int()),
-            IntOpNe => Val::Bool(a0.expect_int() != a1.expect_int()),
+            IntNe => Val::Bool(a0.expect_int() != a1.expect_int()),
             IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
             IntQuot => {
                 let n1 = a0.expect_int();
@@ -1536,16 +1537,13 @@ impl Eager2 {
             ListAt => {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
+            ListCons => Val::List(List::cons(&a0, a1.expect_list())),
             ListExcept => {
                 Val::List(List::except(a0.expect_list(), a1.expect_list()))
             }
             ListIntersect => {
                 Val::List(List::intersect(a0.expect_list(), a1.expect_list()))
             }
-            ListOpAt => {
-                Val::List(List::append(a0.expect_list(), a1.expect_list()))
-            }
-            ListOpCons => Val::List(List::cons(&a0, a1.expect_list())),
             ListRevAppend => {
                 Val::List(List::rev_append(a0.expect_list(), a1.expect_list()))
             }
@@ -1564,33 +1562,41 @@ impl Eager2 {
                 Val::Real(Real::copy_sign(a0.expect_real(), a1.expect_real()))
             }
             RealDivide => Val::Real(a0.expect_real() / a1.expect_real()),
+            RealEq => Val::Bool(a0.expect_real() == a1.expect_real()),
             RealFromManExp => {
                 // Type: {exp:int, man:real} -> real
                 // Record fields are passed in order: a0 = exp, a1 = man
                 Val::Real(Real::from_man_exp(a1.expect_real(), a0.expect_int()))
             }
+            RealGe => Val::Bool(a0.expect_real() >= a1.expect_real()),
+            RealGt => Val::Bool(a0.expect_real() > a1.expect_real()),
+            RealLe => Val::Bool(a0.expect_real() <= a1.expect_real()),
+            RealLt => Val::Bool(a0.expect_real() < a1.expect_real()),
             RealMax => Val::Real(Real::max(a0.expect_real(), a1.expect_real())),
             RealMin => Val::Real(Real::min(a0.expect_real(), a1.expect_real())),
-            RealOpEq => Val::Bool(a0.expect_real() == a1.expect_real()),
-            RealOpGe => Val::Bool(a0.expect_real() >= a1.expect_real()),
-            RealOpGt => Val::Bool(a0.expect_real() > a1.expect_real()),
-            RealOpLe => Val::Bool(a0.expect_real() <= a1.expect_real()),
-            RealOpLt => Val::Bool(a0.expect_real() < a1.expect_real()),
-            RealOpMinus => Val::Real(a0.expect_real() - a1.expect_real()),
-            RealOpNe => Val::Bool(a0.expect_real() != a1.expect_real()),
-            RealOpPlus => Val::Real(a0.expect_real() + a1.expect_real()),
-            RealOpTimes => Val::Real(a0.expect_real() * a1.expect_real()),
+            RealMinus => Val::Real(a0.expect_real() - a1.expect_real()),
+            RealNe => Val::Bool(a0.expect_real() != a1.expect_real()),
+            RealPlus => Val::Real(a0.expect_real() + a1.expect_real()),
             RealRem => Val::Real(Real::rem(a0.expect_real(), a1.expect_real())),
             RealSameSign => {
                 Val::Bool(Real::same_sign(a0.expect_real(), a1.expect_real()))
             }
+            RealTimes => Val::Real(a0.expect_real() * a1.expect_real()),
             RealUnordered => {
                 Val::Bool(Real::unordered(a0.expect_real(), a1.expect_real()))
             }
+            StringCaret => Val::String(format!(
+                "{}{}",
+                a0.expect_string(),
+                a1.expect_string()
+            )),
             StringCompare => Val::Order(Str::compare(
                 &a0.expect_string(),
                 &a1.expect_string(),
             )),
+            StringEq => Val::Bool(a0.expect_string() == a1.expect_string()),
+            StringGe => Val::Bool(a0.expect_string() >= a1.expect_string()),
+            StringGt => Val::Bool(a0.expect_string() > a1.expect_string()),
             StringIsPrefix => Val::Bool(Str::is_prefix(
                 &a0.expect_string(),
                 &a1.expect_string(),
@@ -1603,17 +1609,9 @@ impl Eager2 {
                 &a0.expect_string(),
                 &a1.expect_string(),
             )),
-            StringOpCaret => Val::String(format!(
-                "{}{}",
-                a0.expect_string(),
-                a1.expect_string()
-            )),
-            StringOpEq => Val::Bool(a0.expect_string() == a1.expect_string()),
-            StringOpGe => Val::Bool(a0.expect_string() >= a1.expect_string()),
-            StringOpGt => Val::Bool(a0.expect_string() > a1.expect_string()),
-            StringOpLe => Val::Bool(a0.expect_string() <= a1.expect_string()),
-            StringOpLt => Val::Bool(a0.expect_string() < a1.expect_string()),
-            StringOpNe => Val::Bool(a0.expect_string() != a1.expect_string()),
+            StringLe => Val::Bool(a0.expect_string() <= a1.expect_string()),
+            StringLt => Val::Bool(a0.expect_string() < a1.expect_string()),
+            StringNe => Val::Bool(a0.expect_string() != a1.expect_string()),
         }
     }
 
@@ -2219,16 +2217,16 @@ impl Eager3 {
 #[allow(clippy::enum_variant_names)]
 enum Custom {
     // lint: sort until '#}'
-    GOpEq,
-    GOpGe,
-    GOpGt,
-    GOpLe,
-    GOpLt,
-    GOpMinus,
-    GOpNe,
-    GOpNegate,
-    GOpPlus,
-    GOpTimes,
+    GEq,
+    GGe,
+    GGt,
+    GLe,
+    GLt,
+    GMinus,
+    GNe,
+    GNegate,
+    GPlus,
+    GTimes,
 }
 
 impl Custom {
@@ -2240,52 +2238,52 @@ impl Custom {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
-            GOpEq => Val::Bool(a0 == a1),
-            GOpGe => match (a0, a1) {
+            GEq => Val::Bool(a0 == a1),
+            GGe => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x >= y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x >= y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x >= y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x >= y),
                 _ => panic!("Type error in >= comparison"),
             },
-            GOpGt => match (a0, a1) {
+            GGt => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x > y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x > y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x & !y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x > y),
                 _ => panic!("Type error in > comparison"),
             },
-            GOpLe => match (a0, a1) {
+            GLe => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x <= y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x <= y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x <= y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x <= y),
                 _ => panic!("Type error in <= comparison"),
             },
-            GOpLt => match (a0, a1) {
+            GLt => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x < y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x < y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(!x & y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x < y),
                 _ => panic!("Type error in < comparison"),
             },
-            GOpMinus => match (a0, a1) {
+            GMinus => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x - y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x - y),
                 _ => panic!("Type error in - operation"),
             },
-            GOpNe => Val::Bool(a0 != a1),
-            GOpNegate => match a0 {
+            GNe => Val::Bool(a0 != a1),
+            GNegate => match a0 {
                 Val::Int(_) => Eager1::IntNegate.apply(a0),
                 Val::Real(_) => Eager1::RealNegate.apply(a0),
                 _ => panic!("Type error in ~ operation"),
             },
-            GOpPlus => match (a0, a1) {
+            GPlus => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x + y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x + y),
                 _ => panic!("Type error in + operation"),
             },
-            GOpTimes => match (a0, a1) {
+            GTimes => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x * y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x * y),
                 _ => panic!("Type error in * operation"),
@@ -2386,21 +2384,25 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::BagTl.implements(&mut b, BagTl);
     Eager1::BagToList.implements(&mut b, BagToList);
     Eager2::BoolAndAlso.implements(&mut b, BoolAndAlso);
+    Eager2::BoolEq.implements(&mut b, BoolEq);
     Eager0::BoolFalse.implements(&mut b, BoolFalse);
+    Eager1::BoolFromString.implements(&mut b, BoolFromString);
     Eager3::BoolIf.implements(&mut b, BoolIf);
     Eager2::BoolImplies.implements(&mut b, BoolImplies);
-    Eager2::BoolOpEq.implements(&mut b, BoolOpEq);
-    Eager2::BoolOpNe.implements(&mut b, BoolOpNe);
-    Eager1::BoolOpNot.implements(&mut b, BoolOpNot);
+    Eager2::BoolNe.implements(&mut b, BoolNe);
+    Eager1::BoolNot.implements(&mut b, BoolNot);
     Eager2::BoolOrElse.implements(&mut b, BoolOrElse);
     Eager1::BoolToString.implements(&mut b, BoolToString);
     Eager0::BoolTrue.implements(&mut b, BoolTrue);
     EagerF2::CharChr.implements(&mut b, CharChr);
     Eager2::CharCompare.implements(&mut b, CharCompare);
     Eager2::CharContains.implements(&mut b, CharContains);
+    Eager2::CharEq.implements(&mut b, CharEq);
     Eager1::CharFromCString.implements(&mut b, CharFromCString);
     Eager1::CharFromInt.implements(&mut b, CharFromInt);
     Eager1::CharFromString.implements(&mut b, CharFromString);
+    Eager2::CharGe.implements(&mut b, CharGe);
+    Eager2::CharGt.implements(&mut b, CharGt);
     Eager1::CharIsAlpha.implements(&mut b, CharIsAlpha);
     Eager1::CharIsAlphaNum.implements(&mut b, CharIsAlphaNum);
     Eager1::CharIsAscii.implements(&mut b, CharIsAscii);
@@ -2414,16 +2416,13 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::CharIsPunct.implements(&mut b, CharIsPunct);
     Eager1::CharIsSpace.implements(&mut b, CharIsSpace);
     Eager1::CharIsUpper.implements(&mut b, CharIsUpper);
+    Eager2::CharLe.implements(&mut b, CharLe);
+    Eager2::CharLt.implements(&mut b, CharLt);
     Eager0::CharMaxChar.implements(&mut b, CharMaxChar);
     Eager0::CharMaxOrd.implements(&mut b, CharMaxOrd);
     Eager0::CharMinChar.implements(&mut b, CharMinChar);
+    Eager2::CharNe.implements(&mut b, CharNe);
     Eager2::CharNotContains.implements(&mut b, CharNotContains);
-    Eager2::CharOpEq.implements(&mut b, CharOpEq);
-    Eager2::CharOpGe.implements(&mut b, CharOpGe);
-    Eager2::CharOpGt.implements(&mut b, CharOpGt);
-    Eager2::CharOpLe.implements(&mut b, CharOpLe);
-    Eager2::CharOpLt.implements(&mut b, CharOpLt);
-    Eager2::CharOpNe.implements(&mut b, CharOpNe);
     Eager1::CharOrd.implements(&mut b, CharOrd);
     EagerF2::CharPred.implements(&mut b, CharPred);
     EagerF2::CharSucc.implements(&mut b, CharSucc);
@@ -2446,39 +2445,37 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::EitherMapRight.implements(&mut b, EitherMapRight);
     Eager1::EitherPartition.implements(&mut b, EitherPartition);
     Eager1::EitherProj.implements(&mut b, EitherProj);
-    Custom::GOpEq.implements(&mut b, GOpEq);
-    Custom::GOpGe.implements(&mut b, GOpGe);
-    Custom::GOpGt.implements(&mut b, GOpGt);
-    Custom::GOpLe.implements(&mut b, GOpLe);
-    Custom::GOpLt.implements(&mut b, GOpLt);
-    Custom::GOpMinus.implements(&mut b, GOpMinus);
-    Custom::GOpNe.implements(&mut b, GOpNe);
-    Custom::GOpNegate.implements(&mut b, GOpNegate);
-    Custom::GOpPlus.implements(&mut b, GOpPlus);
-    Custom::GOpTimes.implements(&mut b, GOpTimes);
+    Custom::GEq.implements(&mut b, GEq);
+    Custom::GGe.implements(&mut b, GGe);
+    Custom::GGt.implements(&mut b, GGt);
+    Custom::GLe.implements(&mut b, GLe);
+    Custom::GLt.implements(&mut b, GLt);
+    Custom::GMinus.implements(&mut b, GMinus);
+    Custom::GNe.implements(&mut b, GNe);
+    Custom::GNegate.implements(&mut b, GNegate);
+    Custom::GPlus.implements(&mut b, GPlus);
+    Custom::GTimes.implements(&mut b, GTimes);
     Eager1::GeneralIgnore.implements(&mut b, GeneralIgnore);
-    Eager2::GeneralOpO.implements(&mut b, GeneralOpO);
+    Eager2::GeneralO.implements(&mut b, GeneralO);
     Eager1::IntAbs.implements(&mut b, IntAbs);
     Eager2::IntCompare.implements(&mut b, IntCompare);
     Eager2::IntDiv.implements(&mut b, IntDiv);
+    Eager2::IntEq.implements(&mut b, IntEq);
     Eager1::IntFromInt.implements(&mut b, IntFromInt);
     Eager1::IntFromLarge.implements(&mut b, IntFromLarge);
     Eager1::IntFromString.implements(&mut b, IntFromString);
+    Eager2::IntGe.implements(&mut b, IntGe);
+    Eager2::IntGt.implements(&mut b, IntGt);
+    Eager2::IntLe.implements(&mut b, IntLe);
+    Eager2::IntLt.implements(&mut b, IntLt);
     Eager2::IntMax.implements(&mut b, IntMax);
     Eager0::IntMaxInt.implements(&mut b, IntMaxInt);
     Eager2::IntMin.implements(&mut b, IntMin);
     Eager0::IntMinInt.implements(&mut b, IntMinInt);
     Eager2::IntMinus.implements(&mut b, IntMinus);
     Eager2::IntMod.implements(&mut b, IntMod);
+    Eager2::IntNe.implements(&mut b, IntNe);
     Eager1::IntNegate.implements(&mut b, IntNegate);
-    Eager2::IntDiv.implements(&mut b, IntOpDiv);
-    Eager2::IntOpEq.implements(&mut b, IntOpEq);
-    Eager2::IntOpGe.implements(&mut b, IntOpGe);
-    Eager2::IntOpGt.implements(&mut b, IntOpGt);
-    Eager2::IntOpLe.implements(&mut b, IntOpLe);
-    Eager2::IntOpLt.implements(&mut b, IntOpLt);
-    Eager2::IntMod.implements(&mut b, IntOpMod);
-    Eager2::IntOpNe.implements(&mut b, IntOpNe);
     Eager2::IntPlus.implements(&mut b, IntPlus);
     Eager0::IntPrecision.implements(&mut b, IntPrecision);
     Eager2::IntQuot.implements(&mut b, IntQuot);
@@ -2508,6 +2505,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::ListAt.implements(&mut b, ListAt);
     EagerF2::ListCollate.implements(&mut b, ListCollate);
     Eager1::ListConcat.implements(&mut b, ListConcat);
+    Eager2::ListCons.implements(&mut b, ListCons);
     EagerF3::ListDrop.implements(&mut b, ListDrop);
     Eager2::ListExcept.implements(&mut b, ListExcept);
     EagerF2::ListExists.implements(&mut b, ListExists);
@@ -2526,8 +2524,6 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager0::ListNil.implements(&mut b, ListNil);
     EagerF3::ListNth.implements(&mut b, ListNth);
     Eager1::ListNull.implements(&mut b, ListNull);
-    Eager2::ListOpAt.implements(&mut b, ListOpAt);
-    Eager2::ListOpCons.implements(&mut b, ListOpCons);
     EagerF2::ListPartition.implements(&mut b, ListPartition);
     Eager1::ListRev.implements(&mut b, ListRev);
     Eager2::ListRevAppend.implements(&mut b, ListRevAppend);
@@ -2573,29 +2569,28 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF3::RealCompare.implements(&mut b, RealCompare);
     Eager2::RealCopySign.implements(&mut b, RealCopySign);
     Eager2::RealDivide.implements(&mut b, RealDivide);
+    Eager2::RealEq.implements(&mut b, RealEq);
     EagerF2::RealFloor.implements(&mut b, RealFloor);
     Eager1::RealFromInt.implements(&mut b, RealFromInt);
     Eager2::RealFromManExp.implements(&mut b, RealFromManExp);
     Eager1::RealFromString.implements(&mut b, RealFromString);
+    Eager2::RealGe.implements(&mut b, RealGe);
+    Eager2::RealGt.implements(&mut b, RealGt);
     Eager1::RealIsFinite.implements(&mut b, RealIsFinite);
     Eager1::RealIsNan.implements(&mut b, RealIsNan);
     Eager1::RealIsNormal.implements(&mut b, RealIsNormal);
+    Eager2::RealLe.implements(&mut b, RealLe);
+    Eager2::RealLt.implements(&mut b, RealLt);
     Eager2::RealMax.implements(&mut b, RealMax);
     Eager0::RealMaxFinite.implements(&mut b, RealMaxFinite);
     Eager2::RealMin.implements(&mut b, RealMin);
     Eager0::RealMinNormalPos.implements(&mut b, RealMinNormalPos);
     Eager0::RealMinPos.implements(&mut b, RealMinPos);
+    Eager2::RealMinus.implements(&mut b, RealMinus);
+    Eager2::RealNe.implements(&mut b, RealNe);
     Eager0::RealNegInf.implements(&mut b, RealNegInf);
     Eager1::RealNegate.implements(&mut b, RealNegate);
-    Eager2::RealOpEq.implements(&mut b, RealOpEq);
-    Eager2::RealOpGe.implements(&mut b, RealOpGe);
-    Eager2::RealOpGt.implements(&mut b, RealOpGt);
-    Eager2::RealOpLe.implements(&mut b, RealOpLe);
-    Eager2::RealOpLt.implements(&mut b, RealOpLt);
-    Eager2::RealOpMinus.implements(&mut b, RealOpMinus);
-    Eager2::RealOpNe.implements(&mut b, RealOpNe);
-    Eager2::RealOpPlus.implements(&mut b, RealOpPlus);
-    Eager2::RealOpTimes.implements(&mut b, RealOpTimes);
+    Eager2::RealPlus.implements(&mut b, RealPlus);
     Eager0::RealPosInf.implements(&mut b, RealPosInf);
     Eager0::RealPrecision.implements(&mut b, RealPrecision);
     Eager0::RealRadix.implements(&mut b, RealRadix);
@@ -2610,30 +2605,31 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::RealSign.implements(&mut b, RealSign);
     Eager1::RealSignBit.implements(&mut b, RealSignBit);
     Eager1::RealSplit.implements(&mut b, RealSplit);
+    Eager2::RealTimes.implements(&mut b, RealTimes);
     Eager1::RealToManExp.implements(&mut b, RealToManExp);
     Eager1::RealToString.implements(&mut b, RealToString);
     EagerF2::RealTrunc.implements(&mut b, RealTrunc);
     Eager2::RealUnordered.implements(&mut b, RealUnordered);
+    Eager2::StringCaret.implements(&mut b, StringCaret);
     EagerF2::StringCollate.implements(&mut b, StringCollate);
     Eager2::StringCompare.implements(&mut b, StringCompare);
     Eager1::StringConcat.implements(&mut b, StringConcat);
     EagerF2::StringConcatWith.implements(&mut b, StringConcatWith);
+    Eager2::StringEq.implements(&mut b, StringEq);
     Eager1::StringExplode.implements(&mut b, StringExplode);
     EagerF4::StringExtract.implements(&mut b, StringExtract);
     EagerF2::StringFields.implements(&mut b, StringFields);
+    Eager2::StringGe.implements(&mut b, StringGe);
+    Eager2::StringGt.implements(&mut b, StringGt);
     Eager1::StringImplode.implements(&mut b, StringImplode);
     Eager2::StringIsPrefix.implements(&mut b, StringIsPrefix);
     Eager2::StringIsSubstring.implements(&mut b, StringIsSubstring);
     Eager2::StringIsSuffix.implements(&mut b, StringIsSuffix);
+    Eager2::StringLe.implements(&mut b, StringLe);
+    Eager2::StringLt.implements(&mut b, StringLt);
     EagerF2::StringMap.implements(&mut b, StringMap);
     Eager0::StringMaxSize.implements(&mut b, StringMaxSize);
-    Eager2::StringOpCaret.implements(&mut b, StringOpCaret);
-    Eager2::StringOpEq.implements(&mut b, StringOpEq);
-    Eager2::StringOpGe.implements(&mut b, StringOpGe);
-    Eager2::StringOpGt.implements(&mut b, StringOpGt);
-    Eager2::StringOpLe.implements(&mut b, StringOpLe);
-    Eager2::StringOpLt.implements(&mut b, StringOpLt);
-    Eager2::StringOpNe.implements(&mut b, StringOpNe);
+    Eager2::StringNe.implements(&mut b, StringNe);
     Eager1::StringSize.implements(&mut b, StringSize);
     Eager1::StringStr.implements(&mut b, StringStr);
     EagerF3::StringSub.implements(&mut b, StringSub);

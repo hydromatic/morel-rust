@@ -420,6 +420,37 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
 static TYPE_MAP: Set<&'static str> =
     phf_set! {"gitignore","rs","pest","toml","md","sig",};
 
+/// Validates that signature files in the lib directory are well-formed and
+/// that their value and exception declarations match the corresponding entries
+/// in the BuiltInFunction and BuiltInRecord enums.
+#[test]
+fn test_signatures() {
+    use morel::compile::signature_validator::SignatureValidator;
+
+    let validator = SignatureValidator::new("lib");
+    validator
+        .validate_all()
+        .expect("Signature validation failed");
+
+    // Also verify header format using lint_file
+    let entries = fs::read_dir("lib")
+        .expect("Failed to read lib directory")
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "sig" || ext == "sml")
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    for entry in entries {
+        let path = entry.path();
+        let file_name = path.to_str().unwrap();
+        lint_file(file_name, &mut Vec::new());
+    }
+}
+
 /// Validates that for each .smli file in tests/script/, there is a
 /// corresponding test method in tests/smile.rs.
 #[test]

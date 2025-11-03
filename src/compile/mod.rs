@@ -22,6 +22,7 @@ pub mod inliner;
 pub mod library;
 mod pretty;
 pub mod resolver;
+pub mod signature_validator;
 pub mod type_env;
 pub mod type_parser;
 pub mod type_resolver;

@@ -15,11 +15,26 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::eval::val::Val;
+
 /// Support for the `bool` primitive type and the `Bool` structure.
 pub struct Bool;
 
 impl Bool {
     // lint: sort until '#}' where '##pub'
+
+    /// Computes the Morel expression `Bool.fromString s`.
+    ///
+    /// Attempts to parse a boolean value from the string `s`.
+    /// Returns SOME(true) for "true", SOME(false) for "false",
+    /// NONE otherwise.
+    pub(crate) fn from_string(s: &str) -> Val {
+        match s {
+            "true" => Val::Some(Box::new(Val::Bool(true))),
+            "false" => Val::Some(Box::new(Val::Bool(false))),
+            _ => Val::Unit, // NONE
+        }
+    }
 
     /// Computes the Morel expression `Bool.implies (b1, b2)`.
     ///

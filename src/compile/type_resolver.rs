@@ -848,7 +848,14 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Identifier(name) => {
-                match env.get(name, self) {
+                let lookup_result =
+                    if let Some(bare_name) = name.strip_prefix("op ") {
+                        // Try "op <name>" first, then fall back to bare name
+                        env.get(name, self).or_else(|| env.get(bare_name, self))
+                    } else {
+                        env.get(name, self)
+                    };
+                match lookup_result {
                     Some(BindType::Val(term))
                     | Some(BindType::Constructor(term)) => {
                         self.equiv(&term, v);
@@ -951,7 +958,7 @@ impl TypeResolver {
             }
             ExprKind::OpSection(name) => {
                 let op_name = format!("op {}", name);
-                match env.get(&op_name, self) {
+                match env.get(&op_name, self).or_else(|| env.get(name, self)) {
                     Some(BindType::Val(term))
                     | Some(BindType::Constructor(term)) => {
                         self.equiv(&term, v);
@@ -1827,9 +1834,8 @@ impl TypeResolver {
                 )
             }
             PatKind::Cons(left, right) => {
-                let (left2, right2) = self.deduce_pat_call2_type(
-                    env, "op ::", left, right, term_map, v,
-                );
+                let (left2, right2) = self
+                    .deduce_pat_call2_type(env, "::", left, right, term_map, v);
                 let x = PatKind::Cons(Box::new(left2), Box::new(right2));
                 self.reg_pat(&x, &pat.span, pat.id, &v)
             }

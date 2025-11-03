@@ -276,7 +276,7 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Annotated(expr, _) => self.resolve_expr(expr),
             ExprKind::Append(a0, a1) => {
-                self.call2(t, BuiltInFunction::ListOpAt, &span, a0, a1)
+                self.call2(t, BuiltInFunction::ListAt, &span, a0, a1)
             }
             ExprKind::Apply(func, arg) => CoreExpr::Apply(
                 t,
@@ -285,7 +285,7 @@ impl<'a> Resolver<'a> {
                 Span::from_pest_span(&expr.span.to_pest_span(), self.base_line),
             ),
             ExprKind::Caret(a0, a1) => {
-                self.call2(t, BuiltInFunction::StringOpCaret, &span, a0, a1)
+                self.call2(t, BuiltInFunction::StringCaret, &span, a0, a1)
             }
             ExprKind::Case(expr, matches) => CoreExpr::Case(
                 t,
@@ -293,7 +293,7 @@ impl<'a> Resolver<'a> {
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
             ExprKind::Cons(a0, a1) => {
-                self.call2(t, BuiltInFunction::ListOpCons, &span, a0, a1)
+                self.call2(t, BuiltInFunction::ListCons, &span, a0, a1)
             }
             ExprKind::Current => CoreExpr::Current(t),
             ExprKind::Div(a0, a1) => {
@@ -305,25 +305,21 @@ impl<'a> Resolver<'a> {
             ExprKind::Equal(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpEq, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::IntEq, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpEq, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::RealEq, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => self.call2(
-                        t,
-                        BuiltInFunction::StringOpEq,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringEq, &span, a0, a1)
+                    }
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpEq, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::CharEq, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Bool) => {
-                        self.call2(t, BuiltInFunction::BoolOpEq, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::BoolEq, &span, a0, a1)
                     }
-                    _ => self.call2(t, BuiltInFunction::GOpEq, &span, a0, a1),
+                    _ => self.call2(t, BuiltInFunction::GEq, &span, a0, a1),
                 }
             }
             ExprKind::Exists(steps) => CoreExpr::Exists(
@@ -345,20 +341,16 @@ impl<'a> Resolver<'a> {
             ExprKind::GreaterThan(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpGt, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::IntGt, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpGt, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::RealGt, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => self.call2(
-                        t,
-                        BuiltInFunction::StringOpGt,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringGt, &span, a0, a1)
+                    }
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpGt, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::CharGt, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -366,20 +358,16 @@ impl<'a> Resolver<'a> {
             ExprKind::GreaterThanOrEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpGe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::IntGe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpGe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::RealGe, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => self.call2(
-                        t,
-                        BuiltInFunction::StringOpGe,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringGe, &span, a0, a1)
+                    }
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpGe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::CharGe, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -414,20 +402,16 @@ impl<'a> Resolver<'a> {
             ExprKind::LessThan(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpLt, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::IntLt, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpLt, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::RealLt, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => self.call2(
-                        t,
-                        BuiltInFunction::StringOpLt,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringLt, &span, a0, a1)
+                    }
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpLt, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::CharLt, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -435,20 +419,16 @@ impl<'a> Resolver<'a> {
             ExprKind::LessThanOrEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpLe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::IntLe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpLe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::RealLe, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => self.call2(
-                        t,
-                        BuiltInFunction::StringOpLe,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringLe, &span, a0, a1)
+                    }
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpLe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::CharLe, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -474,13 +454,9 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntMinus, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::Real) => self.call2(
-                        t,
-                        BuiltInFunction::RealOpMinus,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealMinus, &span, a0, a1)
+                    }
                     _ => todo!("resolve {:?}", a0),
                 }
             }
@@ -501,23 +477,19 @@ impl<'a> Resolver<'a> {
             ExprKind::NotEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
-                        self.call2(t, BuiltInFunction::IntOpNe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::IntNe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
-                        self.call2(t, BuiltInFunction::RealOpNe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::RealNe, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::String) => self.call2(
-                        t,
-                        BuiltInFunction::StringOpNe,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::String) => {
+                        self.call2(t, BuiltInFunction::StringNe, &span, a0, a1)
+                    }
                     Type::Primitive(PrimitiveType::Char) => {
-                        self.call2(t, BuiltInFunction::CharOpNe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::CharNe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Bool) => {
-                        self.call2(t, BuiltInFunction::BoolOpNe, &span, a0, a1)
+                        self.call2(t, BuiltInFunction::BoolNe, &span, a0, a1)
                     }
                     _ => todo!("resolve {:?}", a0),
                 }
@@ -536,13 +508,9 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntPlus, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::Real) => self.call2(
-                        t,
-                        BuiltInFunction::RealOpPlus,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealPlus, &span, a0, a1)
+                    }
                     _ => todo!("resolve {:?}", a0),
                 }
             }
@@ -562,13 +530,9 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntTimes, &span, a0, a1)
                     }
-                    Type::Primitive(PrimitiveType::Real) => self.call2(
-                        t,
-                        BuiltInFunction::RealOpTimes,
-                        &span,
-                        a0,
-                        a1,
-                    ),
+                    Type::Primitive(PrimitiveType::Real) => {
+                        self.call2(t, BuiltInFunction::RealTimes, &span, a0, a1)
+                    }
                     _ => todo!("resolve {:?}", a0),
                 }
             }
@@ -927,7 +891,7 @@ impl<'a> Resolver<'a> {
     fn op_section_to_literal(&self, fn_type: &Type, op_name: &str) -> CoreExpr {
         match fn_type {
             Type::Multi(_types) => {
-                // Overloaded function - create GOpNegate, GOpPlus, etc.
+                // Overloaded function - create GNegate, GPlus, etc.
                 let builtin = self.multi_op_to_builtin(op_name);
                 let fn_val = Val::Fn(builtin);
                 let fn_lit_type = builtin.get_type();
@@ -976,10 +940,10 @@ impl<'a> Resolver<'a> {
         arg_type: &Type,
     ) -> BuiltInFunction {
         use BuiltInFunction::{
-            IntDiv, IntMinus, IntMod, IntOpGe, IntOpGt, IntOpLe, IntOpLt,
-            IntPlus, IntTimes, ListAt, ListOpCons, RealDivide, RealOpGe,
-            RealOpGt, RealOpLe, RealOpLt, RealOpMinus, RealOpPlus, RealOpTimes,
-            StringOpCaret, StringOpGe, StringOpGt, StringOpLe, StringOpLt,
+            IntDiv, IntGe, IntGt, IntLe, IntLt, IntMinus, IntMod, IntPlus,
+            IntTimes, ListAt, ListCons, RealDivide, RealGe, RealGt, RealLe,
+            RealLt, RealMinus, RealPlus, RealTimes, StringCaret, StringGe,
+            StringGt, StringLe, StringLt,
         };
         match (op_name, arg_type) {
             // Integer operators
@@ -988,30 +952,30 @@ impl<'a> Resolver<'a> {
             ("*", Type::Primitive(PrimitiveType::Int)) => IntTimes,
             ("div", Type::Primitive(PrimitiveType::Int)) => IntDiv,
             ("mod", Type::Primitive(PrimitiveType::Int)) => IntMod,
-            ("<", Type::Primitive(PrimitiveType::Int)) => IntOpLt,
-            ("<=", Type::Primitive(PrimitiveType::Int)) => IntOpLe,
-            (">", Type::Primitive(PrimitiveType::Int)) => IntOpGt,
-            (">=", Type::Primitive(PrimitiveType::Int)) => IntOpGe,
+            ("<", Type::Primitive(PrimitiveType::Int)) => IntLt,
+            ("<=", Type::Primitive(PrimitiveType::Int)) => IntLe,
+            (">", Type::Primitive(PrimitiveType::Int)) => IntGt,
+            (">=", Type::Primitive(PrimitiveType::Int)) => IntGe,
 
             // Real operators
-            ("+", Type::Primitive(PrimitiveType::Real)) => RealOpPlus,
-            ("-", Type::Primitive(PrimitiveType::Real)) => RealOpMinus,
-            ("*", Type::Primitive(PrimitiveType::Real)) => RealOpTimes,
+            ("+", Type::Primitive(PrimitiveType::Real)) => RealPlus,
+            ("-", Type::Primitive(PrimitiveType::Real)) => RealMinus,
+            ("*", Type::Primitive(PrimitiveType::Real)) => RealTimes,
             ("/", Type::Primitive(PrimitiveType::Real)) => RealDivide,
-            ("<", Type::Primitive(PrimitiveType::Real)) => RealOpLt,
-            ("<=", Type::Primitive(PrimitiveType::Real)) => RealOpLe,
-            (">", Type::Primitive(PrimitiveType::Real)) => RealOpGt,
-            (">=", Type::Primitive(PrimitiveType::Real)) => RealOpGe,
+            ("<", Type::Primitive(PrimitiveType::Real)) => RealLt,
+            ("<=", Type::Primitive(PrimitiveType::Real)) => RealLe,
+            (">", Type::Primitive(PrimitiveType::Real)) => RealGt,
+            (">=", Type::Primitive(PrimitiveType::Real)) => RealGe,
 
             // String operators
-            ("^", Type::Primitive(PrimitiveType::String)) => StringOpCaret,
-            ("<", Type::Primitive(PrimitiveType::String)) => StringOpLt,
-            ("<=", Type::Primitive(PrimitiveType::String)) => StringOpLe,
-            (">", Type::Primitive(PrimitiveType::String)) => StringOpGt,
-            (">=", Type::Primitive(PrimitiveType::String)) => StringOpGe,
+            ("^", Type::Primitive(PrimitiveType::String)) => StringCaret,
+            ("<", Type::Primitive(PrimitiveType::String)) => StringLt,
+            ("<=", Type::Primitive(PrimitiveType::String)) => StringLe,
+            (">", Type::Primitive(PrimitiveType::String)) => StringGt,
+            (">=", Type::Primitive(PrimitiveType::String)) => StringGe,
 
             // List operators - these work on any list type
-            ("::", Type::List(_)) => ListOpCons,
+            ("::", Type::List(_)) => ListCons,
             ("@", Type::List(_)) => ListAt,
 
             _ => todo!(
@@ -1029,11 +993,11 @@ impl<'a> Resolver<'a> {
         op_name: &str,
         arg_type: &Type,
     ) -> BuiltInFunction {
-        use BuiltInFunction::{BoolOpNot, IntNegate, RealNegate};
+        use BuiltInFunction::{BoolNot, IntNegate, RealNegate};
         match (op_name, arg_type) {
             ("~", Type::Primitive(PrimitiveType::Int)) => IntNegate,
             ("~", Type::Primitive(PrimitiveType::Real)) => RealNegate,
-            ("not", Type::Primitive(PrimitiveType::Bool)) => BoolOpNot,
+            ("not", Type::Primitive(PrimitiveType::Bool)) => BoolNot,
             _ => todo!(
                 "unary operator '{}' with type {:?} not supported",
                 op_name,
@@ -1046,20 +1010,19 @@ impl<'a> Resolver<'a> {
     /// function.
     fn multi_op_to_builtin(&self, op_name: &str) -> BuiltInFunction {
         use BuiltInFunction::{
-            GOpEq, GOpGe, GOpGt, GOpLe, GOpLt, GOpMinus, GOpNe, GOpNegate,
-            GOpPlus, GOpTimes,
+            GEq, GGe, GGt, GLe, GLt, GMinus, GNe, GNegate, GPlus, GTimes,
         };
         match op_name {
-            "~" => GOpNegate,
-            "+" => GOpPlus,
-            "*" => GOpTimes,
-            "-" => GOpMinus,
-            "<" => GOpLt,
-            "<=" => GOpLe,
-            ">" => GOpGt,
-            ">=" => GOpGe,
-            "=" => GOpEq,
-            "<>" => GOpNe,
+            "~" => GNegate,
+            "+" => GPlus,
+            "*" => GTimes,
+            "-" => GMinus,
+            "<" => GLt,
+            "<=" => GLe,
+            ">" => GGt,
+            ">=" => GGe,
+            "=" => GEq,
+            "<>" => GNe,
             _ => todo!("overloaded operator '{}' not supported", op_name),
         }
     }
