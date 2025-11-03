@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInExn;
-use crate::eval::code::{Code, EvalEnv, Frame, Span};
+use crate::eval::code::{EvalEnv, Frame, Span};
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 
@@ -31,13 +31,13 @@ impl ListPair {
     pub(crate) fn all(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
     ) -> Result<bool, MorelError> {
         for (v1, v2) in l1.iter().zip(l2.iter()) {
             let pair = Val::List(vec![v1.clone(), v2.clone()]);
-            let result = func.eval_f1(r, f, &pair)?;
+            let result = func.apply_f1(r, f, &pair)?;
             if !result.expect_bool() {
                 return Ok(false);
             }
@@ -49,7 +49,7 @@ impl ListPair {
     pub(crate) fn all_eq(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
     ) -> Result<bool, MorelError> {
@@ -64,13 +64,13 @@ impl ListPair {
     pub(crate) fn app(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
     ) -> Result<(), MorelError> {
         for (v1, v2) in l1.iter().zip(l2.iter()) {
             let pair = Val::List(vec![v1.clone(), v2.clone()]);
-            func.eval_f1(r, f, &pair)?;
+            func.apply_f1(r, f, &pair)?;
         }
         Ok(())
     }
@@ -80,7 +80,7 @@ impl ListPair {
     pub(crate) fn app_eq(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
         span: &Span,
@@ -99,13 +99,13 @@ impl ListPair {
     pub(crate) fn exists(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
     ) -> Result<bool, MorelError> {
         for (v1, v2) in l1.iter().zip(l2.iter()) {
             let pair = Val::List(vec![v1.clone(), v2.clone()]);
-            let result = func.eval_f1(r, f, &pair)?;
+            let result = func.apply_f1(r, f, &pair)?;
             if result.expect_bool() {
                 return Ok(true);
             }
@@ -118,7 +118,7 @@ impl ListPair {
     pub(crate) fn foldl(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         l1: &[Val],
         l2: &[Val],
@@ -126,7 +126,7 @@ impl ListPair {
         let mut acc = init.clone();
         for (v1, v2) in l1.iter().zip(l2.iter()) {
             let triple = Val::List(vec![v1.clone(), v2.clone(), acc]);
-            acc = func.eval_f1(r, f, &triple)?;
+            acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
     }
@@ -136,7 +136,7 @@ impl ListPair {
     pub(crate) fn foldl_eq(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         l1: &[Val],
         l2: &[Val],
@@ -156,7 +156,7 @@ impl ListPair {
     pub(crate) fn foldr(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         l1: &[Val],
         l2: &[Val],
@@ -165,7 +165,7 @@ impl ListPair {
         let min_len = l1.len().min(l2.len());
         for i in (0..min_len).rev() {
             let triple = Val::List(vec![l1[i].clone(), l2[i].clone(), acc]);
-            acc = func.eval_f1(r, f, &triple)?;
+            acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
     }
@@ -175,7 +175,7 @@ impl ListPair {
     pub(crate) fn foldr_eq(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         l1: &[Val],
         l2: &[Val],
@@ -194,14 +194,14 @@ impl ListPair {
     pub(crate) fn map(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
     ) -> Result<Val, MorelError> {
         let mut result = Vec::new();
         for (v1, v2) in l1.iter().zip(l2.iter()) {
             let pair = Val::List(vec![v1.clone(), v2.clone()]);
-            result.push(func.eval_f1(r, f, &pair)?);
+            result.push(func.apply_f1(r, f, &pair)?);
         }
         Ok(Val::List(result))
     }
@@ -211,7 +211,7 @@ impl ListPair {
     pub(crate) fn map_eq(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         l1: &[Val],
         l2: &[Val],
         span: &Span,

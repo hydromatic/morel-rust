@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::eval::code::{Code, EvalEnv, Frame};
+use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 
@@ -77,12 +77,12 @@ impl Either {
     pub(crate) fn map_left(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         val: &Val,
     ) -> Result<Val, MorelError> {
         match val {
             Val::Inl(v) => {
-                let result = func.eval_f1(r, f, v)?;
+                let result = func.apply_f1(r, f, v)?;
                 Ok(Val::Inl(Box::new(result)))
             }
             Val::Inr(_) => Ok(val.clone()),
@@ -94,13 +94,13 @@ impl Either {
     pub(crate) fn map_right(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         val: &Val,
     ) -> Result<Val, MorelError> {
         match val {
             Val::Inl(_) => Ok(val.clone()),
             Val::Inr(v) => {
-                let result = func.eval_f1(r, f, v)?;
+                let result = func.apply_f1(r, f, v)?;
                 Ok(Val::Inr(Box::new(result)))
             }
             _ => panic!("Expected either value"),
@@ -133,12 +133,12 @@ impl Either {
     pub(crate) fn app_left(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         val: &Val,
     ) -> Result<(), MorelError> {
         match val {
             Val::Inl(v) => {
-                func.eval_f1(r, f, v)?;
+                func.apply_f1(r, f, v)?;
                 Ok(())
             }
             Val::Inr(_) => Ok(()),
@@ -150,13 +150,13 @@ impl Either {
     pub(crate) fn app_right(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         val: &Val,
     ) -> Result<(), MorelError> {
         match val {
             Val::Inl(_) => Ok(()),
             Val::Inr(v) => {
-                func.eval_f1(r, f, v)?;
+                func.apply_f1(r, f, v)?;
                 Ok(())
             }
             _ => panic!("Expected either value"),

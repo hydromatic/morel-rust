@@ -333,10 +333,24 @@ set("mode", "evaluate");
 (*) TODO !;
 (* "val := : 'a ref * 'a -> unit" maps to "General.:=" *)
 (*) TODO :=;
+(* "val ~ : int -> int" maps to "Int.~" *)
+op ~;
+> val it = fn : 'a -> 'a
+(* "val + : int * int -> int" maps to "Int.+" *)
+op +;
+> val it = fn : 'a * 'a -> 'a
+(* "val - : int * int -> int" maps to "Int.-" *)
+op -;
+> val it = fn : 'a * 'a -> 'a
+(* "val * : int * int -> int" maps to "Int.*" *)
+op *;
+> val it = fn : 'a * 'a -> 'a
 (* "val @ : ('a list * 'a list) -> 'a list" maps to "List.@" *)
-(*) TODO @;
+op @;
+> val it = fn : 'a list * 'a list -> 'a list
 (* "val ^ : string * string -> string" maps to "String.^" *)
-(*) TODO ^;
+op ^;
+> val it = fn : string * string -> string
 (* "val app : ('a -> unit) -> 'a list -> unit" maps to "List.app" *)
 app;
 > val it = fn : ('a -> unit) -> 'a list -> unit
@@ -1643,9 +1657,9 @@ Sys.plan ();
 (*) val foldl : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
 List.foldl;
 > val it = fn : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
-List.foldl (fn (a, b) => a + b) 0 [1,2,3];
+List.foldl (op +) 0 [1,2,3];
 > val it = 6 : int
-List.foldl (fn (a, b) => a + b) 0 [];
+List.foldl (op +) 0 [];
 > val it = 0 : int
 List.foldl (fn (a, b) => b) 0 [1,2,3];
 > val it = 0 : int
@@ -1659,9 +1673,9 @@ Sys.plan ();
 (*) val foldr : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
 List.foldr;
 > val it = fn : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
-List.foldr (fn (a, b) => a + b) 0 [1,2,3];
+List.foldr (op +) 0 [1,2,3];
 > val it = 6 : int
-List.foldr (fn (a, b) => a + b) 0 [];
+List.foldr (op +) 0 [];
 > val it = 0 : int
 List.foldr (fn (a, b) => b) 0 [1,2,3];
 > val it = 0 : int
@@ -1914,11 +1928,11 @@ ListPair.foldrEq (fn (x, y, r) => x + y + r) 0 ([1, 2], [4, 5, 6]);
    List.map f (zip (xs, ys)). *)
 ListPair.map;
 > val it = fn : ('a * 'b -> 'c) -> 'a list * 'b list -> 'c list
-ListPair.map (fn (x, y) => x + y) ([1, 2, 3], [4, 5, 6]);
+ListPair.map (op +) ([1, 2, 3], [4, 5, 6]);
 > val it = [5,7,9] : int list
-ListPair.map (fn (x, y) => x + y) ([1, 2, 3], [4, 5]);
+ListPair.map (op +) ([1, 2, 3], [4, 5]);
 > val it = [5,7] : int list
-ListPair.map (fn (x, y) => x + y) ([], [4, 5]);
+ListPair.map (op +) ([], [4, 5]);
 > val it = [] : int list
 
 (* [mapEq f (xs, ys)] applies function f to pairs of corresponding
@@ -1928,14 +1942,14 @@ ListPair.map (fn (x, y) => x + y) ([], [4, 5]);
    is equivalent to List.map f (zipEq (xs, ys)). *)
 ListPair.mapEq;
 > val it = fn : ('a * 'b -> 'c) -> 'a list * 'b list -> 'c list
-ListPair.mapEq (fn (x, y) => x + y) ([1, 2, 3], [4, 5, 6]);
+ListPair.mapEq (op +) ([1, 2, 3], [4, 5, 6]);
 > val it = [5,7,9] : int list
-ListPair.mapEq (fn (x, y) => x + y) ([1, 2, 3], [4, 5]);
+ListPair.mapEq (op +) ([1, 2, 3], [4, 5]);
 > uncaught exception UnequalLengths
->   raised at: stdIn:1.1-1.56
-ListPair.mapEq (fn (x, y) => x + y) ([], [4, 5]);
+>   raised at: stdIn:1.1-1.42
+ListPair.mapEq (op +) ([], [4, 5]);
 > uncaught exception UnequalLengths
->   raised at: stdIn:1.1-1.49
+>   raised at: stdIn:1.1-1.35
 
 (* [unzip xys] returns a pair (xs, ys), where xs is the list of first
    components of xys, and ys is the list of second components from

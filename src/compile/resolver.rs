@@ -508,6 +508,11 @@ impl<'a> Resolver<'a> {
                     _ => todo!("resolve {:?}", a0),
                 }
             }
+            ExprKind::OpSection(name) => {
+                // Convert 'op <operator>' to a function literal
+                // The type tells us which specific built-in to use
+                self.op_section_to_literal(&t, name)
+            }
             ExprKind::OrElse(a0, a1) => {
                 self.call2(t, BuiltInFunction::BoolOrElse, &span, a0, a1)
             }
@@ -900,6 +905,149 @@ impl<'a> Resolver<'a> {
         // Create the let expression.
         let decl = CoreDecl::NonRecVal(Box::new(temp_val_bind));
         CoreExpr::Let(case_expr.type_(), vec![decl], case_expr)
+    }
+
+    /// Converts an operator section to a function literal.
+    /// After type resolution, we know the concrete type, so we can
+    /// directly map to the specific built-in function.
+    fn op_section_to_literal(&self, fn_type: &Type, op_name: &str) -> CoreExpr {
+        match fn_type {
+            Type::Multi(_types) => {
+                // Overloaded function - create GOpNegate, GOpPlus, etc.
+                let builtin = self.multi_op_to_builtin(op_name);
+                let fn_val = Val::Fn(builtin);
+                let fn_lit_type = builtin.get_type();
+                CoreExpr::Literal(fn_lit_type, fn_val)
+            }
+            Type::Forall(_inner_type, _param_count) => {
+                // Polymorphic function
+                let builtin = self.multi_op_to_builtin(op_name);
+                let fn_val = Val::Fn(builtin);
+                let fn_lit_type = builtin.get_type();
+                CoreExpr::Literal(fn_lit_type, fn_val)
+            }
+            Type::Fn(param_type, _result_type) => {
+                let builtin = match param_type.as_ref() {
+                    Type::Variable(_) => {
+                        // Type variable means it's polymorphic
+                        self.multi_op_to_builtin(op_name)
+                    }
+                    Type::Tuple(args) if args.len() == 2 => {
+                        // Binary operator
+                        match &args[0] {
+                            Type::Variable(_) => {
+                                self.multi_op_to_builtin(op_name)
+                            }
+                            _ => self.binary_op_to_builtin(op_name, &args[0]),
+                        }
+                    }
+                    _ => {
+                        // Unary operator
+                        self.unary_op_to_builtin(op_name, param_type)
+                    }
+                };
+                let fn_val = Val::Fn(builtin);
+                let fn_lit_type = builtin.get_type();
+                CoreExpr::Literal(fn_lit_type, fn_val)
+            }
+            _ => todo!("OpSection with non-function type: {:?}", fn_type),
+        }
+    }
+
+    /// Maps a binary operator and type to the corresponding built-in
+    /// function.
+    fn binary_op_to_builtin(
+        &self,
+        op_name: &str,
+        arg_type: &Type,
+    ) -> BuiltInFunction {
+        use BuiltInFunction::{
+            IntDiv, IntMinus, IntMod, IntOpGe, IntOpGt, IntOpLe, IntOpLt,
+            IntPlus, IntTimes, ListAt, ListOpCons, RealDivide, RealOpGe,
+            RealOpGt, RealOpLe, RealOpLt, RealOpMinus, RealOpPlus, RealOpTimes,
+            StringOpCaret, StringOpGe, StringOpGt, StringOpLe, StringOpLt,
+        };
+        match (op_name, arg_type) {
+            // Integer operators
+            ("+", Type::Primitive(PrimitiveType::Int)) => IntPlus,
+            ("-", Type::Primitive(PrimitiveType::Int)) => IntMinus,
+            ("*", Type::Primitive(PrimitiveType::Int)) => IntTimes,
+            ("div", Type::Primitive(PrimitiveType::Int)) => IntDiv,
+            ("mod", Type::Primitive(PrimitiveType::Int)) => IntMod,
+            ("<", Type::Primitive(PrimitiveType::Int)) => IntOpLt,
+            ("<=", Type::Primitive(PrimitiveType::Int)) => IntOpLe,
+            (">", Type::Primitive(PrimitiveType::Int)) => IntOpGt,
+            (">=", Type::Primitive(PrimitiveType::Int)) => IntOpGe,
+
+            // Real operators
+            ("+", Type::Primitive(PrimitiveType::Real)) => RealOpPlus,
+            ("-", Type::Primitive(PrimitiveType::Real)) => RealOpMinus,
+            ("*", Type::Primitive(PrimitiveType::Real)) => RealOpTimes,
+            ("/", Type::Primitive(PrimitiveType::Real)) => RealDivide,
+            ("<", Type::Primitive(PrimitiveType::Real)) => RealOpLt,
+            ("<=", Type::Primitive(PrimitiveType::Real)) => RealOpLe,
+            (">", Type::Primitive(PrimitiveType::Real)) => RealOpGt,
+            (">=", Type::Primitive(PrimitiveType::Real)) => RealOpGe,
+
+            // String operators
+            ("^", Type::Primitive(PrimitiveType::String)) => StringOpCaret,
+            ("<", Type::Primitive(PrimitiveType::String)) => StringOpLt,
+            ("<=", Type::Primitive(PrimitiveType::String)) => StringOpLe,
+            (">", Type::Primitive(PrimitiveType::String)) => StringOpGt,
+            (">=", Type::Primitive(PrimitiveType::String)) => StringOpGe,
+
+            // List operators - these work on any list type
+            ("::", Type::List(_)) => ListOpCons,
+            ("@", Type::List(_)) => ListAt,
+
+            _ => todo!(
+                "binary operator '{}' with type {:?} not supported",
+                op_name,
+                arg_type
+            ),
+        }
+    }
+
+    /// Maps a unary operator and type to the corresponding built-in
+    /// function.
+    fn unary_op_to_builtin(
+        &self,
+        op_name: &str,
+        arg_type: &Type,
+    ) -> BuiltInFunction {
+        use BuiltInFunction::{BoolOpNot, IntNegate, RealNegate};
+        match (op_name, arg_type) {
+            ("~", Type::Primitive(PrimitiveType::Int)) => IntNegate,
+            ("~", Type::Primitive(PrimitiveType::Real)) => RealNegate,
+            ("not", Type::Primitive(PrimitiveType::Bool)) => BoolOpNot,
+            _ => todo!(
+                "unary operator '{}' with type {:?} not supported",
+                op_name,
+                arg_type
+            ),
+        }
+    }
+
+    /// Maps an overloaded operator to its general (polymorphic) built-in
+    /// function.
+    fn multi_op_to_builtin(&self, op_name: &str) -> BuiltInFunction {
+        use BuiltInFunction::{
+            GOpEq, GOpGe, GOpGt, GOpLe, GOpLt, GOpMinus, GOpNe, GOpNegate,
+            GOpPlus, GOpTimes,
+        };
+        match op_name {
+            "~" => GOpNegate,
+            "+" => GOpPlus,
+            "*" => GOpTimes,
+            "-" => GOpMinus,
+            "<" => GOpLt,
+            "<=" => GOpLe,
+            ">" => GOpGt,
+            ">=" => GOpGe,
+            "=" => GOpEq,
+            "<>" => GOpNe,
+            _ => todo!("overloaded operator '{}' not supported", op_name),
+        }
     }
 }
 

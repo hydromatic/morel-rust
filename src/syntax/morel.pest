@@ -55,6 +55,7 @@ keywords = {
   | _o
   | _of
   | _on
+  | _op
   | _order
   | _ordinal
   | _orelse
@@ -107,6 +108,7 @@ _notelem = @{ "notelem" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _o = @{ "o" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _of = @{ "of" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _on = @{ "on" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_op = @{ "op" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _order = @{ "order" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _ordinal = @{ "ordinal" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _orelse = @{ "orelse" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -214,6 +216,7 @@ expr_postfix = { atom ~ ("." ~ label)* }
 atom = {
     literal
   | identifier_expr
+  | op_section
   | record_selector
   | _current
   | _ordinal
@@ -227,6 +230,32 @@ atom = {
   | exists_expr
   | forall_expr
   | from_expr
+}
+
+op_section = { _op ~ op_name }
+op_name = {
+    identifier
+  | "<="  // Must come before "<"
+  | ">="  // Must come before ">"
+  | "<>"  // Must come before "<"
+  | "::"  // Must come before ":"
+  | "@"
+  | "+"
+  | "-"
+  | "*"
+  | "/"
+  | "^"
+  | "~"
+  | "="
+  | "<"
+  | ">"
+  | _div
+  | _mod
+  | _andalso
+  | _orelse
+  | _o
+  | _elem
+  | _notelem
 }
 
 identifier_expr = { identifier }

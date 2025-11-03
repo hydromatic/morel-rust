@@ -209,6 +209,24 @@ impl Val {
                 match impl_ {
                     Impl::E1(eager1) => Ok(eager1.apply(arg.clone())),
                     Impl::EF1(eagerf1) => eagerf1.apply(r, f, arg.clone()),
+                    Impl::E2(eager2) => {
+                        // Binary operators take a tuple as a single argument
+                        if let Val::List(args) = arg {
+                            if args.len() == 2 {
+                                Ok(eager2
+                                    .apply(args[0].clone(), args[1].clone()))
+                            } else {
+                                panic!(
+                                    "Expected tuple with 2 elements, got {}",
+                                    args.len()
+                                )
+                            }
+                        } else {
+                            panic!(
+                                "Expected tuple argument for binary operator"
+                            )
+                        }
+                    }
                     _ => panic!(
                         "Expected function with 1 argument, got {:?}",
                         impl_

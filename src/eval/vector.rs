@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInExn;
-use crate::eval::code::{Code, EvalEnv, Frame, Span};
+use crate::eval::code::{EvalEnv, Frame, Span};
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 
@@ -34,11 +34,11 @@ impl Vector {
     pub(crate) fn app(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         vec: &[Val],
     ) -> Result<(), MorelError> {
         for v in vec {
-            func.eval_f1(r, f, v)?;
+            func.apply_f1(r, f, v)?;
         }
         Ok(())
     }
@@ -47,12 +47,12 @@ impl Vector {
     pub(crate) fn appi(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         vec: &[Val],
     ) -> Result<(), MorelError> {
         for (i, v) in vec.iter().enumerate() {
             let pair = Val::List(vec![Val::Int(i as i32), v.clone()]);
-            func.eval_f1(r, f, &pair)?;
+            func.apply_f1(r, f, &pair)?;
         }
         Ok(())
     }
@@ -73,12 +73,12 @@ impl Vector {
     pub(crate) fn findi(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         vec: &[Val],
     ) -> Result<Val, MorelError> {
         for (i, v) in vec.iter().enumerate() {
             let pair = Val::List(vec![Val::Int(i as i32), v.clone()]);
-            if func.eval_f1(r, f, &pair)?.expect_bool() {
+            if func.apply_f1(r, f, &pair)?.expect_bool() {
                 return Ok(Val::Some(Box::new(pair)));
             }
         }
@@ -89,14 +89,14 @@ impl Vector {
     pub(crate) fn foldli(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         vec: &[Val],
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for (i, v) in vec.iter().enumerate() {
             let triple = Val::List(vec![Val::Int(i as i32), v.clone(), acc]);
-            acc = func.eval_f1(r, f, &triple)?;
+            acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
     }
@@ -105,14 +105,14 @@ impl Vector {
     pub(crate) fn foldri(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         vec: &[Val],
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for (i, v) in vec.iter().enumerate().rev() {
             let triple = Val::List(vec![Val::Int(i as i32), v.clone(), acc]);
-            acc = func.eval_f1(r, f, &triple)?;
+            acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
     }
@@ -126,13 +126,13 @@ impl Vector {
     pub(crate) fn mapi(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         vec: &[Val],
     ) -> Result<Val, MorelError> {
         let mut result = Vec::new();
         for (i, v) in vec.iter().enumerate() {
             let pair = Val::List(vec![Val::Int(i as i32), v.clone()]);
-            result.push(func.eval_f1(r, f, &pair)?);
+            result.push(func.apply_f1(r, f, &pair)?);
         }
         Ok(Val::List(result))
     }

@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInExn;
-use crate::eval::code::{Code, EvalEnv, Frame, Span};
+use crate::eval::code::{EvalEnv, Frame, Span};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
@@ -34,11 +34,11 @@ impl List {
     pub(crate) fn all(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<bool, MorelError> {
         for v in list {
-            let result = func.eval_f1(r, f, v)?;
+            let result = func.apply_f1(r, f, v)?;
             if !result.expect_bool() {
                 return Ok(false);
             }
@@ -50,11 +50,11 @@ impl List {
     pub(crate) fn app(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<(), MorelError> {
         for v in list {
-            func.eval_f1(r, f, v)?;
+            func.apply_f1(r, f, v)?;
         }
         Ok(())
     }
@@ -71,13 +71,13 @@ impl List {
     pub(crate) fn collate(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list1: &[Val],
         list2: &[Val],
     ) -> Result<Order, MorelError> {
         for (v1, v2) in list1.iter().zip(list2.iter()) {
             let pair = Val::List(vec![v1.clone(), v2.clone()]);
-            let result = func.eval_f1(r, f, &pair)?;
+            let result = func.apply_f1(r, f, &pair)?;
             let order = result.expect_order();
             if order.0 != Ordering::Equal {
                 return Ok(order);
@@ -135,11 +135,11 @@ impl List {
     pub(crate) fn exists(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<bool, MorelError> {
         for v in list {
-            let result = func.eval_f1(r, f, v)?;
+            let result = func.apply_f1(r, f, v)?;
             if result.expect_bool() {
                 return Ok(true);
             }
@@ -152,12 +152,12 @@ impl List {
     pub(crate) fn filter(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let mut result = Vec::new();
         for v in list {
-            let keep = func.eval_f1(r, f, v)?;
+            let keep = func.apply_f1(r, f, v)?;
             if keep.expect_bool() {
                 result.push(v.clone());
             }
@@ -171,11 +171,11 @@ impl List {
     pub(crate) fn find(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         for v in list {
-            let result = func.eval_f1(r, f, v)?;
+            let result = func.apply_f1(r, f, v)?;
             if result.expect_bool() {
                 return Ok(Val::Some(Box::new(v.clone())));
             }
@@ -188,14 +188,14 @@ impl List {
     pub(crate) fn foldl(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for v in list {
             let pair = Val::List(vec![v.clone(), acc]);
-            acc = func.eval_f1(r, f, &pair)?;
+            acc = func.apply_f1(r, f, &pair)?;
         }
         Ok(acc)
     }
@@ -205,14 +205,14 @@ impl List {
     pub(crate) fn foldr(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         init: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for v in list.iter().rev() {
             let pair = Val::List(vec![v.clone(), acc]);
-            acc = func.eval_f1(r, f, &pair)?;
+            acc = func.apply_f1(r, f, &pair)?;
         }
         Ok(acc)
     }
@@ -266,11 +266,11 @@ impl List {
     pub(crate) fn map(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let results: Result<Vec<Val>, _> =
-            list.iter().map(|v| func.eval_f1(r, f, v)).collect();
+            list.iter().map(|v| func.apply_f1(r, f, v)).collect();
         Ok(Val::List(results?))
     }
 
@@ -279,12 +279,12 @@ impl List {
     pub(crate) fn map_partial(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let mut result = Vec::new();
         for v in list {
-            let mapped = func.eval_f1(r, f, v)?;
+            let mapped = func.apply_f1(r, f, v)?;
             // If the result is SOME, unwrap it and add to result.
             if let Val::Some(boxed_val) = mapped {
                 result.push(*boxed_val);
@@ -299,13 +299,13 @@ impl List {
     pub(crate) fn mapi(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let mut result = Vec::with_capacity(list.len());
         for (i, v) in list.iter().enumerate() {
             let index_and_val = Val::List(vec![Val::Int(i as i32), v.clone()]);
-            let mapped = func.eval_f1(r, f, &index_and_val)?;
+            let mapped = func.apply_f1(r, f, &index_and_val)?;
             result.push(mapped);
         }
         Ok(Val::List(result))
@@ -337,13 +337,13 @@ impl List {
     pub(crate) fn partition(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Code,
+        func: &Val,
         list: &[Val],
     ) -> Result<Val, MorelError> {
         let mut pos = Vec::new();
         let mut neg = Vec::new();
         for v in list {
-            let result = func.eval_f1(r, f, v)?;
+            let result = func.apply_f1(r, f, v)?;
             if result.expect_bool() {
                 pos.push(v.clone());
             } else {
@@ -372,7 +372,7 @@ impl List {
         r: &mut EvalEnv,
         f: &mut Frame,
         count: i32,
-        fun: &Code,
+        fun: &Val,
         span: &Span,
     ) -> Result<Val, MorelError> {
         if count < 0 {
@@ -380,7 +380,7 @@ impl List {
         }
         let mut list = Vec::with_capacity(count as usize);
         for i in 0..count {
-            let v = fun.eval_f1(r, f, &Val::Int(i))?;
+            let v = fun.apply_f1(r, f, &Val::Int(i))?;
             list.push(v);
         }
         Ok(Val::List(list))

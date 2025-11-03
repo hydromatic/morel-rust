@@ -250,7 +250,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                 if let Some(caps) = derive_regex.captures(l) {
                     let traits_str = caps.get(1).unwrap().as_str();
                     let traits: Vec<&str> =
-                        traits_str.split(',').map(|s| s.trim()).collect();
+                        traits_str.split(',').map(str::trim).collect();
 
                     // Map each trait to (priority_index, trait_name)
                     let mut sorted_traits: Vec<&str> = traits.clone();

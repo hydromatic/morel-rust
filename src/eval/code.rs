@@ -1468,7 +1468,7 @@ impl Eager2 {
 
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
-    fn apply(&self, a0: Val, a1: Val) -> Val {
+    pub(crate) fn apply(&self, a0: Val, a1: Val) -> Val {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::Eager2::*;
 
@@ -1729,46 +1729,26 @@ impl EagerF2 {
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             // Bag functions use List implementations
-            BagAll => Ok(Val::Bool(List::all(
-                r,
-                f,
-                &a0.expect_code(),
-                a1.expect_list(),
-            )?)),
+            BagAll => Ok(Val::Bool(List::all(r, f, &a0, a1.expect_list())?)),
             BagApp => {
-                List::app(r, f, &a0.expect_code(), a1.expect_list())?;
+                List::app(r, f, &a0, a1.expect_list())?;
                 Ok(Val::Unit)
             }
             BagCollate => {
                 let tuple = a1.expect_list();
                 let bag1 = tuple[0].expect_list();
                 let bag2 = tuple[1].expect_list();
-                Ok(Val::Order(List::collate(
-                    r,
-                    f,
-                    &a0.expect_code(),
-                    bag1,
-                    bag2,
-                )?))
+                Ok(Val::Order(List::collate(r, f, &a0, bag1, bag2)?))
             }
-            BagExists => Ok(Val::Bool(List::exists(
-                r,
-                f,
-                &a0.expect_code(),
-                a1.expect_list(),
-            )?)),
-            BagFilter => {
-                List::filter(r, f, &a0.expect_code(), a1.expect_list())
+            BagExists => {
+                Ok(Val::Bool(List::exists(r, f, &a0, a1.expect_list())?))
             }
-            BagFind => List::find(r, f, &a0.expect_code(), a1.expect_list()),
+            BagFilter => List::filter(r, f, &a0, a1.expect_list()),
+            BagFind => List::find(r, f, &a0, a1.expect_list()),
             BagHd => List::hd(a0.expect_list(), &a1.expect_span()),
-            BagMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
-            BagMapPartial => {
-                List::map_partial(r, f, &a0.expect_code(), a1.expect_list())
-            }
-            BagPartition => {
-                List::partition(r, f, &a0.expect_code(), a1.expect_list())
-            }
+            BagMap => List::map(r, f, &a0, a1.expect_list()),
+            BagMapPartial => List::map_partial(r, f, &a0, a1.expect_list()),
+            BagPartition => List::partition(r, f, &a0, a1.expect_list()),
             BagTl => List::tl(a0.expect_list(), &a1.expect_span()),
             CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
             CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
@@ -1779,25 +1759,25 @@ impl EagerF2 {
                 Ok(Val::Unit)
             }
             EitherAppLeft => {
-                Either::app_left(r, f, &a0.expect_code(), &a1)?;
+                Either::app_left(r, f, &a0, &a1)?;
                 Ok(Val::Unit)
             }
             EitherAppRight => {
-                Either::app_right(r, f, &a0.expect_code(), &a1)?;
+                Either::app_right(r, f, &a0, &a1)?;
                 Ok(Val::Unit)
             }
             EitherMap => {
                 let tuple = a0.expect_list();
                 Either::map(r, f, &tuple[0], &tuple[1], &a1)
             }
-            EitherMapLeft => Either::map_left(r, f, &a0.expect_code(), &a1),
-            EitherMapRight => Either::map_right(r, f, &a0.expect_code(), &a1),
+            EitherMapLeft => Either::map_left(r, f, &a0, &a1),
+            EitherMapRight => Either::map_right(r, f, &a0, &a1),
             LPAll => {
                 let tuple = a1.expect_list();
                 let result = ListPair::all(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
                 )?;
@@ -1807,7 +1787,7 @@ impl EagerF2 {
                 let tuple = a1.expect_list();
                 let l1 = tuple[0].expect_list();
                 let l2 = tuple[1].expect_list();
-                let result = ListPair::all_eq(r, f, &a0.expect_code(), l1, l2)?;
+                let result = ListPair::all_eq(r, f, &a0, l1, l2)?;
                 Ok(Val::Bool(result))
             }
             LPApp => {
@@ -1815,7 +1795,7 @@ impl EagerF2 {
                 ListPair::app(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
                 )?;
@@ -1826,7 +1806,7 @@ impl EagerF2 {
                 let result = ListPair::exists(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
                 )?;
@@ -1837,53 +1817,33 @@ impl EagerF2 {
                 ListPair::map(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
                 )
             }
-            ListAll => Ok(Val::Bool(List::all(
-                r,
-                f,
-                &a0.expect_code(),
-                a1.expect_list(),
-            )?)),
+            ListAll => Ok(Val::Bool(List::all(r, f, &a0, a1.expect_list())?)),
             ListApp => {
-                List::app(r, f, &a0.expect_code(), a1.expect_list())?;
+                List::app(r, f, &a0, a1.expect_list())?;
                 Ok(Val::Unit)
             }
             ListCollate => {
                 let tuple = a1.expect_list();
                 let list1 = tuple[0].expect_list();
                 let list2 = tuple[1].expect_list();
-                Ok(Val::Order(List::collate(
-                    r,
-                    f,
-                    &a0.expect_code(),
-                    list1,
-                    list2,
-                )?))
+                Ok(Val::Order(List::collate(r, f, &a0, list1, list2)?))
             }
-            ListExists => Ok(Val::Bool(List::exists(
-                r,
-                f,
-                &a0.expect_code(),
-                a1.expect_list(),
-            )?)),
-            ListFilter => {
-                List::filter(r, f, &a0.expect_code(), a1.expect_list())
+            ListExists => {
+                Ok(Val::Bool(List::exists(r, f, &a0, a1.expect_list())?))
             }
-            ListFind => List::find(r, f, &a0.expect_code(), a1.expect_list()),
+            ListFilter => List::filter(r, f, &a0, a1.expect_list()),
+            ListFind => List::find(r, f, &a0, a1.expect_list()),
             ListHd => List::hd(a0.expect_list(), &a1.expect_span()),
             ListLast => List::last(a0.expect_list(), &a1.expect_span()),
-            ListMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
-            ListMapPartial => {
-                List::map_partial(r, f, &a0.expect_code(), a1.expect_list())
-            }
-            ListMapi => List::mapi(r, f, &a0.expect_code(), a1.expect_list()),
-            ListPartition => {
-                List::partition(r, f, &a0.expect_code(), a1.expect_list())
-            }
+            ListMap => List::map(r, f, &a0, a1.expect_list()),
+            ListMapPartial => List::map_partial(r, f, &a0, a1.expect_list()),
+            ListMapi => List::mapi(r, f, &a0, a1.expect_list()),
+            ListPartition => List::partition(r, f, &a0, a1.expect_list()),
             ListTl => List::tl(a0.expect_list(), &a1.expect_span()),
             OptionApp => Opt::app(r, f, &a0, &a1),
             OptionCompose => {
@@ -1921,24 +1881,20 @@ impl EagerF2 {
                 Ok(Val::String(Str::concat_with(&sep, strings)))
             }
             StringFields => {
-                let func = a0.expect_code();
                 let s = a1.expect_string();
-                Str::fields(r, f, &func, &s)
+                Str::fields(r, f, &a0, &s)
             }
             StringMap => {
-                let func = a0.expect_code();
                 let s = a1.expect_string();
-                Str::map(r, f, &func, &s)
+                Str::map(r, f, &a0, &s)
             }
             StringTokens => {
-                let func = a0.expect_code();
                 let s = a1.expect_string();
-                Str::tokens(r, f, &func, &s)
+                Str::tokens(r, f, &a0, &s)
             }
             StringTranslate => {
-                let func = a0.expect_code();
                 let s = a1.expect_string();
-                Str::translate(r, f, &func, &s)
+                Str::translate(r, f, &a0, &s)
             }
             SysSet => {
                 let prop = a0.expect_string();
@@ -1946,46 +1902,28 @@ impl EagerF2 {
                 r.emit_effect(Effect::SetShellProp(prop, val));
                 Ok(Val::Unit)
             }
-            VectorAll => Ok(Val::Bool(List::all(
-                r,
-                f,
-                &a0.expect_code(),
-                a1.expect_list(),
-            )?)),
+            VectorAll => Ok(Val::Bool(List::all(r, f, &a0, a1.expect_list())?)),
             VectorApp => {
-                Vector::app(r, f, &a0.expect_code(), a1.expect_list())?;
+                Vector::app(r, f, &a0, a1.expect_list())?;
                 Ok(Val::Unit)
             }
             VectorAppi => {
-                Vector::appi(r, f, &a0.expect_code(), a1.expect_list())?;
+                Vector::appi(r, f, &a0, a1.expect_list())?;
                 Ok(Val::Unit)
             }
             VectorCollate => {
                 let tuple = a1.expect_list();
                 let vec1 = tuple[0].expect_list();
                 let vec2 = tuple[1].expect_list();
-                Ok(Val::Order(List::collate(
-                    r,
-                    f,
-                    &a0.expect_code(),
-                    vec1,
-                    vec2,
-                )?))
+                Ok(Val::Order(List::collate(r, f, &a0, vec1, vec2)?))
             }
-            VectorExists => Ok(Val::Bool(List::exists(
-                r,
-                f,
-                &a0.expect_code(),
-                a1.expect_list(),
-            )?)),
-            VectorFind => List::find(r, f, &a0.expect_code(), a1.expect_list()),
-            VectorFindi => {
-                Vector::findi(r, f, &a0.expect_code(), a1.expect_list())
+            VectorExists => {
+                Ok(Val::Bool(List::exists(r, f, &a0, a1.expect_list())?))
             }
-            VectorMap => List::map(r, f, &a0.expect_code(), a1.expect_list()),
-            VectorMapi => {
-                Vector::mapi(r, f, &a0.expect_code(), a1.expect_list())
-            }
+            VectorFind => List::find(r, f, &a0, a1.expect_list()),
+            VectorFindi => Vector::findi(r, f, &a0, a1.expect_list()),
+            VectorMap => List::map(r, f, &a0, a1.expect_list()),
+            VectorMapi => Vector::mapi(r, f, &a0, a1.expect_list()),
         }
     }
 }
@@ -2051,16 +1989,10 @@ impl EagerF3 {
             BagDrop => {
                 List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
-            BagFold => {
-                List::foldl(r, f, &a0.expect_code(), &a1, a2.expect_list())
+            BagFold => List::foldl(r, f, &a0, &a1, a2.expect_list()),
+            BagTabulate => {
+                List::tabulate(r, f, a0.expect_int(), &a1, &a2.expect_span())
             }
-            BagTabulate => List::tabulate(
-                r,
-                f,
-                a0.expect_int(),
-                &a1.expect_code(),
-                &a2.expect_span(),
-            ),
             BagTake => {
                 List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
@@ -2073,7 +2005,7 @@ impl EagerF3 {
                 ListPair::app_eq(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
                     &a2.expect_span(),
@@ -2083,22 +2015,14 @@ impl EagerF3 {
             ListDrop => {
                 List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
-            ListFoldl => {
-                List::foldl(r, f, &a0.expect_code(), &a1, a2.expect_list())
-            }
-            ListFoldr => {
-                List::foldr(r, f, &a0.expect_code(), &a1, a2.expect_list())
-            }
+            ListFoldl => List::foldl(r, f, &a0, &a1, a2.expect_list()),
+            ListFoldr => List::foldr(r, f, &a0, &a1, a2.expect_list()),
             ListNth => {
                 List::nth(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
-            ListTabulate => List::tabulate(
-                r,
-                f,
-                a0.expect_int(),
-                &a1.expect_code(),
-                &a2.expect_span(),
-            ),
+            ListTabulate => {
+                List::tabulate(r, f, a0.expect_int(), &a1, &a2.expect_span())
+            }
             ListTake => {
                 List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
             }
@@ -2107,7 +2031,7 @@ impl EagerF3 {
                 ListPair::foldl(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     &a1,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
@@ -2118,7 +2042,7 @@ impl EagerF3 {
                 ListPair::foldr(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     &a1,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
@@ -2129,7 +2053,7 @@ impl EagerF3 {
                 ListPair::map_eq(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
                     &a2.expect_span(),
@@ -2150,30 +2074,18 @@ impl EagerF3 {
                 a1.expect_int(),
                 &a2.expect_span(),
             ),
-            VectorFoldl => {
-                List::foldl(r, f, &a0.expect_code(), &a1, a2.expect_list())
-            }
-            VectorFoldli => {
-                Vector::foldli(r, f, &a0.expect_code(), &a1, a2.expect_list())
-            }
-            VectorFoldr => {
-                List::foldr(r, f, &a0.expect_code(), &a1, a2.expect_list())
-            }
-            VectorFoldri => {
-                Vector::foldri(r, f, &a0.expect_code(), &a1, a2.expect_list())
-            }
+            VectorFoldl => List::foldl(r, f, &a0, &a1, a2.expect_list()),
+            VectorFoldli => Vector::foldli(r, f, &a0, &a1, a2.expect_list()),
+            VectorFoldr => List::foldr(r, f, &a0, &a1, a2.expect_list()),
+            VectorFoldri => Vector::foldri(r, f, &a0, &a1, a2.expect_list()),
             VectorSub => Vector::sub(
                 a0.expect_list(),
                 a1.expect_int(),
                 &a2.expect_span(),
             ),
-            VectorTabulate => List::tabulate(
-                r,
-                f,
-                a0.expect_int(),
-                &a1.expect_code(),
-                &a2.expect_span(),
-            ),
+            VectorTabulate => {
+                List::tabulate(r, f, a0.expect_int(), &a1, &a2.expect_span())
+            }
         }
     }
 }
@@ -2222,7 +2134,7 @@ impl EagerF4 {
                 ListPair::foldl_eq(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     &a1,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
@@ -2235,7 +2147,7 @@ impl EagerF4 {
                 ListPair::foldr_eq(
                     r,
                     f,
-                    &a0.expect_code(),
+                    &a0,
                     &a1,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),

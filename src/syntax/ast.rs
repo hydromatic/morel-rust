@@ -180,6 +180,10 @@ impl Display for Expr {
 pub enum ExprKind<SubExpr> {
     Literal(Literal),
     Identifier(String),
+    /// Operator section: `op +`, `op ::`, etc.
+    /// Converts an infix operator to a prefix function value.
+    /// For example, `op +` is equivalent to `fn (x, y) => x + y`.
+    OpSection(String),
     RecordSelector(String),
     Current,
     Ordinal,
@@ -357,6 +361,7 @@ impl Display for ExprKind<Expr> {
                 write!(f, "({} notelem {})", a0, a1)
             }
             ExprKind::NotEqual(a0, a1) => write!(f, "({} <> {})", a0, a1),
+            ExprKind::OpSection(name) => write!(f, "op {}", name),
             ExprKind::OrElse(a0, a1) => write!(f, "({} orelse {})", a0, a1),
             ExprKind::Ordinal => write!(f, "ordinal"),
             ExprKind::Plus(a0, a1) => write!(f, "({} + {})", a0, a1),

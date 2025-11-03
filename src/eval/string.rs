@@ -17,12 +17,11 @@
 
 use crate::compile::library::{BuiltInExn, BuiltInFunction};
 use crate::eval::char::Char;
-use crate::eval::code::{Code, EvalEnv, Frame, Span};
+use crate::eval::code::{EvalEnv, Frame, Span};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 use std::cmp::Ordering;
-use std::sync::Arc;
 
 /// Support for the `string` built-in type and the `String` structure.
 pub struct Str;
@@ -162,14 +161,14 @@ impl Str {
     pub(crate) fn fields(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Arc<Code>,
+        func: &Val,
         s: &str,
     ) -> Result<Val, MorelError> {
         let mut fields = Vec::new();
         let mut current_field = String::new();
 
         for c in s.chars() {
-            let is_delimiter = func.eval_f1(r, f, &Val::Char(c))?;
+            let is_delimiter = func.apply_f1(r, f, &Val::Char(c))?;
             if is_delimiter.expect_bool() {
                 // This is a delimiter
                 // Always save the current field (even if empty)
@@ -222,13 +221,13 @@ impl Str {
     pub(crate) fn map(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Arc<Code>,
+        func: &Val,
         s: &str,
     ) -> Result<Val, MorelError> {
         let chars: Result<String, _> = s
             .chars()
             .map(|c| {
-                let result = func.eval_f1(r, f, &Val::Char(c))?;
+                let result = func.apply_f1(r, f, &Val::Char(c))?;
                 Ok(result.expect_char())
             })
             .collect();
@@ -285,14 +284,14 @@ impl Str {
     pub(crate) fn tokens(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Arc<Code>,
+        func: &Val,
         s: &str,
     ) -> Result<Val, MorelError> {
         let mut tokens = Vec::new();
         let mut current_token = String::new();
 
         for c in s.chars() {
-            let is_delimiter = func.eval_f1(r, f, &Val::Char(c))?;
+            let is_delimiter = func.apply_f1(r, f, &Val::Char(c))?;
             if is_delimiter.expect_bool() {
                 // This is a delimiter
                 if !current_token.is_empty() {
@@ -320,12 +319,12 @@ impl Str {
     pub(crate) fn translate(
         r: &mut EvalEnv,
         f: &mut Frame,
-        func: &Arc<Code>,
+        func: &Val,
         s: &str,
     ) -> Result<Val, MorelError> {
         let mut result = String::new();
         for c in s.chars() {
-            let str_val = func.eval_f1(r, f, &Val::Char(c))?;
+            let str_val = func.apply_f1(r, f, &Val::Char(c))?;
             result.push_str(&str_val.expect_string());
         }
         Ok(Val::String(result))

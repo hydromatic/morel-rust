@@ -940,6 +940,19 @@ impl TypeResolver {
                 let x = ExprKind::NotEqual(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::OpSection(name) => {
+                let op_name = format!("op {}", name);
+                match env.get(&op_name, self) {
+                    Some(BindType::Val(term))
+                    | Some(BindType::Constructor(term)) => {
+                        self.equiv(&term, v);
+                    }
+                    None => {
+                        todo!("identifier '{}' not found", op_name);
+                    }
+                }
+                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+            }
             ExprKind::OrElse(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op orelse", left, right, v);
