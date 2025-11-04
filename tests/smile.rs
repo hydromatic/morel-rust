@@ -24,6 +24,8 @@ fn run_script(file_name: &str) {
     result.expect("should work");
 }
 
+// lint: sort until 'End smile.rs' where '^fn '
+
 #[test]
 fn bag() {
     run_script("tests/script/bag.smli");
@@ -36,7 +38,7 @@ fn blog() {
 
 #[test]
 fn built_in() {
-    run_script("tests/script/builtIn.smli");
+    run_script("tests/script/built-in.smli");
 }
 
 #[test]
@@ -61,7 +63,7 @@ fn file() {
 
 #[test]
 fn fixed_point() {
-    run_script("tests/script/fixedPoint.smli");
+    run_script("tests/script/fixed-point.smli");
 }
 
 #[test]
@@ -126,7 +128,12 @@ fn simple() {
 
 #[test]
 fn such_that() {
-    run_script("tests/script/suchThat.smli");
+    run_script("tests/script/such-that.smli");
+}
+
+#[test]
+fn type_() {
+    run_script("tests/script/type.smli");
 }
 
 #[test]
@@ -140,11 +147,8 @@ fn type_inference() {
 }
 
 #[test]
-fn type_() {
-    run_script("tests/script/type.smli");
-}
-
-#[test]
 fn wordle() {
     run_script("tests/script/wordle.smli");
 }
+
+// End smile.rs

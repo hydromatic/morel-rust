@@ -400,6 +400,7 @@ impl FileType {
 }
 
 static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
+    // lint: sort until '#}' where '##"'
     "gitignore" => CommentFormat::new("", "# ", "", usize::MAX),
     "md" => CommentFormat::new(
         "<!--\n{% comment %}\n",
@@ -409,6 +410,7 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
     ),
     "pest" => CommentFormat::new("", "// ", "", usize::MAX),
     "rs" => CommentFormat::new("", "// ", "", 80),
+    "sig" => CommentFormat::new("(*\n", " * ", "\n *)", usize::MAX),
     "smli" => CommentFormat::new("(*\n", " * ", "\n *)", usize::MAX),
     "toml" => CommentFormat::new("", "# ", "", usize::MAX),
     "yml" => CommentFormat::new("", "# ", "", usize::MAX),
@@ -416,4 +418,111 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
 
 /// File suffixes of files that are considered text files.
 static TYPE_MAP: Set<&'static str> =
-    phf_set! {"gitignore","rs","pest","toml","md",};
+    phf_set! {"gitignore","rs","pest","toml","md","sig",};
+
+/// Validates that for each .smli file in tests/script/, there is a
+/// corresponding test method in tests/smile.rs.
+#[test]
+fn test_smli_coverage() {
+    use std::collections::{HashMap, HashSet};
+    use std::path::Path;
+
+    // Read all .smli files from tests/script/
+    let script_dir = Path::new("tests/script");
+    let smli_files: HashSet<String> = fs::read_dir(script_dir)
+        .expect("Failed to read tests/script directory")
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "smli")
+                .unwrap_or(false)
+        })
+        .map(|e| e.path().file_stem().unwrap().to_str().unwrap().to_string())
+        .collect();
+
+    // Read smile.rs and extract test function names
+    let smile_rs = fs::read_to_string("tests/smile.rs")
+        .expect("Failed to read tests/smile.rs");
+
+    // Parse test functions and map them to expected .smli file names
+    let test_fn_regex =
+        Regex::new(r"(?m)^#\[test\]\s+fn ([a-z_]+)\(\)").unwrap();
+    let test_functions: HashMap<String, String> = test_fn_regex
+        .captures_iter(&smile_rs)
+        .filter_map(|cap| {
+            let fn_name = cap.get(1)?.as_str();
+            // Skip the helper function
+            if fn_name == "run_script" {
+                return None;
+            }
+            // Convert function name to expected .smli file name
+            // Multi-word file names use kebab-case (hyphens)
+            // Special cases: trailing underscores for reserved words
+            let smli_name = match fn_name {
+                "type_" => "type".to_string(),
+                "match_test" => "match".to_string(),
+                _ => fn_name.replace('_', "-"),
+            };
+            Some((smli_name, fn_name.to_string()))
+        })
+        .collect();
+
+    // Check for .smli files without corresponding test functions
+    let mut missing_tests = Vec::new();
+    for smli_file in &smli_files {
+        if !test_functions.contains_key(smli_file) {
+            missing_tests.push(smli_file.clone());
+        }
+    }
+
+    // Check for test functions without corresponding .smli files
+    let mut extra_tests = Vec::new();
+    for (smli_name, fn_name) in &test_functions {
+        if !smli_files.contains(smli_name) {
+            extra_tests.push(format!("{}() -> {}.smli", fn_name, smli_name));
+        }
+    }
+
+    // Report errors
+    if !missing_tests.is_empty() || !extra_tests.is_empty() {
+        let mut error_msg = String::new();
+
+        if !missing_tests.is_empty() {
+            missing_tests.sort();
+            error_msg.push_str(&format!(
+                "\n.smli files without corresponding test in smile.rs:\n"
+            ));
+            for file in missing_tests {
+                let expected_fn = smli_to_fn_name(&file);
+                error_msg.push_str(&format!(
+                    "  - {}.smli (expected test function: {})\n",
+                    file, expected_fn
+                ));
+            }
+        }
+
+        if !extra_tests.is_empty() {
+            extra_tests.sort();
+            error_msg.push_str(&format!(
+                "\nTest functions without corresponding .smli file:\n"
+            ));
+            for test in extra_tests {
+                error_msg.push_str(&format!("  - {}\n", test));
+            }
+        }
+
+        panic!("{}", error_msg);
+    }
+}
+
+/// Converts a .smli file name to the expected test function name.
+/// Examples: "type" -> "type_", "match" -> "match_test",
+/// "regex-example" -> "regex_example", "fixed-point" -> "fixed_point"
+fn smli_to_fn_name(smli_name: &str) -> String {
+    match smli_name {
+        "type" => "type_".to_string(),
+        "match" => "match_test".to_string(),
+        _ => smli_name.replace('-', "_"),
+    }
+}
