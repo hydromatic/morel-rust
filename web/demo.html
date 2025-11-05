@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Morel Web Demo</title>
+
+    <!-- Use Tailwind CSS via CDN (best for development, not production). -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+
+<body class="bg-gray-50">
+    <div class="w-full max-w-2xl mx-auto p-6">
+        <textarea id="output" readonly
+            class="w-full h-96 p-4 border rounded mb-4 font-mono text-sm bg-white resize-none"></textarea>
+        <input id="input" type="text" placeholder="Enter Morel statement..."
+            class="w-full p-3 border rounded font-mono text-sm">
+    </div>
+
+    <script type="module">
+        import init, { MorelShell } from '../pkg/morel.js';
+
+        let shell;
+
+        async function initShell() {
+            await init();
+            shell = new MorelShell();
+            output.value = "";
+        }
+
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' && input.value.trim()) {
+                const statement = input.value + '\n';
+                input.value = '';
+
+                // Echo the input to the output text area.
+                output.value += '$ ' + statement;
+
+                try {
+                    const result = shell.process_statement(statement);
+                    output.value += result + '\n';
+                } catch (err) {
+                    output.value += 'Error: ' + err + '\n';
+                }
+
+                output.scrollTop = output.scrollHeight;
+            }
+        });
+
+        initShell();
+    </script>
+</body>
+
+</html>

@@ -15,25 +15,14 @@
 // language governing permissions and limitations under the
 // License.
 
-#![allow(dead_code)]
-
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
 pub mod compile;
 pub mod eval;
 pub mod shell;
 pub mod syntax;
 pub mod unify;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+#[cfg(target_arch = "wasm32")]
+pub use wasm::MorelShell;

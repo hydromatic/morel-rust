@@ -21,6 +21,13 @@ version = "0.2.0"
 authors = ["Julian Hyde <jhyde@apache.org>"]
 edition = "2024"
 
+# Generate portable dynamic code when building the library.
+# This is necessary for compiling WebAssembly modules.
+# We could also add an `rlib` option
+# if we ever want to release the library as a Rust crate as well.
+[lib]
+crate-type = ["cdylib"]
+
 [[bin]]
 name = "main"
 path = "src/main.rs"
@@ -37,6 +44,7 @@ rustc_version = "0.4"
 similar = "2.7.0"
 strum = "0.27.2"
 strum_macros = "0.27.2"
+wasm-bindgen = "0.2"
 
 [features]
 # Enabling profiling with `cargo build --features=profiling`
