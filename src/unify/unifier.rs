@@ -31,6 +31,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::iter::zip;
 use std::rc::Rc;
+
+#[cfg(feature = "profiling")]
 use std::time::Instant;
 
 /// Trait for things that behave like terms.
@@ -1029,6 +1031,7 @@ impl Unifier {
                 unify::unifier_parser::generate_program(term_pairs)
             );
         }
+        #[cfg(feature = "profiling")]
         let start = Instant::now();
 
         // delete: G u { t = t }
@@ -1053,13 +1056,18 @@ impl Unifier {
         // if x in vars(f(s0, ..., sk))
 
         let mut work = Work::new(tracer, term_pairs);
-        if false {
-            println!("Before: {}", work);
-        }
+
+        #[cfg(feature = "profiling")]
+        println!("Before: {}", work);
+        #[cfg(feature = "profiling")]
         let mut iteration = 0;
+
         loop {
-            iteration += 1;
-            // println!("iteration {} work {}", iteration, work);
+            #[cfg(feature = "profiling")]
+            {
+                iteration += 1;
+                println!("iteration {} work {}", iteration, work);
+            }
 
             let seq_pair = work.seq_seq_queue.borrow_mut().pop_front();
             if let Some((left, right)) = seq_pair {
@@ -1140,8 +1148,9 @@ impl Unifier {
                 continue;
             }
 
-            let duration = Instant::now() - start;
-            if false {
+            #[cfg(feature = "profiling")]
+            {
+                let duration = Instant::now() - start;
                 println!(
                     "Term count {} iterations {} \
                     duration {} nanos ({} nanos per iteration)\n",
@@ -1152,11 +1161,14 @@ impl Unifier {
                 );
                 println!("Result: {}", work);
             }
+
             let mut substitutions = BTreeMap::new();
             work.result.iter().for_each(|(var, term)| {
                 substitutions.insert(var.clone(), term.clone());
             });
-            if false {
+
+            #[cfg(feature = "profiling")]
+            {
                 println!(
                     "After: {}\n{}",
                     work,
@@ -1166,6 +1178,7 @@ impl Unifier {
                     .resolve()
                 );
             }
+
             return Ok(Substitution { substitutions });
         }
     }

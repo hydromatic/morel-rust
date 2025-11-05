@@ -38,6 +38,11 @@ similar = "2.7.0"
 strum = "0.27.2"
 strum_macros = "0.27.2"
 
+[features]
+# Enabling profiling with `cargo build --features=profiling`
+# causes the unifier to print timing and iteration statistics to stdout.
+profiling = []
+
 
 [lints.rust]
 # lint: sort until '^$' where '^[a-z]'
