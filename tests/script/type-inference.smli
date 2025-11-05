@@ -24,10 +24,37 @@
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 
+(* Test the test infrastructure.
+ * ':t' can be on same line or previous line.
+ * The expression is not executed, only type-checked.
+ * Non-exhaustive matches are flagged. *)
+:t 1;
+> val it : int
+:t
+1;
+> val it : int
+:t 1 div 0;
+> val it : int
+:t 1.0 / 0.0;
+> val it : real
+(* TODO
+:t fn 1 => "a";
+> stdIn:1.14-1.25 Warning: match nonexhaustive
+>   raised at: stdIn:1.14-1.25
+> val it : int -> string
+*)
+
 (*) Type tests
 :t #"h";
 > val it : char
 :t "hello";
+> val it : string
+:t "hello"
+ ^ ", world!";
+> val it : string
+:t
+"hello"
+ ^ ", world!";
 > val it : string
 :t 1;
 > val it : int
@@ -136,6 +163,92 @@ Sys.set ("lineWidth", 78);
 > val it : 'a list -> int
 :t fn ("hello" :: t) => 0;
 > val it : string list -> int
+
+(* Basic type tests (migrated from MainTest.testType) *)
+:t 1;
+> val it : int
+:t 0e0;
+> val it : real
+:t 1 + 2;
+> val it : int
+:t 1 - 2;
+> val it : int
+:t 1 * 2;
+> val it : int
+:t 1 div 2;
+> val it : int
+:t 1 div ~2;
+> val it : int
+:t 1.0 + ~2.0;
+> val it : real
+:t 1.0 / ~2.0;
+> val it : real
+:t "";
+> val it : string
+:t true andalso false;
+> val it : bool
+:t if true then 1.0 else 2.0;
+> val it : real
+:t (1, true);
+> val it : int * bool
+:t (1, true, false andalso false);
+> val it : int * bool * bool
+:t (1);
+> val it : int
+:t ();
+> val it : unit
+:t {a = 1, b = true};
+> val it : {a:int, b:bool}
+:t (fn x => x + 1, fn y => y + 1);
+> val it : (int -> int) * (int -> int)
+:t let val x = 1.0 in x + 2.0 end;
+> val it : real
+:t
+let val x = 1 in
+  let val y = 2 in
+    x + y
+  end
+end;
+> val it : int
+:t
+
+:t NONE;
+> val it : 'a option
+:t SOME 4;
+> val it : int option
+:t SOME (SOME true);
+> val it : bool option option
+:t SOME (SOME [1, 2]);
+> val it : int list option option
+:t SOME (SOME {a=1, b=true});
+> val it : {a:int, b:bool} option option
+:t {a=1,b=true};
+> val it : {a:int, b:bool}
+
+(*) Function types
+:t fn x => x + 1;
+> val it : int -> int
+:t fn x => case x of 0 => 1 | _ => 2;
+> val it : int -> int
+:t fn x => case x of 0 => "zero" | _ => "nonzero";
+> val it : int -> string
+:t fn x: int => true;
+> val it : int -> bool
+:t fn x: int * int => true;
+> val it : int * int -> bool
+:t fn x: int * string => (false, #2 x);
+> val it : int * string -> bool * string
+
+(*) Function tuple types
+:t fn (x, y) => (x + 1, y + 1);
+> val it : int * int -> int * int
+:t fn x => fn (y, z) => x div y + z;
+> val it : int -> int * int -> int
+:t fn (x, y) => (x + 1, fn z => (x + z, y + z), y);
+> val it : int * int -> int * (int -> int * int) * int
+:t fn {a = x, b = y, c} => x div y;
+> val it : {a:int, b:int, c:'a} -> int
+
 :t val x = 1;
 > val x : int
 :t val (x, y) = (1, true);
@@ -148,6 +261,90 @@ Sys.set ("lineWidth", 78);
 > val r : {x:int, y:bool}
 :t val i = #x {x = 1, y = true};
 > val i : int
+
+(*) Polymorphic type variables
+:t fn _ => 42;
+> val it : 'a -> int
+:t fn _ => fn _ => 42;
+> val it : 'a -> 'b -> int
+:t fn x => x;
+> val it : 'a -> 'a
+:t let fun id x = x in id end;
+> val it : 'a -> 'a
+:t fun id x = x;
+> val id : 'a -> 'a
+:t fn x => fn y => x;
+> val it : 'a -> 'b -> 'a
+:t let fun first x y = x in first end;
+> val it : 'a -> 'b -> 'a
+:t fun first x y = x;
+> val first : 'a -> 'b -> 'a
+:t fun second x y = y;
+> val second : 'a -> 'b -> 'b
+:t fun choose b x y = if b then x else y;
+> val choose : bool -> 'a -> 'a -> 'a
+:t fun choose b (x, y) = if b then x else y;
+> val choose : bool -> 'a * 'a -> 'a
+
+(*) Record types, including duplicate fields
+:t map #empno [{empno = 10, name = "Shaggy"}];
+> val it : int list
+:t {a=1, b=true};
+> val it : {a:int, b:bool}
+:t {c=1, b=true};
+> val it : {b:bool, c:int}
+(* TODO
+:t {a=1, b=true, a=3};
+> stdIn:1.28 Error: duplicate field 'a' in record
+>   raised at: stdIn:1.28
+*)
+
+(*) Incomplete record type
+(* TODO
+:t fn (e, job) => e.job = job;
+> stdIn:1.29 Error: unresolved flex record (can't tell what fields there are besides #job)
+>   raised at: stdIn:1.29
+*)
+
+(*) Tuple labels
+:t { 1 = true, 2 = 0};
+> val it : bool * int
+:t {2=0,1=true};
+> val it : bool * int
+:t {3=0,1=true,11=false};
+> val it : {1:bool, 3:int, 11:bool}
+:t #1 {1=true,2=0};
+> val it : bool
+:t #1 (true, 0);
+> val it : bool
+:t #2 (true, 0);
+> val it : int
+:t {};
+> val it : unit
+
+(*) List types
+:t [1];
+> val it : int list
+:t [[1]];
+> val it : int list list
+:t [(1, true), (2, false)];
+> val it : (int * bool) list
+:t 1 :: [2];
+> val it : int list
+:t 1 :: [2, 3];
+> val it : int list
+:t [1] :: [[2], [3]];
+> val it : int list list
+:t 1 :: [];
+> val it : int list
+:t 1 :: 2 :: [];
+> val it : int list
+(* TODO
+:t fn [] => 0;
+> stdIn:1.14-1.24 Warning: match nonexhaustive
+>   raised at: stdIn:1.14-1.24
+> val it : 'a list -> int
+*)
 
 :t val x = 1
 and y = ("hello", "world");
@@ -267,6 +464,608 @@ end;
 :t bag [1, 2];
 > val it : int bag
 :t Bag.concat [bag [1, 2], bag.nil];
+> val it : int bag
+
+(*) Record ------------------------------------------------
+:t {a=1, b="x"};
+> val it : {a:int, b:string}
+:t {c=[1], b="x"};
+> val it : {b:string, c:int list}
+
+:t let
+  val i = 2
+in
+  {c = String.sub("abc", i), i}
+end;
+> val it : {c:char, i:int}
+
+(* Apply tests (migrated from MainTest.testApply and testApply2) *)
+:t hd ["abc"];
+> val it : string
+:t map (fn x => String.size x) ["abc", "de"];
+> val it : int list
+
+(* From/query type tests (migrated from MainTest.testFromType) *)
+:t from i in [1];
+> val it : int list
+(*
+:t from i in bag [1];
+> val it : int bag
+:t from i in (from j in bag [1]);
+> val it : int bag
+:t from i in (
+  from e in bag [{deptno=10}]
+  yield e.deptno)
+where i > 10
+yield i div 10;
+> val it : int bag
+*)
+:t from (i, j) in [("a", 1)];
+> val it : {i:string, j:int} list
+:t from (i, j) in [(1, 1), (2, 3)];
+> val it : {i:int, j:int} list
+:t from (x, y) in [(1,2),(3,4),(3,0)] group x + y;
+> val it : int list
+:t from (x, y) in [(1,2),(3,4),(3,0)] group {sum = x + y};
+> val it : {sum:int} list
+:t from i in [1,4,2,3,2] group {j = i mod 2, k = i div 2};
+> val it : {j:int, k:int} list
+(*
+:t from {c, a, ...} in [{a=1.0,b=true,c=3},{a=1.5,b=true,c=4}];
+> val it : {a:real, c:int} list
+*)
+(* TODO error handling
+:t
+from p in [{r=1.0, s="a"}]
+group p.r compute {x = p.r};
+> stdIn:2.24 Error: unbound variable or constructor: p
+>   raised at: stdIn:2.24
+*)
+(* TODO add sum
+:t from d in [{a=1,b=true}] yield d.a into sum;
+> val it : int
+*)
+
+(* TODO err handling
+:t
+from a in [1], b in [true] yield (b,a) where c;
+> stdIn:1.46 Error: unbound variable or constructor: c
+>   raised at: stdIn:1.46
+*)
+
+(* TODO err handling
+:t
+from a in [1], b in [true] yield (b,a) where b;
+> stdIn:1.46 Error: unbound variable or constructor: b
+>   raised at: stdIn:1.46
+*)
+
+:t from a in [1], b in [true] yield {b,a} where b;
+> val it : {a:int, b:bool} list
+
+(* TODO err handling
+:t
+from d in [{a=1,b=true}], i in [2] yield {d} yield a;
+> stdIn:1.52 Error: unbound variable or constructor: a
+>   raised at: stdIn:1.52
+*)
+
+(* TODO err handling
+:t from d in [{a=1,b=true}], i in [2] yield d yield a;
+> stdIn:1.63 Error: unbound variable or constructor: a
+>   raised at: stdIn:1.63
+*)
+
+(* TODO ...
+:t from {c, a, ...} in [{a=1.0,b=true,c=3},{a=1.5,b=true,c=4}];
+> val it : {a:real, c:int} list
+*)
+(* TODO count
+:t from i in [1] group i compute count over i;
+> val it : {count:int, i:int} list
+*)
+(* TODO bag input
+:t from i in bag [1] group i compute count over i;
+> val it : {count:int, i:int} bag
+*)
+(* TODO sum
+:t from (r, s) in [(1.0, "a")]
+  group r compute {x = 1 + sum over size s};
+> val it : {r:real, x:int} list
+:t from (r, s) in [(1.0, "a")]
+  group r compute {x = 1 + sum over size s,
+                   y = 0,
+                   z = concat over s};
+> val it : {r:real, x:int, y:int, z:string} list
+*)
+:t from p in [{r=1.0, s="a"}]
+  group p.r compute {x = r};
+> val it : {r:real, x:real} list
+:t fn f => from i in [1, 2, 3] join j in [3, 4] on f (i, j) yield i + j;
+> val it : (int * int -> bool) -> int list
+:t fn f => from i in [1, 2, 3] where f i;
+> val it : (int -> bool) -> int list
+:t from a in [1], b in [true];
+> val it : {a:int, b:bool} list
+:t from a in [1], b in [()];
+> val it : {a:int, b:unit} list
+:t from a in [1], _ in [true];
+> val it : int list
+(*
+:t from a in [1], _ in bag [true];
+> val it : int bag
+*)
+:t from a in [1], _ = ();
+> val it : int list
+(*
+:t from a in bag [1], _ = ();
+> val it : int bag
+*)
+
+:t from a in [1], b in [true] yield a;
+> val it : int list
+:t from a in [1], b in [true] yield {a,b};
+> val it : {a:int, b:bool} list
+:t from a in [1], b in [true] yield {y=a,b};
+> val it : {b:bool, y:int} list
+:t from a in [1], b in [true] yield {y=a,x=b,z=a};
+> val it : {x:bool, y:int, z:int} list
+:t from a in [1], b in [true] yield {y=a,x=b,z=a} yield {z,x};
+> val it : {x:bool, z:int} list
+:t from a in [1], b in [true] yield {y=a,x=b,z=a} yield {z};
+> val it : {z:int} list
+:t from a in [1], b in [true] yield (b,a);
+> val it : (bool * int) list
+:t from a in [1], b in [true] yield (b);
+> val it : bool list
+:t from a in [1], b in [true] yield {b,a} yield a;
+> val it : int list
+:t from a in [1], b in [true] yield {b,a} where b;
+> val it : {a:int, b:bool} list
+:t from a in [1], b in [true] yield {b,a,c="c"} where b;
+> val it : {a:int, b:bool, c:string} list
+:t from a in [1], b in [true] yield (b,a) where true;
+> val it : (bool * int) list
+:t from d in [{a=1,b=true}], i in [2] yield i;
+> val it : int list
+:t from d in [{a=1,b=true}], i in [2] yield {d};
+> val it : {d:{a:int, b:bool}} list
+:t from d in [{a=1,b=true}], i in [2] yield {d} where true;
+> val it : {d:{a:int, b:bool}} list
+(* TODO type inference
+:t from d in [{a=1,b=true}], i in [2] yield {d.a,d.b} yield a;
+> val it : int list
+*)
+:t from d in [{a=1,b=true}], i in [2] yield i yield 3;
+> val it : int list
+:t from d in [{a=1,b=true}], i in [2] yield d;
+> val it : {a:int, b:bool} list
+(* TODO current
+:t from d in [{a=1,b=true}], i in [2] yield (d.b, i) yield #1 current;
+> val it : bool list
+*)
+(* TODO type inference
+:t from d in [{a=1,b=true}], i in [2] yield {d.a,d.b} order a;
+> val it : {a:int, b:bool} list
+*)
+(* TODO current
+:t from d in [{a=1,b=true}], i in [2] yield {d.a,d.b} order current.a;
+> val it : {a:int, b:bool} list
+*)
+:t from d in [{a=1,b=true}], i in [2] yield d where true;
+> val it : {a:int, b:bool} list
+:t from d in [{a=1,b=true}], i in [2] yield d distinct;
+> val it : {a:int, b:bool} list
+:t from d in [{a=1,b=true}], i in [2] yield d yield d.a;
+> val it : int list
+:t from d in [{a=1,b=true}], i in [2] yield d order d.a;
+> val it : {a:int, b:bool} list
+:t from d in [{a=1,b=true}], i in [2] yield i yield 3.0;
+> val it : real list
+
+(*) order
+:t from e in [{empno=1,deptno=10,name="Fred"},
+        {empno=2,deptno=10,name="Jane"}]
+  order (e.empno, e.deptno);
+> val it : {deptno:int, empno:int, name:string} list
+:t from e in [{empno=1,deptno=10,name="Fred"},
+        {empno=2,deptno=10,name="Jane"}]
+  order {e.deptno, e.empno};
+> val it : {deptno:int, empno:int, name:string} list
+
+(*) unorder
+:t from d in [{a=1,b=true}], i in [2] unorder;
+> val it : {d:{a:int, b:bool}, i:int} bag
+:t from d in [{a=1,b=true}], i in [2] unorder unorder;
+> val it : {d:{a:int, b:bool}, i:int} bag
+(* TODO type inference
+:t from d in [{a=1,b=true}], i in [2] unorder order i;
+> val it : {d:{a:int, b:bool}, i:int} list
+*)
+
+(*) current/ordinal
+(* TODO ordinal
+:t from i in [1,2,3,4,5] yield i + ordinal;
+> val it : int list
+:t from i in bag [1,2,3,4,5] order DESC i yield i + ordinal;
+> val it : int list
+*)
+
+(* TODO current
+:t from i in [1,2,3,4,5] yield substring("hello", 1, current);
+> val it : string list
+*)
+
+(* TODO error handling / bag / ordinal
+:t
+from i in bag [1,2,3,4,5] yield i + ordinal;
+> stdIn:1.37-1.44 Error: cannot use 'ordinal' in unordered query
+>   raised at: stdIn:1.37-1.44
+*)
+
+(* TODO error handling
+:t
+from i in [1,2,3,4,5] take current;
+> stdIn:1.28-1.35 Error: 'current' is only valid in a query
+>   raised at: stdIn:1.28-1.35
+*)
+
+(*) Records in queries
+(* TODO error handling
+:t
+from d in [{a=1,b=true}] yield d.x;
+> stdIn:1.34 Error: no field 'x' in type '{a:int, b:bool}'
+>   raised at: stdIn:1.34
+*)
+
+(* TODO error handling
+:t
+from d in [{a=1,b=true}] yield #x d;
+> stdIn:1.32-1.34 Error: no field 'x' in type '{a:int, b:bool}'
+>   raised at: stdIn:1.32-1.34
+*)
+
+(*) with
+(* TODO with
+:t from d in [{a=1,b=true}], i in [2] yield {d with b=false};
+> val it : {a:int, b:bool} list
+*)
+
+:t from e in [{x=1,y=2},{x=3,y=4},{x=5,y=6}]
+  yield {z=e.x}
+  where z > 2
+  order DESC z
+  yield {z=z};
+> val it : {z:int} list
+
+(*
+:t
+let
+  val records = from r in bag [1,2]
+in
+  from r2 in records
+end;
+> val it : int bag
+*)
+
+:t
+let
+  val records = from r in [{i=1,j=2}]
+in
+  from r2 in records
+end;
+> val it : {i:int, j:int} list
+
+(* "map String.size" has type "string list -> int list",
+   and therefore the type of "j" is "int". *)
+:t
+from s in ["ab","c"]
+  through j in (map String.size);
+> val it : int list
+
+:t
+from s in ["ab","c"]
+ through j in (map String.size)
+ yield j + 2;
+> val it : int list
+
+(* TODO bag
+:t
+from s in bag ["ab","c"]
+  through j in (Bag.map String.size)
+  yield j + 2;
+> val it : int bag
+*)
+
+(*) into
+:t from d in [{a=1,b=true}] yield d.a into List.length;
+> val it : int
+(* TODO bag
+:t from d in bag [{a=1,b=true}] yield d.a into Bag.length;
+> val it : int
+*)
+
+(*) exists, forall
+:t exists d in [{a=1,b=true}] where d.a = 0;
+> val it : bool
+:t forall d in [{a=1,b=true}] require d.a = 0;
+> val it : bool
+
+(*) invalid last step
+(* TODO validation error
+:t
+from d in [{a=1,b=true}] yield d.a into sum yield "a";
+> stdIn:1.45-1.54 Error: 'into' step must be last in 'from'
+>   raised at: stdIn:1.45-1.54
+
+:t
+exists d in [{a=1,b=true}] yield d.a into sum;
+> stdIn:1.38-1.46 Error: 'into' step must not occur in 'exists'
+>   raised at: stdIn:1.38-1.46
+
+:t
+forall d in [{a=1,b=true}] yield d.a into sum;
+> stdIn:1.38-1.46 Error: 'into' step must not occur in 'forall'
+>   raised at: stdIn:1.38-1.46
+
+:t
+forall d in [{a=1,b=true}] yield d.a compute sum over current;
+> stdIn:1.38-1.62 Error: 'compute' step must not occur in 'forall'
+>   raised at: stdIn:1.38-1.62
+
+:t
+forall d in [{a=1,b=true}] yield d.a;
+> stdIn:1.28-1.37 Error: last step of 'forall' must be 'require'
+>   raised at: stdIn:1.28-1.37
+
+:t
+forall d in [{a=1,b=true}];
+> stdIn:1.8-1.27 Error: last step of 'forall' must be 'require'
+>   raised at: stdIn:1.8-1.27
+*)
+
+(*) Query -------------------------------------------------
+:t from i in [1, 2];
+> val it : int list
+
+:t from r in [(1,"a"), (2,"b")];
+> val it : (int * string) list
+
+:t from i in [1, 2, 3],
+  j in [5, 6];
+> val it : {i:int, j:int} list
+
+:t from r in [{i=1, b=true}, {i=2, b=false}, {i=3, b=true}],
+  j in [5, 6];
+> val it : {j:int, r:{b:bool, i:int}} list
+
+:t from i in [1, 2, 3]
+  where i > 1;
+> val it : int list
+
+(* TODO
+:t from i in [1, 2, 3]
+  where i;
+> unification failed: conflict: bool != int
+*)
+
+:t from i in [1, 2, 3]
+  where i > 1
+  yield i + 4;
+> val it : int list
+
+:t from i in [1, 2, 3]
+  where i > 1
+  yield String.sub ("abc", i);
+> val it : char list
+
+:t from i in [1, 2, 3]
+  where i > 1
+  yield {c = String.sub ("abc", i), i};
+> val it : {c:char, i:int} list
+
+:t from i in [1, 2, 3],
+    s in [String.substring ("abc", i, 1)]
+  yield {i, s, c = String.sub (s, i)};
+> val it : {c:char, i:int, s:string} list
+
+:t from i in [1, 2, 3]
+  yield {i, j = i + 1, k = i + 2}
+  yield {m = k + 1, j};
+> val it : {j:int, m:int} list
+
+:t from i in [1, 2, 3]
+  yield i mod 2
+  distinct;
+> val it : int list
+
+:t from i in [1, 2, 3]
+  order i;
+> val it : int list
+
+:t from i in [1, 2, 3]
+  order DESC i;
+> val it : int list
+
+:t from i in [1, 2, 3]
+  yield {i, c = String.sub ("abc", i)}
+  order (String.sub ("abc", i), DESC i)
+  yield c;
+> val it : char list
+
+(* Composite order using record may not have the intended effect,
+   because record fields are sorted alphabetically. Note that data
+   is sorted first by deptno then by name. *)
+(* Claude: TODO warning not triggering - record might be normalized before validation
+:t from e in [{name="Fred", deptno=10, job="manager"}]
+  order {e.name, e.deptno};
+> stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
+>   raised at: stdIn:2.9-2.27
+> val it : {deptno:int, job:string, name:string} list
+*)
+
+:t from i in [1, 2, 3]
+  take 2;
+> val it : int list
+
+:t from i in [1, 2, 3]
+  skip 1;
+> val it : int list
+
+:t fn (x, y) =>
+  from i in ["peter", "paul", "mary"]
+    order DESC i
+    skip x
+    take y;
+> val it : int * int -> string list
+
+:t exists i in [1, 2, 3]
+  where i > 1;
+> val it : bool
+
+:t forall i in [1, 2, 3]
+  where i > 2
+  require i mod 2 = 0;
+> val it : bool
+
+(*) Join -----------------------------------------------
+
+(*) Cartesian product
+:t from i in [1, 2]
+  join j in [3, 4];
+> val it : {i:int, j:int} list
+
+(*) Join with 'on'
+:t from e in [{eid=1, dno=10}, {eid=2, dno=20}]
+  join d in [{dno=10, dname="Sales"}, {dno=20, dname="Marketing"}]
+    on e.dno = d.dno;
+> val it : {d:{dname:string, dno:int}, e:{dno:int, eid:int}} list
+
+(*) Join with '='
+:t from e in [{eid=1, dno=10}, {eid=2, dno=20}]
+  join x = e.dno + 10;
+> val it : {e:{dno:int, eid:int}, x:int} list
+
+(*
+:t from e in [{d=20,e="x"},{d=10,e="y"},{d=10,e="z"}]
+  join d in [{d=10,n="a"},{d=30,n="b"}] on e.d = d.d
+  yield {d = d.d, e.e, d.n};
+> val it : {d:int, e:string, n:string} list
+*)
+
+(*) Set operations -------------------------------------
+:t from i in [1, 2, 3]
+  union [4, 5];
+> val it : int list
+
+:t from i in [1, 2, 3]
+  union [4, 5], [6, 7];
+> val it : int list
+
+:t from i in [1, 2, 3]
+  except [2];
+> val it : int list
+
+:t from i in [1, 2, 3]
+  intersect [2, 3, 4];
+> val it : int list
+
+:t from i in [1, 1, 2]
+  union distinct [2, 3];
+> val it : int list
+
+(*) Group operation -----------------------------------
+:t from i in [1, 2, 3]
+  group i;
+> val it : {i:int} list
+
+:t from i in [1, 2, 2, 3]
+  group i mod 2;
+> val it : int list
+
+:t from i in [1, 2, 3]
+  group i compute {elements};
+> val it : {elements:int list, i:int} list
+
+:t from i in [1, 2, 3]
+  group i compute {elements, a = "xyz"};
+> val it : {a:string, elements:int list, i:int} list
+
+:t from i in [1,2]
+  group i + 1 compute {length elements};
+> error: cannot derive label for group expression
+
+:t from i in [1,2]
+  group i compute {length elements};
+> error: cannot derive label for compute expression
+
+:t from i in [1, 2, 2, 3]
+  group i compute {n = List.length elements};
+> val it : {i:int, n:int} list
+
+:t from e in [{deptno=10, sal=1000}, {deptno=20, sal=2000}, {deptno=10, sal=1500}]
+  group e.deptno compute {total = List.foldl (fn (r, acc) => r.sal + acc) 0 elements};
+> val it : {deptno:int, total:int} list
+
+:t from (i,j) in [(1,2),(3,4)]
+  group j compute {n = length elements, two = 2};
+> val it : {j:int, n:int, two:int} list
+
+:t from (i,j) in [(1,2),(3,4)]
+  group j compute {j = length elements};
+> error: Duplicate field name 'j' in group
+
+:t from i in [1, 2, 3]
+  group {} compute elements;
+> val it : int list list
+
+:t elements;
+> error: 'elements' is only valid in a 'compute' clause
+
+:t from i in [1, 2, 3] group elements;
+> error: 'elements' is only valid in a 'compute' clause
+
+(*) Compute operation ---------------------------------
+
+:t from i in [1, 2, 3]
+  compute {sum = List.foldl (op +) 0 elements};
+> val it : {sum:int}
+
+:t from i in [1, 2, 3]
+  compute List.length elements;
+> val it : int
+
+:t from i in [1, 2, 3]
+  compute {elements, a = "xyz"};
+> val it : {a:string, elements:int list}
+
+(*) Correlated subqueries ----------------------------
+:t from i in [1, 2, 3]
+  where (exists j in [1, 2] where j = i);
+> val it : int list
+
+:t from r in [{a=1, b=2}, {a=2, b=3}]
+  where (exists s in [{x=1}, {x=3}] where s.x = r.a);
+> val it : {a:int, b:int} list
+
+(*) Advanced query steps ------------------------------
+(*) Into step (applies function to entire collection)
+:t from i in [1, 2, 3]
+  into List.length;
+> val it : int
+
+:t from i in [1, 2, 3]
+  into (fn xs => List.foldl (op +) 0 xs);
+> val it : int
+
+(*) Through step (applies table function and scans result)
+:t from i in [1, 2, 3]
+  through j in (fn _ => [4, 5, 6]);
+> val it : int list
+
+(*) Unorder step (converts list to bag)
+:t from i in [1, 2, 3]
+  unorder;
 > val it : int bag
 
 (*) End type-inference.smli

@@ -4186,6 +4186,7 @@ DESC (DESC "a");
 
 set("mode", "validate");
 > val it = () : unit
+
 Relational.count (bag [1, 2, 3]);
 > val it = 3 : int
 Relational.count (bag []);

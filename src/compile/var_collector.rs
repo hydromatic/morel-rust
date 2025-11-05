@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::{Decl, Expr, Match, Pat};
+use crate::compile::core::{Decl, Expr, Match, Pat, Step, StepKind};
 use crate::compile::type_env::Binding;
 use crate::eval::frame::FrameDef;
 use crate::shell::main::Environment;
@@ -204,6 +204,9 @@ impl Expr {
                     matches.iter().for_each(|m| m.collect_vars(collector));
                 }
             }
+            Expr::From(_, steps) => {
+                steps.iter().for_each(|s| s.collect_vars(collector));
+            }
             Expr::Identifier(_, name) => {
                 collector.add_ref(Binding::of_name(name));
             }
@@ -221,6 +224,29 @@ impl Expr {
                 // no variables
             }
             _ => todo!("collect_vars {:?}", self),
+        }
+    }
+}
+
+impl Step {
+    pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
+        match &self.kind {
+            StepKind::JoinIn(pat, expr, condition) => {
+                expr.collect_vars(collector);
+                pat.collect_vars(collector);
+                if let Some(cond) = condition {
+                    cond.collect_vars(collector);
+                }
+            }
+            StepKind::Where(expr) => {
+                expr.collect_vars(collector);
+            }
+            StepKind::Yield(expr) => {
+                expr.collect_vars(collector);
+            }
+            _ => {
+                // For other step kinds, do nothing for now
+            }
         }
     }
 }

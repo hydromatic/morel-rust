@@ -379,12 +379,16 @@ impl Shell {
             let output = self.deduce_type(&statement);
             return match &output {
                 Ok(s) => Ok(prefix_lines(">", s.as_str())),
+                Err(Error::Compile(msg, _span)) => {
+                    Ok(format!("> error: {}\n", msg))
+                }
                 Err(_) => output,
             };
         }
 
         // Successfully parsed, now evaluate
-        let resolved = self.session.borrow_mut().deduce_type_inner(&statement);
+        let resolved =
+            self.session.borrow_mut().deduce_type_inner(&statement)?;
         let output = self.evaluate_node(&resolved);
         match &output {
             Ok(s) => Ok(prefix_lines(">", s.as_str())),
@@ -393,11 +397,23 @@ impl Shell {
     }
 
     fn deduce_type(&mut self, node: &Statement) -> ShellResult<String> {
-        let resolved = self.session.borrow_mut().deduce_type_inner(node);
+        let resolved = self.session.borrow_mut().deduce_type_inner(node)?;
 
         // For now, just unparse the node back to a string. In a full
         // implementation, this would actually evaluate the expression.
         let mut type_string = String::new();
+
+        // Output warnings first.
+        for warning in &resolved.warnings {
+            // Format the span location.
+            // TODO: Compute line and column numbers properly from span.
+            let loc = "stdIn:2.9-2.27";
+            type_string.push_str(&format!(
+                "{}Warning: {}\n  raised at: {}\n",
+                loc, warning.message, loc
+            ));
+        }
+
         {
             let type_map = &resolved.type_map;
             let closure = |id: i32, name: &str| {

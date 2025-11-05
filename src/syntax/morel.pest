@@ -22,6 +22,7 @@ line_comment = _{ "(*)" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI) }
 block_comment = _{ "(*" ~ (block_comment | (!"*)" ~ ANY))* ~ "*)" }
 
 // Keywords
+// lint: sort until '}' where '\|'
 keywords = {
     _and
   | _andalso
@@ -33,6 +34,7 @@ keywords = {
   | _distinct
   | _div
   | _elem
+  | _elements
   | _else
   | _end
   | _except
@@ -79,6 +81,7 @@ keywords = {
   | _yield
 }
 
+// lint: sort until '^$'
 _and = @{ "and" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _andalso = @{ "andalso" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _as = @{ "as" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -89,6 +92,7 @@ _datatype = @{ "datatype" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _distinct = @{ "distinct" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _div = @{ "div" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _elem = @{ "elem" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_elements = @{ "elements" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _else = @{ "else" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _end = @{ "end" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _except = @{ "except" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -225,6 +229,7 @@ atom = {
   | op_section
   | record_selector
   | _current
+  | _elements
   | _ordinal
   | tuple_expr
   | list_expr
@@ -296,7 +301,7 @@ scan1 = { scan1_eq | scan1_in | pat }
 scan1_eq = { pat ~ "=" ~ expr }
 scan1_in = { pat ~ _in ~ expr }
 scan = { scan_eq | scan_in | pat }
-scan_eq = { pat ~ "=" ~ expr ~ (_on ~ expr)? }
+scan_eq = { pat ~ "=" ~ expr }
 scan_in = { pat ~ _in ~ expr ~ (_on ~ expr)? }
 join = { _join ~ scan ~ ("," ~ scan)* }
 

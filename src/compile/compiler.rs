@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::core::{
-    DatatypeBind, Decl, Expr, Match, Pat, TypeBind, ValBind,
+    DatatypeBind, Decl, Expr, Match, Pat, Step, StepKind, TypeBind, ValBind,
 };
 use crate::compile::library::BuiltInFunction;
 use crate::compile::pretty::Pretty;
@@ -24,7 +24,9 @@ use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
-use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame, Impl};
+use crate::eval::code::{
+    Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep,
+};
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
 use crate::eval::session::Session;
@@ -626,6 +628,13 @@ impl<'a> Compiler<'a> {
                     )
                 }
             }
+            Expr::From(_, steps) => {
+                let compiled_steps: Vec<QueryStep> = steps
+                    .iter()
+                    .map(|step| self.compile_step(cx, step))
+                    .collect();
+                Code::From(compiled_steps)
+            }
             Expr::Identifier(_, name) => {
                 let slot = cx.frame_def.var_index(name);
                 Code::new_get_local(&cx.frame_def, slot)
@@ -678,6 +687,25 @@ impl<'a> Compiler<'a> {
                 Code::new_tuple(&codes)
             }
             _ => todo!("{:?}", expr),
+        }
+    }
+
+    fn compile_step(&mut self, cx: &Context, step: &Step) -> QueryStep {
+        match &step.kind {
+            StepKind::JoinIn(pat, expr, _cond) => {
+                let pat_code = self.compile_pat(cx, pat);
+                let expr_code = self.compile_expr(cx, None, expr);
+                QueryStep::JoinIn(pat_code, expr_code)
+            }
+            StepKind::Where(expr) => {
+                let expr_code = self.compile_expr(cx, None, expr);
+                QueryStep::Where(expr_code)
+            }
+            StepKind::Yield(expr) => {
+                let expr_code = self.compile_expr(cx, None, expr);
+                QueryStep::Yield(expr_code)
+            }
+            _ => todo!("compile_step: {:?}", step.kind),
         }
     }
 

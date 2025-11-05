@@ -18,7 +18,8 @@
 use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
     Match as CoreMatch, Pat as CorePat, PatField as CorePatField,
-    TypeBind as CoreTypeBind, ValBind as CoreValBind,
+    Step as CoreStep, StepKind as CoreStepKind, TypeBind as CoreTypeBind,
+    ValBind as CoreValBind,
 };
 use crate::compile::inliner::Env;
 use crate::compile::library::BuiltInFunction;
@@ -28,7 +29,8 @@ use crate::eval::code::Span;
 use crate::eval::val::Val;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match,
-    Pat, PatField, PatKind, Type as AstType, TypeBind, ValBind,
+    Pat, PatField, PatKind, Step as AstStep, StepKind as AstStepKind,
+    Type as AstType, TypeBind, ValBind,
 };
 use crate::syntax::parser;
 use std::collections::{HashSet, VecDeque};
@@ -708,15 +710,29 @@ impl<'a> Resolver<'a> {
     }
 
     /// Resolves an AST step to a core step.
-    fn resolve_step(
-        &self,
-        _step: &crate::syntax::ast::Step,
-    ) -> crate::compile::core::Step {
-        // For now, just returns a placeholder step.
-        // This would need proper implementation based on step kinds.
-        crate::compile::core::Step {
-            kind: crate::compile::core::StepKind::From,
-        }
+    fn resolve_step(&self, step: &AstStep) -> CoreStep {
+        let kind = match &step.kind {
+            AstStepKind::Scan(pat, expr, condition) => {
+                let resolved_pat = Box::new(self.resolve_pat(pat));
+                let resolved_expr = Box::new(self.resolve_expr(expr));
+                let resolved_condition =
+                    condition.as_ref().map(|c| Box::new(self.resolve_expr(c)));
+                CoreStepKind::JoinIn(
+                    resolved_pat,
+                    resolved_expr,
+                    resolved_condition,
+                )
+            }
+            AstStepKind::Where(expr) => {
+                CoreStepKind::Where(Box::new(self.resolve_expr(expr)))
+            }
+            AstStepKind::Yield(expr) => {
+                CoreStepKind::Yield(Box::new(self.resolve_expr(expr)))
+            }
+            _ => todo!("resolve_step: {:?}", step.kind),
+        };
+
+        CoreStep { kind }
     }
 
     /// Converts an AST literal to a core value.

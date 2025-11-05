@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::syntax::ast::Span;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io::Error as IoError;
@@ -24,7 +25,7 @@ use std::io::Error as IoError;
 pub enum Error {
     Io(IoError),
     Parse(String),
-    Compile(String),
+    Compile(String, Span),
     Runtime(String),
     FileNotFound(String),
 }
@@ -38,7 +39,7 @@ impl From<IoError> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            Error::Compile(e) => write!(f, "Compile Error: {}", e),
+            Error::Compile(e, _span) => write!(f, "Compile Error: {}", e),
             Error::FileNotFound(e) => write!(f, "File not found: {}", e),
             Error::Io(e) => write!(f, "IO Error: {}", e),
             Error::Parse(e) => write!(f, "Parse Error: {}", e),

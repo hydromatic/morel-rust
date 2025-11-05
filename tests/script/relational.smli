@@ -1060,14 +1060,20 @@ from x in [1, 2]
 > val it = [{x=1,y=3},{x=2,y=3}] : {x:int, y:int} list
 
 (*) 'join' with '=' and 'on'
+(*) (Was legal syntax until [MOREL-317].)
+(*
 from x in [1, 2]
   join y = 3 on y = x + 1;
 > val it = [{x=2,y=3}] : {x:int, y:int} list
+*)
 
 (*) 'join' with '=' and 'on false'
+(*) (Was legal syntax until [MOREL-317].)
+(*
 from x in [1, 2]
   join y = 3 on false;
 > val it = [] : {x:int, y:int} list
+*)
 
 (*) join
 from e in emps, d in depts

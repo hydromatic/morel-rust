@@ -128,11 +128,14 @@ impl Session {
     }
 
     /// Deduces a statement's type. The statement is represented by an AST node.
-    pub fn deduce_type_inner(&mut self, node: &Statement) -> Resolved {
+    pub fn deduce_type_inner(
+        &mut self,
+        node: &Statement,
+    ) -> Result<Resolved, Error> {
         let mut type_resolver = TypeResolver::new();
 
         // Use the accumulated type environment from previous statements
-        let resolved = type_resolver.deduce_type(&*self.type_env, node);
+        let resolved = type_resolver.deduce_type(&*self.type_env, node)?;
 
         // Update the accumulated environment with new bindings from this
         // statement. We store bindings in a single HashMap; when a name is
@@ -163,7 +166,7 @@ impl Session {
             }) as Rc<dyn TypeEnv>;
         }
 
-        resolved
+        Ok(resolved)
     }
 }
 

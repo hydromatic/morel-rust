@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::{Decl, Expr, Match, Pat, ValBind};
+use crate::compile::core::{Decl, Expr, Match, Pat, Step, StepKind, ValBind};
 use crate::compile::types::Type;
 use crate::eval::val::Val;
 use im::HashMap;
@@ -129,6 +129,11 @@ impl Expr {
                 }
                 Expr::Fn(t.clone(), match_list2)
             }
+            Expr::From(t, steps) => {
+                let steps2 =
+                    steps.iter().map(|s| Self::visit_step(env, x, s)).collect();
+                Expr::From(t.clone(), steps2)
+            }
             Expr::Identifier(t, id) => {
                 if let Some(v) = env.lookup_constant(id) {
                     Expr::Literal(t.clone(), v.clone())
@@ -165,6 +170,29 @@ impl Expr {
         expr_list: &[Expr],
     ) -> Vec<Expr> {
         expr_list.iter().map(|e| x.transform_expr(env, e)).collect()
+    }
+
+    fn visit_step(env: &Env, x: &dyn Transformer, step: &Step) -> Step {
+        let kind = match &step.kind {
+            StepKind::JoinIn(pat, expr, condition) => {
+                let pat2 = x.transform_pat(env, pat);
+                let expr2 = x.transform_expr(env, expr);
+                let condition2 = condition
+                    .as_ref()
+                    .map(|c| Box::new(x.transform_expr(env, c)));
+                StepKind::JoinIn(Box::new(pat2), Box::new(expr2), condition2)
+            }
+            StepKind::Where(expr) => {
+                let expr2 = x.transform_expr(env, expr);
+                StepKind::Where(Box::new(expr2))
+            }
+            StepKind::Yield(expr) => {
+                let expr2 = x.transform_expr(env, expr);
+                StepKind::Yield(Box::new(expr2))
+            }
+            _ => step.kind.clone(), // For other step kinds, just clone
+        };
+        Step { kind }
     }
 }
 
