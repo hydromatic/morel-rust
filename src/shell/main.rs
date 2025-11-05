@@ -305,7 +305,7 @@ impl Shell {
     }
 
     /// Processes a single statement.
-    fn process_statement(
+    pub fn process_statement(
         &mut self,
         code: &str,
         expected_output: Option<&str>,
@@ -695,5 +695,23 @@ mod tests {
    then it is ignored. *)
 "#;
         assert_eq!(comment_depth(s), 0);
+    }
+
+    #[test]
+    fn test_line_mode() {
+        let mut shell = Shell::new(&[]);
+        let mut result;
+
+        let in_1 = "val x = 5\n\
+            and y = 6\n";
+        let out_1 = "> val x = 5 : int\n\
+            > val y = 6 : int\n";
+        result = shell.process_statement(in_1, None).unwrap();
+        assert_eq!(result, out_1);
+
+        let in_2 = "x + y\n";
+        let out_2 = "> val it = 11 : int\n";
+        result = shell.process_statement(in_2, None).unwrap();
+        assert_eq!(result, out_2);
     }
 }

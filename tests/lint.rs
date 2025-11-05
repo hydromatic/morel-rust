@@ -402,6 +402,12 @@ impl FileType {
 static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
     // lint: sort until '#}' where '##"'
     "gitignore" => CommentFormat::new("", "# ", "", usize::MAX),
+    "html" => CommentFormat::new(
+        "<!DOCTYPE html>\n<!--\n",
+        "",
+        "\n-->\n",
+        usize::MAX,
+    ),
     "md" => CommentFormat::new(
         "<!--\n{% comment %}\n",
         "",
@@ -418,7 +424,7 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
 
 /// File suffixes of files that are considered text files.
 static TYPE_MAP: Set<&'static str> =
-    phf_set! {"gitignore","rs","pest","toml","md","sig",};
+    phf_set! {"gitignore","html","rs","pest","toml","md","sig",};
 
 /// Validates that signature files in the lib directory are well-formed and
 /// that their value and exception declarations match the corresponding entries
