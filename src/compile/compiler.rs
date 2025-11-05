@@ -25,7 +25,9 @@ use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
-use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame, Impl};
+use crate::eval::code::{
+    Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep,
+};
 use crate::eval::comparator::comparator_for;
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
@@ -722,9 +724,9 @@ impl<'a> Compiler<'a> {
         element_type: &Type,
     ) -> RowSinkFactory {
         use crate::eval::row_sink::{
-            CollectRowSink, DistinctRowSink, ExceptRowSink, ExistsRowSink,
-            GroupRowSink, IntersectRowSink, OrderRowSink, ScanRowSink,
-            SkipRowSink, TakeRowSink, UnionRowSink, WhereRowSink,
+            CollectRowSink, ComputeRowSink, DistinctRowSink, ExceptRowSink,
+            ExistsRowSink, GroupRowSink, IntersectRowSink, OrderRowSink,
+            ScanRowSink, SkipRowSink, TakeRowSink, UnionRowSink, WhereRowSink,
         };
 
         if steps.is_empty() {
@@ -741,6 +743,23 @@ impl<'a> Compiler<'a> {
 
         match &first_step.kind {
             // lint: sort until '#}' where '##StepKind::'
+            StepKind::Compute(compute_expr) => {
+                // Standalone compute step: evaluate expression once over all
+                // rows and return a scalar (not a list).
+                assert!(steps.len() == 1, "Compute must be the last step");
+
+                let compute_code = self.compile_expr(cx, None, compute_expr);
+                let elements_slot = cx.frame_def.try_var_index("elements");
+                let slot_count = step_env.bindings.len();
+
+                RowSinkFactory::new(move || {
+                    Box::new(ComputeRowSink::new(
+                        compute_code.clone(),
+                        elements_slot,
+                        slot_count,
+                    ))
+                })
+            }
             StepKind::Distinct => {
                 let next_factory = self.create_row_sink_factory(
                     cx,
@@ -802,9 +821,9 @@ impl<'a> Compiler<'a> {
                 RowSinkFactory::new(|| Box::new(ExistsRowSink::new()))
             }
             StepKind::Group(key_expr, aggregate_expr) => {
-                // For simple group queries without complex aggregates.
+                // Group query: accumulate rows by key, evaluate aggregate.
                 // Example: "from i in [1,2,3] group i" or
-                // "from e in emps group e.deptno"
+                // "from e in emps group e.deptno compute {c = count over ()}"
 
                 // The next step processes the grouped results.
                 let next_factory = self.create_row_sink_factory(
@@ -817,34 +836,58 @@ impl<'a> Compiler<'a> {
                 // Compile the group key expression.
                 let key_code = self.compile_expr(cx, None, key_expr);
 
-                // Compile aggregate expressions if present.
-                let aggregate_codes: Vec<Code> =
-                    if let Some(agg_expr) = aggregate_expr {
-                        // For now, treat the aggregate expression as a
-                        // single aggregate. Later, we'll extract
-                        // multiple aggregates from complex expressions.
-                        vec![self.compile_expr(cx, None, agg_expr)]
-                    } else {
-                        vec![]
-                    };
-
-                // Count how many bindings are in the OUTPUT (after grouping).
-                // This is the number of slots needed for the grouped row:
-                // key fields + aggregate fields.
-                let slot_count = first_step.env.bindings.len();
-
-                // Count how many bindings are in the key.
-                // For now, we'll determine this from the key expression type.
-                // A tuple key has multiple fields, a scalar key has one field.
+                // Count how many frame slots the key occupies.
+                // - Empty record key `{}`: 0 slots (nothing to write).
+                // - Scalar key (int, bool, ...): 1 slot.
+                // - Record key `{j, k}`: 1 slot (whole record in one Val).
+                // - Tuple key `(a, b)`: one slot per element.
                 let key_slot_count = match key_expr.type_().as_ref() {
                     Type::Tuple(types) => types.len(),
+                    Type::Record(_, fields) if fields.is_empty() => 0,
+                    Type::Primitive(PrimitiveType::Unit) => 0,
                     _ => 1,
                 };
+
+                // Count how many input bindings (for accumulating rows).
+                let slot_count = step_env.bindings.len();
+
+                // Compile aggregate expression and determine slot layout.
+                let (aggregate_code, elements_slot, agg_output_slots) =
+                    if let Some(agg_expr) = aggregate_expr {
+                        let agg_code = self.compile_expr(cx, None, agg_expr);
+
+                        // Slot where rows_val is written before aggregate eval.
+                        let els = cx.frame_def.try_var_index("elements");
+
+                        // Slots for aggregate output fields, in field order.
+                        let out_slots: Vec<usize> =
+                            match agg_expr.type_().as_ref() {
+                                Type::Record(_, fields) => fields
+                                    .keys()
+                                    .map(|label| {
+                                        cx.frame_def
+                                            .var_index(&label.to_string())
+                                    })
+                                    .collect(),
+                                _ => {
+                                    // Scalar aggregate: output goes to slot
+                                    // key_slot_count (which is 0 for empty
+                                    // key, overwriting the scan variable).
+                                    vec![key_slot_count]
+                                }
+                            };
+
+                        (Some(agg_code), els, out_slots)
+                    } else {
+                        (None, None, vec![])
+                    };
 
                 RowSinkFactory::new(move || {
                     Box::new(GroupRowSink::new(
                         key_code.clone(),
-                        aggregate_codes.clone(),
+                        aggregate_code.clone(),
+                        elements_slot,
+                        agg_output_slots.clone(),
                         slot_count,
                         key_slot_count,
                         next_factory.create(),
@@ -1077,6 +1120,25 @@ impl<'a> Compiler<'a> {
                 })
                 .collect();
             Code::Tuple(codes)
+        }
+    }
+
+    fn compile_step(&mut self, cx: &Context, step: &Step) -> QueryStep {
+        match &step.kind {
+            StepKind::Scan(pat, expr, _cond) => {
+                let pat_code = self.compile_pat(cx, pat);
+                let expr_code = self.compile_expr(cx, None, expr);
+                QueryStep::JoinIn(pat_code, expr_code)
+            }
+            StepKind::Where(expr) => {
+                let expr_code = self.compile_expr(cx, None, expr);
+                QueryStep::Where(expr_code)
+            }
+            StepKind::Yield(expr) => {
+                let expr_code = self.compile_expr(cx, None, expr);
+                QueryStep::Yield(expr_code)
+            }
+            _ => todo!("compile_step: {:?}", step.kind),
         }
     }
 

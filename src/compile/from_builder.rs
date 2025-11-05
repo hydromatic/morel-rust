@@ -25,7 +25,8 @@
 //! - Inlining nested from expressions
 
 use crate::compile::core::{Binding, Expr, Pat, Step, StepEnv, StepKind};
-use crate::compile::types::Type;
+use crate::compile::type_env::Id;
+use crate::compile::types::{Label, Type};
 use crate::eval::val::Val;
 use crate::shell::error::Error;
 use std::fmt;
@@ -410,6 +411,35 @@ impl FromBuilder {
         key_expr: Expr,
         aggregate_expr: Option<Expr>,
     ) -> &mut Self {
+        // For aggregate groups with named output fields, update the bindings
+        // to reflect the combined key + aggregate output fields. This enables
+        // get_collection_code to emit the correct slot-read codes.
+        if let Some(agg) = &aggregate_expr
+            && let Type::Record(_, fields) = agg.type_().as_ref()
+            && !fields.is_empty()
+        {
+            let mut new_bindings = Vec::new();
+
+            // Key bindings: scalar identifier key → one binding.
+            if let Expr::Identifier(t, name) = &key_expr {
+                new_bindings.push(Binding::new(Id::new(name, 0), t.clone()));
+            }
+
+            // Aggregate field bindings (alphabetical from record type).
+            for (label, t) in fields {
+                if let Label::String(name) = label {
+                    new_bindings.push(Binding::new(
+                        Id::new(name, 0),
+                        Box::new(t.clone()),
+                    ));
+                }
+            }
+
+            self.bindings = new_bindings;
+            self.atom = self.bindings.len() == 1;
+        }
+
+        // Build the step env from the (possibly updated) bindings.
         let env = self.step_env();
         let step = Step::new(
             StepKind::Group(Box::new(key_expr), aggregate_expr.map(Box::new)),
@@ -417,6 +447,14 @@ impl FromBuilder {
         );
         self.add_step(step);
 
+        self
+    }
+
+    /// Adds a standalone "compute" step (produces a singleton, not a list).
+    pub fn compute(&mut self, expr: Expr) -> &mut Self {
+        let env = self.step_env();
+        let step = Step::new(StepKind::Compute(Box::new(expr)), env);
+        self.add_step(step);
         self
     }
 

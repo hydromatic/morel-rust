@@ -17,6 +17,7 @@
 
 use crate::compile::core::{Decl, Expr, Match, Pat, Step, StepKind};
 use crate::compile::type_env::Binding;
+use crate::compile::types::{Label, Type};
 use crate::eval::frame::FrameDef;
 use crate::shell::main::Environment;
 use std::collections::HashSet;
@@ -232,6 +233,48 @@ impl Step {
     pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
         match &self.kind {
             // lint: sort until '#}' where '##StepKind::'
+            StepKind::Compute(expr) => {
+                // Traverse the compute expression for variable refs.
+                expr.collect_vars(collector);
+                // If "elements" was referenced, ensure it has a frame slot.
+                let has_elements_def =
+                    collector.defs.iter().any(|b| b.id.name == "elements");
+                let has_elements_ref =
+                    collector.refs.iter().any(|b| b.id.name == "elements");
+                if has_elements_ref && !has_elements_def {
+                    collector.add_def(Binding::of_name("elements"));
+                }
+            }
+            StepKind::Group(_, None) => {}
+            StepKind::Group(_, Some(aggregate_expr)) => {
+                // Add aggregate output field names as frame slot defs.
+                // These are the named fields produced by the aggregate
+                // expression (e.g., "three" for `compute {three = 1+2}`).
+                if let Type::Record(_, fields) = aggregate_expr.type_().as_ref()
+                {
+                    for label in fields.keys() {
+                        if let Label::String(name) = label
+                            && name != "elements"
+                        {
+                            collector.add_def(Binding::of_name(name));
+                        }
+                    }
+                }
+
+                // Traverse aggregate expression for variable refs.
+                aggregate_expr.collect_vars(collector);
+
+                // If "elements" was referenced but not already defined as
+                // an aggregate field, add it as a temporary frame slot for
+                // aggregate evaluation.
+                let has_elements_def =
+                    collector.defs.iter().any(|b| b.id.name == "elements");
+                let has_elements_ref =
+                    collector.refs.iter().any(|b| b.id.name == "elements");
+                if has_elements_ref && !has_elements_def {
+                    collector.add_def(Binding::of_name("elements"));
+                }
+            }
             StepKind::Scan(pat, expr, condition) => {
                 expr.collect_vars(collector);
                 pat.collect_vars(collector);

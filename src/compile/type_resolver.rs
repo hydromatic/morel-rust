@@ -2057,7 +2057,6 @@ impl TypeResolver {
             Some(c_result),
         ))
     }
-
     fn field_var(&mut self, field_vars: &[(String, Var)], atom: bool) -> Var {
         if field_vars.is_empty() {
             let v = self.variable();
@@ -2289,6 +2288,10 @@ impl TypeResolver {
         for labeled_expr in labeled_expr_list {
             let label = if let Some(name) = labeled_expr.get_label() {
                 Label::from(name)
+            } else if let Some(label_name) =
+                labeled_expr.expr.implicit_label_opt()
+            {
+                Label::from(&label_name)
             } else {
                 // Field has no label, so generate a temporary name.
                 // FIXME The temporary name might overlap with later

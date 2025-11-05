@@ -993,6 +993,88 @@ from i in [1,2]
   compute 1 + 2;
 > val it = 3 : int
 
+(* Elements --------------------------------------------------- *)
+from i in [1, 2, 3]
+  compute elements;
+> val it = [1,2,3] : int list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  compute elements;
+> val it = [{i="a",j=1},{i="b",j=4},{i="a",j=3}] : {i:string, j:int} list
+
+from t in [("a", 1), ("b", 4), ("a", 3)]
+  compute elements;
+> val it = [("a",1),("b",4),("a",3)] : (string * int) list
+
+from i in [1, 2, 3]
+  group i compute length elements;
+> stdIn:2.19-2.34 Error: cannot derive label for compute expression
+>   raised at: stdIn:2.19-2.34
+
+from i in [1, 2, 3]
+  group i compute {l = length elements};
+> val it = [{i=1,l=1},{i=2,l=1},{i=3,l=1}] : {i:int, l:int} list
+
+(* TODO: group/compute/elements followed by order panics
+from i in [1, 2, 3]
+  group i compute elements order i;
+> val it = [{elements=[1],i=1},{elements=[2],i=2},{elements=[3],i=3}]
+>   : {elements:int list, i:int} list
+*)
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {c = length elements} order i;
+> val it = [{c=2,i="a"},{c=1,i="b"}] : {c:int, i:string} list
+
+(* TODO: from r in elements with nested compute not yet supported
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {s = from r in elements compute sum over r.j} order i;
+> val it = [{i="a",s=4},{i="b",s=4}] : {i:string, s:int} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {s = from r in elements where r.j < 2 compute sum over r.j}
+  order DESC i;
+> val it = [{i="b",s=0},{i="a",s=1}] : {i:string, s:int} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {elements, c = (length elements) - 1} order i;
+> val it =
+>   [{c=1,elements=[{i="a",j=1},{i="a",j=3}],i="a"},
+>    {c=0,elements=[{i="b",j=4}],i="b"}]
+>   : {c:int, elements:{i:string, j:int} list, i:string} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group i compute elements order i;
+> val it =
+>   [{elements=[{i="a",j=1},{i="a",j=3}],i="a"},{elements=[{i="b",j=4}],i="b"}]
+>   : {elements:{i:string, j:int} list, i:string} list
+*)
+
+(*) "elements" invalid in "group"
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i, elements} compute {one = 1};
+> stdIn:2.13-2.21 Error: 'elements' is only valid in a 'compute' clause
+>   raised at: stdIn:2.13-2.21
+
+(*) "elements" is invalid in "yield"
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  yield length elements;
+> stdIn:2.16-2.24 Error: 'elements' is only valid in a 'compute' clause
+>   raised at: stdIn:2.16-2.24
+
+(*) "elements" is invalid at top-level
+elements;
+> stdIn:1.1-1.9 Error: 'elements' is only valid in a 'compute' clause
+>   raised at: stdIn:1.1-1.9
+
+length elements;
+> stdIn:1.8-1.16 Error: 'elements' is only valid in a 'compute' clause
+>   raised at: stdIn:1.8-1.16
+
+from e in elements;
+> stdIn:1.11-1.19 Error: 'elements' is only valid in a 'compute' clause
+>   raised at: stdIn:1.11-1.19
+
 (*) singleton record 'yield' followed by 'order'
 from e in emps
   yield {d = e.deptno}
@@ -2930,6 +3012,31 @@ in
   from r in (records 3)
 end;
 > val it = [{i=3,j=2}] : {i:int, j:int} bag
+
+(*) GROUP and COMPUTE execution
+set("mode", "evaluate");
+> val it = () : unit
+
+(*) group with empty key and scalar compute
+from i in [1,2]
+  group {} compute 1 + 2;
+> val it = [3] : int list
+
+(*) standalone compute
+from i in [1,2]
+  compute 1 + 2;
+> val it = 3 : int
+
+(*) group by i with record compute
+from i in [1,2]
+  group i compute {three = 1 + 2};
+> val it = [{i=1,three=3},{i=2,three=3}] : {i:int, three:int} list
+
+(*) group by i with elements in compute
+from i in [1,2]
+  group i compute {elements};
+> val it = [{elements=[1],i=1},{elements=[2],i=2}]
+>   : {elements:int list, i:int} list
 
 (*) EXISTS queries - always return bool
 set("mode", "evaluate");

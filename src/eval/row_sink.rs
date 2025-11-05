@@ -889,7 +889,14 @@ impl RowSink for DistinctRowSink {
 /// group, and passes results downstream.
 pub struct GroupRowSink {
     key_code: Code,
-    aggregate_codes: Vec<Code>,
+    /// The compiled aggregate expression, if any.
+    aggregate_code: Option<Code>,
+    /// Frame slot to write `rows_val` before evaluating the aggregate.
+    /// None if the aggregate does not reference `elements`.
+    elements_slot: Option<usize>,
+    /// Frame slots to write the aggregate output fields into.
+    /// For a record aggregate with N fields, this has N entries.
+    agg_output_slots: Vec<usize>,
     slot_count: usize,
     key_slot_count: usize,
     row_sink: Box<dyn RowSink>,
@@ -902,14 +909,18 @@ pub struct GroupRowSink {
 impl GroupRowSink {
     pub fn new(
         key_code: Code,
-        aggregate_codes: Vec<Code>,
+        aggregate_code: Option<Code>,
+        elements_slot: Option<usize>,
+        agg_output_slots: Vec<usize>,
         slot_count: usize,
         key_slot_count: usize,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
             key_code,
-            aggregate_codes,
+            aggregate_code,
+            elements_slot,
+            agg_output_slots,
             slot_count,
             key_slot_count,
             row_sink,
@@ -967,29 +978,47 @@ impl RowSink for GroupRowSink {
         for (key, rows) in &self.map {
             // 1. Bind group key fields to frame.
             // The key can be either a scalar (for single-field keys like
-            // "group i") or a tuple (for multi-field keys like
-            // "group {e.deptno, e.job}").
+            // "group i") or a record (for multi-field keys like
+            // "group {e.deptno, e.job}", stored as one Val::List).
             if self.key_slot_count == 1 {
-                // Scalar key - bind directly to slot 0.
+                // Scalar or record key - bind directly to slot 0.
                 f.vals[0] = key.clone();
-            } else {
-                // Tuple key - extract fields and bind to slots.
-                let key_vals = key.expect_list();
-                for (i, key_val) in key_vals.iter().enumerate() {
-                    if i < self.key_slot_count {
-                        f.vals[i] = key_val.clone();
+            }
+            // key_slot_count == 0: empty key, nothing to write.
+
+            // 2. Evaluate the aggregate expression (if present).
+            if let Some(agg_code) = &self.aggregate_code {
+                let rows_val = Val::List(rows.clone());
+
+                // Bind 'elements' to rows_val if the aggregate uses it.
+                if let Some(slot) = self.elements_slot {
+                    f.vals[slot] = rows_val.clone();
+                }
+
+                // Evaluate the aggregate expression with eval_f0.
+                let agg_val = agg_code.eval_f0(r, f)?;
+
+                // Destructure aggregate result into output slots.
+                // - Record aggregate (Val::List): one field per slot.
+                // - Scalar aggregate: goes directly to agg_output_slots[0].
+                match &agg_val {
+                    Val::List(fields)
+                        if !self.agg_output_slots.is_empty()
+                            && self.agg_output_slots.len() == fields.len() =>
+                    {
+                        for (i, slot) in
+                            self.agg_output_slots.iter().enumerate()
+                        {
+                            f.vals[*slot] = fields[i].clone();
+                        }
+                    }
+                    _ => {
+                        // Scalar aggregate result.
+                        if let Some(&slot) = self.agg_output_slots.first() {
+                            f.vals[slot] = agg_val;
+                        }
                     }
                 }
-            }
-
-            // 2. Evaluate each aggregate over the group's rows.
-            let rows_val = Val::List(rows.clone());
-            for (i, agg_code) in self.aggregate_codes.iter().enumerate() {
-                // Apply an aggregate function to the list of rows.
-                // This calls code.eval_f1(r, f, &rows_val) which applies
-                // the aggregate function (e.g., Relational.sum) to the list.
-                let agg_result = agg_code.eval_f1(r, f, &rows_val)?;
-                f.vals[self.key_slot_count + i] = agg_result;
             }
 
             // 3. Pass the complete row downstream.
@@ -997,5 +1026,75 @@ impl RowSink for GroupRowSink {
         }
 
         self.row_sink.result(r, f)
+    }
+}
+
+/// Implementation of RowSink for a standalone `compute` step.
+///
+/// Accumulates all rows, then evaluates the compute expression once and
+/// returns the result as a scalar (not wrapped in a list).
+pub struct ComputeRowSink {
+    compute_code: Code,
+    /// Frame slot to write accumulated rows before evaluating compute.
+    /// None if the compute expression does not reference `elements`.
+    elements_slot: Option<usize>,
+    slot_count: usize,
+    rows: Vec<Val>,
+}
+
+impl ComputeRowSink {
+    pub fn new(
+        compute_code: Code,
+        elements_slot: Option<usize>,
+        slot_count: usize,
+    ) -> Self {
+        Self {
+            compute_code,
+            elements_slot,
+            slot_count,
+            rows: Vec::new(),
+        }
+    }
+}
+
+impl RowSink for ComputeRowSink {
+    fn start(
+        &mut self,
+        _r: &mut EvalEnv,
+        _f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.rows.clear();
+        Ok(())
+    }
+
+    fn accept(
+        &mut self,
+        _r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        // Accumulate rows only if `elements` is needed.
+        if self.elements_slot.is_some() {
+            let row_val = if self.slot_count == 1 {
+                f.vals[0].clone()
+            } else {
+                Val::List(f.vals[0..self.slot_count].to_vec())
+            };
+            self.rows.push(row_val);
+        }
+        Ok(())
+    }
+
+    fn result(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<Val, MorelError> {
+        // Bind 'elements' to the accumulated rows if needed.
+        if let Some(slot) = self.elements_slot {
+            f.vals[slot] = Val::List(self.rows.clone());
+        }
+
+        // Evaluate the compute expression once and return the scalar result.
+        self.compute_code.eval_f0(r, f)
     }
 }

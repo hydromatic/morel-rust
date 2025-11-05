@@ -78,4 +78,17 @@ impl FrameDef {
             panic!("variable {} not found in frame {:?}", name, self)
         }
     }
+
+    /// Returns the index of a variable with a given name, or None if not found.
+    pub(crate) fn try_var_index(&self, name: &str) -> Option<usize> {
+        self.bound_vars
+            .iter()
+            .position(|v| v.id.name == name)
+            .or_else(|| {
+                self.local_vars
+                    .iter()
+                    .position(|v| v.id.name == name)
+                    .map(|i| self.bound_vars.len() + i)
+            })
+    }
 }

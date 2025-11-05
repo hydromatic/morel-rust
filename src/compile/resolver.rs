@@ -310,6 +310,11 @@ impl<'a> Resolver<'a> {
             ExprKind::Divide(a0, a1) => {
                 self.call2(t, BuiltInFunction::RealDivide, &span, a0, a1)
             }
+            ExprKind::Elements => {
+                // 'elements' is a pseudo-variable bound inside group/compute
+                // steps. Resolve it as a plain identifier.
+                CoreExpr::Identifier(t, "elements".to_string())
+            }
             ExprKind::Equal(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
@@ -827,6 +832,10 @@ impl<'a> Resolver<'a> {
     fn resolve_step(&self, builder: &mut FromBuilder, step: &AstStep) {
         match &step.kind {
             // lint: sort until '#}' where '##AstStepKind::'
+            AstStepKind::Compute(expr) => {
+                let resolved_expr = self.resolve_expr(expr);
+                builder.compute(resolved_expr);
+            }
             AstStepKind::Distinct => {
                 builder.distinct();
             }

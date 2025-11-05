@@ -322,6 +322,7 @@ impl Step {
 #[derive(Clone, Debug)]
 pub enum StepKind {
     // lint: sort until '#}'
+    Compute(Box<Expr>),
     Distinct,
     Except(bool, Vec<Expr>),
     Exists,
