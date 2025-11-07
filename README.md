@@ -45,6 +45,19 @@ morel-rust version 0.2.0 (rust version 1.90.0)
 
 Type control+D to exit the shell.
 
+For quick testing, use the `-c` flag.
+
+```bash
+$ cargo run -- -c "1 + 2"
+val it = 3 : int
+
+$ cargo run -- -c "from i in [1,2,3] where i > 1"
+val it = [2,3] : int list
+
+$ cargo run -- -c 'let fun double x = x * 2 in map double [2,3,4] end'
+val it = [4,6,8] : int list
+```
+
 ## Documentation
 
 * [Morel Rust language reference](docs/reference.md)

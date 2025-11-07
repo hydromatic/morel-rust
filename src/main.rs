@@ -26,10 +26,36 @@ mod shell;
 mod syntax;
 mod unify;
 
+fn print_help() {
+    println!("morel-rust version {}", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("Usage: morel [OPTIONS] [FILE] [ARGS...]");
+    println!();
+    println!("Options:");
+    println!("  -h, --help       Print this help message and exit");
+    println!("  -c COMMAND       Execute a single command and exit");
+    println!();
+    println!("Arguments:");
+    println!("  FILE             Run the specified morel script file");
+    println!("  ARGS...          Additional arguments passed to the script");
+    println!();
+    println!("Examples:");
+    println!("  morel                     Start interactive REPL");
+    println!("  morel -c \"1 + 2\"          Execute a single command");
+    println!("  morel script.smli         Run a script file");
+    println!("  morel test [files...]     Run script tests");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    // Check if we're running script tests
+    // Check for the help flag.
+    if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
+        print_help();
+        exit(1);
+    }
+
+    // Check if we're running script tests.
     if args.len() > 1 && args[1] == "test" {
         let test_args = args[2..].to_vec();
         match ScriptTest::main(&test_args) {
@@ -44,8 +70,27 @@ fn main() {
         }
     }
 
+    // Check if we're executing a single command with -c.
+    if args.len() > 2 && args[1] == "-c" {
+        let command = &args[2];
+        let mut main = ShellMain::new(&[]);
+        match main.run_command(command, stdout()) {
+            Ok(()) => {
+                exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error executing command: {}", e);
+                exit(1);
+            }
+        }
+    }
+
     // Check if we're running a specific file
-    if args.len() > 1 && args[1] != "--" && !args[1].starts_with("--") {
+    if args.len() > 1
+        && args[1] != "--"
+        && !args[1].starts_with("--")
+        && args[1] != "-c"
+    {
         let file_path = &args[1];
         let shell_args = args[2..].to_vec();
 
