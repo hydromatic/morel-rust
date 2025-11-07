@@ -65,6 +65,7 @@ impl TypeBuilder {
                         ))
                     } else if name == "option" && args.len() == 1
                         || name == "either" && args.len() == 2
+                        || name == "descending" && args.len() == 1
                         || name == "order" && args.is_empty()
                     {
                         Type::Data(name.clone(), arg_types)

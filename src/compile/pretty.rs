@@ -599,6 +599,13 @@ impl Pretty {
         args: &[Type],
         value: &Val,
     ) -> Result<(), std::fmt::Error> {
+        if name == "descending" {
+            // Datatype "descending" has only one constructor, "DESC",
+            // and therefore stores the value without any wrapper.
+            self.pretty_raw(buf, indent, line_end, depth, "DESC ")?;
+            return self
+                .pretty1(buf, indent, line_end, depth, &args[0], value, 0, 0);
+        }
         let list = match &value {
             Val::Fn(f) => {
                 let name = match f {

@@ -30,6 +30,7 @@ use crate::eval::math::Math;
 use crate::eval::option::Opt;
 use crate::eval::order::Order;
 use crate::eval::real::Real;
+use crate::eval::relational::Relational;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::val::Val;
@@ -1174,6 +1175,7 @@ pub enum Eager1 {
     CharToLower,
     CharToString,
     CharToUpper,
+    DescendingDesc,
     EitherAsLeft,
     EitherAsRight,
     EitherInl,
@@ -1230,6 +1232,13 @@ pub enum Eager1 {
     RealSplit,
     RealToManExp,
     RealToString,
+    RelationalCount,
+    RelationalEmpty,
+    RelationalMax,
+    RelationalMin,
+    RelationalNonEmpty,
+    RelationalOnly,
+    RelationalSum,
     StringConcat,
     StringExplode,
     StringImplode,
@@ -1285,6 +1294,7 @@ impl Eager1 {
             CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
             CharToString => Val::String(Char::to_string(a0.expect_char())),
             CharToUpper => Val::Char(Char::to_upper(a0.expect_char())),
+            DescendingDesc => a0,
             EitherAsLeft => Either::as_left(&a0),
             EitherAsRight => Either::as_right(&a0),
             EitherInl => Val::Inl(Box::new(a0)),
@@ -1344,6 +1354,15 @@ impl Eager1 {
             RealSplit => Real::split(a0.expect_real()),
             RealToManExp => Real::to_man_exp(a0.expect_real()),
             RealToString => Val::String(Real::to_string(a0.expect_real())),
+            RelationalCount => Val::Int(a0.expect_list().len() as i32),
+            RelationalEmpty => Val::Bool(a0.expect_list().is_empty()),
+            RelationalMax => Relational::max(a0.expect_list()),
+            RelationalMin => Relational::min(a0.expect_list()),
+            RelationalNonEmpty => Val::Bool(!a0.expect_list().is_empty()),
+            RelationalOnly => Relational::only(a0.expect_list()),
+            RelationalSum => {
+                Val::Int(a0.expect_list().iter().map(Val::expect_int).sum())
+            }
             StringConcat => {
                 let strings = a0.expect_list();
                 Val::String(Str::concat(strings))
@@ -1445,6 +1464,7 @@ pub enum Eager2 {
     RealSameSign,
     RealTimes,
     RealUnordered,
+    RelationalCompare,
     StringCaret,
     StringCompare,
     StringEq,
@@ -1585,6 +1605,7 @@ impl Eager2 {
             RealUnordered => {
                 Val::Bool(Real::unordered(a0.expect_real(), a1.expect_real()))
             }
+            RelationalCompare => Relational::compare(&a0, &a1),
             StringCaret => Val::String(format!(
                 "{}{}",
                 a0.expect_string(),
@@ -2430,6 +2451,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::CharToLower.implements(&mut b, CharToLower);
     Eager1::CharToString.implements(&mut b, CharToString);
     Eager1::CharToUpper.implements(&mut b, CharToUpper);
+    Eager1::DescendingDesc.implements(&mut b, DescendingDesc);
     EagerF2::EitherApp.implements(&mut b, EitherApp);
     EagerF2::EitherAppLeft.implements(&mut b, EitherAppLeft);
     EagerF2::EitherAppRight.implements(&mut b, EitherAppRight);
@@ -2610,6 +2632,14 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::RealToString.implements(&mut b, RealToString);
     EagerF2::RealTrunc.implements(&mut b, RealTrunc);
     Eager2::RealUnordered.implements(&mut b, RealUnordered);
+    Eager2::RelationalCompare.implements(&mut b, RelationalCompare);
+    Eager1::RelationalCount.implements(&mut b, RelationalCount);
+    Eager1::RelationalEmpty.implements(&mut b, RelationalEmpty);
+    Eager1::RelationalMax.implements(&mut b, RelationalMax);
+    Eager1::RelationalMin.implements(&mut b, RelationalMin);
+    Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
+    Eager1::RelationalOnly.implements(&mut b, RelationalOnly);
+    Eager1::RelationalSum.implements(&mut b, RelationalSum);
     Eager2::StringCaret.implements(&mut b, StringCaret);
     EagerF2::StringCollate.implements(&mut b, StringCollate);
     Eager2::StringCompare.implements(&mut b, StringCompare);

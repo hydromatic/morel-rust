@@ -153,7 +153,7 @@ impl<'a> TermToTypeConverter<'a> {
                     let type_ = self.term_type(&sequence.terms[0]);
                     Box::new(Type::List(type_))
                 }
-                "option" => {
+                "option" | "descending" => {
                     assert_eq!(sequence.terms.len(), 1);
                     let args = vec![*self.term_type(&sequence.terms[0])];
                     Box::new(Type::Data(sequence.op.name.clone(), args))

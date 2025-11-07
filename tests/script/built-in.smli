@@ -4165,11 +4165,27 @@ List.map (fn x => (x, Real.toString x))
   see the technical report by Gay[CITE]. *)
 (*) TODO
 
+(* Relational -------------------------------------------------- *)
+Relational;
+> val it =
+>   {DESC=fn,compare=fn,count=fn,empty=fn,max=fn,min=fn,nonEmpty=fn,only=fn,
+>    sum=fn}
+>   : {DESC:'a -> 'a descending, compare:'b * 'b -> order, count:'c list -> int,
+>      empty:'d list -> bool, max:'e list -> 'e, min:'f list -> 'f,
+>      nonEmpty:'g list -> bool, only:'h list -> 'h, sum:int list -> int}
+
+(* Descending:
+     datatype descending = DESC of 'a
+*)
+DESC;
+> val it = fn : 'a -> 'a descending
+DESC "a";
+> val it = DESC "a" : string descending
+DESC (DESC "a");
+> val it = DESC DESC "a" : string descending descending
+
 set("mode", "validate");
 > val it = () : unit
-
-(* Relational -------------------------------------------------- *)
-
 Relational.count (bag [1, 2, 3]);
 > val it = 3 : int
 Relational.count (bag []);
@@ -4181,6 +4197,8 @@ Sys.plan ();
 >   "apply(fnValue Relational.count, argCode apply(fnValue Bag.fromList, argCode tuple(constant(false))))"
 >   : string
 
+set("mode", "evaluate");
+> val it = () : unit
 Relational.nonEmpty [1, 2, 3];
 > val it = true : bool
 Relational.nonEmpty [];
@@ -4225,6 +4243,8 @@ val emps = [
 >    {empno=7900,ename="JAMES",mgr=7698},{empno=7934,ename="MILLER",mgr=7782},
 >    {empno=7876,ename="ADAMS",mgr=7788},{empno=7369,ename="SMITH",mgr=7902}]
 >   : {empno:int, ename:string, mgr:int} list
+set("mode", "validate");
+> val it = () : unit
 Relational.iterate
   (from e in emps where e.mgr = 0)
   fn (oldList, newList) =>
@@ -4246,12 +4266,16 @@ Sys.plan ();
 >   "apply2(fnValue Relational.iterate, from(sink join(pat e_1, exp constant([[7839, KING, 0], [7566, JONES, 7839], [7698, BLAKE, 7839], [7782, CLARK, 7839], [7788, SCOTT, 7566], [7902, FORD, 7566], [7499, ALLEN, 7698], [7521, WARD, 7698], [7654, MARTIN, 7698], [7844, TURNER, 7698], [7900, JAMES, 7698], [7934, MILLER, 7782], [7876, ADAMS, 7788], [7369, SMITH, 7902]]), sink where(condition apply2(fnValue =, apply(fnValue nth:2, argCode get(name e)), constant(0)), sink collect(get(name e))))), match(v, apply(fnCode match((oldList, newList), from(sink join(pat d, exp get(name newList), sink join(pat e, exp constant([[7839, KING, 0], [7566, JONES, 7839], [7698, BLAKE, 7839], [7782, CLARK, 7839], [7788, SCOTT, 7566], [7902, FORD, 7566], [7499, ALLEN, 7698], [7521, WARD, 7698], [7654, MARTIN, 7698], [7844, TURNER, 7698], [7900, JAMES, 7698], [7934, MILLER, 7782], [7876, ADAMS, 7788], [7369, SMITH, 7902]]), sink where(condition apply2(fnValue =, apply(fnValue nth:2, argCode get(name e)), apply(fnValue nth:0, argCode get(name d))), sink collect(get(name e))))))), argCode get(name v))))"
 >   : string
 
+set("mode", "evaluate");
+> val it = () : unit
 Relational.sum [1, 2, 3];
 > val it = 6 : int
 Sys.plan ();
 > val it =
->   "apply(fnValue Relational.sum$int, argCode tuple(constant(1), constant(2), constant(3)))"
+>   "apply(fnValue Relational.sum, argCode tuple(constant(1), constant(2), constant(3)))"
 >   : string
+set("mode", "validate");
+> val it = () : unit
 Relational.sum [1.0, 2.5, 3.5];
 > val it = 7.0 : real
 Sys.plan ();
@@ -4259,8 +4283,12 @@ Sys.plan ();
 >   "apply(fnValue Relational.sum$real, argCode tuple(constant(1.0), constant(2.5), constant(3.5)))"
 >   : string
 
+set("mode", "evaluate");
+> val it = () : unit
 Relational.max [1, 2, 3];
 > val it = 3 : int
+set("mode", "validate");
+> val it = () : unit
 Relational.max [1.0, 2.5, 3.5];
 > val it = 3.5 : real
 Relational.max ["a", "bc", "ab"];
@@ -4272,8 +4300,12 @@ Sys.plan ();
 >   "apply(fnValue Relational.max, argCode tuple(constant(false), constant(true)))"
 >   : string
 
+set("mode", "evaluate");
+> val it = () : unit
 Relational.min [1, 2, 3];
 > val it = 1 : int
+set("mode", "validate");
+> val it = () : unit
 Relational.min [1.0, 2.5, 3.5];
 > val it = 1.0 : real
 Relational.min ["a", "bc", "ab"];
@@ -4285,8 +4317,12 @@ Sys.plan ();
 >   "apply(fnValue Relational.min, argCode tuple(constant(false), constant(true)))"
 >   : string
 
+set("mode", "evaluate");
+> val it = () : unit
 Relational.only [2];
 > val it = 2 : int
+set("mode", "validate");
+> val it = () : unit
 Relational.only [1, 2, 3];
 > uncaught exception Size
 >   raised at: stdIn:1.1-1.26
@@ -4295,13 +4331,6 @@ Relational.only [];
 >   raised at: stdIn:1.1-1.19
 Sys.plan ();
 > val it = "apply(fnValue Relational.only, argCode tuple)" : string
-
-List.concat [[1, 2], [3], [], [4, 2, 5]];
-> val it = [1,2,3,4,2,5] : int list
-List.concat [[], []];
-> val it = [] : 'a list
-Sys.plan ();
-> val it = "apply(fnValue List.concat, argCode tuple(tuple, tuple))" : string
 
 List.`except` [[1, 2], [2], [3], []];
 > val it = [1] : int list
@@ -4420,6 +4449,8 @@ Sys.plan ();
 > val it = true : bool
 
 (*) The "compare" function.
+set("mode", "evaluate");
+> val it = () : unit
 Relational.compare;
 > val it = fn : 'a * 'a -> order
 Relational.compare (1, 2);
@@ -4458,6 +4489,8 @@ Relational.compare ({a=1, b=2.0}, {a=2, b=1.0});
 > val it = LESS : order
 Relational.compare ({c=1, b=2.0}, {c=2, b=1.0});
 > val it = GREATER : order
+set("mode", "validate");
+> val it = () : unit
 (*) Option compares with NONE less than any value.
 Relational.compare (SOME 1, NONE);
 > val it = GREATER : order
