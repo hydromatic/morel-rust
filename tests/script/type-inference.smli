@@ -977,11 +977,14 @@ forall d in [{a=1,b=true}];
 (*) Group operation -----------------------------------
 :t from i in [1, 2, 3]
   group i;
-> val it : {i:int} list
+> val it : int list
 
 :t from i in [1, 2, 2, 3]
   group i mod 2;
 > val it : int list
+
+:t from i in [1,4,2,3,2] group {j = i mod 2, k = i div 2};
+> val it : {j:int, k:int} list
 
 :t from i in [1, 2, 3]
   group i compute {elements};

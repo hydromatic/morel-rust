@@ -174,13 +174,14 @@ impl Expr {
 
     fn visit_step(env: &Env, x: &dyn Transformer, step: &Step) -> Step {
         let kind = match &step.kind {
-            StepKind::JoinIn(pat, expr, condition) => {
+            // lint: sort until '#}' where '##StepKind::'
+            StepKind::Scan(pat, expr, condition) => {
                 let pat2 = x.transform_pat(env, pat);
                 let expr2 = x.transform_expr(env, expr);
                 let condition2 = condition
                     .as_ref()
                     .map(|c| Box::new(x.transform_expr(env, c)));
-                StepKind::JoinIn(Box::new(pat2), Box::new(expr2), condition2)
+                StepKind::Scan(Box::new(pat2), Box::new(expr2), condition2)
             }
             StepKind::Where(expr) => {
                 let expr2 = x.transform_expr(env, expr);
@@ -192,7 +193,10 @@ impl Expr {
             }
             _ => step.kind.clone(), // For other step kinds, just clone
         };
-        Step { kind }
+        Step {
+            kind,
+            env: step.env.clone(),
+        }
     }
 }
 

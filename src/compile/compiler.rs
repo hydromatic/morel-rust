@@ -16,7 +16,8 @@
 // License.
 
 use crate::compile::core::{
-    DatatypeBind, Decl, Expr, Match, Pat, Step, StepKind, TypeBind, ValBind,
+    DatatypeBind, Decl, Expr, Match, Pat, Step, StepEnv, StepKind, TypeBind,
+    ValBind,
 };
 use crate::compile::library::BuiltInFunction;
 use crate::compile::pretty::Pretty;
@@ -24,11 +25,11 @@ use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
-use crate::eval::code::{
-    Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep,
-};
+use crate::eval::code::{Code, Effect, EvalEnv, EvalMode, Frame, Impl};
+use crate::eval::comparator::comparator_for;
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
+use crate::eval::row_sink::RowSinkFactory;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::Shell;
@@ -628,12 +629,21 @@ impl<'a> Compiler<'a> {
                     )
                 }
             }
-            Expr::From(_, steps) => {
-                let compiled_steps: Vec<QueryStep> = steps
-                    .iter()
-                    .map(|step| self.compile_step(cx, step))
-                    .collect();
-                Code::From(compiled_steps)
+            Expr::From(element_type, steps) => {
+                // Use row sinks (push-based evaluation) matching the Java
+                // implementation.
+                let step_env = if steps.is_empty() {
+                    StepEnv::empty()
+                } else {
+                    steps.last().unwrap().env.clone()
+                };
+                let factory = self.create_row_sink_factory(
+                    cx,
+                    &step_env,
+                    steps,
+                    element_type,
+                );
+                Code::FromRowSink(factory)
             }
             Expr::Identifier(_, name) => {
                 let slot = cx.frame_def.var_index(name);
@@ -662,8 +672,10 @@ impl<'a> Compiler<'a> {
                 Code::new_list(&codes)
             }
             Expr::Literal(type_, val) => {
-                // Convert zero-argument constructors to their values
+                // Convert zero-argument constructors to their values.
                 let val2 = match val {
+                    Val::Fn(BuiltInFunction::BagNil) => Val::List(vec![]),
+                    Val::Fn(BuiltInFunction::ListNil) => Val::List(vec![]),
                     Val::Fn(BuiltInFunction::OptionNone) => Val::Unit,
                     Val::Fn(BuiltInFunction::OrderLess) => {
                         Val::Order(Order(Ordering::Less))
@@ -690,22 +702,366 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn compile_step(&mut self, cx: &Context, step: &Step) -> QueryStep {
-        match &step.kind {
-            StepKind::JoinIn(pat, expr, _cond) => {
+    /// Creates a row sink factory from query steps.
+    /// Matches Java's Compiler.createRowSinkFactory method.
+    fn create_row_sink_factory(
+        &mut self,
+        cx: &Context,
+        step_env: &StepEnv,
+        steps: &[Step],
+        element_type: &Type,
+    ) -> RowSinkFactory {
+        use crate::eval::row_sink::{
+            CollectRowSink, DistinctRowSink, ExceptRowSink, GroupRowSink,
+            IntersectRowSink, OrderRowSink, ScanRowSink, SkipRowSink,
+            TakeRowSink, UnionRowSink, WhereRowSink,
+        };
+
+        if steps.is_empty() {
+            // Terminal case: create a CollectRowSink from bindings.
+            let code = self.get_collection_code(cx, step_env, element_type);
+            return RowSinkFactory::new(move || {
+                Box::new(CollectRowSink::new(code.clone()))
+            });
+        }
+
+        // Recursive case: process the first step and build the downstream
+        // factory.
+        let first_step = &steps[0];
+
+        match &first_step.kind {
+            // lint: sort until '#}' where '##StepKind::'
+            StepKind::Distinct => {
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
+
+                // Distinct filters duplicate rows based on current bindings.
+                let slot_count = step_env.bindings.len();
+
+                RowSinkFactory::new(move || {
+                    Box::new(DistinctRowSink::new(
+                        slot_count,
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Except(distinct, exprs) => {
+                // Translate "except-distinct" as if it were ordinary "except"
+                // followed by "distinct".
+                let downstream_steps = if *distinct {
+                    // Create a Distinct step and append remaining steps.
+                    let mut new_steps = vec![Step::new(
+                        StepKind::Distinct,
+                        first_step.env.clone(),
+                    )];
+                    new_steps.extend_from_slice(&steps[1..]);
+                    new_steps
+                } else {
+                    steps[1..].to_vec()
+                };
+
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &downstream_steps,
+                    element_type,
+                );
+
+                // Compile each except expression into code.
+                let codes: Vec<Code> = exprs
+                    .iter()
+                    .map(|expr| self.compile_expr(cx, None, expr))
+                    .collect();
+                let slot_count = step_env.bindings.len();
+
+                RowSinkFactory::new(move || {
+                    Box::new(ExceptRowSink::new(
+                        slot_count,
+                        codes.clone(),
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Group(key_expr, aggregate_expr) => {
+                // For simple group queries without complex aggregates.
+                // Example: "from i in [1,2,3] group i" or
+                // "from e in emps group e.deptno"
+
+                // The next step processes the grouped results.
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
+
+                // Compile the group key expression.
+                let key_code = self.compile_expr(cx, None, key_expr);
+
+                // Compile aggregate expressions if present.
+                let aggregate_codes: Vec<Code> =
+                    if let Some(agg_expr) = aggregate_expr {
+                        // For now, treat the aggregate expression as a
+                        // single aggregate. Later, we'll extract
+                        // multiple aggregates from complex expressions.
+                        vec![self.compile_expr(cx, None, agg_expr)]
+                    } else {
+                        vec![]
+                    };
+
+                // Count how many bindings are in the OUTPUT (after grouping).
+                // This is the number of slots needed for the grouped row:
+                // key fields + aggregate fields.
+                let slot_count = first_step.env.bindings.len();
+
+                // Count how many bindings are in the key.
+                // For now, we'll determine this from the key expression type.
+                // A tuple key has multiple fields, a scalar key has one field.
+                let key_slot_count = match key_expr.type_().as_ref() {
+                    Type::Tuple(types) => types.len(),
+                    _ => 1,
+                };
+
+                RowSinkFactory::new(move || {
+                    Box::new(GroupRowSink::new(
+                        key_code.clone(),
+                        aggregate_codes.clone(),
+                        slot_count,
+                        key_slot_count,
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Intersect(distinct, exprs) => {
+                // Translate "intersect-distinct" as if it were an ordinary
+                // "intersect" followed by "distinct". (We could also
+                // make the inputs distinct.)
+                let downstream_steps = if *distinct {
+                    // Create a Distinct step and append remaining steps.
+                    let mut new_steps = vec![Step::new(
+                        StepKind::Distinct,
+                        first_step.env.clone(),
+                    )];
+                    new_steps.extend_from_slice(&steps[1..]);
+                    new_steps
+                } else {
+                    steps[1..].to_vec()
+                };
+
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &downstream_steps,
+                    element_type,
+                );
+
+                // Compile each "intersect" expression into code.
+                let codes: Vec<Code> = exprs
+                    .iter()
+                    .map(|expr| self.compile_expr(cx, None, expr))
+                    .collect();
+                let slot_count = step_env.bindings.len();
+
+                RowSinkFactory::new(move || {
+                    Box::new(IntersectRowSink::new(
+                        slot_count,
+                        codes.clone(),
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Order(expr) => {
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
+
+                // Compile the order expression.
+                let order_code = self.compile_expr(cx, None, expr);
+                let slot_count = step_env.bindings.len();
+
+                // Create a comparator for the order expression's type.
+                let expr_type = expr.type_();
+                let comparator = comparator_for(&expr_type);
+
+                RowSinkFactory::new(move || {
+                    Box::new(OrderRowSink::new(
+                        order_code.clone(),
+                        comparator.clone(),
+                        slot_count,
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Scan(pat, expr, cond) => {
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
                 let pat_code = self.compile_pat(cx, pat);
                 let expr_code = self.compile_expr(cx, None, expr);
-                QueryStep::JoinIn(pat_code, expr_code)
+                let condition_code = if let Some(condition_expr) = cond {
+                    self.compile_expr(cx, None, condition_expr)
+                } else {
+                    Code::new_constant(
+                        &Type::Primitive(PrimitiveType::Bool),
+                        Val::Bool(true),
+                    )
+                };
+
+                RowSinkFactory::new(move || {
+                    Box::new(ScanRowSink::new(
+                        pat_code.clone(),
+                        expr_code.clone(),
+                        condition_code.clone(),
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Skip(expr) => {
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
+                let skip_code = self.compile_expr(cx, None, expr);
+                RowSinkFactory::new(move || {
+                    Box::new(SkipRowSink::new(
+                        skip_code.clone(),
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Take(expr) => {
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
+                let take_code = self.compile_expr(cx, None, expr);
+                RowSinkFactory::new(move || {
+                    Box::new(TakeRowSink::new(
+                        take_code.clone(),
+                        next_factory.create(),
+                    ))
+                })
+            }
+            StepKind::Union(distinct, exprs) => {
+                // Translate "union-distinct" as if it were ordinary "union"
+                // followed by "distinct". (We could also make the inputs
+                // distinct.)
+                let downstream_steps = if *distinct {
+                    // Create a Distinct step and append remaining steps.
+                    let mut new_steps = vec![Step::new(
+                        StepKind::Distinct,
+                        first_step.env.clone(),
+                    )];
+                    new_steps.extend_from_slice(&steps[1..]);
+                    new_steps
+                } else {
+                    steps[1..].to_vec()
+                };
+
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &downstream_steps,
+                    element_type,
+                );
+
+                // Compile each union expression into code.
+                let codes: Vec<Code> = exprs
+                    .iter()
+                    .map(|expr| self.compile_expr(cx, None, expr))
+                    .collect();
+                let slot_count = step_env.bindings.len();
+
+                RowSinkFactory::new(move || {
+                    Box::new(UnionRowSink::new(
+                        slot_count,
+                        codes.clone(),
+                        next_factory.create(),
+                    ))
+                })
             }
             StepKind::Where(expr) => {
-                let expr_code = self.compile_expr(cx, None, expr);
-                QueryStep::Where(expr_code)
+                let next_factory = self.create_row_sink_factory(
+                    cx,
+                    &first_step.env,
+                    &steps[1..],
+                    element_type,
+                );
+                let filter_code = self.compile_expr(cx, None, expr);
+
+                RowSinkFactory::new(move || {
+                    Box::new(WhereRowSink::new(
+                        filter_code.clone(),
+                        next_factory.create(),
+                    ))
+                })
             }
             StepKind::Yield(expr) => {
-                let expr_code = self.compile_expr(cx, None, expr);
-                QueryStep::Yield(expr_code)
+                // Yield step: use the yield expression for collection.
+                let yield_code = self.compile_expr(cx, None, expr);
+                RowSinkFactory::new(move || {
+                    Box::new(CollectRowSink::new(yield_code.clone()))
+                })
             }
-            _ => todo!("compile_step: {:?}", step.kind),
+            _ => todo!("create_row_sink_factory: {:?}", first_step.kind),
+        }
+    }
+
+    /// Gets the code for collecting bound variables.
+    fn get_collection_code(
+        &mut self,
+        cx: &Context,
+        step_env: &StepEnv,
+        element_type: &Type,
+    ) -> Code {
+        if step_env.bindings.is_empty() {
+            // No bindings - return unit.
+            return Code::new_constant(
+                &Type::Primitive(PrimitiveType::Unit),
+                Val::Unit,
+            );
+        }
+
+        // Collect field names sorted alphabetically (like Java).
+        let mut field_names: Vec<String> = step_env
+            .bindings
+            .iter()
+            .map(|b| b.id.name.clone())
+            .collect();
+        field_names.sort();
+
+        if field_names.len() == 1
+            && step_env.bindings[0].type_.as_ref() == element_type
+        {
+            // Single binding matching the element type - just get that
+            // variable.
+            let name = &field_names[0];
+            let slot = cx.frame_def.var_index(name);
+            Code::new_get_local(&cx.frame_def, slot)
+        } else {
+            // Multiple bindings or type mismatch - create a tuple.
+            let codes: Vec<Code> = field_names
+                .iter()
+                .map(|name| {
+                    let slot = cx.frame_def.var_index(name);
+                    Code::new_get_local(&cx.frame_def, slot)
+                })
+                .collect();
+            Code::Tuple(codes)
         }
     }
 
@@ -911,8 +1267,6 @@ impl Context {
 }
 
 pub trait CompiledStatement {
-    fn get_type(&self) -> &Type;
-
     /// Evaluates the compiled statement, collecting effects instead of
     /// mutating state.
     fn eval(
@@ -933,10 +1287,6 @@ struct CompiledStatementImpl {
 }
 
 impl CompiledStatement for CompiledStatementImpl {
-    fn get_type(&self) -> &Type {
-        &self.type_
-    }
-
     fn eval(
         &self,
         session: &Session,

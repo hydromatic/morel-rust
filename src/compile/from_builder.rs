@@ -25,7 +25,7 @@
 //! - Inlining nested from expressions
 
 use crate::compile::core::{Binding, Expr, Pat, Step, StepEnv, StepKind};
-use crate::compile::types::{PrimitiveType, Type};
+use crate::compile::types::Type;
 use crate::eval::val::Val;
 use crate::shell::error::Error;
 use std::fmt;
@@ -38,7 +38,7 @@ fn is_list_type(type_: &Type) -> bool {
 /// Classification of tuple types for yield optimization.
 #[derive(Eq, PartialEq, Debug)]
 enum TupleType {
-    /// A tuple whose right side are the current fields and left side are
+    /// A tuple whose expressions are the current fields and whose labels are
     /// the same as the right, e.g. "{deptno = deptno, dname = dname}".
     Identity,
     /// A tuple whose right side are the current fields, e.g.
@@ -109,6 +109,7 @@ fn tuple_type(
 ///
 /// This builder accumulates query steps and applies simplification rules
 /// to produce optimized Core expressions.
+#[derive(Default)]
 pub struct FromBuilder {
     /// The steps in this query
     steps: Vec<Step>,
@@ -116,7 +117,7 @@ pub struct FromBuilder {
     /// Current bindings after the last step
     bindings: Vec<Binding>,
 
-    /// Whether the result is an atom (scalar) vs a record
+    /// Whether the result is an atom (scalar) as opposed to a record.
     atom: bool,
 
     /// If Some(index), that step should be removed if it's not the last step.
@@ -132,15 +133,9 @@ pub struct FromBuilder {
 }
 
 impl FromBuilder {
-    /// Creates a new FromBuilder.
+    /// Creates a FromBuilder.
     pub fn new() -> Self {
-        FromBuilder {
-            steps: Vec::new(),
-            bindings: Vec::new(),
-            atom: false,
-            remove_if_not_last_index: None,
-            remove_if_last_index: None,
-        }
+        Self::default()
     }
 
     /// Resets this builder to its initial state.
@@ -282,8 +277,17 @@ impl FromBuilder {
         let env = self.step_env();
         let mut useless_if_not_last = false;
 
-        // Determine if the expression is an atom (non-record).
-        let atom = !matches!(exp, Expr::Tuple(_, _));
+        // Determine if the result will be an atom (single scalar value) or
+        // a record. This depends on two factors:
+        // 1. The number of bindings must be exactly 1 for atom.
+        // 2. The yield expression must be non-tuple for atom.
+        //
+        // For example,
+        // - "from x in [1,2] yield x" -> atom=true (1 binding, non-tuple exp);
+        // - "from x in [1,2] yield {x=x}" -> atom=false (1 binding, tuple exp);
+        // - "from x in [1], y in [2] yield {x,y}" -> atom=false (2 bindings).
+        let is_tuple_expr = matches!(exp, Expr::Tuple(_, _));
+        let atom = self.bindings.len() == 1 && !is_tuple_expr;
 
         match &exp {
             Expr::Tuple(_, _) => {
@@ -300,15 +304,17 @@ impl FromBuilder {
                             useless_if_not_last = true;
                             // Continue to add the step.
                         } else {
-                            // A non-singleton record that does not rename,
-                            // e.g. 'yield {x=x,y=y}'. It is useless.
+                            // This is a non-singleton record that does not
+                            // rename any fields, e.g. 'yield {x=x,y=y}'. It is
+                            // useless.
                             return self;
                         }
                     }
                     TupleType::Rename => {
-                        // A singleton or non-singleton record that renames,
-                        // e.g. 'yield {y=x}' or 'yield {y=x,z=y}'.
-                        // It is always useful, so continue to add the step.
+                        // This is a singleton or non-singleton record that
+                        // renames at least one field, e.g. 'yield {y=x}' or
+                        // 'yield {y=x,z=y}'. It is always useful, so continue
+                        // to add the step.
                     }
                     TupleType::Other => {
                         // Any other tuple (computed values, etc.).
@@ -401,7 +407,9 @@ impl FromBuilder {
             StepKind::Group(Box::new(key_expr), aggregate_expr.map(Box::new)),
             env,
         );
-        self.add_step(step)
+        self.add_step(step);
+
+        self
     }
 
     /// Adds a scan step "from pat in exp".
@@ -422,13 +430,13 @@ impl FromBuilder {
         // For now, just add a simple scan step.
 
         // Update bindings based on the pattern.
-        let new_binding = Binding::of(&pat);
-        self.bindings.push(new_binding);
+        // For tuple patterns like `(i,j)`, this collects multiple bindings.
+        Binding::collect_bindings(&pat, &mut self.bindings);
         self.atom = self.bindings.len() == 1;
 
         let env = self.step_env();
         let step = Step::new(
-            StepKind::JoinIn(
+            StepKind::Scan(
                 Box::new(pat),
                 Box::new(exp),
                 condition.map(Box::new),
@@ -462,7 +470,7 @@ impl FromBuilder {
         // Simplification: "from v in list" -> "list".
         if simplify
             && self.steps.len() == 1
-            && let StepKind::JoinIn(pat, exp, None) = &self.steps[0].kind
+            && let StepKind::Scan(pat, exp, None) = &self.steps[0].kind
             && matches!(**pat, Pat::Identifier(_, _))
         {
             return Ok((**exp).clone());
@@ -474,15 +482,25 @@ impl FromBuilder {
     }
 
     fn compute_result_type(&self) -> Result<Type, Error> {
-        // TODO: Properly compute the result type based on steps.
-        // For now, return a placeholder.
-        Ok(Type::Primitive(PrimitiveType::Unit))
-    }
-}
+        use crate::compile::types::Label;
+        use std::collections::BTreeMap;
 
-impl Default for FromBuilder {
-    fn default() -> Self {
-        Self::new()
+        // The element type is the type of each element in the result list.
+        // If we have a single binding that matches the atom flag, use its type.
+        // Otherwise, create a record type from all bindings.
+        let env = self.step_env();
+        if env.bindings.len() == 1 && env.atom {
+            // Single scalar binding - element type is that binding's type.
+            Ok(*env.bindings[0].type_.clone())
+        } else {
+            // Multiple bindings or non-atom - element type is a record.
+            let fields: BTreeMap<Label, Type> = env
+                .bindings
+                .iter()
+                .map(|b| (Label::String(b.id.name.clone()), *b.type_.clone()))
+                .collect();
+            Ok(Type::Record(false, fields))
+        }
     }
 }
 
@@ -501,6 +519,7 @@ impl fmt::Display for FromBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compile::types::PrimitiveType;
 
     #[test]
     fn test_new_builder() {

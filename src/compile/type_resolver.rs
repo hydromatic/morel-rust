@@ -1053,8 +1053,13 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Record(with_expr, labeled_expr_list) => {
-                let labeled_expr_list2 =
-                    self.deduce_record_type(env, labeled_expr_list, v)?;
+                let mut field_vars = Vec::new(); // never read
+                let labeled_expr_list2 = self.deduce_record_type(
+                    env,
+                    labeled_expr_list,
+                    &mut field_vars,
+                    v,
+                )?;
                 let x = ExprKind::Record(with_expr.clone(), labeled_expr_list2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -1206,7 +1211,7 @@ impl TypeResolver {
                 .deduce_group_step_type(
                     p,
                     key_expr,
-                    compute_expr,
+                    compute_expr.as_deref(),
                     &step.span,
                     field_vars,
                     steps2,
@@ -1413,8 +1418,11 @@ impl TypeResolver {
                         envs.push(label, term.clone());
                     } else {
                         return Err(Error::Compile(
-                            "cannot derive label for expression".to_string(),
-                            expr.span.clone(),
+                            format!(
+                                "cannot derive label for expression {}",
+                                labeled_expr.expr.span.code()
+                            ),
+                            labeled_expr.expr.span.clone(),
                         ));
                     }
                 }
@@ -1511,12 +1519,14 @@ impl TypeResolver {
     /// duplicate field names between key and compute.
     ///
     /// This validation only applies to non-atom groups. An atom group is one
-    /// where the total field count is 1 and neither expression is a singleton
+    /// where the total field count is 1, and neither expression is a singleton
     /// record.
+    ///
+    /// Returns whether the Group's output is an atom.
     fn validate_group(
         key_expr: &Expr,
-        compute_expr: &Option<Box<Expr>>,
-    ) -> Result<(), Error> {
+        compute_expr: Option<&Expr>,
+    ) -> Result<bool, Error> {
         // Count fields in key and compute expressions.
         let key_field_count = Self::field_count(key_expr);
         let compute_field_count =
@@ -1525,10 +1535,8 @@ impl TypeResolver {
         // Check if this is an atom group (returns a single value, not a
         // record).
         let is_atom = (key_field_count + compute_field_count == 1)
-            && !Self::is_singleton_record(key_expr)
-            && !compute_expr
-                .as_ref()
-                .is_some_and(|e| Self::is_singleton_record(e));
+            && !Self::is_singleton_record(Some(key_expr))
+            && !Self::is_singleton_record(compute_expr);
 
         // Only validate non-atom groups.
         if !is_atom {
@@ -1561,7 +1569,7 @@ impl TypeResolver {
             Self::check_duplicate_field_names(key_expr, compute_expr)?;
         }
 
-        Ok(())
+        Ok(is_atom)
     }
 
     /// Validates that all fields in a record have labels (either explicit or
@@ -1585,7 +1593,7 @@ impl TypeResolver {
     /// Checks for duplicate field names between key and compute expressions.
     fn check_duplicate_field_names(
         key_expr: &Expr,
-        compute_expr: &Option<Box<Expr>>,
+        compute_expr: Option<&Expr>,
     ) -> Result<(), Error> {
         let mut names = HashSet::new();
 
@@ -1646,11 +1654,15 @@ impl TypeResolver {
 
     /// Returns true if the expression is a singleton record (a record with
     /// exactly one field).
-    fn is_singleton_record(expr: &Expr) -> bool {
-        matches!(
-            &expr.kind,
-            ExprKind::Record(_, labeled_exprs) if labeled_exprs.len() == 1
-        )
+    fn is_singleton_record(expr: Option<&Expr>) -> bool {
+        if let Some(expr) = expr
+            && let ExprKind::Record(_, labeled_exprs) = &expr.kind
+            && labeled_exprs.len() == 1
+        {
+            true
+        } else {
+            false
+        }
     }
 
     /// Deduces a Group step's type.
@@ -1658,73 +1670,60 @@ impl TypeResolver {
         &mut self,
         p: &Triple,
         key_expr: &Expr,
-        compute_expr: &Option<Box<Expr>>,
+        compute_expr: Option<&Expr>,
         span: &Span,
         field_vars: &mut Vec<(String, Rc<Var>)>,
         steps2: &mut Vec<Step>,
     ) -> Result<Triple, Error> {
-        // Validate that labels can be derived for atom expressions.
-        Self::validate_group(key_expr, compute_expr)?;
+        // Deduce whether the result is an atom, and if not an atom, make sure
+        // that a unique label can be derived for each field.
+        let atom = Self::validate_group(key_expr, compute_expr)?;
 
         field_vars.clear();
 
         // Process key expression(s). If the key is a record, process each
         // field; otherwise treat as a single field.
         let key_expr2;
+        let v_key = self.variable();
         let mut group_env_builder = p.root_env.builder();
 
         if let ExprKind::Record(_with, labeled_exprs) = &key_expr.kind {
-            // Multiple grouping keys
-            let mut labeled_exprs2 = Vec::new();
-            for labeled_expr in labeled_exprs {
-                let v_field = self.variable();
-                let expr2 = self.deduce_expr_type(
-                    &*p.env,
-                    &labeled_expr.expr,
-                    &v_field,
-                )?;
-                let label = labeled_expr
-                    .get_label()
-                    .unwrap_or_else(|| "key".to_string());
+            let labeled_exprs2 = self.deduce_record_type(
+                &*p.env,
+                labeled_exprs,
+                field_vars,
+                &v_key,
+            )?;
 
-                group_env_builder
-                    .push(label.clone(), Term::Variable(v_field.clone()));
-                field_vars.push((label.clone(), v_field.clone()));
-
-                labeled_exprs2.push(LabeledExpr {
-                    label: labeled_expr.label.clone(),
-                    expr: expr2,
-                });
-            }
-            key_expr2 = Expr {
-                kind: ExprKind::Record(None, labeled_exprs2),
-                span: key_expr.span.clone(),
-                id: key_expr.id,
-            };
+            key_expr2 = self.reg_expr(
+                &ExprKind::Record(None, labeled_exprs2),
+                &key_expr.span,
+                key_expr.id,
+                &v_key,
+            );
         } else {
-            // Single grouping key
-            let v_key = self.variable();
             key_expr2 = self.deduce_expr_type(&*p.env, key_expr, &v_key)?;
-            let key_label = key_expr2
-                .implicit_label_opt()
-                .unwrap_or_else(|| "key".to_string());
-
-            group_env_builder
-                .push(key_label.clone(), Term::Variable(v_key.clone()));
-            field_vars.push((key_label, v_key));
+            if let Some(key_label) = key_expr2.implicit_label_opt() {
+                field_vars.push((key_label, v_key));
+            } else {
+                field_vars
+                    .push((ExprKind::Current.clause().to_string(), v_key));
+            }
         }
 
-        // Save the number of key fields before adding compute fields.
-        let key_field_count = field_vars.len();
-
-        // Bind 'elements' to the current collection for use in compute
-        // expressions. Elements: 'a list where 'a is the current element type.
-        group_env_builder
-            .push("elements".to_string(), Term::Variable(p.c.clone().unwrap()));
+        // Create the environment for the next step. It includes all key and
+        // compute fields, and the "elements" variable.
+        field_vars.iter().for_each(|(label, v)| {
+            group_env_builder.push(label.clone(), Term::Variable(v.clone()));
+        });
+        group_env_builder.push(
+            ExprKind::Elements.clause().to_string(),
+            Term::Variable(p.c.clone().unwrap()),
+        );
+        let group_env = group_env_builder.build();
 
         // Process the compute expression, if present.
         let compute_expr2 = if let Some(compute) = compute_expr {
-            let group_env = group_env_builder.build();
             self.compute_stack.push(p.with_env(&group_env));
 
             let v_compute = self.variable();
@@ -1788,10 +1787,7 @@ impl TypeResolver {
         // If there is a single field with the default label "key" and no
         // compute, return the atom type. Likewise, return the atom type if
         // there is no key (empty tuple) and a single compute field.
-        let v_result = if field_vars.len() == 1
-            && ((field_vars[0].0 == "key" && compute_expr.is_none())
-                || (key_field_count == 0 && compute_expr.is_some()))
-        {
+        let v_result = if field_vars.len() == 1 && atom {
             field_vars[0].1.clone()
         } else {
             self.field_var(field_vars, false)
@@ -1804,10 +1800,9 @@ impl TypeResolver {
         let step2 = StepKind::Group(Box::new(key_expr2), compute_expr2);
         steps2.push(step2.spanned(span));
 
-        let result_env = p.root_env.bind_all(&[]);
         Ok(Triple::new(
             p.root_env.clone(),
-            result_env,
+            group_env,
             v_result,
             Some(c_result),
         ))
@@ -1829,8 +1824,10 @@ impl TypeResolver {
 
         // Bind 'elements' to the current collection
         let mut compute_env_builder = p.root_env.builder();
-        compute_env_builder
-            .push("elements".to_string(), Term::Variable(p.c.clone().unwrap()));
+        compute_env_builder.push(
+            ExprKind::Elements.clause().to_string(),
+            Term::Variable(p.c.clone().unwrap()),
+        );
         let compute_env = compute_env_builder.build();
         self.compute_stack.push(p.with_env(&compute_env));
 
@@ -2227,6 +2224,7 @@ impl TypeResolver {
         &mut self,
         env: &dyn TypeEnv,
         labeled_expr_list: &Vec<LabeledExpr>,
+        field_vars: &mut Vec<(String, Rc<Var>)>,
         v: &Rc<Var>,
     ) -> Result<Vec<LabeledExpr>, Error> {
         // First, create a copy of expressions and their labels,
@@ -2251,6 +2249,8 @@ impl TypeResolver {
         let mut labeled_expr_list2 = Vec::new();
         for (label, labeled_expr) in &label_expr_map {
             let v2 = self.variable();
+            field_vars.push((label.to_string(), v2.clone()));
+
             let e2 = self.deduce_expr_type(env, &labeled_expr.expr, &v2)?;
             labeled_expr_list2.push(LabeledExpr {
                 expr: e2,
@@ -3086,8 +3086,9 @@ impl TypeResolver {
                     })
                     .collect();
 
-                // Check if labels are in alphabetical order, but only if the
-                // spans are in source order (meaning they haven't been
+                // Check if labels are in alphabetical order, but only if
+                // the spans are in source order (meaning they haven't
+                // been
                 // reordered yet).
                 if !labels_with_spans.is_empty() {
                     let label_strs: Vec<&str> = labels_with_spans

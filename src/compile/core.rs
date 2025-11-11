@@ -183,29 +183,152 @@ impl Display for Match {
     }
 }
 
+/// Binding of a pattern to a type.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Binding {
+    pub id: Id,
+    pub type_: Box<Type>,
+}
+
+impl Binding {
+    pub fn new(id: Id, type_: Box<Type>) -> Self {
+        Binding { id, type_ }
+    }
+
+    pub fn of(pat: &Pat) -> Self {
+        match pat {
+            Pat::Identifier(t, name) => {
+                Binding::new(Id::new(name, 0), t.clone())
+            }
+            _ => panic!("Expected identifier pattern"),
+        }
+    }
+
+    /// Collects all bindings from a pattern, recursively.
+    /// For tuple patterns like `(i,j)`, this returns multiple bindings.
+    pub fn collect_bindings(pat: &Pat, bindings: &mut Vec<Binding>) {
+        match pat {
+            // lint: sort until '#}' where '##Pat::'
+            Pat::As(t, name, p) => {
+                bindings.push(Binding::new(Id::new(name, 0), t.clone()));
+                Binding::collect_bindings(p, bindings);
+            }
+            Pat::Cons(_, head, tail) => {
+                Binding::collect_bindings(head, bindings);
+                Binding::collect_bindings(tail, bindings);
+            }
+            Pat::Constructor(_, _, None)
+            | Pat::Literal(_, _)
+            | Pat::Wildcard(_) => {
+                // These patterns don't bind any variables.
+            }
+            Pat::Constructor(_, _, Some(p)) => {
+                Binding::collect_bindings(p, bindings);
+            }
+            Pat::Identifier(t, name) => {
+                bindings.push(Binding::new(Id::new(name, 0), t.clone()));
+            }
+            Pat::List(_, pats) => {
+                for p in pats {
+                    Binding::collect_bindings(p, bindings);
+                }
+            }
+            Pat::Record(_, fields, _) => {
+                for field in fields {
+                    match field {
+                        PatField::Labeled(_, p) | PatField::Anonymous(p) => {
+                            Binding::collect_bindings(p, bindings);
+                        }
+                        PatField::Ellipsis => {}
+                    }
+                }
+            }
+            Pat::Tuple(_, pats) => {
+                for p in pats {
+                    Binding::collect_bindings(p, bindings);
+                }
+            }
+        }
+    }
+}
+
+/// Environment available at a step in a query.
+///
+/// Tracks the variable bindings, whether the result is an atom (scalar)
+/// vs record, and whether the result is ordered.
+#[derive(Clone, PartialEq, Debug)]
+pub struct StepEnv {
+    pub bindings: Vec<Binding>,
+    pub atom: bool,
+    pub ordered: bool,
+}
+
+impl StepEnv {
+    /// Empty environment - no bindings, not an atom, ordered.
+    pub const fn empty() -> Self {
+        StepEnv {
+            bindings: Vec::new(),
+            atom: false,
+            ordered: true,
+        }
+    }
+
+    pub fn new(bindings: Vec<Binding>, atom: bool, ordered: bool) -> Self {
+        assert!(
+            !atom || bindings.len() == 1,
+            "Atom must have exactly one binding"
+        );
+        StepEnv {
+            bindings,
+            atom,
+            ordered,
+        }
+    }
+
+    pub fn with_ordered(&self, ordered: bool) -> Self {
+        if ordered == self.ordered {
+            return self.clone();
+        }
+        StepEnv {
+            bindings: self.bindings.clone(),
+            atom: self.atom,
+            ordered,
+        }
+    }
+
+    pub fn with_bindings(&self, bindings: Vec<Binding>) -> Self {
+        StepEnv {
+            bindings,
+            atom: self.atom,
+            ordered: self.ordered,
+        }
+    }
+}
+
 /// Abstract syntax tree (AST) of a step in a query.
 #[derive(Clone, Debug)]
 pub struct Step {
     pub kind: StepKind,
+    pub env: StepEnv,
 }
 
-impl Step {}
+impl Step {
+    pub fn new(kind: StepKind, env: StepEnv) -> Self {
+        Step { kind, env }
+    }
+}
 
 /// Kind of step in a query.
 #[derive(Clone, Debug)]
 pub enum StepKind {
-    Compute(Box<Expr>),
+    // lint: sort until '#}'
     Distinct,
-    Into(Box<Expr>),
-    Join(Box<Pat>),
-    JoinEq(Box<Pat>, Box<Expr>, Option<Box<Expr>>),
-    JoinIn(Box<Pat>, Box<Expr>, Option<Box<Expr>>),
     Except(bool, Vec<Expr>),
-    From,
     Group(Box<Expr>, Option<Box<Expr>>),
     Intersect(bool, Vec<Expr>),
     Order(Box<Expr>),
     Require(Box<Expr>),
+    Scan(Box<Pat>, Box<Expr>, Option<Box<Expr>>),
     Skip(Box<Expr>),
     Take(Box<Expr>),
     Through(Box<Pat>, Box<Expr>),
@@ -213,12 +336,6 @@ pub enum StepKind {
     Unorder,
     Where(Box<Expr>),
     Yield(Box<Expr>),
-}
-
-impl StepKind {
-    pub fn spanned(&self) -> Step {
-        Step { kind: self.clone() }
-    }
 }
 
 /// Pattern in core representation.

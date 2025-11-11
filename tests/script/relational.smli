@@ -16,8 +16,124 @@
  * language governing permissions and limitations under the
  * License.
  *)
-set("mode", "validate");
-> val it = () : unit
+from i in [1, 2, 3] yield i;
+> val it = [1,2,3] : int list
+
+from i in [1, 2, 3] where i > 1;
+> val it = [2,3] : int list
+
+from i in [1, 2, 3] where i > 1 yield i;
+> val it = [2,3] : int list
+
+from i in [1, 2, 3] yield i - 5;
+> val it = [~4,~3,~2] : int list
+
+from i in [1, 2, 3] yield {j = i - 5, k = String.sub("abc", i - 1)};
+> val it = [{j=~4,k=#"a"},{j=~3,k=#"b"},{j=~2,k=#"c"}] : {j:int, k:char} list
+
+from i in [1, 2, 3], j in [3, 5] where i = j;
+> val it = [{i=3,j=3}] : {i:int, j:int} list
+
+from i in [2, 3, 1, 3] distinct;
+> val it = [2,3,1] : int list
+
+from i in [2, 3, 1] union [1, 4, 3];
+> val it = [2,3,1,1,4,3] : int list
+
+from i in [2, 3, 1] union distinct [1, 4, 3];
+> val it = [2,3,1,4] : int list
+
+from i in [(2,1), (3,1), (1,1)] union distinct [(1,1), (4,1), (3,2)];
+> val it = [(2,1),(3,1),(1,1),(4,1),(3,2)] : (int * int) list
+
+from i in [3,1,2] order i;
+> val it = [1,2,3] : int list
+
+from i in [3,1,2] order DESC i;
+> val it = [3,2,1] : int list
+
+from t in [(1,1),(2,0),(1,0)] order t;
+> val it = [(1,0),(1,1),(2,0)] : (int * int) list
+
+from t in [(1,1),(2,0),(1,0)] order DESC t;
+> val it = [(2,0),(1,1),(1,0)] : (int * int) list
+
+from (i,j) in [(1,1),(2,0),(1,0)] order (j, DESC i);
+> val it = [{i=2,j=0},{i=1,j=0},{i=1,j=1}] : {i:int, j:int} list
+
+from i in [1,2,3,4,5] skip 2;
+> val it = [3,4,5] : int list
+
+from i in [1,2,3,4,5] take 3;
+> val it = [1,2,3] : int list
+
+from i in [1,2,3,4,5] skip 1 take 3;
+> val it = [2,3,4] : int list
+
+from i in [1,2,3] intersect [2,3,4];
+> val it = [2,3] : int list
+
+from i in [3,2,1,3,2] intersect [2,3,2,4];
+> val it = [3,2,2] : int list
+
+from i in [1,2,3,4,5,1,5,1,2] except [2,4];
+> val it = [1,3,5,1,5,1,2] : int list
+
+from i in [1,2,3,4,5,1,5,1] except distinct [2,4];
+> val it = [1,3,5] : int list
+
+from i in [1,2,3] except [4,5];
+> val it = [1,2,3] : int list
+
+from i in [1,2,3] intersect [4,5,6];
+> val it = [] : int list
+
+from x in [1,1], y in [1,2,1] yield x;
+> val it = [1,1,1,1,1,1] : int list
+
+from x in [1,1], y in [2,3];
+> val it = [{x=1,y=2},{x=1,y=3},{x=1,y=2},{x=1,y=3}] : {x:int, y:int} list
+
+from x in [1,1], y in [2,3] yield x + y;
+> val it = [3,4,3,4] : int list
+
+from x in [1,1], y in [2,3] on x = y;
+> val it = [] : {x:int, y:int} list
+
+from x in [1,1], y in [2,1] on x < y yield x;
+> val it = [1,1] : int list
+
+from x in [1,1], y in [2,1] on x < y yield y;
+> val it = [2,2] : int list
+
+from e in [10,20] join d in [10,30] on e = d yield e;
+> val it = [10] : int list
+
+from e in [{d=20,e="x"},{d=10,e="y"},{d=10,e="z"}]
+  join d in [{d=10,n="a"},{d=30,n="b"}] on e.d = d.d;
+> val it = [{d={d=10,n="a"},e={d=10,e="y"}},{d={d=10,n="a"},e={d=10,e="z"}}]
+>   : {d:{d:int, n:string}, e:{d:int, e:string}} list
+
+(*
+from e in [{d=20,e="x"},{d=10,e="y"},{d=10,e="z"}]
+  join d in [{d=10,n="a"},{d=30,n="b"}] on e.d = d.d
+  yield {d.d, e.e, d.n};
+*)
+
+from i in [2,3,1,2] group i;
+> val it = [2,3,1] : int list
+
+from i in [2,3,1,2] group i order i;
+> val it = [1,2,3] : int list
+
+from i in [2,7,3,2] group {j = i div 2, k = i mod 2};
+> val it = [{j=1,k=0},{j=3,k=1},{j=1,k=1}] : {j:int, k:int} list
+
+(*
+from i in [1,2,3,2] group {j = i mod 2} compute {z = elements, one = 1};
+> val it = [1,3,2] : int list
+*)
+
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printDepth", 6);
@@ -27,8 +143,14 @@ Sys.set ("printLength", 64);
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
+set("mode", "validate");
+> val it = () : unit
+
 useSilently "scott.smli";
 > [opening scott.smli]
+> val it = () : unit
+
+set("mode", "evaluate");
 > val it = () : unit
 
 let val emp0 = {id = 100, name = "Fred", deptno = 10} in #id emp0 end;
@@ -119,6 +241,9 @@ from e in emps yield {e.deptno, one = 1};
 > val it =
 >   [{deptno=10,one=1},{deptno=20,one=1},{deptno=30,one=1},{deptno=30,one=1}]
 >   : {deptno:int, one:int} list
+
+set("mode", "validate");
+> val it = () : unit
 
 from e in emps yield {e with deptno = 0};
 > val it =
@@ -805,6 +930,9 @@ from i in [1,2]
 from i in [1,2]
   group i compute {three = 1 + 2};
 > val it = [{i=1,three=3},{i=2,three=3}] : {i:int, three:int} list
+from i in [2,3,1,2]
+  group i compute {elements};
+> val it = [{elements=[1,1],i=1},{elements=[2,2],i=2},{elements=[3],i=3}] : {elements:int list, i:int} list
 from i in [1,2]
   compute 1 + 2;
 > val it = 3 : int

@@ -18,11 +18,16 @@
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Label;
 use crate::compile::types::Type;
-use crate::eval::code::{Code, Frame as CodeFrame, Impl, LIBRARY, Span};
+use crate::eval::code::{
+    Code, EvalEnv, Frame as CodeFrame, Frame, Impl, LIBRARY, Span,
+};
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
+use crate::eval::real::Real;
+use crate::shell::main::MorelError;
 use crate::syntax::parser;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Runtime value.
@@ -190,10 +195,10 @@ impl Val {
     /// Handles Val::Code, Val::Closure, and Val::Fn (built-in functions).
     pub(crate) fn apply_f1(
         &self,
-        r: &mut crate::eval::code::EvalEnv,
-        f: &mut crate::eval::code::Frame,
+        r: &mut EvalEnv,
+        f: &mut Frame,
         arg: &Val,
-    ) -> Result<Val, crate::shell::main::MorelError> {
+    ) -> Result<Val, MorelError> {
         match self {
             Val::Code(code) => code.eval_f1(r, f, arg),
             Val::Closure(frame_def, matches, bound_vals) => {
@@ -274,12 +279,111 @@ impl Display for Val {
             Val::Raw(s) => write!(f, "{}", s),
             Val::Real(r) => {
                 // Use Real.toString to format real values
-                write!(f, "{}", crate::eval::real::Real::to_string(*r))
+                write!(f, "{}", Real::to_string(*r))
             }
             Val::Some(v) => write!(f, "SOME {}", v),
             Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),
             Val::Unit => write!(f, "()"),
             _ => todo!("{:?}", self),
+        }
+    }
+}
+
+// Implement Eq for Val (needed for HashMap keys)
+impl Eq for Val {}
+
+// Implement Hash for Val (needed for HashMap keys)
+impl Hash for Val {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Val::Unit => 0.hash(state),
+            Val::Bool(b) => {
+                1.hash(state);
+                b.hash(state);
+            }
+            Val::Char(c) => {
+                2.hash(state);
+                c.hash(state);
+            }
+            Val::Int(i) => {
+                3.hash(state);
+                i.hash(state);
+            }
+            Val::Order(o) => {
+                4.hash(state);
+                o.hash(state);
+            }
+            Val::Real(f) => {
+                // Hash floats using their bit representation
+                5.hash(state);
+                f.to_bits().hash(state);
+            }
+            Val::String(s) => {
+                6.hash(state);
+                s.hash(state);
+            }
+            Val::List(vs) => {
+                7.hash(state);
+                vs.hash(state);
+            }
+            Val::Fn(f) => {
+                8.hash(state);
+                (*f as usize).hash(state);
+            }
+            // NONE is represented as Val::Unit
+            Val::Some(v) => {
+                10.hash(state);
+                v.hash(state);
+            }
+            Val::Inl(v) => {
+                11.hash(state);
+                v.hash(state);
+            }
+            Val::Inr(v) => {
+                12.hash(state);
+                v.hash(state);
+            }
+            Val::Typed(boxed) => {
+                13.hash(state);
+                let (name, val, _type) = boxed.as_ref();
+                name.hash(state);
+                val.hash(state);
+                // Skip type for hashing
+            }
+            Val::Named(boxed) => {
+                14.hash(state);
+                let (name, val) = boxed.as_ref();
+                name.hash(state);
+                val.hash(state);
+            }
+            Val::Labeled(boxed) => {
+                15.hash(state);
+                let (label, _type) = boxed.as_ref();
+                label.hash(state);
+                // Skip type for hashing
+            }
+            Val::Type(boxed) => {
+                16.hash(state);
+                let (name, _type) = boxed.as_ref();
+                name.hash(state);
+                // Skip type for hashing
+            }
+            Val::Raw(s) => {
+                17.hash(state);
+                s.hash(state);
+            }
+            Val::Code(code) => {
+                18.hash(state);
+                // Hash the pointer address
+                Arc::as_ptr(code).hash(state);
+            }
+            Val::Closure(frame_def, matchers, vals) => {
+                19.hash(state);
+                Arc::as_ptr(frame_def).hash(state);
+                // Hash match count and vals
+                matchers.len().hash(state);
+                vals.hash(state);
+            }
         }
     }
 }

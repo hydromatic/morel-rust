@@ -18,6 +18,7 @@
 // lint: sort until '^$' erase 'pub '
 pub mod compiler;
 pub mod core;
+pub mod from_builder;
 pub mod inliner;
 pub mod library;
 mod pretty;

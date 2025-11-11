@@ -18,11 +18,12 @@
 use crate::compile::core::{
     DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
     Match as CoreMatch, Pat as CorePat, PatField as CorePatField,
-    Step as CoreStep, StepKind as CoreStepKind, TypeBind as CoreTypeBind,
-    ValBind as CoreValBind,
+    TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
+use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
-use crate::compile::library::BuiltInFunction;
+use crate::compile::library;
+use crate::compile::library::{BuiltIn, BuiltInFunction};
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::code::Span;
@@ -183,6 +184,11 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// Returns the type map for this resolver.
+    pub fn type_map(&self) -> &TypeMap {
+        self.type_map
+    }
+
     /// Resolves an AST declaration to a core declaration.
     pub(crate) fn resolve_decl(&self, decl: &Decl) -> CoreDecl {
         match &decl.kind {
@@ -324,22 +330,13 @@ impl<'a> Resolver<'a> {
                     _ => self.call2(t, BuiltInFunction::GEq, &span, a0, a1),
                 }
             }
-            ExprKind::Exists(steps) => CoreExpr::Exists(
-                t,
-                steps.iter().map(|s| self.resolve_step(s)).collect(),
-            ),
+            ExprKind::Exists(steps) => self.resolve_query(steps),
             ExprKind::Fn(matches) => CoreExpr::Fn(
                 t,
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
-            ExprKind::Forall(steps) => CoreExpr::Forall(
-                t,
-                steps.iter().map(|s| self.resolve_step(s)).collect(),
-            ),
-            ExprKind::From(steps) => CoreExpr::From(
-                t,
-                steps.iter().map(|s| self.resolve_step(s)).collect(),
-            ),
+            ExprKind::Forall(steps) => self.resolve_query(steps),
+            ExprKind::From(steps) => self.resolve_query(steps),
             ExprKind::GreaterThan(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
@@ -374,7 +371,27 @@ impl<'a> Resolver<'a> {
                     _ => todo!("resolve {:?}", a0),
                 }
             }
-            ExprKind::Identifier(name) => CoreExpr::Identifier(t, name.clone()),
+            ExprKind::Identifier(name) => {
+                // Check if this identifier refers to a global built-in
+                // function. Global constructors like DESC need to be
+                // resolved to literals so they can be compiled properly.
+                if let Some(built_in) = library::lookup(name) {
+                    match built_in {
+                        BuiltIn::Fn(f) => {
+                            // Convert the global function/constructor to
+                            // a literal.
+                            CoreExpr::Literal(t, Val::Fn(f))
+                        }
+                        BuiltIn::Record(_) => {
+                            // Records stay as identifiers.
+                            CoreExpr::Identifier(t, name.clone())
+                        }
+                    }
+                } else {
+                    // This is a regular identifier (local variable).
+                    CoreExpr::Identifier(t, name.clone())
+                }
+            }
             ExprKind::If(cond, then_expr, else_expr) => {
                 // Convert 'if cond then e1 else e2'
                 // to 'case cond of true => e1 | _ => e2'.
@@ -709,30 +726,98 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Resolves an AST step to a core step.
-    fn resolve_step(&self, step: &AstStep) -> CoreStep {
-        let kind = match &step.kind {
+    /// Resolves a From query using FromBuilder for optimization.
+    /// This is analogous to the Java FromResolver inner class.
+    fn resolve_query(&self, steps: &[AstStep]) -> CoreExpr {
+        let mut builder = FromBuilder::new();
+
+        for step in steps {
+            self.resolve_step(&mut builder, step);
+        }
+
+        builder
+            .build_simplify()
+            .expect("Failed to build From expression")
+    }
+
+    /// Resolves a step in a query, adding it to a [FromBuilder].
+    fn resolve_step(&self, builder: &mut FromBuilder, step: &AstStep) {
+        match &step.kind {
+            // lint: sort until '#}' where '##AstStepKind::'
+            AstStepKind::Distinct => {
+                builder.distinct();
+            }
+            AstStepKind::Except(distinct, exprs) => {
+                let resolved_exprs: Vec<_> =
+                    exprs.iter().map(|e| self.resolve_expr(e)).collect();
+                builder.except(*distinct, resolved_exprs);
+            }
+            AstStepKind::Group(key_expr, aggregate_expr) => {
+                // Resolve the group key expression.
+                let resolved_key = self.resolve_expr(key_expr);
+
+                // Resolve the aggregate expression if present.
+                let resolved_aggregate =
+                    aggregate_expr.as_ref().map(|e| self.resolve_expr(e));
+
+                // Add the group step to the builder.
+                builder.group(resolved_key, resolved_aggregate);
+            }
+            AstStepKind::Intersect(distinct, exprs) => {
+                let resolved_exprs: Vec<_> =
+                    exprs.iter().map(|e| self.resolve_expr(e)).collect();
+                builder.intersect(*distinct, resolved_exprs);
+            }
+            AstStepKind::Order(expr) => {
+                let resolved_expr = self.resolve_expr(expr);
+                builder.order(resolved_expr);
+            }
             AstStepKind::Scan(pat, expr, condition) => {
-                let resolved_pat = Box::new(self.resolve_pat(pat));
-                let resolved_expr = Box::new(self.resolve_expr(expr));
+                // Resolve the pattern and expression.
+                let resolved_pat = self.resolve_pat(pat);
+                let resolved_expr = self.resolve_expr(expr);
+
+                // Resolve the condition if present.
                 let resolved_condition =
-                    condition.as_ref().map(|c| Box::new(self.resolve_expr(c)));
-                CoreStepKind::JoinIn(
+                    condition.as_ref().map(|c| self.resolve_expr(c));
+
+                // Add the scan step to the builder.
+                builder.scan_with_condition(
                     resolved_pat,
                     resolved_expr,
                     resolved_condition,
-                )
+                );
+            }
+            AstStepKind::Skip(expr) => {
+                let resolved_expr = self.resolve_expr(expr);
+                builder.skip(resolved_expr);
+            }
+            AstStepKind::Take(expr) => {
+                let resolved_expr = self.resolve_expr(expr);
+                builder.take(resolved_expr);
+            }
+            AstStepKind::Union(distinct, exprs) => {
+                let resolved_exprs: Vec<_> =
+                    exprs.iter().map(|e| self.resolve_expr(e)).collect();
+                builder.union(*distinct, resolved_exprs);
+            }
+            AstStepKind::Unorder => {
+                builder.unorder();
             }
             AstStepKind::Where(expr) => {
-                CoreStepKind::Where(Box::new(self.resolve_expr(expr)))
+                let resolved_expr = self.resolve_expr(expr);
+                builder.where_(resolved_expr);
             }
             AstStepKind::Yield(expr) => {
-                CoreStepKind::Yield(Box::new(self.resolve_expr(expr)))
+                let resolved_expr = self.resolve_expr(expr);
+                builder.yield_(resolved_expr);
             }
-            _ => todo!("resolve_step: {:?}", step.kind),
-        };
-
-        CoreStep { kind }
+            _ => {
+                // For now, fall back to the old resolve_step for unsupported
+                // step types.
+                todo!("resolve_from_step: {:?}", step.kind)
+            }
+        }
     }
 
     /// Converts an AST literal to a core value.

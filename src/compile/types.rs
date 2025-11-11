@@ -324,7 +324,7 @@ impl TypeVariable {
 /// Label for a field in a record type.
 ///
 /// Has a sort order that puts numeric fields first, in numeric order.
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Label {
     Ordinal(usize),
     String(String),

@@ -435,12 +435,11 @@ fn test_signatures() {
     // Also verify header format using lint_file
     let entries = fs::read_dir("lib")
         .expect("Failed to read lib directory")
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .filter(|e| {
             e.path()
                 .extension()
-                .map(|ext| ext == "sig" || ext == "sml")
-                .unwrap_or(false)
+                .is_some_and(|ext| ext == "sig" || ext == "sml")
         })
         .collect::<Vec<_>>();
 
@@ -462,13 +461,8 @@ fn test_smli_coverage() {
     let script_dir = Path::new("tests/script");
     let smli_files: HashSet<String> = fs::read_dir(script_dir)
         .expect("Failed to read tests/script directory")
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "smli")
-                .unwrap_or(false)
-        })
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "smli"))
         .map(|e| e.path().file_stem().unwrap().to_str().unwrap().to_string())
         .collect();
 

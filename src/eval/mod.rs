@@ -19,6 +19,7 @@
 pub mod bool;
 pub mod char;
 pub mod code;
+pub mod comparator;
 pub mod either;
 pub mod frame;
 pub mod int;
@@ -29,6 +30,7 @@ pub mod option;
 pub mod order;
 pub mod real;
 pub mod relational;
+pub mod row_sink;
 pub mod session;
 pub mod string;
 pub mod val;

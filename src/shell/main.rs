@@ -386,9 +386,25 @@ impl Shell {
             };
         }
 
-        // Successfully parsed, now evaluate
+        // Successfully parsed, now validate.
         let resolved =
-            self.session.borrow_mut().deduce_type_inner(&statement)?;
+            match self.session.borrow_mut().deduce_type_inner(&statement) {
+                Ok(resolved) => resolved,
+                Err(Error::Compile(message, span)) => {
+                    let pest_span = span.to_pest_span();
+                    let span2 = Span::from_pest_span(&pest_span, 0);
+                    let s = format!(
+                        "{} Error: {}\n  raised at: {}\n",
+                        span2.to_string(),
+                        message,
+                        span2.to_string()
+                    );
+                    return Ok(prefix_lines(">", &s));
+                }
+                Err(e) => return Err(e),
+            };
+
+        // Successfully parsed, now evaluate
         let output = self.evaluate_node(&resolved);
         match &output {
             Ok(s) => Ok(prefix_lines(">", s.as_str())),

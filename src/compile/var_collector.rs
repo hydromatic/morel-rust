@@ -231,7 +231,8 @@ impl Expr {
 impl Step {
     pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
         match &self.kind {
-            StepKind::JoinIn(pat, expr, condition) => {
+            // lint: sort until '#}' where '##StepKind::'
+            StepKind::Scan(pat, expr, condition) => {
                 expr.collect_vars(collector);
                 pat.collect_vars(collector);
                 if let Some(cond) = condition {

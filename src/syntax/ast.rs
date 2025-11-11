@@ -101,6 +101,11 @@ impl Span {
     pub fn to_pest_span(&self) -> pest::Span<'_> {
         pest::Span::new(self.input.deref(), self.start, self.end).unwrap()
     }
+
+    /// Returns the code fragment.
+    pub fn code(&self) -> &str {
+        &self.input[self.start..self.end]
+    }
 }
 
 /// Trait possessed by all abstract syntax tree (AST) nodes.
