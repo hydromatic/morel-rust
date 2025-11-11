@@ -2700,6 +2700,86 @@ in
 end;
 > val it = [{i=3,j=2}] : {i:int, j:int} bag
 
+(*) EXISTS queries - always return bool
+set("mode", "evaluate");
+> val it = () : unit
+
+(*) Simple exists - true case
+exists i in [1, 2, 3];
+> val it = true : bool
+
+(*) Simple exists - false case
+exists i in [];
+> val it = false : bool
+
+(*) Exists with where clause - true
+exists i in [1, 2, 3] where i > 2;
+> val it = true : bool
+
+(*) Exists with where clause - false
+exists i in [1, 2, 3] where i > 10;
+> val it = false : bool
+
+(*) Exists with multiple scans
+exists i in [1, 2], j in [3, 4];
+> val it = true : bool
+
+(*) Exists with join condition
+exists i in [1, 2, 3], j in [4, 5] on i < j;
+> val it = true : bool
+
+(*) FORALL queries - always return bool
+
+(*) Simple forall - true case
+forall i in [1, 2, 3] require i > 0;
+> val it = true : bool
+
+(*) Simple forall - false case
+forall i in [1, 2, 3] require i > 2;
+> val it = false : bool
+
+(*) Forall with where and require - true
+forall i in [1, 2, 3] where i < 10 require i > 0;
+> val it = true : bool
+
+(*) Forall with where and require - false
+forall i in [1, 2, 3, 4, 5] where i > 2 require i < 4;
+> val it = false : bool
+
+(*) Iterate over the 3 of 4 boolean combinations where a implies b
+forall (a,b) in [(false,false),(false,true),(true,true)] where a require b;
+> val it = true : bool
+
+(*) Related to previous
+from (a,b) in [(false,false),(false,true),(true,true)] where not (a implies b);
+> val it = [] : {a:bool, b:bool} list
+
+(*) For one of the 4 combinations, a does not imply b
+forall a in [false,true], b in [false,true] where a require b;
+> val it = false : bool
+
+(*) Related to previous
+from a in [false,true], b in [false,true] where not (a implies b);
+> val it = [{a=true,b=false}] : {a:bool, b:bool} list
+
+(*) Changing 'require' to 'where not' alters the meaning
+forall a in [false,true], b in [false,true] where a where not b require true;
+> val it = true : bool
+
+(*) INTO queries - type depends on function
+
+(*) Simple into with sum
+from i in [1, 2, 3] into sum;
+> val it = 6 : int
+
+(*) Into with List.length
+from i in [1, 2, 3] into List.length;
+> val it = 3 : int
+
+(*) Into with custom function
+from i in [10, 20, 30] into (fn x => List.length x + 1);
+> val it = 4 : int
+
 (*) dummy
 from message in ["the end"];
 > val it = ["the end"] : string list

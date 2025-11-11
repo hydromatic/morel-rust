@@ -330,12 +330,43 @@ impl<'a> Resolver<'a> {
                     _ => self.call2(t, BuiltInFunction::GEq, &span, a0, a1),
                 }
             }
-            ExprKind::Exists(steps) => self.resolve_query(steps),
+            ExprKind::Exists(steps) => {
+                // Translate "exists ..." as "Relational.nonEmpty (from ...)".
+                let from_expr = self.resolve_query(steps);
+                let fn_type = BuiltInFunction::RelationalNonEmpty.get_type();
+                let fn_literal = CoreExpr::Literal(
+                    fn_type.clone(),
+                    Val::Fn(BuiltInFunction::RelationalNonEmpty),
+                );
+                CoreExpr::Apply(
+                    t,
+                    Box::new(fn_literal),
+                    Box::new(from_expr),
+                    span,
+                )
+            }
             ExprKind::Fn(matches) => CoreExpr::Fn(
                 t,
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
             ),
-            ExprKind::Forall(steps) => self.resolve_query(steps),
+            ExprKind::Forall(steps) => {
+                // Translate "forall ... require e" as
+                // "Relational.empty (from ... where not e)".
+                // Note: The "require e" step is handled in resolve_step
+                // and translated to "where not e".
+                let from_expr = self.resolve_query(steps);
+                let fn_type = BuiltInFunction::RelationalEmpty.get_type();
+                let fn_literal = CoreExpr::Literal(
+                    fn_type.clone(),
+                    Val::Fn(BuiltInFunction::RelationalEmpty),
+                );
+                CoreExpr::Apply(
+                    t,
+                    Box::new(fn_literal),
+                    Box::new(from_expr),
+                    span,
+                )
+            }
             ExprKind::From(steps) => self.resolve_query(steps),
             ExprKind::GreaterThan(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
@@ -729,6 +760,43 @@ impl<'a> Resolver<'a> {
     /// Resolves a From query using FromBuilder for optimization.
     /// This is analogous to the Java FromResolver inner class.
     fn resolve_query(&self, steps: &[AstStep]) -> CoreExpr {
+        // Check if the last step is Into.
+        // If so, we need to apply the function to the query result.
+        if let Some(last_step) = steps.last()
+            && let AstStepKind::Into(func_expr) = &last_step.kind
+        {
+            // Process all steps except the last (Into).
+            let mut builder = FromBuilder::new();
+            for step in &steps[..steps.len() - 1] {
+                self.resolve_step(&mut builder, step);
+            }
+            let from_result = builder
+                .build_simplify()
+                .expect("Failed to build From expression");
+
+            // Apply the function to the query result.
+            let func = self.resolve_expr(func_expr);
+
+            // Get the result type from the type_map for the
+            // function application.
+            let result_type = func_expr
+                .get_type(self.type_map)
+                .expect("INTO function must have a type");
+
+            // Apply the function: f(from_result).
+            let span = Span::from_pest_span(
+                &last_step.span.to_pest_span(),
+                self.base_line,
+            );
+            return CoreExpr::Apply(
+                result_type,
+                Box::new(func),
+                Box::new(from_result),
+                span,
+            );
+        }
+
+        // Normal query processing (no INTO).
         let mut builder = FromBuilder::new();
 
         for step in steps {
@@ -768,9 +836,40 @@ impl<'a> Resolver<'a> {
                     exprs.iter().map(|e| self.resolve_expr(e)).collect();
                 builder.intersect(*distinct, resolved_exprs);
             }
+            AstStepKind::Into(_) => {
+                // INTO is handled at the query level in resolve_query,
+                // not as a step. This should not be reached during normal
+                // processing.
+                panic!(
+                    "INTO step should be handled in resolve_query, \
+                     not resolve_step"
+                )
+            }
             AstStepKind::Order(expr) => {
                 let resolved_expr = self.resolve_expr(expr);
                 builder.order(resolved_expr);
+            }
+            AstStepKind::Require(expr) => {
+                // Translate "require e" as "where not e".
+                // This is used in forall queries.
+                let resolved_expr = self.resolve_expr(expr);
+                let bool_type = Type::Primitive(PrimitiveType::Bool);
+                let fn_type = BuiltInFunction::BoolNot.get_type();
+                let fn_literal = CoreExpr::Literal(
+                    fn_type.clone(),
+                    Val::Fn(BuiltInFunction::BoolNot),
+                );
+                let span = Span::from_pest_span(
+                    &step.span.to_pest_span(),
+                    self.base_line,
+                );
+                let negated = CoreExpr::Apply(
+                    Box::new(bool_type),
+                    Box::new(fn_literal),
+                    Box::new(resolved_expr),
+                    span,
+                );
+                builder.where_(negated);
             }
             AstStepKind::Scan(pat, expr, condition) => {
                 // Resolve the pattern and expression.

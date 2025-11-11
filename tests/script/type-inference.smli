@@ -1071,4 +1071,78 @@ forall d in [{a=1,b=true}];
   unorder;
 > val it : int bag
 
+(*) EXISTS queries - always return bool
+
+(*) Simple exists
+:t exists i in [1, 2, 3];
+> val it : bool
+
+(*) Exists with empty list
+:t exists i in [];
+> val it : bool
+
+(*) Exists with where clause
+:t exists i in [1, 2, 3] where i > 2;
+> val it : bool
+
+(*) Exists with multiple scans
+:t exists i in [1, 2, 3], j in [4, 5];
+> val it : bool
+
+(*) Exists with join condition
+:t exists i in [1, 2, 3], j in [4, 5] on i < j;
+> val it : bool
+
+(*) Exists with yield
+:t exists i in [1, 2, 3] yield i * 2;
+> val it : bool
+
+(*) Nested exists in scan
+:t exists i in (from j in [1, 2] yield j + 1);
+> val it : bool
+
+(*) Exists with distinct
+:t exists i in [1, 2, 3] distinct;
+> val it : bool
+
+(*) Exists with order
+:t exists i in [1, 2, 3] order i;
+> val it : bool
+
+(*) Exists with skip and take
+:t exists i in [1, 2, 3] skip 1 take 1;
+> val it : bool
+
+(*) FORALL queries - always return bool
+
+(*) Simple forall with require
+:t forall i in [1, 2, 3] require i > 0;
+> val it : bool
+
+(*) Forall with where and require
+:t forall i in [1, 2, 3] where i < 10 require i > 0;
+> val it : bool
+
+(*) Forall with multiple scans
+:t forall i in [1, 2, 3], j in [4, 5] require i < j;
+> val it : bool
+
+(*) Forall with join condition and require
+:t forall i in [1, 2, 3], j in [4, 5] on i < j require i + j > 0;
+> val it : bool
+
+(*) INTO - can only occur in FROM queries, must be last step
+
+(*) Simple into with sum
+:t from i in [1, 2, 3] into sum;
+> val it : int
+
+(*) Into with List.length
+:t from i in [1, 2, 3] into List.length;
+> val it : int
+
+(*) Into with custom function
+:t from i in [1, 2, 3] into (fn x => List.length x + 1);
+> val it : int
+
 (*) End type-inference.smli
