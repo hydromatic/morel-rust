@@ -1593,7 +1593,7 @@ List.mapi (fn (i, s) => String.sub (s, i)) ["abc", "xyz"];
 > val it = [#"a",#"y"] : char list
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.mapi, fn(bindTuple(bind(0), bind(1)) => apply(fnValue String.sub, argCode tuple(get(1), get(0), constant(stdIn:1.25-1.36)))), tuple(constant(abc), constant(xyz)))"
+>   "apply2(fnValue List.mapi, fn(bindTuple(bind(0), bind(1)) => apply(fnValue String.sub, argCode tuple(get(1), get(0), constant(stdIn:1.25-1.42)))), tuple(constant(abc), constant(xyz)))"
 >   : string
 
 (*) val map : ('a -> 'b) -> 'a list -> 'b list
@@ -2464,7 +2464,7 @@ Option.compose (String.size,
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.compose, tuple(constant(String.size), fn(bind(0) => case(apply2(fnValue String.eq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.substring, argCode tuple(get(0), constant(0), apply(fnValue String.size, argCode get(0)), constant(stdIn:3.29-3.46))))))), constant())"
+>   "apply2(fnValue Option.compose, tuple(constant(String.size), fn(bind(0) => case(apply2(fnValue String.eq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.substring, argCode tuple(get(0), constant(0), apply(fnValue String.size, argCode get(0)), constant(stdIn:3.29-3.67))))))), constant())"
 >   : string
 
 (*) val composePartial : ('a -> 'b option) * ('c -> 'a option) -> 'c -> 'b option
@@ -3835,13 +3835,13 @@ f ~3.5;
 > val it = (~4,~3,~3,~4) : int * int * int * int
 f Real.negInf;
 > uncaught exception Overflow [overflow]
->   raised at: stdIn:1.12-1.23
+>   raised at: stdIn:1.12-1.24
 f Real.posInf;
 > uncaught exception Overflow [overflow]
->   raised at: stdIn:1.12-1.23
+>   raised at: stdIn:1.12-1.24
 f nan;
 > uncaught exception Overflow [overflow]
->   raised at: stdIn:1.12-1.23
+>   raised at: stdIn:1.12-1.24
 
 Real.floor Real.posInf;
 > uncaught exception Overflow [overflow]
@@ -4962,7 +4962,7 @@ Vector.mapi (fn (i, s) => String.sub (s, i)) (Vector.fromList ["abc", "xyz"]);
 > val it = #[#"a",#"y"] : char vector
 Sys.plan ();
 > val it =
->   "apply2(fnValue Vector.mapi, fn(bindTuple(bind(0), bind(1)) => apply(fnValue String.sub, argCode tuple(get(1), get(0), constant(stdIn:1.27-1.38)))), apply(fnValue Vector.fromList, argCode tuple(constant(abc), constant(xyz))))"
+>   "apply2(fnValue Vector.mapi, fn(bindTuple(bind(0), bind(1)) => apply(fnValue String.sub, argCode tuple(get(1), get(0), constant(stdIn:1.27-1.44)))), apply(fnValue Vector.fromList, argCode tuple(constant(abc), constant(xyz))))"
 >   : string
 
 (*) Vector.map  : ('a -> 'b) -> 'a vector -> 'b vector
@@ -4972,7 +4972,7 @@ Vector.map (fn s => String.sub (s, 0)) (Vector.fromList ["abc", "xyz"]);
 > val it = #[#"a",#"x"] : char vector
 Sys.plan ();
 > val it =
->   "apply2(fnValue Vector.map, fn(bind(0) => apply(fnValue String.sub, argCode tuple(get(0), constant(0), constant(stdIn:1.21-1.32)))), apply(fnValue Vector.fromList, argCode tuple(constant(abc), constant(xyz))))"
+>   "apply2(fnValue Vector.map, fn(bind(0) => apply(fnValue String.sub, argCode tuple(get(0), constant(0), constant(stdIn:1.21-1.38)))), apply(fnValue Vector.fromList, argCode tuple(constant(abc), constant(xyz))))"
 >   : string
 
 (*) Vector.foldli : (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b

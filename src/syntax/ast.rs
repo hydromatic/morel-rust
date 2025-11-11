@@ -65,7 +65,7 @@ impl Span {
         use std::cmp::{max, min};
         let input = self.input.clone();
         let start = min(self.start, other.start);
-        let end = max(self.start, other.start);
+        let end = max(self.end, other.end);
         Span { input, start, end }
     }
 
