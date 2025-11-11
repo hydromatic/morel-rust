@@ -331,19 +331,20 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::Exists(steps) => {
-                // Translate "exists ..." as "Relational.nonEmpty (from ...)".
-                let from_expr = self.resolve_query(steps);
-                let fn_type = BuiltInFunction::RelationalNonEmpty.get_type();
-                let fn_literal = CoreExpr::Literal(
-                    fn_type.clone(),
-                    Val::Fn(BuiltInFunction::RelationalNonEmpty),
-                );
-                CoreExpr::Apply(
-                    t,
-                    Box::new(fn_literal),
-                    Box::new(from_expr),
-                    span,
-                )
+                // Translate "exists ..." as "from ... exists".
+                // The final Exists step signals the compiler to use
+                // ExistsRowSink.
+                let mut builder = FromBuilder::new();
+                for step in steps {
+                    self.resolve_step(&mut builder, step);
+                }
+
+                // Add an Exists step to signal that we want an ExistsRowSink.
+                builder.exists();
+
+                builder
+                    .build_simplify()
+                    .expect("Failed to build EXISTS expression")
             }
             ExprKind::Fn(matches) => CoreExpr::Fn(
                 t,
@@ -351,14 +352,28 @@ impl<'a> Resolver<'a> {
             ),
             ExprKind::Forall(steps) => {
                 // Translate "forall ... require e" as
-                // "Relational.empty (from ... where not e)".
-                // Note: The "require e" step is handled in resolve_step
-                // and translated to "where not e".
-                let from_expr = self.resolve_query(steps);
-                let fn_type = BuiltInFunction::RelationalEmpty.get_type();
+                // "not (exists ... where not e)".
+                // The "require e" step is handled in resolve_step and
+                // translated to "where not e", so we're checking if any
+                // violation exists. If no violations exist, then all rows
+                // satisfy the requirement.
+                let mut builder = FromBuilder::new();
+                for step in steps {
+                    self.resolve_step(&mut builder, step);
+                }
+
+                // Add an Exists step to short-circuit on first violation.
+                builder.exists();
+
+                let from_expr = builder
+                    .build_simplify()
+                    .expect("Failed to build FORALL expression");
+
+                // Apply "not" to the exists result.
+                let fn_type = BuiltInFunction::BoolNot.get_type();
                 let fn_literal = CoreExpr::Literal(
                     fn_type.clone(),
-                    Val::Fn(BuiltInFunction::RelationalEmpty),
+                    Val::Fn(BuiltInFunction::BoolNot),
                 );
                 CoreExpr::Apply(
                     t,

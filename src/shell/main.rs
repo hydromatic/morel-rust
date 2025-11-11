@@ -617,8 +617,15 @@ fn comment_depth(code: &str) -> i32 {
 
 pub enum MorelError {
     Runtime(BuiltInExn, Span),
+
+    /// Advisory signal that a row sink has completed early and does not
+    /// need more rows. Producers may honor this for performance or safely
+    /// ignore it. Sinks returning EarlyReturn must be idempotent.
+    EarlyReturn,
+
     Other,
-    // "Bind [nonexhaustive binding failure]"
+
+    /// "Bind [nonexhaustive binding failure]"
     Bind,
 }
 
@@ -631,6 +638,9 @@ impl Display for MorelError {
                     write!(f, " [{}]", explanation)?;
                 }
                 write!(f, "\n  raised at: {}", loc)
+            }
+            MorelError::EarlyReturn => {
+                write!(f, "EarlyReturn (internal signal)")
             }
             MorelError::Other => write!(f, "Other error"),
             MorelError::Bind => write!(f, "Bind error"),

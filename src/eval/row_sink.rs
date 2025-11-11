@@ -103,7 +103,7 @@ pub trait RowSink {
     ) -> Result<Val, MorelError>;
 }
 
-/// Implementation of RowSink for a scan/join step.
+/// Implementation of RowSink for a scan or `join` step.
 ///
 /// Iterates over a collection, binds each element to a pattern,
 /// evaluates an optional condition, and passes matching rows downstream.
@@ -177,7 +177,9 @@ impl RowSink for ScanRowSink {
                 let condition = self.condition_code.eval_f0(r, f)?;
                 if condition.expect_bool() {
                     // Pass this row downstream. The downstream sink will see
-                    // all bindings from upstream plus our new binding.
+                    // all bindings from upstream plus our new binding. One
+                    // possible 'error' code is EarlyReturn, which indicates
+                    // that sending more rows will not change the result.
                     self.row_sink.accept(r, f)?;
                 }
             }
@@ -194,7 +196,7 @@ impl RowSink for ScanRowSink {
     }
 }
 
-/// Implementation of RowSink for a where/filter step.
+/// Implementation of RowSink for a `where` step.
 ///
 /// Evaluates a boolean condition and only passes rows downstream if true.
 pub struct WhereRowSink {
@@ -241,7 +243,7 @@ impl RowSink for WhereRowSink {
     }
 }
 
-/// Implementation of RowSink for a union step.
+/// Implementation of RowSink for a `union` step.
 ///
 /// First accepts rows from upstream, then evaluates additional collections
 /// and passes their elements downstream.
@@ -311,9 +313,58 @@ impl RowSink for UnionRowSink {
     }
 }
 
+/// Row sink that returns true as soon as any row is found.
+///
+/// Used for `exists` queries to avoid materializing the full result set.
+/// This provides O(1) space complexity instead of O(n).
+///
+/// After the first row is accepted, signals [MorelError::EarlyReturn] to
+/// request early termination. Additional [ExistsRowSink::accept] calls are
+/// safe but unnecessary (idempotent).
+#[derive(Default)]
+pub struct ExistsRowSink {
+    found: bool,
+}
+
+impl ExistsRowSink {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl RowSink for ExistsRowSink {
+    fn start(
+        &mut self,
+        _r: &mut EvalEnv,
+        _f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.found = false;
+        Ok(())
+    }
+
+    fn accept(
+        &mut self,
+        _r: &mut EvalEnv,
+        _f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.found = true;
+        // Signal completion - no more rows are needed.
+        Err(MorelError::EarlyReturn)
+    }
+
+    fn result(
+        &mut self,
+        _r: &mut EvalEnv,
+        _f: &mut Frame,
+    ) -> Result<Val, MorelError> {
+        Ok(Val::Bool(self.found))
+    }
+}
+
 /// Implementation of RowSink that collects results into a list.
 ///
 /// This is the terminal sink at the end of the pipeline.
+/// See also [ExistsRowSink].
 pub struct CollectRowSink {
     code: Code,
     list: Vec<Val>,
@@ -357,7 +408,7 @@ impl RowSink for CollectRowSink {
     }
 }
 
-/// Implementation of RowSink for an order step.
+/// Implementation of RowSink for an `order` step.
 ///
 /// Accumulates all rows during accept(), then sorts them in result()
 /// based on evaluating an order expression, and passes them downstream
@@ -469,7 +520,7 @@ impl RowSink for OrderRowSink {
     }
 }
 
-/// Implementation of RowSink for a skip step.
+/// Implementation of RowSink for a `skip` step.
 ///
 /// Skips the first N rows and passes the rest downstream.
 pub struct SkipRowSink {
@@ -522,9 +573,11 @@ impl RowSink for SkipRowSink {
     }
 }
 
-/// Implementation of RowSink for a take step.
+/// Implementation of RowSink for a `take` step.
 ///
 /// Takes the first N rows and ignores the rest.
+/// After taking N rows, signals `EarlyReturn` to short-circuit upstream
+/// processing.
 pub struct TakeRowSink {
     take_code: Code,
     row_sink: Box<dyn RowSink>,
@@ -562,6 +615,10 @@ impl RowSink for TakeRowSink {
             self.remaining -= 1;
             self.row_sink.accept(r, f)?;
         }
+        // If we've taken all requested rows, signal early termination.
+        if self.remaining == 0 {
+            return Err(MorelError::EarlyReturn);
+        }
         Ok(())
     }
 
@@ -574,7 +631,7 @@ impl RowSink for TakeRowSink {
     }
 }
 
-/// Implementation of RowSink for an intersect step.
+/// Implementation of RowSink for an `intersect` step.
 ///
 /// Computes the intersection of the upstream collection with additional
 /// collections.
@@ -668,7 +725,7 @@ impl RowSink for IntersectRowSink {
     }
 }
 
-/// Implementation of RowSink for an except step.
+/// Implementation of RowSink for an `except` step.
 ///
 /// Removes elements from the upstream collection that appear in additional
 /// collections.
@@ -765,7 +822,7 @@ impl RowSink for ExceptRowSink {
     }
 }
 
-/// Implementation of RowSink for a distinct step.
+/// Implementation of RowSink for a `distinct` step.
 ///
 /// Filters out duplicate rows, passing only the first occurrence of each
 /// unique value to the downstream sink.
@@ -826,7 +883,7 @@ impl RowSink for DistinctRowSink {
     }
 }
 
-/// Implementation of RowSink for a group step.
+/// Implementation of RowSink for a `group` step.
 ///
 /// Accumulates rows by group key, evaluates aggregate functions over each
 /// group, and passes results downstream.

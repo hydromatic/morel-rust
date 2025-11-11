@@ -324,6 +324,7 @@ pub enum StepKind {
     // lint: sort until '#}'
     Distinct,
     Except(bool, Vec<Expr>),
+    Exists,
     Group(Box<Expr>, Option<Box<Expr>>),
     Intersect(bool, Vec<Expr>),
     Order(Box<Expr>),

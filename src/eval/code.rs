@@ -530,7 +530,16 @@ impl Code {
                 // Evaluate a query expression (push-based with row sinks).
                 let mut sink = factory.create();
                 sink.start(r, f)?;
-                sink.accept(r, f)?;
+                // Accept may signal EarlyReturn for short-circuit
+                // optimization. This is advisory; if we get it, we can
+                // skip remaining rows.
+                match sink.accept(r, f) {
+                    Ok(()) => {}
+                    Err(MorelError::EarlyReturn) => {
+                        // Expected for EXISTS queries - not an error.
+                    }
+                    Err(e) => return Err(e),
+                }
                 sink.result(r, f)
             }
             Code::GetLocal(frame_def, slot) => {

@@ -637,6 +637,16 @@ impl<'a> Compiler<'a> {
                 } else {
                     steps.last().unwrap().env.clone()
                 };
+
+                // Assert that the Exists step, if present, only occurs last.
+                debug_assert!(
+                    !steps
+                        .iter()
+                        .take(steps.len().saturating_sub(1))
+                        .any(|s| matches!(s.kind, StepKind::Exists)),
+                    "Exists step must only occur as the last step"
+                );
+
                 let factory = self.create_row_sink_factory(
                     cx,
                     &step_env,
@@ -712,13 +722,13 @@ impl<'a> Compiler<'a> {
         element_type: &Type,
     ) -> RowSinkFactory {
         use crate::eval::row_sink::{
-            CollectRowSink, DistinctRowSink, ExceptRowSink, GroupRowSink,
-            IntersectRowSink, OrderRowSink, ScanRowSink, SkipRowSink,
-            TakeRowSink, UnionRowSink, WhereRowSink,
+            CollectRowSink, DistinctRowSink, ExceptRowSink, ExistsRowSink,
+            GroupRowSink, IntersectRowSink, OrderRowSink, ScanRowSink,
+            SkipRowSink, TakeRowSink, UnionRowSink, WhereRowSink,
         };
 
         if steps.is_empty() {
-            // Terminal case: create a CollectRowSink from bindings.
+            // Terminal case: create CollectRowSink.
             let code = self.get_collection_code(cx, step_env, element_type);
             return RowSinkFactory::new(move || {
                 Box::new(CollectRowSink::new(code.clone()))
@@ -785,6 +795,11 @@ impl<'a> Compiler<'a> {
                         next_factory.create(),
                     ))
                 })
+            }
+            StepKind::Exists => {
+                // The Exists step creates an ExistsRowSink for short-circuit.
+                assert_eq!(steps.len(), 1, "Exists must be the last step");
+                RowSinkFactory::new(|| Box::new(ExistsRowSink::new()))
             }
             StepKind::Group(key_expr, aggregate_expr) => {
                 // For simple group queries without complex aggregates.
