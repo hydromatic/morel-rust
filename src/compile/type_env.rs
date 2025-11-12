@@ -212,7 +212,7 @@ pub struct FunTypeEnv {
 
 pub trait TypeSchemeResolver {
     /// Converts a type scheme AST to a term.
-    fn deduce_type_scheme(&mut self, type_scheme: &TypeScheme) -> Rc<Var>;
+    fn deduce_type_scheme(&mut self, type_scheme: &TypeScheme) -> Var;
 }
 
 /// Holds a type environment while it is mutated.

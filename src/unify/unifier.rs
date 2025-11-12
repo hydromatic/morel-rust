@@ -24,10 +24,10 @@
 #![allow(clippy::collapsible_if)]
 
 use crate::unify;
-use im::HashSet;
+use im::{HashMap as ImHashMap, HashSet};
 use std::cell::RefCell;
 use std::cmp::{PartialEq, max};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::iter::zip;
 use std::rc::Rc;
@@ -35,14 +35,14 @@ use std::time::Instant;
 
 /// Trait for things that behave like terms.
 trait TermLike {
-    fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term;
+    fn apply1(&self, variable: &Var, term: &Term) -> Term;
     #[allow(dead_code)]
-    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term;
+    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term;
     fn as_term(&self) -> Term;
 }
 
 /// Trait for things that can be created from a [Term].
-/// Implementations include [Sequence], [Rc]`<Var>`.
+/// Implementations include [Sequence], [Var].
 trait FromTerm {
     fn from_term(term: &Term) -> Self;
 }
@@ -60,26 +60,26 @@ trait FromTerm {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Term {
     Sequence(Sequence),
-    Variable(Rc<Var>),
+    Variable(Var),
 }
 
 impl Term {
     fn expect_sequence(&self) -> &Sequence {
         match self {
             Term::Sequence(s) => s,
-            _ => panic!("Expected Sequence, got {}", self),
+            _ => panic!("Expected Sequence, got {:?}", self),
         }
     }
 
-    fn expect_variable(&self) -> &Rc<Var> {
+    fn expect_variable(&self) -> &Var {
         match self {
             Term::Variable(v) => v,
-            _ => panic!("Expected Variable, got {}", self),
+            _ => panic!("Expected Variable, got {:?}", self),
         }
     }
 
     /// Returns whether this term references a given variable.
-    fn contains(&self, var: &Rc<Var>) -> bool {
+    fn contains(&self, var: &Var) -> bool {
         match self {
             Term::Variable(v) => v == var,
             Term::Sequence(seq) => {
@@ -89,7 +89,7 @@ impl Term {
     }
 
     /// Applies a substitution to this term.
-    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(map),
             Term::Sequence(seq) => seq.apply(map),
@@ -97,7 +97,7 @@ impl Term {
     }
 
     /// Applies a single variable-to-term substitution to this term.
-    fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term {
+    fn apply1(&self, variable: &Var, term: &Term) -> Term {
         match self {
             Term::Variable(v) => v.apply1(variable, term),
             Term::Sequence(seq) => seq.apply1(variable, term),
@@ -116,14 +116,14 @@ impl Term {
 }
 
 impl TermLike for Term {
-    fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term {
+    fn apply1(&self, variable: &Var, term: &Term) -> Term {
         match self {
             Term::Variable(v) => v.apply1(variable, term),
             Term::Sequence(seq) => seq.apply1(variable, term),
         }
     }
 
-    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(&map),
             Term::Sequence(seq) => seq.apply(&map),
@@ -141,31 +141,22 @@ impl FromTerm for Term {
     }
 }
 
-impl Display for Term {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Term::Variable(var) => f.write_str(var.name.as_str()),
-            Term::Sequence(seq) => Display::fmt(seq, f),
-        }
-    }
-}
+// Note: Display for Term has been removed - use the TermDisplay wrapper
+// with a Unifier.
 
 /// A registered variable.
 ///
 /// Its id is unique within a Unifier,
 /// and disjoint from Op id values.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Var {
-    pub name: String,
     pub id: i32,
 }
 
 impl Ord for Var {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .id
-            .cmp(&self.id) // -1 before -2
-            .then_with(|| self.name.cmp(&other.name)) // X before Y
+        // Compare by ID only, where -1 comes before -2.
+        other.id.cmp(&self.id)
     }
 }
 
@@ -175,23 +166,96 @@ impl PartialOrd for Var {
     }
 }
 
-impl Display for Var {
+/// Wrapper for displaying a Var with access to the Unifier.
+struct VarDisplay<'a> {
+    var: &'a Var,
+    unifier: &'a Unifier,
+}
+
+impl Display for VarDisplay<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}", self.unifier.var_name(self.var))
     }
 }
 
-impl Var {
-    pub fn new(name: &str, id: i32) -> Self {
-        Self {
-            name: name.to_string(),
-            id,
+/// Wrapper for displaying a Term with access to the Unifier.
+struct TermDisplay<'a> {
+    term: &'a Term,
+    unifier: &'a Unifier,
+}
+
+impl Display for TermDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self.term {
+            Term::Variable(var) => {
+                write!(f, "{}", self.unifier.var_name(var))
+            }
+            Term::Sequence(seq) => {
+                write!(f, "{}", self.unifier.sequence_string(seq))
+            }
         }
     }
 }
 
-impl TermLike for Rc<Var> {
-    fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term {
+/// Wrapper for displaying a Sequence with access to the Unifier.
+struct SequenceDisplay<'a> {
+    seq: &'a Sequence,
+    unifier: &'a Unifier,
+}
+
+impl Display for SequenceDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let op_name = self.unifier.op_name(&self.seq.op);
+        if self.seq.terms.is_empty() {
+            write!(f, "{}", op_name)
+        } else {
+            write!(f, "{}(", op_name)?;
+            for (i, term) in self.seq.terms.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", self.unifier.term_string(term))?;
+            }
+            write!(f, ")")
+        }
+    }
+}
+
+/// Wrapper for displaying a Substitution with access to the Unifier.
+struct SubstitutionDisplay<'a> {
+    substitution: &'a Substitution,
+    unifier: &'a Unifier,
+}
+
+impl Display for SubstitutionDisplay<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        f.write_char('[')?;
+        // Sort by variable for deterministic output (uses Var::Ord).
+        let mut entries: Vec<_> =
+            self.substitution.substitutions.iter().collect();
+        entries.sort_by(|(var1, _), (var2, _)| var1.cmp(var2));
+        for (var, term) in entries {
+            if !first {
+                f.write_str(", ")?;
+            }
+            first = false;
+            write!(f, "{}", self.unifier.term_string(term))?;
+            f.write_char('/')?;
+            write!(f, "{}", self.unifier.var_name(var))?;
+        }
+        f.write_char(']')
+    }
+}
+
+impl Var {
+    pub fn new(id: i32) -> Self {
+        Self { id }
+    }
+}
+
+impl TermLike for Var {
+    fn apply1(&self, variable: &Var, term: &Term) -> Term {
         if self == variable {
             term.clone()
         } else {
@@ -199,79 +263,118 @@ impl TermLike for Rc<Var> {
         }
     }
 
-    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
         map.get(self).cloned().unwrap_or_else(|| self.as_term())
     }
 
     fn as_term(&self) -> Term {
-        Term::Variable(self.clone())
+        Term::Variable(*self)
     }
 }
 
-impl FromTerm for Rc<Var> {
+impl FromTerm for Var {
     fn from_term(term: &Term) -> Self {
         match term {
-            Term::Variable(var) => var.clone(),
-            _ => panic!("Expected Variable, got {}", term),
+            Term::Variable(var) => *var,
+            _ => panic!("Expected Variable, got {:?}", term),
         }
     }
 }
 
-/// A registered operator.
+/// A lightweight reference to an operator.
+///
+/// Its id is unique within a Unifier.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub struct Op(pub i32);
+
+/// A registered operator definition.
 ///
 /// It is the name of an atom (e.g. `a()`) or a sequence
 /// (e.g. `p(a, q(b, c))`).
 ///
 /// Its id is unique within a Unifier.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Op {
+pub struct OpDef {
     pub name: String,
-    arity: Option<usize>,
-    id: i32,
+    pub arity: Option<usize>,
+    pub id: Op,
 }
 
 /// A Sequence is an operator with a list of terms.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Sequence {
-    pub op: Rc<Op>,
-    pub terms: Vec<Term>,
+    pub op: Op,
+    pub terms: Rc<[Term]>,
 }
 
 impl Sequence {
-    fn sub1(&self, variable: &Rc<Var>, term: &Term) -> Sequence {
-        let terms: Vec<Term> = self
-            .terms
-            .iter()
-            .map(|t| t.apply1(variable, term))
-            .collect();
-        Sequence {
-            op: self.op.clone(),
-            terms,
+    fn sub1(&self, variable: &Var, term: &Term) -> Self {
+        // Find the index of the first change.
+        for (i, t) in self.terms.iter().enumerate() {
+            let new_term = t.apply1(variable, term);
+            if &new_term != t {
+                // Build a new list with the unchanged prefix, the changed
+                // term, and the rest of the terms.
+                let mut new_terms = Vec::with_capacity(self.terms.len());
+                new_terms.extend_from_slice(&self.terms[..i]);
+                new_terms.push(new_term);
+
+                // Apply substitution to the rest
+                for t in &self.terms[i + 1..] {
+                    new_terms.push(t.apply1(variable, term));
+                }
+
+                return Self {
+                    op: self.op,
+                    terms: Rc::from(new_terms),
+                };
+            }
+        }
+
+        // Nothing changed. Return an inexpensive clone.
+        Self {
+            op: self.op,
+            terms: Rc::clone(&self.terms),
         }
     }
 
-    fn sub(&self, map: &BTreeMap<Rc<Var>, Term>) -> Self {
-        if self.terms.is_empty() {
-            return self.clone();
+    fn sub(&self, map: &ImHashMap<Var, Term>) -> Self {
+        // Find the index of the first change.
+        for (i, t) in self.terms.iter().enumerate() {
+            let new_term = t.apply(map);
+            if &new_term != t {
+                // Build a new list with the unchanged prefix, the changed
+                // term, and the rest of the terms.
+                let mut new_terms = Vec::with_capacity(self.terms.len());
+                new_terms.extend_from_slice(&self.terms[..i]);
+                new_terms.push(new_term);
+
+                // Apply substitution to the rest
+                for t in &self.terms[i + 1..] {
+                    new_terms.push(t.apply(map));
+                }
+
+                return Self {
+                    op: self.op,
+                    terms: Rc::from(new_terms),
+                };
+            }
         }
-        let new_terms: Vec<Term> =
-            self.terms.iter().map(|t| t.apply(map)).collect();
-        if self.terms == new_terms {
-            return self.clone();
-        }
-        Sequence {
-            op: self.op.clone(),
-            terms: new_terms,
+
+        // Nothing changed. Return an inexpensive clone.
+        Self {
+            op: self.op,
+            terms: Rc::clone(&self.terms),
         }
     }
 }
 
 impl TermLike for Sequence {
-    fn apply1(&self, variable: &Rc<Var>, term: &Term) -> Term {
+    fn apply1(&self, variable: &Var, term: &Term) -> Term {
         Term::Sequence(self.sub1(variable, term))
     }
 
-    fn apply(&self, map: &BTreeMap<Rc<Var>, Term>) -> Term {
+    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
         Term::Sequence(self.sub(&map))
     }
 
@@ -284,51 +387,37 @@ impl FromTerm for Sequence {
     fn from_term(term: &Term) -> Self {
         match term {
             Term::Sequence(seq) => seq.clone(),
-            _ => panic!("Expected Sequence, got {}", term),
+            _ => panic!("Expected Sequence, got {:?}", term),
         }
     }
 }
 
-impl<'a> Display for Sequence {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.terms.is_empty() {
-            write!(f, "{}", self.op.name)
-        } else {
-            write!(f, "{}(", self.op.name)?;
-            for (i, term) in self.terms.iter().enumerate() {
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{}", term)?;
-            }
-            write!(f, ")")
-        }
-    }
-}
+// Note: Display for Sequence has been removed - use the SequenceDisplay
+// wrapper with a Unifier. The wrapper is needed because variables need
+// the Unifier to look up their names.
 
 /// Substitution.
 #[derive(Clone, Debug)]
 pub struct Substitution {
-    pub substitutions: BTreeMap<Rc<Var>, Term>,
+    pub substitutions: ImHashMap<Var, Term>,
 }
 
 impl Substitution {
-    fn from_result(p0: &HashMap<Rc<Var>, Term>) -> Self {
-        let mut map = BTreeMap::new();
-        p0.iter().for_each(|(k, v)| {
-            map.insert(k.clone(), v.clone());
-        });
-        Substitution { substitutions: map }
+    fn from_result(p0: &ImHashMap<Var, Term>) -> Self {
+        Substitution {
+            substitutions: p0.clone(),
+        }
     }
 
     fn resolve(&self) -> Self {
         if self.has_cycles() {
             return self.clone();
         }
-        let mut new_substitutions = BTreeMap::new();
-        for (key, value) in &self.substitutions {
-            new_substitutions.insert(key.clone(), self.resolve_term(value));
-        }
+        let new_substitutions: ImHashMap<Var, Term> = self
+            .substitutions
+            .iter()
+            .map(|(key, value)| (*key, self.resolve_term(value)))
+            .collect();
         Substitution {
             substitutions: new_substitutions,
         }
@@ -390,7 +479,7 @@ impl Substitution {
                 }
             }
             Term::Sequence(seq) => {
-                for sub_term in &seq.terms {
+                for sub_term in seq.terms.iter() {
                     self.check_cycle_in_term(sub_term, active)?;
                 }
                 Ok(())
@@ -399,23 +488,8 @@ impl Substitution {
     }
 }
 
-impl Display for Substitution {
-    /// Prints e.g. `[f(a, Y)/Z, b/W]`.
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        let mut first = true;
-        f.write_char('[')?;
-        for (var, term) in &self.substitutions {
-            if !first {
-                f.write_str(", ")?;
-            }
-            first = false;
-            Display::fmt(&term, f)?;
-            f.write_char('/')?;
-            f.write_str(var.name.as_str())?;
-        }
-        f.write_char(']')
-    }
-}
+// Note: Display for Substitution has been removed - use the
+// SubstitutionDisplay wrapper.
 
 /// Why unification failed.
 #[derive(Debug)]
@@ -486,23 +560,23 @@ pub struct PrintTracer;
 
 impl Tracer for PrintTracer {
     fn on_conflict(&self, left: &Sequence, right: &Sequence) {
-        println!("CONFLICT: {} != {}", left, right);
+        println!("CONFLICT: {:?} != {:?}", left, right);
     }
 
     fn on_sequence(&self, left: &Sequence, right: &Sequence) {
-        println!("DECOMPOSE: {} = {}", left, right);
+        println!("DECOMPOSE: {:?} = {:?}", left, right);
     }
 
     fn on_cycle(&self, left: &Var, right: &Term) {
-        println!("CYCLE: {} occurs in {}", left, right);
+        println!("CYCLE: {:?} occurs in {:?}", left, right);
     }
 
     fn on_variable(&self, left: &Var, right: &Term) {
-        println!("VARIABLE: {} = {}", left, right);
+        println!("VARIABLE: {:?} = {:?}", left, right);
     }
 
     fn on_swap(&self, left: &Term, right: &Term) {
-        println!("SWAP: {} <-> {}", left, right);
+        println!("SWAP: {:?} <-> {:?}", left, right);
     }
 
     fn on_substitute(
@@ -513,7 +587,7 @@ impl Tracer for PrintTracer {
         new_right: &Term,
     ) {
         println!(
-            "SUBSTITUTE: ({}, {}) -> ({}, {})",
+            "SUBSTITUTE: ({:?}, {:?}) -> ({:?}, {:?})",
             old_left, old_right, new_left, new_right
         );
     }
@@ -563,7 +637,7 @@ struct MutableConstraint {
 /// Unifier.
 ///
 /// Implements the Martelli-Montanari unification algorithm.
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct Unifier {
     /// Assists with the generation of unique names by recording the lowest
     /// ordinal, for a given prefix, for which a name has not yet been
@@ -573,20 +647,24 @@ pub struct Unifier {
     /// generated "T0" and "T1", then the map will contain `"T", 2)`,
     /// indicating that the next call to `name("T")` should generate `T2`.
     name_map: HashMap<String, usize>,
-    var_by_name: HashMap<String, Rc<Var>>,
-    op_by_name: HashMap<String, Rc<Op>>,
-    var_list: Vec<Rc<Var>>,
-    op_list: Vec<Rc<Op>>,
+    var_by_name: HashMap<String, Var>,
+    op_by_name: HashMap<String, Op>,
+    var_list: Vec<Var>,
+    pub op_defs: Rc<Vec<OpDef>>,
+    /// Maps variable ID to custom name for user-named variables only.
+    /// Auto-generated names (T0, T1, etc.) are not stored here.
+    custom_var_names: HashMap<i32, String>,
     occurs: bool,
+    empty_terms: Rc<[Term]>,
 }
 
 /// Workspace for Unification.
 struct Work<'a> {
     tracer: &'a dyn Tracer,
     seq_seq_queue: Rc<RefCell<VecDeque<(Sequence, Sequence)>>>,
-    var_any_queue: Rc<RefCell<VecDeque<(Rc<Var>, Term)>>>,
+    var_any_queue: Rc<RefCell<VecDeque<(Var, Term)>>>,
     constraint_queue: VecDeque<MutableConstraint>,
-    result: HashMap<Rc<Var>, Term>,
+    result: ImHashMap<Var, Term>,
 }
 
 impl Display for Work<'_> {
@@ -595,17 +673,17 @@ impl Display for Work<'_> {
         for (var, term) in
             &self.seq_seq_queue.borrow().iter().collect::<Vec<_>>()[..]
         {
-            write!(f, "\n  {}: {}", var, term)?;
+            write!(f, "\n  {:?}: {:?}", var, term)?;
         }
         write!(f, "\n}} var-any {{")?;
         for (var, term) in
             &self.var_any_queue.borrow().iter().collect::<Vec<_>>()[..]
         {
-            write!(f, "\n  {}: {}", var, term)?;
+            write!(f, "\n  {:?}: {:?}", var, term)?;
         }
         write!(f, "\n}} result {{")?;
         for (var, term) in &self.result {
-            write!(f, "\n  {}: {}", var, term)?;
+            write!(f, "\n  {:?}: {:?}", var, term)?;
         }
         write!(f, "\n}}")
     }
@@ -618,7 +696,7 @@ impl<'a> Work<'a> {
             var_any_queue: Rc::new(RefCell::new(VecDeque::new())),
             seq_seq_queue: Rc::new(RefCell::new(VecDeque::new())),
             constraint_queue: VecDeque::new(),
-            result: HashMap::new(),
+            result: ImHashMap::new(),
         };
         term_pairs
             .iter()
@@ -647,7 +725,7 @@ impl<'a> Work<'a> {
                 self.var_any_queue
                     .borrow()
                     .iter()
-                    .map(|(v, t)| (Term::Variable(v.clone()), t.clone())),
+                    .map(|(v, t)| (Term::Variable(*v), t.clone())),
             )
             .collect()
     }
@@ -655,7 +733,7 @@ impl<'a> Work<'a> {
     /// Applies a mapping to all term pairs in a list, modifying them in place.
     fn substitute_list(
         &mut self,
-        variable: &Rc<Var>,
+        variable: &Var,
         term: &Term,
     ) -> Option<UnificationFailure> {
         // We need to work with the queues separately to avoid borrowing issues
@@ -670,12 +748,12 @@ impl<'a> Work<'a> {
     }
 
     /// Applies substitution to all queues.
-    fn sub_queues(&mut self, variable: &Rc<Var>, term: &Term) {
+    fn sub_queues(&mut self, variable: &Var, term: &Term) {
         // Process seq_seq_queue
-        let seq_seq_queue = self.seq_seq_queue.clone();
+        let seq_seq_queue = Rc::clone(&self.seq_seq_queue);
         self.process_queue(variable, term, Kind::SeqSeq, &seq_seq_queue);
         // Process var_any_queue
-        let var_any_queue = self.var_any_queue.clone();
+        let var_any_queue = Rc::clone(&self.var_any_queue);
         self.process_queue(variable, term, Kind::VarAny, &var_any_queue);
     }
 
@@ -685,7 +763,7 @@ impl<'a> Work<'a> {
         R: TermLike + PartialEq + FromTerm,
     >(
         &mut self,
-        variable: &Rc<Var>,
+        variable: &Var,
         term: &Term,
         queue_kind: Kind,
         queue_ref: &Rc<RefCell<VecDeque<(L, R)>>>,
@@ -702,12 +780,14 @@ impl<'a> Work<'a> {
                 if left2 != queue[i].0.as_term()
                     || right2 != queue[i].1.as_term()
                 {
-                    self.tracer.on_substitute(
-                        &queue[i].0.as_term(),
-                        &queue[i].1.as_term(),
-                        &left2.as_term(),
-                        &right2.as_term(),
-                    );
+                    if false {
+                        self.tracer.on_substitute(
+                            &queue[i].0.as_term(),
+                            &queue[i].1.as_term(),
+                            &left2.as_term(),
+                            &right2.as_term(),
+                        );
+                    }
                     let kind2 = Kind::of(&left2.as_term(), &right2.as_term());
 
                     if kind2 == queue_kind {
@@ -754,7 +834,7 @@ impl<'a> Work<'a> {
     /// Applies substitution to constraints.
     fn sub_constraint(
         &mut self,
-        variable: &Rc<Var>,
+        variable: &Var,
         term: &Term,
     ) -> Option<UnificationFailure> {
         let mut i = 0;
@@ -835,7 +915,7 @@ impl<'a> Work<'a> {
                 }
             }
             Kind::VarAny => {
-                let v: Rc<Var> = FromTerm::from_term(&left);
+                let v: Var = FromTerm::from_term(&left);
                 self.var_any_queue.borrow_mut().push_back((v, right));
             }
             Kind::Delete => {
@@ -876,37 +956,40 @@ impl Unifier {
             var_by_name: HashMap::new(),
             op_by_name: HashMap::new(),
             var_list: Vec::new(),
-            op_list: Vec::new(),
+            op_defs: Rc::new(Vec::new()),
+            custom_var_names: HashMap::new(),
+            empty_terms: Rc::new([]),
         }
     }
 
     /// Looks up or creates a new operator with the given name.
-    pub fn op(&mut self, name: &str, arity: Option<usize>) -> Rc<Op> {
-        if let Some(index) = self.op_by_name.get(name) {
-            index.clone()
+    pub fn op(&mut self, name: &str, arity: Option<usize>) -> Op {
+        if let Some(op) = self.op_by_name.get(name) {
+            *op
         } else {
-            let id = self.name_map.entry(name.to_string()).or_insert(0);
-            let op = Rc::new(Op {
+            let id = Op(self.op_defs.len() as i32);
+            let op_def = OpDef {
                 name: name.to_string(),
                 arity,
-                id: *id as i32,
-            });
-            self.op_list.push(op.clone());
-            self.op_by_name.insert(name.to_string(), op.clone());
-            op
+                id,
+            };
+            Rc::make_mut(&mut self.op_defs).push(op_def);
+            self.op_by_name.insert(name.to_string(), id);
+            id
         }
     }
 
-    fn op_unique(&mut self, prefix: &str, arity: Option<usize>) -> Rc<Op> {
+    fn op_unique(&mut self, prefix: &str, arity: Option<usize>) -> Op {
         let name = self.new_name(prefix, 0);
-        let op = Rc::new(Op {
-            name: name.to_string(),
+        let id = Op(self.op_defs.len() as i32);
+        let op_def = OpDef {
+            name: name.clone(),
             arity,
-            id: self.op_list.len() as i32,
-        });
-        self.op_list.push(op.clone());
-        self.op_by_name.insert(name.to_string(), op.clone());
-        op
+            id,
+        };
+        Rc::make_mut(&mut self.op_defs).push(op_def);
+        self.op_by_name.insert(name, id);
+        id
     }
 
     fn new_name(&mut self, prefix: &str, ordinal: usize) -> String {
@@ -928,66 +1011,120 @@ impl Unifier {
     /// The first variable is at position 0, is named "T0", and has id -1.
     /// The second variable is at position 1, is named "T1", and has id -2.
     /// And so forth.
-    pub fn variable(&mut self) -> Rc<Var> {
+    pub fn variable(&mut self) -> Var {
         let ordinal = self.var_list.len();
         let name = self.new_name("T", ordinal);
-        let var = Rc::new(Var {
-            name: name.to_string(),
-            id: -(ordinal as i32 + 1),
-        });
-        self.var_list.push(var.clone());
+        let id = -(ordinal as i32 + 1);
+        let var = Var { id };
+        self.var_list.push(var);
         self.name_map.insert(name.to_string(), 1);
-        self.var_by_name.insert(name, var.clone());
+        self.var_by_name.insert(name, var);
         var
     }
 
     /// Creates a variable with a given name, or returns the existing variable
     /// with that name.
-    pub fn variable_with_name(&mut self, name: &str) -> Rc<Var> {
+    pub fn variable_with_name(&mut self, name: &str) -> Var {
         if let Some(var) = self.var_by_name.get(name) {
-            var.clone()
+            *var
         } else {
             let ordinal = self.var_list.len();
-            let var = Rc::new(Var {
-                name: name.to_string(),
-                id: -(ordinal as i32 + 1),
-            });
-            self.var_list.push(var.clone());
+            let id = -(ordinal as i32 + 1);
+            let var = Var { id };
+            self.var_list.push(var);
             self.name_map.insert(name.to_string(), 1);
-            self.var_by_name.insert(name.to_string(), var.clone());
+            self.var_by_name.insert(name.to_string(), var);
+
+            // Store custom name if it's not the auto-generated "T{ordinal}".
+            let auto_name = format!("T{}", ordinal);
+            if name != auto_name {
+                self.custom_var_names.insert(id, name.to_string());
+            }
+
             var
         }
     }
 
-    fn variable_with_id(&mut self, id: usize) -> Rc<Var> {
+    fn variable_with_id(&mut self, id: usize) -> Var {
         let name = format!("T{}", id);
         self.variable_with_name(&name)
     }
 
+    /// Gets the name for a variable.
+    /// Returns custom name if one was provided, otherwise generates "T{n}".
+    pub fn var_name(&self, var: &Var) -> String {
+        if let Some(name) = self.custom_var_names.get(&var.id) {
+            name.clone()
+        } else {
+            // Auto-generate the name from ID (e.g., id=-1 → "T0",
+            // id=-2 → "T1").
+            format!("T{}", (-var.id - 1))
+        }
+    }
+
+    /// Gets the name for an operator.
+    pub fn op_name(&self, op: &Op) -> &str {
+        &self.op_defs[op.0 as usize].name
+    }
+
+    /// Gets the arity for an operator.
+    pub fn op_arity(&self, op: &Op) -> Option<usize> {
+        self.op_defs[op.0 as usize].arity
+    }
+
+    /// Gets the definition for an operator.
+    pub fn op_def(&self, op: &Op) -> &OpDef {
+        &self.op_defs[op.0 as usize]
+    }
+
+    /// Formats a term as a string.
+    pub fn term_string(&self, term: &Term) -> String {
+        TermDisplay {
+            term,
+            unifier: self,
+        }
+        .to_string()
+    }
+
+    /// Formats a sequence as a string.
+    pub fn sequence_string(&self, seq: &Sequence) -> String {
+        SequenceDisplay { seq, unifier: self }.to_string()
+    }
+
+    /// Formats a substitution as a string.
+    pub fn substitution_string(&self, substitution: &Substitution) -> String {
+        SubstitutionDisplay {
+            substitution,
+            unifier: self,
+        }
+        .to_string()
+    }
+
     /// Creates a Sequence.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn apply(&self, op: Rc<Op>, terms: &[Term]) -> Sequence {
-        assert!(op.arity.is_none_or(|x| { x == terms.len() }));
+    pub fn apply(&self, op: Op, terms: &[Term]) -> Sequence {
+        let arity = self.op_arity(&op);
+        assert!(arity.is_none_or(|x| { x == terms.len() }));
         Sequence {
             op,
-            terms: terms.to_vec(),
+            terms: Rc::from(terms),
         }
     }
 
     /// Creates a Sequence with one operand.
-    pub fn apply1(&self, op: Rc<Op>, term0: Term) -> Sequence {
+    pub fn apply1(&self, op: Op, term0: Term) -> Sequence {
         self.apply(op, &[term0])
     }
 
     /// Creates a Sequence with two operands.
-    pub fn apply2(&self, op: Rc<Op>, term0: Term, term1: Term) -> Sequence {
+    pub fn apply2(&self, op: Op, term0: Term, term1: Term) -> Sequence {
         self.apply(op, &[term0, term1])
     }
 
     /// Creates a Sequence with three operands.
     pub fn apply3(
         &self,
-        op: Rc<Op>,
+        op: Op,
         term0: Term,
         term1: Term,
         term2: Term,
@@ -996,17 +1133,17 @@ impl Unifier {
     }
 
     /// Creates an Atom (a Sequence with zero operands).
-    pub fn atom(&self, op: Rc<Op>) -> Sequence {
+    pub fn atom(&self, op: Op) -> Sequence {
         Sequence {
             op,
-            terms: Vec::new(),
+            terms: Rc::clone(&self.empty_terms),
         }
     }
 
     /// Creates a substitution from a variable to a term.
     fn substitution(
         &self,
-        substitutions: &BTreeMap<Rc<Var>, Term>,
+        substitutions: &ImHashMap<Var, Term>,
     ) -> Substitution {
         Substitution {
             substitutions: substitutions.clone(),
@@ -1017,16 +1154,16 @@ impl Unifier {
         &self,
         term_pairs: &[(Term, Term)],
         _tracer: &dyn Tracer,
-        term_action_list: &[(Rc<Var>, Rc<dyn Action>)],
+        term_action_list: &[(Var, Rc<dyn Action>)],
     ) -> Result<Substitution, UnificationFailure> {
         let tracer = &NullTracer; // switch to PrintTracer for debugging
-        let term_actions: HashMap<Rc<Var>, Rc<dyn Action>> =
+        let term_actions: HashMap<Var, Rc<dyn Action>> =
             term_action_list.iter().cloned().collect();
         if false {
             // Uncomment this section to generate a unit test.
             eprintln!(
                 "UnifierTask::from_grammar({}).unify()",
-                unify::unifier_parser::generate_program(term_pairs)
+                unify::unifier_parser::generate_program(self, term_pairs)
             );
         }
         let start = Instant::now();
@@ -1066,7 +1203,11 @@ impl Unifier {
                 if left.op != right.op || left.terms.len() != right.terms.len()
                 {
                     tracer.on_conflict(&left, &right);
-                    let reason = format!("conflict: {} != {}", left, right);
+                    let reason = format!(
+                        "conflict: {} != {}",
+                        self.sequence_string(&left),
+                        self.sequence_string(&right)
+                    );
                     return Err(UnificationFailure { reason });
                 }
 
@@ -1083,10 +1224,8 @@ impl Unifier {
                 // Occurs check
                 if self.occurs && term.contains(&variable) {
                     tracer.on_cycle(&variable, &term);
-                    let reason = format!(
-                        "cycle: variable {} in {}",
-                        variable.name, term
-                    );
+                    let reason =
+                        format!("cycle: variable (id={}) in term", variable.id);
                     return Err(UnificationFailure { reason });
                 }
 
@@ -1101,7 +1240,7 @@ impl Unifier {
                     }
                 }
 
-                if term == Term::Variable(variable.clone()) {
+                if term == Term::Variable(variable) {
                     // We already knew that 'pair.left' and 'pair.right' were
                     // equivalent.
                     continue;
@@ -1109,7 +1248,7 @@ impl Unifier {
 
                 tracer.on_variable(&variable, &term);
                 if let Some(prior_term) =
-                    work.result.insert(variable.clone(), term.clone())
+                    work.result.insert(variable, term.clone())
                 {
                     if prior_term != term {
                         work.add(prior_term, term.clone());
@@ -1152,19 +1291,13 @@ impl Unifier {
                 );
                 println!("Result: {}", work);
             }
-            let mut substitutions = BTreeMap::new();
-            work.result.iter().for_each(|(var, term)| {
-                substitutions.insert(var.clone(), term.clone());
-            });
+            let substitutions = work.result.clone();
             if false {
-                println!(
-                    "After: {}\n{}",
-                    work,
-                    Substitution {
-                        substitutions: substitutions.clone()
-                    }
-                    .resolve()
-                );
+                let sub = Substitution {
+                    substitutions: substitutions.clone(),
+                }
+                .resolve();
+                println!("After: {}\n{}", work, self.substitution_string(&sub));
             }
             return Ok(Substitution { substitutions });
         }
@@ -1172,16 +1305,16 @@ impl Unifier {
 
     fn act(
         &self,
-        variable: &Rc<Var>,
+        variable: &Var,
         term: &Term,
         work: &mut Work,
         substitution: &Substitution,
-        term_actions: &HashMap<Rc<Var>, Rc<dyn Action>>,
-        active: &mut HashSet<Rc<Var>>,
+        term_actions: &HashMap<Var, Rc<dyn Action>>,
+        active: &mut HashSet<Var>,
     ) {
         // To prevent infinite recursion, this method is a no-op if the variable
         // is already in the working set.
-        if active.insert(variable.clone()).is_none() {
+        if active.insert(*variable).is_none() {
             self.act2(variable, term, work, substitution, term_actions, active);
 
             // Remove the variable from the working set.
@@ -1191,12 +1324,12 @@ impl Unifier {
 
     fn act2(
         &self,
-        variable: &Rc<Var>,
+        variable: &Var,
         term: &Term,
         work: &mut Work,
         substitution: &Substitution,
-        term_actions: &HashMap<Rc<Var>, Rc<dyn Action>>,
-        active: &mut HashSet<Rc<Var>>,
+        term_actions: &HashMap<Var, Rc<dyn Action>>,
+        active: &mut HashSet<Var>,
     ) {
         if let Some(action) = term_actions.get(variable) {
             let mut to_add = Vec::new();
@@ -1230,7 +1363,7 @@ impl Unifier {
             {
                 self.act(
                     v,
-                    &Term::Variable(variable.clone()),
+                    &Term::Variable(*variable),
                     work,
                     substitution,
                     term_actions,
@@ -1272,20 +1405,11 @@ pub trait Action {
 }
 
 /// Test for Unifier.
-#[derive(Clone)]
 pub struct UnifierTest {
     unifier: Unifier,
 }
 
 impl UnifierTest {
-    pub fn with_occurs(&self, check_cycle: bool) -> Self {
-        if check_cycle == self.unifier.occurs {
-            self.clone()
-        } else {
-            UnifierTest::new(check_cycle)
-        }
-    }
-
     pub fn var(&mut self, name: &str) -> Term {
         Term::Variable(self.unifier.variable_with_name(name))
     }
@@ -1387,13 +1511,14 @@ impl UnifierTest {
         expected: &str,
     ) {
         let term_actions = HashMap::new();
-        let term_actions_vec: Vec<(Rc<Var>, Rc<dyn Action>)> =
+        let term_actions_vec: Vec<(Var, Rc<dyn Action>)> =
             term_actions.into_iter().collect();
         let result =
             self.unifier
                 .unify(term_pairs, &NullTracer, &term_actions_vec);
         let substitution = result.unwrap().resolve();
-        assert_eq!(substitution.to_string(), expected);
+        let actual = self.unifier.substitution_string(&substitution);
+        assert_eq!(actual, expected);
     }
 
     fn assert_that_cannot_unify(&self, e1: Term, e2: Term) {
@@ -1428,7 +1553,11 @@ mod tests {
     use crate::unify::unifier_parser::UnifierTask;
 
     fn create() -> UnifierTest {
-        UnifierTest::new(false)
+        create_with_occurs(false)
+    }
+
+    fn create_with_occurs(occurs: bool) -> UnifierTest {
+        UnifierTest::new(occurs)
     }
 
     #[test]
@@ -1436,70 +1565,74 @@ mod tests {
         let z = create();
         let mut u = z.unifier;
         let mut vars = vec![];
-        let a0 = u.op_unique("A", Some(0)).clone();
-        assert_eq!(a0.name, "A0");
+        let a0 = u.op_unique("A", Some(0));
+        assert_eq!(u.op_name(&a0), "A0");
         let a1 = u.op_unique("A", Some(0));
-        assert_eq!(a1.name, "A1");
+        assert_eq!(u.op_name(&a1), "A1");
         let v0 = u.variable();
-        assert_eq!(v0.name, "T0");
-        vars.push(v0.clone());
+        assert_eq!(u.var_name(&v0), "T0");
+        vars.push(v0);
 
         // Try to create an operator with the name of an existing variable,
         // get a new name.
-        let a2 = u.op_unique("T", Some(0)).clone();
-        assert_eq!(a2.name, "T1");
-        let a3 = u.op_unique("T1", Some(0)).clone();
-        assert_eq!(a3.name, "T10");
+        let a2 = u.op_unique("T", Some(0));
+        assert_eq!(u.op_name(&a2), "T1");
+        let a3 = u.op_unique("T1", Some(0));
+        assert_eq!(u.op_name(&a3), "T10");
 
         let v1 = u.variable();
-        let v1_name = v1.name.clone();
-        assert_eq!(v1_name, "T2");
-        vars.push(v1.clone());
-        let v1_string = v1.to_string();
+        let v1_name = u.var_name(&v1);
+        assert_eq!(v1_name, "T1");
+        vars.push(v1);
+        let v1_string = u.var_name(&v1);
 
         let v2 = u.variable();
-        vars.push(v2.clone());
-        let v2_string = v2.clone().to_string();
+        vars.push(v2);
+        let v2_string = u.var_name(&v2);
 
         let v1b = u.variable_with_name(&v1_name);
-        assert_eq!(v1b.name, v1_name);
+        assert_eq!(u.var_name(&v1b), v1_name);
         let v1c = u.variable_with_id(2);
-        assert_eq!(v1c.to_string(), v1_string);
+        assert_eq!(u.var_name(&v1c), v1_string);
 
         let v2a = u.variable_with_id(3);
-        assert_eq!(v2a.to_string(), v2_string);
+        assert_eq!(u.var_name(&v2a), v2_string);
 
         let v3 = u.variable();
-        vars.push(v3.clone());
+        vars.push(v3);
 
         let v4 = u.variable();
-        vars.push(v4.clone());
-        let v4_string = v4.to_string();
+        vars.push(v4);
+        let v4_string = u.var_name(&v4);
 
         let v5 = u.variable();
-        vars.push(v5.clone());
+        vars.push(v5);
 
         let v6 = u.variable();
-        vars.push(v6.clone());
+        vars.push(v6);
 
         let v4a = u.variable_with_id(5);
-        assert_eq!(v4a.to_string(), v4_string);
+        assert_eq!(u.var_name(&v4a), v4_string);
 
         let v7 = u.variable();
-        vars.push(v7.clone());
+        vars.push(v7);
 
         let v8 = u.variable();
-        vars.push(v8.clone());
+        vars.push(v8);
 
-        let var_strings: Vec<_> =
-            vars.iter().map(ToString::to_string).collect();
+        let var_strings: Vec<_> = vars.iter().map(|v| u.var_name(v)).collect();
         assert_eq!(
             format!("{:?}", var_strings),
-            "[\"T0\", \"T2\", \"T3\", \"T4\", \"T5\", \"T6\", \"T7\", \"T8\", \
+            "[\"T0\", \"T1\", \"T2\", \"T4\", \"T5\", \"T6\", \"T7\", \"T8\", \
              \"T9\"]"
         );
         let v9 = u.variable();
-        assert_eq!(v9.to_string(), "T11", "avoids T10 name used by a3 above");
+        assert_eq!(
+            u.var_name(&v9),
+            "T10",
+            "v9 is ordinal 10, named T10 (variables use ordinals, \
+             don't avoid operator names)"
+        );
     }
 
     #[test]
@@ -1512,12 +1645,12 @@ mod tests {
         let f_a = t.f(a.clone());
         let g_b = t.g(b);
         let e1 = t.p(f_a, g_b, y.clone());
-        assert_eq!(e1.to_string(), "p(f(a), g(b), Y)");
+        assert_eq!(t.unifier.term_string(&e1), "p(f(a), g(b), Y)");
         let d = t.atom("d");
         let c = t.atom("c");
         let g_d = t.g(d);
         let e2 = t.p(z.clone(), g_d, c);
-        assert_eq!(e2.to_string(), "p(Z, g(d), c)");
+        assert_eq!(t.unifier.term_string(&e2), "p(Z, g(d), c)");
         t.assert_that_cannot_unify(e1, e2);
     }
 
@@ -1534,10 +1667,10 @@ mod tests {
             }
             Term::Variable(v) => v,
         };
-        let mut map: BTreeMap<Rc<Var>, Term> = BTreeMap::new();
+        let mut map: ImHashMap<Var, Term> = ImHashMap::new();
         map.insert(z_v, f_a_y);
         let sub = t.unifier.substitution(&map);
-        assert_eq!(sub.to_string(), "[f(a, Y)/Z]");
+        assert_eq!(t.unifier.substitution_string(&sub), "[f(a, Y)/Z]");
     }
 
     #[test]
@@ -1551,11 +1684,11 @@ mod tests {
         let b = t.atom("b");
         let g_b = t.g(b);
         let e1 = t.p(f_a, g_b, y.clone());
-        assert_eq!(e1.to_string(), "p(f(a), g(b), Y)");
+        assert_eq!(t.unifier.term_string(&e1), "p(f(a), g(b), Y)");
         let c = t.atom("c");
         let g_w = t.g(w.clone());
         let e2 = t.p(z.clone(), g_w, c);
-        assert_eq!(e2.to_string(), "p(Z, g(W), c)");
+        assert_eq!(t.unifier.term_string(&e2), "p(Z, g(W), c)");
         t.assert_that_unify(e1, e2, "[b/W, c/Y, f(a)/Z]");
     }
 
@@ -1570,10 +1703,10 @@ mod tests {
         let f_b = t.f(b);
         let f_f_b = t.f(f_b);
         let e1 = t.h(f_f_b, x.clone());
-        assert_eq!(e1.to_string(), "h(f(f(b)), X)");
+        assert_eq!(t.unifier.term_string(&e1), "h(f(f(b)), X)");
         let f_y = t.f(y.clone());
         let e2 = t.h(f_y, x.clone());
-        assert_eq!(e2.to_string(), "h(f(Y), X)");
+        assert_eq!(t.unifier.term_string(&e2), "h(f(Y), X)");
         t.assert_that_unify(e1, e2, "[f(b)/Y]");
     }
 
@@ -1611,10 +1744,10 @@ mod tests {
         let y = t.var("Y");
         let a = t.atom("a");
         let e1 = t.h(x.clone(), a);
-        assert_eq!(e1.to_string(), "h(X, a)");
+        assert_eq!(t.unifier.term_string(&e1), "h(X, a)");
         let b = t.atom("b");
         let e2 = t.h(b, y.clone());
-        assert_eq!(e2.to_string(), "h(b, Y)");
+        assert_eq!(t.unifier.term_string(&e2), "h(b, Y)");
         t.assert_that_unify(e1, e2, "[b/X, a/Y]");
     }
 
@@ -1626,9 +1759,9 @@ mod tests {
         let a2 = t.atom("a");
         let b = t.atom("b");
         let e1 = t.f2(a1, x.clone());
-        assert_eq!(e1.to_string(), "f(a, X)");
+        assert_eq!(t.unifier.term_string(&e1), "f(a, X)");
         let e2 = t.f2(a2, b);
-        assert_eq!(e2.to_string(), "f(a, b)");
+        assert_eq!(t.unifier.term_string(&e2), "f(a, b)");
         t.assert_that_unify(e1, e2, "[b/X]");
     }
 
@@ -1649,9 +1782,9 @@ mod tests {
         let y = t.var("Y");
         let g_x = t.g(x.clone());
         let e1 = t.f2(g_x, x.clone()); // f with arity 2
-        assert_eq!(e1.to_string(), "f(g(X), X)");
+        assert_eq!(t.unifier.term_string(&e1), "f(g(X), X)");
         let e2 = t.f(y.clone()); // f with arity 1
-        assert_eq!(e2.to_string(), "f(Y)");
+        assert_eq!(t.unifier.term_string(&e2), "f(Y)");
         t.assert_that_cannot_unify(e1, e2);
     }
 
@@ -1674,9 +1807,9 @@ mod tests {
         let g_x = t.g(x.clone());
         let a = t.atom("a");
         let e1 = t.f2(g_x, x.clone());
-        assert_eq!(e1.to_string(), "f(g(X), X)");
+        assert_eq!(t.unifier.term_string(&e1), "f(g(X), X)");
         let e2 = t.f2(y.clone(), a);
-        assert_eq!(e2.to_string(), "f(Y, a)");
+        assert_eq!(t.unifier.term_string(&e2), "f(Y, a)");
         t.assert_that_unify(e1, e2, "[a/X, g(a)/Y]");
     }
 
@@ -1688,9 +1821,9 @@ mod tests {
         let bob = t.atom("bob");
         let tom = t.atom("tom");
         let e1 = t.father2(x.clone(), y.clone());
-        assert_eq!(e1.to_string(), "father(X, Y)");
+        assert_eq!(t.unifier.term_string(&e1), "father(X, Y)");
         let e2 = t.father2(bob, tom);
-        assert_eq!(e2.to_string(), "father(bob, tom)");
+        assert_eq!(t.unifier.term_string(&e2), "father(bob, tom)");
         t.assert_that_unify(e1, e2, "[bob/X, tom/Y]");
     }
 
@@ -1703,10 +1836,16 @@ mod tests {
         let mother_bill = t.mother(bill.clone());
         let father_x = t.father(x.clone());
         let e1 = t.parents(x.clone(), father_x, mother_bill);
-        assert_eq!(e1.to_string(), "parents(X, father(X), mother(bill))");
+        assert_eq!(
+            t.unifier.term_string(&e1),
+            "parents(X, father(X), mother(bill))"
+        );
         let father_bill = t.father(bill.clone());
         let e2 = t.parents(bill, father_bill, y.clone());
-        assert_eq!(e2.to_string(), "parents(bill, father(bill), Y)");
+        assert_eq!(
+            t.unifier.term_string(&e2),
+            "parents(bill, father(bill), Y)"
+        );
         t.assert_that_unify(e1, e2, "[bill/X, mother(bill)/Y]");
     }
 
@@ -1719,10 +1858,13 @@ mod tests {
         let parent_x = t.parent(x.clone());
         let parent_parent_x = t.parent(parent_x);
         let e1 = t.grand_parent(x.clone(), parent_parent_x);
-        assert_eq!(e1.to_string(), "grand_parent(X, parent(parent(X)))");
+        assert_eq!(
+            t.unifier.term_string(&e1),
+            "grand_parent(X, parent(parent(X)))"
+        );
         let parent_y = t.parent(y.clone());
         let e2 = t.grand_parent(john, parent_y);
-        assert_eq!(e2.to_string(), "grand_parent(john, parent(Y))");
+        assert_eq!(t.unifier.term_string(&e2), "grand_parent(john, parent(Y))");
         t.assert_that_unify(e1, e2, "[john/X, parent(john)/Y]");
     }
 
@@ -1735,9 +1877,9 @@ mod tests {
         let g_x = t.g(x.clone());
         let f_a = t.f(a);
         let e1 = t.h(f_a, g_x.clone());
-        assert_eq!(e1.to_string(), "h(f(a), g(X))");
+        assert_eq!(t.unifier.term_string(&e1), "h(f(a), g(X))");
         let e2 = t.h(y.clone(), y.clone());
-        assert_eq!(e2.to_string(), "h(Y, Y)");
+        assert_eq!(t.unifier.term_string(&e2), "h(Y, Y)");
         t.assert_that_cannot_unify(e1, e2);
     }
 
@@ -1751,24 +1893,24 @@ mod tests {
         let g_z = t.g(z.clone());
         let f_g_z = t.f(g_z);
         let e1 = t.p(a.clone(), x.clone(), f_g_z);
-        assert_eq!(e1.to_string(), "p(a, X, f(g(Z)))");
+        assert_eq!(t.unifier.term_string(&e1), "p(a, X, f(g(Z)))");
         let f_y = t.f(y.clone());
         let e2 = t.p(z.clone(), f_y.clone(), f_y);
-        assert_eq!(e2.to_string(), "p(Z, f(Y), f(Y))");
+        assert_eq!(t.unifier.term_string(&e2), "p(Z, f(Y), f(Y))");
         t.assert_that_unify(e1, e2, "[f(g(a))/X, g(a)/Y, a/Z]");
     }
 
     #[test]
     fn test17() {
         for occurs in [false, true] {
-            let mut t = create().with_occurs(occurs);
+            let mut t = create_with_occurs(occurs);
             let x = t.var("X");
             let y = t.var("Y");
             let e1 = t.h(x.clone(), x.clone());
-            assert_eq!(e1.to_string(), "h(X, X)");
+            assert_eq!(t.unifier.term_string(&e1), "h(X, X)");
             let f_y = t.f(y.clone());
             let e2 = t.h(y.clone(), f_y);
-            assert_eq!(e2.to_string(), "h(Y, f(Y))");
+            assert_eq!(t.unifier.term_string(&e2), "h(Y, f(Y))");
             if occurs {
                 t.assert_that_cannot_unify(e1, e2);
             } else {
@@ -1783,10 +1925,10 @@ mod tests {
         let w = t.var("W");
         let x = t.var("X");
         let e1 = t.part(w.clone(), x.clone()).as_term();
-        assert_eq!(e1.to_string(), "part(W, X)");
+        assert_eq!(t.unifier.term_string(&e1), "part(W, X)");
         let f_w_x = t.f2(w.clone(), x.clone());
         let e2 = t.connected(f_w_x, w.clone());
-        assert_eq!(e2.to_string(), "connected(f(W, X), W)");
+        assert_eq!(t.unifier.term_string(&e2), "connected(f(W, X), W)");
         t.assert_that_cannot_unify(e1, e2);
     }
 
@@ -1799,13 +1941,13 @@ mod tests {
         let f_x = t.f(x.clone());
         let a = t.atom("a");
         let e1 = t.p(f_x, a.clone(), y.clone());
-        assert_eq!(e1.to_string(), "p(f(X), a, Y)");
+        assert_eq!(t.unifier.term_string(&e1), "p(f(X), a, Y)");
         let bill = t.atom("bill");
         let f_bill = t.f(bill);
         let b = t.atom("b");
         let g_b = t.g(b);
         let e2 = t.p(f_bill, z.clone(), g_b);
-        assert_eq!(e2.to_string(), "p(f(bill), Z, g(b))");
+        assert_eq!(t.unifier.term_string(&e2), "p(f(bill), Z, g(b))");
         t.assert_that_unify(e1, e2, "[bill/X, g(b)/Y, a/Z]");
     }
 
@@ -1835,11 +1977,11 @@ mod tests {
         let a_7_6 = t.arrow(t7.clone(), t6.clone());
         let a_8_7_6 = t.arrow(t8.clone(), a_7_6);
         let a_9_7 = t.arrow(t9.clone(), t7.clone());
-        assert_eq!(a_1_2.to_string(), "->(T1, T2)");
-        assert_eq!(a_3_4.to_string(), "->(T3, T4)");
-        assert_eq!(a_5_6.to_string(), "->(T5, T6)");
-        assert_eq!(a_8_7_6.to_string(), "->(T8, ->(T7, T6))");
-        assert_eq!(a_9_7.to_string(), "->(T9, T7)");
+        assert_eq!(t.unifier.term_string(&a_1_2), "->(T1, T2)");
+        assert_eq!(t.unifier.term_string(&a_3_4), "->(T3, T4)");
+        assert_eq!(t.unifier.term_string(&a_5_6), "->(T5, T6)");
+        assert_eq!(t.unifier.term_string(&a_8_7_6), "->(T8, ->(T7, T6))");
+        assert_eq!(t.unifier.term_string(&a_9_7), "->(T9, T7)");
 
         let term_pairs = vec![
             (t0.clone(), a_1_2.clone()),
@@ -1863,7 +2005,7 @@ mod tests {
         match result {
             Ok(substitution) => {
                 let resolved = substitution.resolve();
-                assert_eq!(resolved.to_string(), expected);
+                assert_eq!(t.unifier.substitution_string(&resolved), expected);
             }
             Err(err) => panic!("Unification failed: {}", err.reason),
         }
@@ -1920,7 +2062,7 @@ mod tests {
         match result {
             Ok(substitution) => {
                 let resolved = substitution.resolve();
-                assert_eq!(resolved.to_string(), expected);
+                assert_eq!(t.unifier.substitution_string(&resolved), expected);
             }
             Err(err) => panic!("Unification failed: {}", err.reason),
         }
@@ -1953,10 +2095,9 @@ mod tests {
             fn(T21, T24) = T19
             T19 = T5
             fn(T1, T2) = T0"#;
-        let substitutions = UnifierTask::from_grammar(grammar)
-            .expect("Failed to parse grammar")
-            .unify()
-            .expect("Unify failed");
+        let task = UnifierTask::from_grammar(grammar)
+            .expect("Failed to parse grammar");
+        let substitutions = task.unify().expect("Unify failed");
         let expected = "[\
             int/T3, \
             int/T4, \
@@ -1984,7 +2125,10 @@ mod tests {
             int/T24, \
             fn(tuple(int, int), int)/T19, \
             fn(tuple(int, int), int)/T0]";
-        assert_eq!(substitutions.resolve().to_string(), expected);
+        assert_eq!(
+            task.unifier().substitution_string(&substitutions.resolve()),
+            expected
+        );
     }
 
     #[test]
@@ -2032,7 +2176,12 @@ list(int)/T21, \
 tuple(bool, list(int), list(int))/T18, \
 T0/T22, \
 fn(tuple(bool, list(int), list(int)), T0)/T17]";
-        assert_eq!(substitution.resolve().to_string(), expected);
+        assert_eq!(
+            unifier_task
+                .unifier()
+                .substitution_string(&substitution.resolve()),
+            expected
+        );
     }
 
     #[test]
@@ -2042,9 +2191,9 @@ fn(tuple(bool, list(int), list(int)), T0)/T17]";
         let b = t.atom("b");
         let a = t.atom("a");
         let pairs = t.term_pairs(&[b.clone(), x.clone(), a.clone(), x.clone()]);
-        assert_eq!(b.to_string(), "b");
-        assert_eq!(a.to_string(), "a");
-        assert_eq!(x.to_string(), "X");
+        assert_eq!(t.unifier.term_string(&b), "b");
+        assert_eq!(t.unifier.term_string(&a), "a");
+        assert_eq!(t.unifier.term_string(&x), "X");
         t.assert_that_cannot_unify_pairs(&pairs);
     }
 
@@ -2063,10 +2212,10 @@ fn(tuple(bool, list(int), list(int)), T0)/T17]";
             b.clone(),
             x.clone(),
         ]);
-        assert_eq!(a1.to_string(), "a");
-        assert_eq!(a2.to_string(), "a");
-        assert_eq!(b.to_string(), "b");
-        assert_eq!(x.to_string(), "X");
+        assert_eq!(t.unifier.term_string(&a1), "a");
+        assert_eq!(t.unifier.term_string(&a2), "a");
+        assert_eq!(t.unifier.term_string(&b), "b");
+        assert_eq!(t.unifier.term_string(&x), "X");
         t.assert_that_cannot_unify_pairs(&pairs);
     }
 
@@ -2078,9 +2227,9 @@ fn(tuple(bool, list(int), list(int)), T0)/T17]";
         let a2 = t.atom("a");
         let pairs =
             t.term_pairs(&[a1.clone(), x.clone(), a2.clone(), x.clone()]);
-        assert_eq!(a1.to_string(), "a");
-        assert_eq!(a2.to_string(), "a");
-        assert_eq!(x.to_string(), "X");
+        assert_eq!(t.unifier.term_string(&a1), "a");
+        assert_eq!(t.unifier.term_string(&a2), "a");
+        assert_eq!(t.unifier.term_string(&x), "X");
         t.assert_that_unify_pairs(&pairs, "[a/X]");
     }
 
@@ -2172,6 +2321,9 @@ string = T0
             int/T5, \
             int/T7, \
             string/T0]";
-        assert_eq!(x.resolve().to_string(), expected);
+        assert_eq!(
+            unifier_task.unifier().substitution_string(&x.resolve()),
+            expected
+        );
     }
 }

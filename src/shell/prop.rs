@@ -443,15 +443,15 @@ mod tests {
         assert_eq!(Prop::LineWidth.get_int(&shell_config), 79);
 
         let session_config = SessionConfig::default();
-        assert_eq!(Prop::Hybrid.get_bool(&session_config), false);
+        assert!(!Prop::Hybrid.get_bool(&session_config));
         assert_eq!(Prop::Output.get_output(&session_config), Output::Classic);
 
         let mut session_config2 = SessionConfig::default();
-        assert_eq!(Prop::Hybrid.get_bool(&session_config2), false);
+        assert!(!Prop::Hybrid.get_bool(&session_config2));
         Prop::Hybrid.set_bool(&mut session_config2, true);
-        assert_eq!(Prop::Hybrid.get_bool(&session_config2), true);
+        assert!(Prop::Hybrid.get_bool(&session_config2));
         Prop::Hybrid.set_bool(&mut session_config2, false);
-        assert_eq!(Prop::Hybrid.get_bool(&session_config2), false);
+        assert!(!Prop::Hybrid.get_bool(&session_config2));
 
         let mut shell_config2 = Config::default();
         Prop::LineWidth.set_int(&mut shell_config2, 100);

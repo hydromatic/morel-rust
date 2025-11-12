@@ -382,14 +382,14 @@ impl FileType {
     /// or `None` if no header is needed.
     fn for_file(file_name: &str) -> Self {
         let suffix = file_name.split('.').next_back();
-        if let Some(suffix) = suffix {
-            if let Some(format) = SUFFIX_MAP.get(suffix) {
-                return FileType {
-                    header: Some(format.header()),
-                    text: true,
-                    max_line_length: format.max_line_length,
-                };
-            }
+        if let Some(suffix) = suffix
+            && let Some(format) = SUFFIX_MAP.get(suffix)
+        {
+            return FileType {
+                header: Some(format.header()),
+                text: true,
+                max_line_length: format.max_line_length,
+            };
         }
         FileType {
             header: None,
@@ -515,9 +515,9 @@ fn test_smli_coverage() {
 
         if !missing_tests.is_empty() {
             missing_tests.sort();
-            error_msg.push_str(&format!(
-                "\n.smli files without corresponding test in smile.rs:\n"
-            ));
+            error_msg.push_str(
+                "\n.smli files without corresponding test in smile.rs:\n",
+            );
             for file in missing_tests {
                 let expected_fn = smli_to_fn_name(&file);
                 error_msg.push_str(&format!(
@@ -529,9 +529,9 @@ fn test_smli_coverage() {
 
         if !extra_tests.is_empty() {
             extra_tests.sort();
-            error_msg.push_str(&format!(
-                "\nTest functions without corresponding .smli file:\n"
-            ));
+            error_msg.push_str(
+                "\nTest functions without corresponding .smli file:\n",
+            );
             for test in extra_tests {
                 error_msg.push_str(&format!("  - {}\n", test));
             }

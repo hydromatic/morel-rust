@@ -208,15 +208,25 @@ impl UnifierTask {
         let tracer = NullTracer; // switch to PrintTracer for debugging
         self.unifier.unify(self.pairs.as_slice(), &tracer, &[])
     }
+
+    /// Returns a reference to the unifier.
+    pub fn unifier(&self) -> &Unifier {
+        &self.unifier
+    }
 }
 
 /// Converts a list of term-pairs to a program
 pub fn generate_program(
+    unifier: &unifier::Unifier,
     term_pairs: &[(unifier::Term, unifier::Term)],
 ) -> String {
     let mut s = String::new();
     for p in term_pairs {
-        s.push_str(&format!("{} = {}\n", p.0, p.1));
+        s.push_str(&format!(
+            "{} = {}\n",
+            unifier.term_string(&p.0),
+            unifier.term_string(&p.1),
+        ));
     }
     s
 }
