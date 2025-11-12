@@ -269,10 +269,14 @@ impl Env {
         &self,
         map: &BTreeMap<&str, (Type, Option<Val>)>,
     ) -> Env {
-        let mut map2 = self.map.clone();
-        for entry in map {
-            map2 = map2.update(entry.0.to_string(), entry.1.clone());
+        if map.is_empty() {
+            return self.clone();
         }
+
+        // Optimization: Use from_iter for batch construction.
+        // This is more efficient than chaining updates.
+        let new_entries = map.iter().map(|(k, v)| (k.to_string(), v.clone()));
+        let map2 = self.map.clone().union(HashMap::from_iter(new_entries));
         Self::with(map2)
     }
 
