@@ -874,12 +874,24 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "translate"))]
     #[strum(props(type = "(char -> string) -> string -> string"))]
     StringTranslate,
+    #[strum(props(p = "Sys", name = "clearEnv", global = true))]
+    #[strum(props(type = "unit -> unit"))]
+    SysClearEnv,
+    #[strum(props(p = "Sys", name = "env", global = true))]
+    #[strum(props(type = "unit -> (string * string) list"))]
+    SysEnv,
     #[strum(props(p = "Sys", name = "plan", global = true))]
     #[strum(props(type = "unit -> string"))]
     SysPlan,
     #[strum(props(p = "Sys", name = "set", global = true))]
     #[strum(props(type = "forall 1 string * 'a -> unit"))]
     SysSet,
+    #[strum(props(p = "Sys", name = "show", global = true))]
+    #[strum(props(type = "string -> string option"))]
+    SysShow,
+    #[strum(props(p = "Sys", name = "showAll", global = true))]
+    #[strum(props(type = "unit -> (string * string option) list"))]
+    SysShowAll,
     #[strum(props(p = "Sys", name = "unset", global = true))]
     #[strum(props(type = "string -> unit"))]
     SysUnset,

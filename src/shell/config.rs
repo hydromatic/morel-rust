@@ -27,6 +27,7 @@ pub struct Config {
     pub idempotent: Option<bool>,
     pub line_width: Option<i32>,
     pub mode: Option<Mode>,
+    pub optional_int: Option<i32>,
     pub output: Option<Output>,
     pub print_depth: Option<i32>,
     pub print_length: Option<i32>,
@@ -42,6 +43,7 @@ impl Default for Config {
             idempotent: Some(Prop::Idempotent.default_value().as_bool()),
             line_width: Some(Prop::LineWidth.default_value().as_int()),
             mode: Some(Prop::Mode.default_value().as_mode()),
+            optional_int: None,
             output: Some(Prop::Output.default_value().as_output()),
             print_depth: Some(Prop::PrintDepth.default_value().as_int()),
             print_length: Some(Prop::PrintLength.default_value().as_int()),
@@ -128,7 +130,9 @@ impl Configurable for Config {
                     prop.default_value()
                 }
             }
-            _ => todo!("set {}", prop.name()),
+            // For read-only properties (Banner, ProductName, ProductVersion,
+            // etc.), return the default value.
+            _ => prop.default_value(),
         }
     }
 }

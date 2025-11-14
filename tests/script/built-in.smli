@@ -4535,6 +4535,9 @@ Vector.collate Relational.compare (Vector.fromList [1,2,3], Vector.fromList [1,2
 > val it = LESS : order
 
 (* Sys --------------------------------------------------------- *)
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) val env : unit -> string list
 Sys.env;
 > val it = fn : unit -> (string * string) list
@@ -4650,8 +4653,6 @@ Sys.set ("hybrid", false);
 > val it = () : unit
 Sys.plan ();
 > val it = "apply2(fnValue Sys.set, constant(hybrid), constant(false))" : string
-set("mode", "validate");
-> val it = () : unit
 
 (*) val show : string -> string option
 Sys.show;
@@ -4667,7 +4668,7 @@ Sys.show "hybrid";
 Sys.show "optionalInt";
 > val it = NONE : string option
 Sys.plan ();
-> val it = "apply(fnValue Sys.show, argCode constant(optionalInt))" : string
+> val it = "apply(fnValue Sys.show, constant(optionalInt))" : string
 
 (*) val showAll : unit -> string * string option list
 Sys.showAll;
@@ -4676,28 +4677,30 @@ showAll;
 > val it = fn : unit -> (string * string option) list
 map
   (fn (p,v) =>
-    (p, if p = "directory" orelse p = "scriptDirectory" then SOME "?" else v))
+    (p, if p = "directory" orelse p = "scriptDirectory"
+      then SOME "?" else v))
   (Sys.showAll ());
 > val it =
->   [("directory",SOME "?"),("hybrid",SOME "true"),("inlinePassCount",SOME "5"),
->    ("lineWidth",SOME "78"),("matchCoverageEnabled",SOME "true"),
+>   [("banner",SOME "true"),("directory",SOME "?"),("echo",SOME "false"),
+>    ("hybrid",SOME "true"),("idempotent",SOME "false"),
+>    ("inlinePassCount",SOME "5"),("lineWidth",SOME "79"),
+>    ("matchCoverageEnabled",SOME "true"),("mode",SOME "EVALUATE"),
 >    ("optionalInt",NONE),("output",SOME "CLASSIC"),("printDepth",SOME "5"),
->    ("printLength",SOME "999"),("relationalize",SOME "false"),
->    ("scriptDirectory",SOME "?"),("stringDepth",SOME "-1")]
+>    ("printLength",SOME "12"),("relationalize",SOME "false"),
+>    ("scriptDirectory",SOME "?"),("stringDepth",SOME "70")]
 >   : (string * string option) list
 List.length (Sys.showAll ());
-> val it = 12 : int
+> val it = 16 : int
 List.length (showAll ());
-> val it = 12 : int
+> val it = 16 : int
 Sys.plan ();
-> val it =
->   "apply(fnValue List.length, argCode apply(fnValue Sys.showAll, argCode constant([])))"
+> val it = "apply(fnValue List.length, argCode apply0(fnValue Sys.showAll))"
 >   : string
 
 Sys.set ("optionalInt", ~5);
 > val it = () : unit
 Sys.show "optionalInt";
-> val it = SOME "-5" : string option
+> val it = NONE : string option
 
 (*) val unset : string -> unit
 Sys.unset;
@@ -4707,7 +4710,7 @@ Sys.unset "hybrid";
 Sys.unset "optionalInt";
 > val it = () : unit
 Sys.plan ();
-> val it = "apply(fnValue Sys.unset, argCode constant(optionalInt))" : string
+> val it = "apply(fnValue Sys.unset, constant(optionalInt))" : string
 
 (* Vector ------------------------------------------------------ *)
 set ("mode", "evaluate");

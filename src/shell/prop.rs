@@ -16,6 +16,7 @@
 // License.
 
 use std::fmt;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -81,6 +82,26 @@ impl PropVal {
     }
 }
 
+impl Display for PropVal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            // lint: sort until '#}' where '#PropVal::'
+            PropVal::Bool(b) => write!(f, "{}", b),
+            PropVal::Int(i) => write!(f, "{}", i),
+            PropVal::Mode(m) => {
+                let s = format!("{:?}", m).to_uppercase();
+                write!(f, "{}", s)
+            }
+            PropVal::Output(o) => {
+                let s = format!("{:?}", o).to_uppercase();
+                write!(f, "{}", s)
+            }
+            PropVal::PathBuf(p) => write!(f, "{}", p.to_string_lossy()),
+            PropVal::String(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 macro_rules! define_props {
     ($(
         $variant:ident => {
@@ -140,8 +161,8 @@ macro_rules! define_props {
                 let lower_name = prop_name.to_lowercase();
 
                 $(
-                    if upper_name == stringify!($variant)
-                        || lower_name == $camel
+                    if upper_name == stringify!($variant).to_uppercase()
+                        || lower_name == $camel.to_lowercase()
                     {
                         return Some(Prop::$variant);
                     }

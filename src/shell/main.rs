@@ -24,7 +24,7 @@
 use crate::compile::inliner::Env;
 use crate::compile::library::BuiltInExn;
 use crate::compile::resolver;
-use crate::compile::type_env::Binding;
+use crate::compile::type_env::{Binding, EmptyTypeEnv, FunTypeEnv, TypeEnv};
 use crate::compile::type_resolver::Resolved;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::{compiler, inliner, library};
@@ -118,6 +118,10 @@ impl Shell {
                 self.config.mode = val.expect_string().parse().ok();
                 Ok(())
             }
+            "optionalInt" => {
+                self.config.optional_int = Some(val.expect_int());
+                Ok(())
+            }
             "printDepth" => {
                 self.config.print_depth = Some(val.expect_int());
                 Ok(())
@@ -147,6 +151,10 @@ impl Shell {
             }
             "mode" => {
                 self.config.mode = None;
+                Ok(())
+            }
+            "optionalInt" => {
+                self.config.optional_int = None;
                 Ok(())
             }
             "printDepth" => {
@@ -489,6 +497,19 @@ impl Shell {
                 // lint: sort until '#}' where '##Effect::'
                 Effect::AddBinding(binding) => {
                     bindings.push(binding);
+                }
+                Effect::ClearEnv => {
+                    // Clear all user-defined bindings.
+                    bindings.clear();
+                    let mut session = self.session.borrow_mut();
+                    session.type_bindings.clear();
+
+                    // Reset type_env to initial state (FunTypeEnv).
+                    let empty_type_env = EmptyTypeEnv {};
+                    let type_env = FunTypeEnv {
+                        parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
+                    };
+                    session.type_env = Rc::new(type_env) as Rc<dyn TypeEnv>;
                 }
                 Effect::EmitCode(code) => {
                     self.session.borrow_mut().code = Some(code);

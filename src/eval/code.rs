@@ -37,6 +37,7 @@ use crate::eval::string::Str;
 use crate::eval::val::Val;
 use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
+use crate::shell::prop::{Configurable, Prop};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
@@ -75,6 +76,8 @@ pub enum Effect {
     // lint: sort until '#}' where '##[A-Z]'
     /// Adds a binding to the environment.
     AddBinding(Binding),
+    /// Clears the environment.
+    ClearEnv,
     /// Emits a piece of code.
     EmitCode(Arc<Code>),
     /// Emits an output line.
@@ -814,6 +817,12 @@ impl Display for Code {
                     code1,
                 )
             }
+            Self::NativeF0(eager) => {
+                write!(f, "apply0(fnValue {})", eager.plan(),)
+            }
+            Self::NativeF1(eager, code0) => {
+                write!(f, "apply(fnValue {}, {})", eager.plan(), code0,)
+            }
             Self::NativeF2(eager, code0, code1) => {
                 write!(
                     f,
@@ -1081,19 +1090,73 @@ impl Eager0 {
 
 /// Function implementation that takes no arguments and an evaluation
 /// environment.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
+#[allow(clippy::enum_variant_names)]
 pub enum EagerF0 {
     // lint: sort until '#}'
+    SysClearEnv,
+    SysEnv,
     SysPlan,
+    SysShowAll,
 }
 
 impl EagerF0 {
+    fn plan(&self) -> String {
+        camel_to_dotted(&self.to_string())
+    }
+
     fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) -> Val {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::EagerF0::*;
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            SysClearEnv => {
+                // Reset the session environment to the initial state.
+                // Emit an effect to clear the environment.
+                r.emit_effect(Effect::ClearEnv);
+                Val::Unit
+            }
+            SysEnv => {
+                // Return a list of (name, type) pairs for all variables in
+                // the environment, including built-in structures.
+                let mut pairs: Vec<(String, String)> = Vec::new();
+
+                // Add all built-in structures.
+                for record in BuiltInRecord::iter() {
+                    let name = record.name();
+                    if let Some(ty) = record.get_type() {
+                        pairs.push((name.to_string(), format!("{}", ty)));
+                    }
+                }
+
+                // Add constructors
+                for f in BuiltInFunction::iter() {
+                    if f.is_constructor() {
+                        pairs.push((
+                            f.name().to_string(),
+                            format!("{}", f.get_type()),
+                        ));
+                    }
+                }
+
+                // Add user-defined variables from type_bindings.
+                for (name, ty) in &r.session.type_bindings {
+                    pairs.push((name.clone(), format!("{}", ty)));
+                }
+
+                // Sort by name for consistent output.
+                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+
+                // Convert to Val::List of tuples (represented as lists).
+                let vals: Vec<Val> = pairs
+                    .into_iter()
+                    .map(|(name, ty)| {
+                        Val::List(vec![Val::String(name), Val::String(ty)])
+                    })
+                    .collect();
+                Val::List(vals)
+            }
             SysPlan => {
                 let s = if let Some(c) = r.session.code.as_ref() {
                     if let Code::Fn(_, matches) = c.deref()
@@ -1107,6 +1170,24 @@ impl EagerF0 {
                     "".to_string()
                 };
                 Val::String(s)
+            }
+            SysShowAll => {
+                // Return a list of (property_name, SOME value | NONE) pairs.
+                let props = Prop::all();
+                let vals: Vec<Val> = props
+                    .iter()
+                    .map(|prop| {
+                        let name = prop.camel_name().to_string();
+                        let value = if prop.is_required() {
+                            let val = r.session.config.get(*prop);
+                            Val::Some(Box::new(Val::String(val.to_string())))
+                        } else {
+                            Val::Unit // NONE is represented as Unit
+                        };
+                        Val::List(vec![Val::String(name), value])
+                    })
+                    .collect();
+                Val::List(vals)
             }
         }
     }
@@ -1125,13 +1206,18 @@ impl EagerF0 {
 /// are eagerly evaluated before the function is called -- but allows the
 /// implementation to have side effects such as modifying the state of the
 /// session.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF1 {
     // lint: sort until '#}'
+    SysShow,
     SysUnset,
 }
 
 impl EagerF1 {
+    fn plan(&self) -> String {
+        camel_to_dotted(&self.to_string())
+    }
+
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
         if b.fn_impls.insert(f, Impl::EF1(*self)).is_some() {
             panic!("Already implemented {:?}", f);
@@ -1151,6 +1237,21 @@ impl EagerF1 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            SysShow => {
+                // Return SOME(value) or NONE for the given property.
+                let prop_name = a0.expect_string();
+                let result = if let Some(prop) = Prop::lookup(&prop_name) {
+                    if prop.is_required() {
+                        let val = r.session.config.get(prop);
+                        Val::Some(Box::new(Val::String(val.to_string())))
+                    } else {
+                        Val::Unit // NONE is represented as Unit
+                    }
+                } else {
+                    Val::Unit // NONE is represented as Unit
+                };
+                Ok(result)
+            }
             SysUnset => {
                 let prop = a0.expect_string();
                 r.emit_effect(Effect::UnsetShellProp(prop));
@@ -2657,8 +2758,12 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF4::StringSubstring.implements(&mut b, StringSubstring);
     EagerF2::StringTokens.implements(&mut b, StringTokens);
     EagerF2::StringTranslate.implements(&mut b, StringTranslate);
+    EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
+    EagerF0::SysEnv.implements(&mut b, SysEnv);
     EagerF0::SysPlan.implements(&mut b, SysPlan);
     EagerF2::SysSet.implements(&mut b, SysSet);
+    EagerF1::SysShow.implements(&mut b, SysShow);
+    EagerF0::SysShowAll.implements(&mut b, SysShowAll);
     EagerF1::SysUnset.implements(&mut b, SysUnset);
     Eager1::Vector.implements(&mut b, Vector);
     EagerF2::VectorAll.implements(&mut b, VectorAll);
