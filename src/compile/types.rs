@@ -154,7 +154,10 @@ impl Type {
     ) -> std::fmt::Result {
         match self {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(name, _, _) => f.write_str(name),
+            Type::Alias(_name, ty, _args) => {
+                // For type aliases, just display the underlying type.
+                ty.describe(f, left, right)
+            }
             Type::Bag(elem_type) => {
                 const OP: Op = Op::APPLY;
                 if left > OP.left || right > OP.right {
@@ -176,6 +179,18 @@ impl Type {
                 write!(f, " -> ")?;
                 result.describe(f, OP.right, right)
             }
+            Type::Forall(ty, param_count) => {
+                // Display forall types with their parameters.
+                write!(f, "forall ")?;
+                for i in 0..*param_count {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "'{}", (b'a' + i as u8) as char)?;
+                }
+                write!(f, ". ")?;
+                ty.describe(f, 0, 0)
+            }
             Type::List(elem_type) => {
                 const OP: Op = Op::APPLY;
                 if left > OP.left || right > OP.right {
@@ -187,7 +202,10 @@ impl Type {
                 write!(f, " list")
             }
             Type::Named(args, name) | Type::Data(name, args) => {
-                if args.len() == 1 {
+                if args.is_empty() {
+                    // No type arguments, just print the name
+                    f.write_str(name)
+                } else if args.len() == 1 {
                     // For single type argument, use APPLY precedence
                     const OP: Op = Op::APPLY;
                     args.first().unwrap().describe(f, left, OP.right)?;
@@ -223,7 +241,7 @@ impl Type {
                 Ok(())
             }
             Type::Variable(var) => f.write_str(var.name().as_str()),
-            _ => todo!(),
+            _ => write!(f, "<unknown type>"),
         }
     }
 
@@ -412,7 +430,7 @@ impl Op {
 
     /// The list operator has a low precedence. An example is `(int, string)`
     /// that appears before the type application `(int, string) tree`.
-    pub const LIST: Op = Op::new(16, 17, "(", ", ", ")", true);
+    pub const LIST: Op = Op::new(16, 17, "(", ",", ")", true);
 
     /// The function arrow "->" is right-associative and has a lower precedence
     /// than the tuple constructor "*".

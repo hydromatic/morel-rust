@@ -441,7 +441,6 @@ Exception:
 | Bag.exists | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; bool | "exists f b" applies `f` to each element `x` of the bag `b`, in arbitrary order, until `f(x)` evaluates to `true`; it returns `true` if such an `x` exists and `false` otherwise. |
 | Bag.all | (&alpha; &rarr; bool) &rarr; &alpha; bag &rarr; bool | "all f b" applies `f` to each element `x` of the bag `b`, in arbitrary order, until `f(x)` evaluates to `false`; it returns `false` if such an `x` exists and `true` otherwise. It is equivalent to `not(exists (not o f) b))`. |
 | Bag.tabulate | int * (int &rarr; &alpha;) &rarr; &alpha; bag | "tabulate (n, f)" returns a bag of length `n` equal to `[f(0), f(1), ..., f(n-1)]`. This is equivalent to the expression:  <pre>fromList (List.tabulate (n, f))</pre>  Raises `Size` if `n` &lt; 0. |
-| Bag.collate | (&alpha; * &alpha; &rarr; order) &rarr; &alpha; bag * &alpha; bag &rarr; order | "collate f (l1, l2)" performs lexicographic comparison of the two bags using the given ordering `f` on the bag elements. |
 | Bool.fromString | string &rarr; bool option | "fromString s" scans a `bool` value from the string `s`. Returns `SOME (true)` if `s` is "true", `SOME (false)` if `s` is "false", and `NONE` otherwise. |
 | Bool.implies | bool * bool &rarr; bool | "b1 implies b2" returns `true` if `b1` is `false` or `b2` is `true`. |
 | Bool.not | bool &rarr; bool | "not b" returns the logical negation of the boolean value `b`. |

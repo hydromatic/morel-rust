@@ -77,12 +77,6 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bag", name = "@"))]
     #[strum(props(type = "forall 1 'a bag * 'a bag -> 'a bag"))]
     BagAt,
-    #[strum(props(p = "Bag", name = "collate"))]
-    #[strum(props(
-        type = "forall 1 ('a * 'a -> `order`) -> 'a bag * 'a bag -> \
-                `order`"
-    ))]
-    BagCollate,
     #[strum(props(p = "Bag", name = "concat"))]
     #[strum(props(type = "forall 1 'a bag list -> 'a bag"))]
     BagConcat,
@@ -508,7 +502,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
     ListDrop,
     #[strum(props(p = "List", name = "except"))]
-    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    #[strum(props(type = "forall 1 'a list list -> 'a list"))]
     ListExcept,
     #[strum(props(p = "List", name = "exists"))]
     #[strum(props(type = "forall 1 ('a -> bool) -> 'a list -> bool"))]
@@ -532,7 +526,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a list -> 'a"))]
     ListHd,
     #[strum(props(p = "List", name = "intersect"))]
-    #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
+    #[strum(props(type = "forall 1 'a list list -> 'a list"))]
     ListIntersect,
     #[strum(props(p = "List", name = "last", throws = "Empty"))]
     #[strum(props(type = "forall 1 'a list -> 'a"))]
@@ -887,7 +881,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 string * 'a -> unit"))]
     SysSet,
     #[strum(props(p = "Sys", name = "unset", global = true))]
-    #[strum(props(type = "forall 1 string -> unit"))]
+    #[strum(props(type = "string -> unit"))]
     SysUnset,
     /// `vector` is a synonym for `Vector.fromList`
     #[strum(props(name = "vector", global = true, throws = "Size"))]

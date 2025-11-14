@@ -21,6 +21,7 @@ use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 /// Support for the `list` built-in type and the `List` structure.
 pub struct List;
@@ -121,12 +122,23 @@ impl List {
     }
 
     /// Returns the elements that are in list1 but not in list2.
-    pub(crate) fn except(list1: &[Val], list2: &[Val]) -> Vec<Val> {
-        list1
-            .iter()
-            .filter(|v| !list2.contains(v))
-            .cloned()
-            .collect()
+    pub(crate) fn except(lists: &[Val]) -> Vec<Val> {
+        match lists.len() {
+            0 => Vec::new(),
+            1 => lists[0].expect_list().to_vec(),
+            _ => {
+                let hd_list = lists[0].expect_list();
+                let mut tl_sets: Vec<HashSet<&Val>> = Vec::new();
+                for list in &lists[1..] {
+                    tl_sets.push(HashSet::from_iter(list.expect_list()));
+                }
+                hd_list
+                    .iter()
+                    .filter(|v| !tl_sets.iter().any(|set| set.contains(v)))
+                    .cloned()
+                    .collect()
+            }
+        }
     }
 
     /// Applies f to each element x of the list l, from left to right, until
@@ -239,13 +251,24 @@ impl List {
         }
     }
 
-    /// Returns the list of elements that are in both list1 and list2.
-    pub(crate) fn intersect(list1: &[Val], list2: &[Val]) -> Vec<Val> {
-        list1
-            .iter()
-            .filter(|v| list2.contains(v))
-            .cloned()
-            .collect()
+    /// Returns the list of elements that are in all lists.
+    pub(crate) fn intersect(lists: &[Val]) -> Vec<Val> {
+        match lists.len() {
+            0 => Vec::new(),
+            1 => lists[0].expect_list().to_vec(),
+            _ => {
+                let hd_list = lists[0].expect_list();
+                let mut tl_sets: Vec<HashSet<&Val>> = Vec::new();
+                for list in &lists[1..] {
+                    tl_sets.push(HashSet::from_iter(list.expect_list()));
+                }
+                hd_list
+                    .iter()
+                    .filter(|v| tl_sets.iter().all(|set| set.contains(v)))
+                    .cloned()
+                    .collect()
+            }
+        }
     }
 
     /// Returns the last element of the list.
