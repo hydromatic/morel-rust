@@ -392,4 +392,13 @@ datatype `foo bar baz` = `Foo Bar` of {a: int, b: string} | Baz of int;
 `Foo Bar`;
 > val it = fn : {a:int, b:string} -> foo bar baz
 
+(*) Nested data types.
+set("mode", "evaluate");
+> val it = () : unit
+SOME (SOME 1);
+> val it = SOME (SOME 1) : int option option
+SOME (INL (INR 1));
+> val it = SOME (INL (INR 1)) : (('a,int) either,'b) either option
+SOME [SOME (SOME 1), NONE];
+> val it = SOME [SOME (SOME 1),NONE] : int option option list option
 (*) End datatype.smli
