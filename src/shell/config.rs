@@ -38,7 +38,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             // lint: sort until '^ *}'
-            banner: Some(Prop::Banner.default_value().as_bool()),
+            banner: Some(true), // Default: show banner
             echo: Some(Prop::Echo.default_value().as_bool()),
             idempotent: Some(Prop::Idempotent.default_value().as_bool()),
             line_width: Some(Prop::LineWidth.default_value().as_int()),
@@ -56,9 +56,6 @@ impl Configurable for Config {
     fn set(&mut self, prop: Prop, val: &PropVal) {
         match (prop, val) {
             // lint: sort until '#}' where '##\(Prop::'
-            (Prop::Banner, PropVal::Bool(b)) => {
-                self.banner = Some(*b);
-            }
             (Prop::LineWidth, PropVal::Int(i)) => {
                 self.line_width = Some(*i);
             }
@@ -71,6 +68,9 @@ impl Configurable for Config {
             (Prop::PrintLength, PropVal::Int(i)) => {
                 self.print_length = Some(*i);
             }
+            (Prop::ShowBanner, PropVal::Bool(b)) => {
+                self.banner = Some(*b);
+            }
             (Prop::StringDepth, PropVal::Int(i)) => {
                 self.string_depth = Some(*i);
             }
@@ -81,13 +81,6 @@ impl Configurable for Config {
     fn get(&self, prop: Prop) -> PropVal {
         match prop {
             // lint: sort until '#}' where '##Prop::'
-            Prop::Banner => {
-                if let Some(b) = self.banner {
-                    PropVal::Bool(b)
-                } else {
-                    prop.default_value()
-                }
-            }
             Prop::Echo => {
                 if let Some(b) = self.echo {
                     PropVal::Bool(b)
@@ -119,6 +112,13 @@ impl Configurable for Config {
             Prop::PrintLength => {
                 if let Some(i) = self.print_length {
                     PropVal::Int(i)
+                } else {
+                    prop.default_value()
+                }
+            }
+            Prop::ShowBanner => {
+                if let Some(b) = self.banner {
+                    PropVal::Bool(b)
                 } else {
                     prop.default_value()
                 }

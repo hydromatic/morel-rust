@@ -15,7 +15,6 @@
 // language governing permissions and limitations under the
 // License.
 
-use std::fmt;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -242,13 +241,42 @@ macro_rules! define_props {
     };
 }
 
+/// Creates the banner string for the Morel shell.
+pub fn create_banner() -> String {
+    let morel_version = env!("CARGO_PKG_VERSION");
+
+    // Get Rust compiler version
+    let rust_version = rustc_version::version()
+        .map_or_else(|_| "unknown".to_string(), |v| v.to_string());
+
+    // Check if running under WASM
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Get wasm-bindgen version from environment
+        let wasm_core = env!("CARGO_PKG_VERSION_MAJOR");
+        format!(
+            "morel-rust version {} (rust version {}, wasm32 core {}.0)",
+            morel_version, rust_version, wasm_core
+        )
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        format!(
+            "morel-rust version {} (rust version {})",
+            morel_version, rust_version
+        )
+    }
+}
+
 define_props! {
     // lint: sort until '#}' where '##[A-Za-z]+'
     Banner => {
-        doc: "Boolean property 'banner' controls whether to print the banner \
-              at the start of the shell. Default is true.",
+        doc: "String property 'banner' is the startup banner message \
+              displayed when launching the Morel shell. This property is \
+              read-only and should not be modified via Sys.set.",
         camel_name: "banner",
-        default: Some(PropVal::Bool(true)),
+        default: Some(PropVal::String(Rc::new(create_banner()))),
         required: true,
     },
 
@@ -359,6 +387,26 @@ define_props! {
         required: true,
     },
 
+    ProductName => {
+        doc: "String property 'productName' is the name of the Morel \
+              product. This property is read-only and should not be \
+              modified via Sys.set.",
+        camel_name: "productName",
+        default: Some(PropVal::String(Rc::new("morel-rust".to_string()))),
+        required: true,
+    },
+
+    ProductVersion => {
+        doc: "String property 'productVersion' is the current version of \
+              Morel. This property is read-only and should not be modified \
+              via Sys.set.",
+        camel_name: "productVersion",
+        default: Some(PropVal::String(Rc::new(
+            env!("CARGO_PKG_VERSION").to_string()
+        ))),
+        required: true,
+    },
+
     Relationalize => {
         doc: "Boolean property 'relationalize' controls conversion to \
                 relational algebra. Default is false.",
@@ -374,6 +422,14 @@ define_props! {
                the script.",
         camel_name: "scriptDirectory",
         default: Some(PropVal::String(Rc::new(String::new()))),
+        required: true,
+    },
+
+    ShowBanner => {
+        doc: "Boolean property 'showBanner' controls whether to print the \
+              banner at the start of the shell. Default is true.",
+        camel_name: "showBanner",
+        default: Some(PropVal::Bool(true)),
         required: true,
     },
 
@@ -397,8 +453,8 @@ pub enum Output {
     Tabular,
 }
 
-impl fmt::Display for Output {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Output {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Output::Classic => write!(f, "CLASSIC"),
             Output::Tabular => write!(f, "TABULAR"),
@@ -482,8 +538,11 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 16);
+        assert_eq!(all_props.len(), 19);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
+        assert!(all_props.contains(&Prop::ProductName));
+        assert!(all_props.contains(&Prop::ProductVersion));
+        assert!(all_props.contains(&Prop::ShowBanner));
     }
 }

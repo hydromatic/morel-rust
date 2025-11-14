@@ -35,11 +35,10 @@ use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::prop::Mode;
+use crate::shell::prop::{Mode, create_banner};
 use crate::shell::utils::prefix_lines;
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
-use rustc_version::version;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display, Formatter};
@@ -221,7 +220,7 @@ impl Shell {
         let mut writer = BufWriter::new(output);
 
         if self.config.banner.unwrap() {
-            writeln!(writer, "{}", Self::banner().as_str())?;
+            writeln!(writer, "{}", create_banner().as_str())?;
             writer.flush()?;
         }
 
@@ -301,15 +300,6 @@ impl Shell {
 
             writer.flush()?;
         }
-    }
-
-    fn banner() -> String {
-        let rustc_version = version().unwrap();
-        format!(
-            "morel-rust version {} (rust version {})",
-            env!("CARGO_PKG_VERSION"),
-            rustc_version.to_string()
-        )
     }
 
     /// Processes a single statement.

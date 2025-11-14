@@ -696,7 +696,8 @@ and unset using `Sys.unset name`.
 `Sys.showAll ()` shows all properties and their values.
 
 | Name                 | Type | Default | Description |
-| -------------------- | ---- | ------- | ----------- |
+| -------------------- | ---- |---------| ----------- |
+| banner               | string | morel-rust version x.y.z | The startup banner message displayed when launching the Morel shell. Read-only. |
 | hybrid               | bool | false   | Whether to try to create a hybrid execution plan that uses Apache Calcite relational algebra. |
 | inlinePassCount      | int  | 5       | Maximum number of inlining passes. |
 | lineWidth            | int  | 79      | When printing, the length at which lines are wrapped. |
@@ -704,4 +705,7 @@ and unset using `Sys.unset name`.
 | output               | enum | classic | How values should be formatted. "classic" (the default) prints values in a compact nested format; "tabular" prints values in a table if their type is a list of records. |
 | printDepth           | int  | 5       | When printing, the depth of nesting of recursive data structure at which ellipsis begins. |
 | printLength          | int  | 12      | When printing, the length of lists at which ellipsis begins. |
-| stringDepth          | int  | 70      | When printing, the length of strings at which ellipsis begins. |
+| productName          | string | morel-rust | The name of the Morel product. Read-only. |
+| productVersion       | string | x.y.z | The current version of Morel. Read-only. |
+| showBanner           | bool   | true   | Whether to print the banner at the start of the shell. |
+| stringDepth          | int    | 70     | When printing, the length of strings at which ellipsis begins. |

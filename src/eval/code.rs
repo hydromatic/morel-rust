@@ -453,8 +453,12 @@ impl Code {
             }
             Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
             Code::NativeF0(_) => *mode == EvalMode::EagerF0,
-            Code::NativeF1(_, _) => *mode == EvalMode::EagerV1,
-            Code::NativeF2(_, _, _) => *mode == EvalMode::EagerV2,
+            Code::NativeF1(_, _) => {
+                *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
+            }
+            Code::NativeF2(_, _, _) => {
+                *mode == EvalMode::EagerV2 || *mode == EvalMode::EagerF0
+            }
             Code::NativeF3(_, _, _, _) => *mode == EvalMode::EagerV3,
             Code::NativeF4(_, _, _, _, _) => *mode == EvalMode::EagerV4,
             Code::Nth(_, _) => {
