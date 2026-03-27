@@ -1113,13 +1113,51 @@ impl TypeResolver {
             }
             ExprKind::Record(with_expr, labeled_expr_list) => {
                 let mut field_vars = Vec::new(); // never read
-                let labeled_expr_list2 = self.deduce_record_type(
-                    env,
-                    labeled_expr_list,
-                    &mut field_vars,
-                    v,
-                )?;
-                let x = ExprKind::Record(with_expr.clone(), labeled_expr_list2);
+                let (with_expr2, labeled_expr_list2) =
+                    if let Some(base) = with_expr {
+                        // `{base with f=e, ...}`: the result has the same type
+                        // as the base. Deduce the base into `v` so the result
+                        // type equals the full base type. For each override
+                        // `f = e`, deduce `e` into the same variable as field
+                        // `f` in the base record, so the override's type
+                        // propagates back into the base field type.
+                        let base2 = self.deduce_expr_type(env, base, v)?;
+                        // After deducing the base, look up its record sequence
+                        // so we can tie each override to the matching field.
+                        let base_seq = self.variable_to_sequence(v);
+                        let mut overrides = Vec::new();
+                        for labeled_expr in labeled_expr_list {
+                            // Use the base field's variable when available, so
+                            // the override type unifies with the field type.
+                            let v_ov = if let Some(seq) = &base_seq
+                                && let Some(label) = labeled_expr.get_label()
+                                && let Some(fv) = self.field_var_of(seq, &label)
+                            {
+                                fv
+                            } else {
+                                self.variable()
+                            };
+                            let e2 = self.deduce_expr_type(
+                                env,
+                                &labeled_expr.expr,
+                                &v_ov,
+                            )?;
+                            overrides.push(LabeledExpr {
+                                expr: e2,
+                                ..labeled_expr.clone()
+                            });
+                        }
+                        (Some(Box::new(base2)), overrides)
+                    } else {
+                        let labeled_expr_list2 = self.deduce_record_type(
+                            env,
+                            labeled_expr_list,
+                            &mut field_vars,
+                            v,
+                        )?;
+                        (None, labeled_expr_list2)
+                    };
+                let x = ExprKind::Record(with_expr2, labeled_expr_list2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Times(left, right) => {
@@ -2830,8 +2868,27 @@ impl TypeResolver {
     }
 
     /// Converts a variable to a sequence.
-    fn variable_to_sequence(&self, _v: &Var) -> Option<Sequence> {
-        None // TODO
+    fn variable_to_sequence(&self, v: &Var) -> Option<Sequence> {
+        // Search terms in reverse for the most recently added term for v.
+        for (var, term) in self.terms.iter().rev() {
+            if var == v {
+                if let Term::Sequence(seq) = term {
+                    return Some(seq.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Given a record sequence and a field label, returns the unifier variable
+    /// associated with that field, or None if it cannot be determined.
+    fn field_var_of(&self, seq: &Sequence, label: &str) -> Option<Var> {
+        let fields = Self::field_list(&self.unifier.op_defs, seq)?;
+        let pos = fields.iter().position(|f| f == label)?;
+        match &seq.terms[pos] {
+            Term::Variable(v) => Some(*v),
+            _ => None,
+        }
     }
 
     /// Declares that a term is equivalent to a variable.

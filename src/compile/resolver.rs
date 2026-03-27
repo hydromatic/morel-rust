@@ -584,10 +584,65 @@ impl<'a> Resolver<'a> {
                     _ => todo!("resolve {:?}", a0),
                 }
             }
-            ExprKind::Record(_, fields) => {
-                let resolved_fields =
-                    fields.iter().map(|f| self.resolve_expr(&f.expr)).collect();
-                CoreExpr::Tuple(t, resolved_fields)
+            ExprKind::Record(with_base, fields) => {
+                match with_base {
+                    None => {
+                        // Plain record `{a=e1, b=e2}`: resolve each field in
+                        // order and emit as a tuple.
+                        let resolved_fields = fields
+                            .iter()
+                            .map(|f| self.resolve_expr(&f.expr))
+                            .collect();
+                        CoreExpr::Tuple(t, resolved_fields)
+                    }
+                    Some(base_expr) => {
+                        // `{base_expr with a=e1, ...}`: for each field in the
+                        // base record type (BTreeMap, so alphabetical order),
+                        // use the override expression if provided, otherwise
+                        // project the field from `base_expr`.
+                        let base_type =
+                            base_expr.get_type(self.type_map).unwrap();
+                        let (_, base_fields) = base_type.expect_record();
+                        let resolved_base = self.resolve_expr(base_expr);
+                        let resolved_fields: Vec<CoreExpr> = base_fields
+                            .iter()
+                            .enumerate()
+                            .map(|(slot, (label, field_type))| {
+                                let label_str = label.to_string();
+                                // Look for an override for this field name.
+                                let override_expr = fields.iter().find(|f| {
+                                    f.label
+                                        .as_ref()
+                                        .is_some_and(|l| l.name == label_str)
+                                });
+                                if let Some(ov) = override_expr {
+                                    self.resolve_expr(&ov.expr)
+                                } else {
+                                    // Project this field from the base.
+                                    let selector_type = Box::new(Type::Fn(
+                                        base_type.clone(),
+                                        Box::new(field_type.clone()),
+                                    ));
+                                    let selector = CoreExpr::RecordSelector(
+                                        selector_type,
+                                        slot,
+                                    );
+                                    CoreExpr::Apply(
+                                        Box::new(field_type.clone()),
+                                        Box::new(selector),
+                                        Box::new(resolved_base.clone()),
+                                        span.clone(),
+                                    )
+                                }
+                            })
+                            .collect();
+                        // The result type is the same as the base type
+                        // (overrides cannot change field types). Use
+                        // base_type rather than `t` since `t` only
+                        // reflects the override fields from type inference.
+                        CoreExpr::Tuple(base_type, resolved_fields)
+                    }
+                }
             }
             ExprKind::RecordSelector(name) => {
                 let (param_type, _) = t.expect_fn();

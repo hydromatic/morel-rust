@@ -16,14 +16,14 @@
  * language governing permissions and limitations under the
  * License.
  *)
-set("mode", "validate");
-> val it = () : unit
 
 (*) Record and tuple are equivalent.
 {1 = "a", 2 = true};
 > val it = ("a",true) : string * bool
 ("a", true);
 > val it = ("a",true) : string * bool
+set("mode", "validate");
+> val it = () : unit
 ("a", true) = {1 = "a", 2 = true};
 > val it = true : bool
 {1 = "a", 2 = true} = ("a", true);
@@ -34,16 +34,14 @@ set("mode", "validate");
 > val it = false : bool
 ("a", false) = {1 = "a", 2 = true};
 > val it = false : bool
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Records with 'with'
 {{a = 1, b = 2} with a = 3};
 > val it = {a=3,b=2} : {a:int, b:int}
-set("mode", "evaluate");
-> val it = () : unit
 {{a = "1", b = 2} with a = "3", b = 4};
 > val it = {a="3",b=4} : {a:string, b:int}
-set("mode", "validate");
-> val it = () : unit
 {{a = "1", b = 2} with a = "3"};
 > val it = {a="3",b=2} : {a:string, b:int}
 {{a = "1", b = NONE} with b = SOME "3"};
@@ -62,10 +60,6 @@ set("mode", "validate");
 > val it = true : bool
 () = {};
 > val it = true : bool
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Expressions with type annotations
 1: int;

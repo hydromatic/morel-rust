@@ -171,6 +171,9 @@ pub enum Code {
     Native1(Eager1, Box<Code>),
     Native2(Eager2, Box<Code>, Box<Code>),
     Native3(Eager3, Box<Code>, Box<Code>, Box<Code>),
+    /// `NativeCustom(custom, args)` calls a polymorphic built-in whose
+    /// implementation dispatches on the runtime types of its arguments.
+    NativeCustom(Custom, Vec<Code>),
     NativeF0(EagerF0),
     NativeF1(EagerF1, Box<Code>),
     NativeF2(EagerF2, Box<Code>, Box<Code>),
@@ -335,11 +338,9 @@ impl Code {
     ) -> Code {
         match impl_ {
             // lint: sort until '#}' where '##Impl::'
-            Impl::Custom => {
-                unreachable!(
-                    "Custom functions should be handled in \
-                    Codes::apply"
-                )
+            Impl::Custom(c) => {
+                let args = codes.iter().map(|b| *b.clone()).collect();
+                Code::NativeCustom(c, args)
             }
             Impl::E0(e0) => {
                 assert_eq!(codes.len(), 0);
@@ -464,6 +465,10 @@ impl Code {
                 *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0
             }
             Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
+            Code::NativeCustom(_, args) => match args.len() {
+                1 => *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0,
+                _ => *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0,
+            },
             Code::NativeF0(_) => *mode == EvalMode::EagerF0,
             Code::NativeF1(_, _) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
@@ -604,6 +609,22 @@ impl Code {
                 let v1 = code1.eval_f0(r, f)?;
                 let v2 = code2.eval_f0(r, f)?;
                 Ok(eager.apply(v0, v1, v2))
+            }
+            Code::NativeCustom(custom, args) => {
+                let mut vals: Vec<Val> = args
+                    .iter()
+                    .map(|c| c.eval_f0(r, f))
+                    .collect::<Result<_, _>>()?;
+                match vals.len() {
+                    1 => Ok(custom.apply(vals.remove(0), Val::Unit)),
+                    2 => Ok(custom.apply(vals.remove(0), vals.remove(0))),
+                    _ => {
+                        panic!(
+                            "NativeCustom: unexpected arg count {}",
+                            vals.len()
+                        )
+                    }
+                }
             }
             Code::NativeF0(eager) => Ok(eager.apply(r, f)),
             Code::NativeF1(eager, code0) => {
@@ -1111,7 +1132,7 @@ impl EvalEnv<'_> {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Impl {
     // lint: sort until '#}'
-    Custom,
+    Custom(Custom),
     E0(Eager0),
     E1(Eager1),
     E2(Eager2),
@@ -2450,7 +2471,8 @@ impl Eager3 {
 
 /// Built-in functions that have a custom implementation.
 #[allow(clippy::enum_variant_names)]
-enum Custom {
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Custom {
     // lint: sort until '#}'
     BoolIf,
     GEq,
@@ -2472,10 +2494,18 @@ impl Custom {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::Custom::*;
 
+        // Normalize empty list (empty record {}) to Unit so that
+        // {} == () is true.
+        fn norm(v: Val) -> Val {
+            match v {
+                Val::List(ref items) if items.is_empty() => Val::Unit,
+                other => other,
+            }
+        }
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             BoolIf => panic!("Not implemented"),
-            GEq => Val::Bool(a0 == a1),
+            GEq => Val::Bool(norm(a0) == norm(a1)),
             GGe => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x >= y),
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x >= y),
@@ -2509,7 +2539,7 @@ impl Custom {
                 (Val::Real(x), Val::Real(y)) => Val::Real(x - y),
                 _ => panic!("Type error in - operation"),
             },
-            GNe => Val::Bool(a0 != a1),
+            GNe => Val::Bool(norm(a0) != norm(a1)),
             GNegate => match a0 {
                 Val::Int(_) => Eager1::IntNegate.apply(a0),
                 Val::Real(_) => Eager1::RealNegate.apply(a0),
@@ -2529,7 +2559,7 @@ impl Custom {
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
-        if b.fn_impls.insert(f, Impl::Custom).is_some() {
+        if b.fn_impls.insert(f, Impl::Custom(*self)).is_some() {
             panic!("Already implemented {:?}", f);
         }
     }

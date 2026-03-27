@@ -726,10 +726,12 @@ from d in [{a=1,b=true}] yield #x d;
 *)
 
 (*) with
-(* TODO with
 :t from d in [{a=1,b=true}], i in [2] yield {d with b=false};
 > val it : {a:int, b:bool} list
-*)
+
+(*) Override constrains the type of a NONE field to string option
+:t {{a = "1", b = NONE} with b = SOME "3"};
+> val it : {a:string, b:string option}
 
 :t from e in [{x=1,y=2},{x=3,y=4},{x=5,y=6}]
   yield {z=e.x}
@@ -1405,10 +1407,8 @@ from d in [{a=1,b=true}] yield #x d;
 *)
 
 (*) with
-(* TODO with
 :t from d in [{a=1,b=true}], i in [2] yield {d with b=false};
 > val it : {a:int, b:bool} list
-*)
 
 :t from e in [{x=1,y=2},{x=3,y=4},{x=5,y=6}]
   yield {z=e.x}
