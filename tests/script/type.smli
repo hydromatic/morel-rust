@@ -1002,4 +1002,78 @@ let  val i0 = 0; val i1 = 1; val i2 = 2; val i3 = 3; val i4 = i2 * i2; val i5 = 
 >      * int * int * int * int * int * int * int * int * int * int * int * int *
 >     int * int * int * int * int
 
+(*) 'typeof' in evaluate mode
+set("mode", "evaluate");
+> val it = () : unit
+
+fn x: typeof 1 => true;
+> val it = fn : int -> bool
+
+let
+  val s = "abc"
+in
+  fn x: typeof s => [x]
+end;
+> val it = fn : string -> string list
+
+let
+  val list = ["abc", "de"]
+in
+  fn x: typeof (hd list) => [x]
+end;
+> val it = fn : string -> string list
+
+let
+  val r = {empno = 100, isMgr = true, name = "Fred"}
+in
+  fn x: typeof r.isMgr => ()
+end;
+> val it = fn : bool -> unit
+
+set("mode", "validate");
+> val it = () : unit
+let
+  val r = {empno = 100, isMgr = true, name = "Fred"}
+in
+  fn x: typeof r => x.empno
+end;
+> val it = fn : {empno:int, isMgr:bool, name:string} -> int
+set("mode", "evaluate");
+> val it = () : unit
+
+val m = 5;
+> val m = 5 : int
+let
+  val rec fact =
+    fn n : typeof m =>
+      if n = 0 then 1
+      else n * fact (n - 1)
+in
+  fact 5
+end;
+> val it = 120 : int
+
+(* TODO: these cases panic rather than giving proper errors; enable after
+   implementing proper typeof error handling
+(*) typeof with type-constructor application (e.g. 'b: typeof r.empno list')
+(*) panics because 'list' is not found as a type alias
+let
+  val r = {empno = 100, isMgr = true, name = "Fred"}
+in
+  fn x: {a: string, b: typeof r.empno list, c: typeof (r.name ^ "!")} => ()
+end;
+> val it = fn : {a:string, b:int list, c:string} -> unit
+(*) 'typeof n' in val rec is an error (n not yet in scope)
+let
+  val rec fact =
+    fn n : typeof n =>
+      if n = 0 then 1
+      else n * fact (n - 1)
+in
+  fact 5
+end;
+> stdIn:3.19 Error: unbound variable or constructor: n
+>   raised at: stdIn:3.19
+*)
+
 (*) End type.smli

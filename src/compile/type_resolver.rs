@@ -3261,6 +3261,18 @@ impl<'a> TypeToTermConverter<'a> {
                     panic!("{:?}", type_node.kind)
                 }
             }
+            TypeKind::Expression(expr) => {
+                // `typeof expr` — the type of this annotation is the type
+                // of `expr`. Deduce `expr`'s type into a fresh variable and
+                // unify it with `v`.
+                let v_expr = self.type_resolver.variable();
+                self.type_resolver
+                    .deduce_expr_type(self.env, expr, &v_expr)
+                    .unwrap_or_else(|e| panic!("typeof: {}", e));
+                self.type_resolver.equiv(&Term::Variable(v_expr), v);
+                self.type_resolver
+                    .reg_type(&type_node.kind, &type_node.span, v)
+            }
             TypeKind::Fn(param, result) => {
                 let v4 = self.type_resolver.variable();
                 let param2 = self.type_term(param, subst, &v4);
