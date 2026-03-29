@@ -391,7 +391,7 @@ impl Code {
     }
 
     pub fn new_nth(type_: &Type, slot: usize) -> Code {
-        assert!(slot < type_.expect_record().1.len());
+        assert!(slot < type_.field_types().len());
         Code::Nth(Box::new(type_.clone()), slot)
     }
 
