@@ -18,8 +18,6 @@
  *
  * Algebraic types ("datatype").
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("printDepth", ~1);
 > val it = () : unit
 
@@ -54,20 +52,28 @@ Sys.set ("printDepth", ~1);
 > val it = true : bool
 
 (*) Basic operations on 'real'
+set("mode", "validate");
+> val it = () : unit
 2.0 + 3.0;
 > val it = 5.0 : real
 2.0 - 3.0;
 > val it = ~1.0 : real
 2.0 * 3.0;
 > val it = 6.0 : real
+set("mode", "evaluate");
+> val it = () : unit
 2.0 / 3.0;
 > val it = 0.6666667 : real
 3.0 / 2.0;
 > val it = 1.5 : real
+set("mode", "validate");
+> val it = () : unit
 ~2.0 * 3.0;
 > val it = ~6.0 : real
 ~(2.0 + 3.0);
 > val it = ~5.0 : real
+set("mode", "evaluate");
+> val it = () : unit
 2.0 < 3.0;
 > val it = true : bool
 2.0 <= 3.0;
@@ -82,6 +88,8 @@ Sys.set ("printDepth", ~1);
 > val it = true : bool
 
 (*) Three different kinds of 'greater'
+set("mode", "validate");
+> val it = () : unit
 fun greater_alpha (x, y) = if x < y then y else x;
 > val greater_alpha = fn : 'a * 'a -> 'a
 greater_alpha (2, 3);
@@ -105,6 +113,9 @@ in
 end;
 > val it = 1 : int
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Record type with a polymorphic member
 let
   val r = {a = fn x => x, b = 2}
@@ -121,6 +132,8 @@ end;
 > val it = ("x",2) : string * int
 
 (*) A datatype whose constructor overwrites another datatype's constructor
+set("mode", "validate");
+> val it = () : unit
 datatype foo = W | X | Y of int;
 > datatype foo = W | X | Y of int
 X;
@@ -311,10 +324,14 @@ val it = 3 : int
 *)
 
 (*) Pattern matching on the same type constructor, nested.
+set("mode", "evaluate");
+> val it = () : unit
 fun f (SOME (SOME i)) = i + 1
   | f (SOME NONE) = 0
   | f NONE = ~1;
 > val f = fn : int option option -> int
+set("mode", "validate");
+> val it = () : unit
 f (SOME (SOME 3));
 > val it = 4 : int
 f (SOME (SOME 2));

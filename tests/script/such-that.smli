@@ -131,6 +131,10 @@ forall i
   require i + 100 < 155;
 > val it = true : bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) 'on' in 'from'
 from i in [1, 2, 3],
   j in [2, 3, 4] on j = i;
@@ -143,6 +147,9 @@ join c in [6, 7] on b + c = 10,
     d in [7, 8];
 > val it = [{a=2,b=4,c=6,d=7},{a=2,b=4,c=6,d=8}]
 >   : {a:int, b:int, c:int, d:int} list
+
+set("mode", "validate");
+> val it = () : unit
 
 from dno, name, loc
 where {deptno = dno, dname = name, loc} elem scott.depts
@@ -337,6 +344,10 @@ from i where isBetween (i, 5, 8);
 > val it = [5, 6, 7, 8] : int list
 *)
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* ------------------------------------------------------ *)
 (* Convenience function that converts a predicate to a
  * relation. *)
@@ -394,6 +405,9 @@ val edges = [
  {x = 1, y = 2},
  {x = 2, y = 3}];
 > val edges = [{x=1,y=2},{x=2,y=3}] : {x:int, y:int} list
+
+set("mode", "validate");
+> val it = () : unit
 fun edge (x, y) = {x, y} elem edges;
 > val edge = fn : int * int -> bool
 (* TODO

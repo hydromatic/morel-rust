@@ -18,8 +18,6 @@
  *
  * Tests queries that are to execute mostly in Calcite.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("printLength", 64);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
@@ -27,6 +25,9 @@ Sys.set ("stringDepth", ~1);
 
 (*) Query in Hybrid mode (100% Calcite)
 Sys.set ("hybrid", true);
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 from e in scott.emps
 where e.deptno = 20
@@ -92,48 +93,89 @@ Sys.plan();
 >   "calcite(plan LogicalProject($f0=[*($0, 2)])\n  JdbcTableScan(table=[[scott, DEPT]])\n)"
 >   : string
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Query on an empty list whose element is not referenced
 from e in []
   yield {a = 1, b = true};
 > val it = [] : {a:int, b:bool} list
+
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it = "calcite(plan LogicalValues(tuples=[[]])\n)" : string
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Equivalent, using map
 map (fn e => {a = 1, b = true}) [];
 > val it = [] : {a:int, b:bool} list
+
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "apply2(fnValue List.map, match(e, tuple(constant(1), constant(true))), calcite(plan LogicalValues(tuples=[[]])\n))"
 >   : string
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Query on an empty list whose element is referenced
 from e in []
   yield {a = 1 + e, b = true};
 > val it = [] : {a:int, b:bool} list
+
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "calcite(plan LogicalProject(a=[+(1, $0)], b=[true])\n  LogicalValues(tuples=[[]])\n)"
 >   : string
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Equivalent, using map
 map (fn e => {a = 1 + e, b = true}) [];
 > val it = [] : {a:int, b:bool} list
+
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "apply2(fnValue List.map, match(e, tuple(apply2(fnValue +, constant(1), get(name e)), constant(true))), calcite(plan LogicalValues(tuples=[[]])\n))"
 >   : string
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Query on a singleton list whose element is not referenced
 from e in [0]
   yield {a = 1, b = true};
 > val it = [{a=1,b=true}] : {a:int, b:bool} list
+
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it = "calcite(plan LogicalValues(tuples=[[{ 1, true }]])\n)" : string
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Equivalent, using map
 map (fn e => {a = 1, b = true}) [0];
 > val it = [{a=1,b=true}] : {a:int, b:bool} list
+
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "apply2(fnValue List.map, match(e, tuple(constant(1), constant(true))), calcite(plan LogicalValues(tuples=[[{ 0 }]])\n))"
@@ -270,7 +312,14 @@ end;
 >    {empno=7369,ename="SMITH",level=3,mgr=7902}]
 >   : {empno:int, ename:string, level:int, mgr:int} bag
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 "end";
 > val it = "end" : string
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) End hybrid.smli

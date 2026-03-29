@@ -319,6 +319,10 @@ and Abc_ = 7;
 > val Abc_123 = 6 : int
 > val Abc_ = 7 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Identifiers whose prefix is a keyword
 val if_ = 1
 and then_ = 2
@@ -331,6 +335,9 @@ and o' = 5;
 > val off = 4 : int
 > val o' = 5 : int
 
+set("mode", "validate");
+> val it = () : unit
+
 fun foo x
   x'
   x''
@@ -340,6 +347,10 @@ fun foo x
   Abc_
   `a b` = 1;
 > val foo = fn : 'a -> 'b -> 'c -> 'd -> 'e -> 'f -> 'g -> 'h -> int
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 {x = 1,
  x' = 2,
@@ -364,6 +375,9 @@ val `val` = "yes, you can use keywords as identifiers";
 (*) Quoted type name
 val x: `int` = 1;
 > val x = 1 : int
+
+set("mode", "validate");
+> val it = () : unit
 val x: `order` = LESS;
 > val x = LESS : order
 fun f (x: `order` list) = List.length x;
@@ -429,6 +443,10 @@ strTimes "" 20 [];
 >    "aaaaaaaaaaaa","aaaaaaaaaaa","aaaaaaaaaa","aaaaaaaaa","aaaaaaaa",...]
 >   : string list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 [{a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",d="ddddddddd"}];
 > val it =
 >   [
@@ -446,6 +464,9 @@ strTimes "" 20 [];
 >   {a=1,b=2,c=3,d=4,e=5,f=6,g=7,h=8,i=9,j=10,k=11,l=12,m=13,n=14,o_=15,p=16}
 >   : {a:int, b:int, c:int, d:int, e:int, f:int, g:int, h:int, i:int, j:int,
 >      k:int, l:int, m:int, n:int, o_:int, p:int}
+
+set("mode", "validate");
+> val it = () : unit
 (*
 sml prints the following, but we cannot split types yet:
 
@@ -477,11 +498,22 @@ in
 end;
 > val it = (true,false) : bool * bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Lambda on unit
 fn () => 1;
 > val it = fn : unit -> int
+
+set("mode", "validate");
+> val it = () : unit
 it ();
 > val it = 1 : int
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Multiple functions
 let
@@ -491,6 +523,9 @@ in
   f (g 0)
 end;
 > val it = 1 : int
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Closure
 let
@@ -514,7 +549,9 @@ in
 end;
 > val it = 13 : int
 
+
 (*) As "Closure", but converted to nested 'let' expressions.
+(* TODO: gives wrong answer (2 instead of 13) when 'g' is bound in prior 'let' *)
 let
   fun f x = 1 + x
 in
@@ -628,12 +665,23 @@ in
 end;
 > val it = (false,false,true) : bool * bool * bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) An example where identifiers with primes (') are more readable
 fun distance (x, y) (x', y') =
   Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
 > val distance = fn : real * real -> real * real -> real
+
+set("mode", "validate");
+> val it = () : unit
 distance (0.0, 1.0) (4.0, 4.0);
 > val it = 5.0 : real
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Composite declarations
 let
@@ -642,6 +690,9 @@ in
   x + y
 end;
 > val it = 3 : int
+
+set("mode", "validate");
+> val it = () : unit
 val (x, y) = (1, 2);
 > val x = 1 : int
 > val y = 2 : int
@@ -690,11 +741,18 @@ end;
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Patterns
 
 (*) The following example is from "Introduction to Standard ML" by Robert Harper.
 val x = (( "foo", true ), 17 );
 > val x = (("foo",true),17) : string * bool * int
+
+set("mode", "validate");
+> val it = () : unit
 val ( l as (ll,lr), r ) = x;
 > val l = ("foo",true) : string * bool
 > val ll = "foo" : string
@@ -745,11 +803,18 @@ val x as y as z = 3;
 > val y = 3 : int
 > val z = 3 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Errors
 (* The first is printed as '1.9', the second as '1.9-1.11', and the third as '1.9-1.12'. *)
 "a string literal to reset the line counter after the comment";
 > val it = "a string literal to reset the line counter after the comment"
 >   : string
+
+set("mode", "validate");
+> val it = () : unit
 val a = p + 1;
 > stdIn:1.9 Error: unbound variable or constructor: p
 >   raised at: stdIn:1.9
@@ -760,8 +825,15 @@ val a = pqr + 1;
 > stdIn:1.9-1.12 Error: unbound variable or constructor: pqr
 >   raised at: stdIn:1.9-1.12
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 fun f n = String.substring ("hello", 1, n);
 > val f = fn : int -> string
+
+set("mode", "validate");
+> val it = () : unit
 f 2;
 > val it = "el" : string
 f 6;

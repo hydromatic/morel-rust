@@ -18,13 +18,13 @@
  *
  * Tests for operator overloading.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printLength", 64);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
+> val it = () : unit
+set("mode", "validate");
 > val it = () : unit
 
 (* ---------------------------------------------------------------------------
@@ -262,6 +262,8 @@ scan (bag [1]);
  * The built-in 'Relational.nonEmpty' function works on both lists and bags. *)
 Relational.nonEmpty (bag [1]);
 > val it = true : bool
+set("mode", "evaluate");
+> val it = () : unit
 Relational.nonEmpty [1];
 > val it = true : bool
 

@@ -70,6 +70,10 @@ from e in scott.depts order DESC e.deptno;
 Sys.set ("output", "tabular");
 > val it = () : unit
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* List of primitives uses classic style. *)
 [1,2,3];
 > val it = [1,2,3] : int list

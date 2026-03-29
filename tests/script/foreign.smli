@@ -18,11 +18,12 @@
  *
  * Tests for foreign data sources ("scott" and "foodmart").
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("printLength", 64);
 > val it = () : unit
 Sys.set ("lineWidth", 78);
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 
 scott;

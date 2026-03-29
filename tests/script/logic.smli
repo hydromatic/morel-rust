@@ -130,6 +130,10 @@ from d in depts
 >    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
 >   : {deptno:int, dname:string, loc:string} bag
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* == Implies ========================================== *)
 false implies false;
 > val it = true : bool
@@ -147,6 +151,9 @@ false implies true implies false;
 > val it = false : bool
 false implies (true implies false);
 > val it = true : bool
+
+set("mode", "validate");
+> val it = () : unit
 
 (* All departments are not department 30 or are called
    "SALES". *)
@@ -169,31 +176,56 @@ from d in scott.depts
 >    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
 >   : {deptno:int, dname:string, loc:string} bag
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* == Exists =========================================== *)
 
 (* Exists in a lambda. *)
 val g = fn f => exists i in [1, 2, 3] where f i;
 > val g = fn : (int -> bool) -> bool
+
+set("mode", "validate");
+> val it = () : unit
 g (fn i => i mod 2 = 0);
 > val it = true : bool
 g (fn i => i mod 5 = 0);
 > val it = false : bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* Exists with a join in a lambda. *)
 val g2 = fn f => exists i in [1, 2, 3] join j in [3, 4] on f (i, j);
 > val g2 = fn : (int * int -> bool) -> bool
+
+set("mode", "validate");
+> val it = () : unit
 g2 (fn (i, j) => j - i = 2);
 > val it = true : bool
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (* As previous, but with a spurious 'yield' step. *)
 val g3 = fn f => exists i in [1, 2, 3] join j in [3, 4] on f (i, j) yield i + j;
 > val g3 = fn : (int * int -> bool) -> bool
+
+set("mode", "validate");
+> val it = () : unit
 g3 (fn (i, j) => j - i = 2);
 > val it = true : bool
 
 (* Empty 'exists' iterates over zero variables, a collection
    that contains one instance of the unit tuple, hence
    returns true. *)
+
+set("mode", "evaluate");
+> val it = () : unit
+
 exists;
 > val it = true : bool
 not exists;
@@ -206,6 +238,9 @@ exists where false;
 > val it = false : bool
 not exists where false;
 > val it = true : bool
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) 'exists' must not have 'into'
 (*
@@ -231,6 +266,10 @@ exists e in scott.emps where e.deptno = 20 require false;
 (* == Forall =========================================== *)
 forall i in [2, 4, 6] require i mod 2 = 0;
 > val it = true : bool
+
+set("mode", "evaluate");
+> val it = () : unit
+
 forall i in [2, 3, 4] require i mod 2 = 0;
 > val it = false : bool
 forall i in [] require i mod 2 = 0;
@@ -245,6 +284,9 @@ forall require true;
 > val it = true : bool
 forall require false;
 > val it = false : bool
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) 'forall' requires 'require'
 (*

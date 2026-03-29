@@ -125,15 +125,14 @@ in
 end;
 > val it = [2,3,4] : int list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Closure; int variable 'n' is captured in the function definition
 val one = 1;
 > val one = 1 : int
 fun fact 0 = one
   | fact n = n * fact (n - 1);
 > val fact = fn : int -> int
+set("mode", "validate");
+> val it = () : unit
 fact 5;
 > val it = 120 : int
 val one = 2;
@@ -145,15 +144,21 @@ fun fact 0 = one
 > val fact = fn : int -> int
 fact 5;
 > val it = 240 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Closure; function 'f' is captured in the function definition
 val f = fn x => x - 1;
 > val f = fn : int -> int
+set("mode", "validate");
+> val it = () : unit
 fun fact3 0 = 1
   | fact3 n = n * fact3 (f n);
 > val fact3 = fn : int -> int
 fact3 5;
 > val it = 120 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Closure; function 'f' is an argument to an enclosing function.
 fun baz4 f =
@@ -164,8 +169,12 @@ fun baz4 f =
     fact4 5
 end;
 > val baz4 = fn : (int -> int) -> int
+set("mode", "validate");
+> val it = () : unit
 baz4 (fn i => i - 1);
 > val it = 120 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Closure; function 'f' is not the only argument.
 fun baz5 (f, m) =
@@ -176,8 +185,12 @@ fun baz5 (f, m) =
     fact5 m
 end;
 > val baz5 = fn : (int -> int) * int -> int
+set("mode", "validate");
+> val it = () : unit
 baz5 (fn i => i - 1, 5);
 > val it = 120 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) As previous, with shadowed 'n'.
 fun baz6 (f, n) =
@@ -188,12 +201,18 @@ fun baz6 (f, n) =
     fact6 n
 end;
 > val baz6 = fn : (int -> int) * int -> int
+set("mode", "validate");
+> val it = () : unit
 baz6 (fn i => i - 1, 5);
 > val it = 120 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Permutations. Captured variable 'k', is at the top level to prevent inlining.
 val k = 3;
 > val k = 3 : int
+set("mode", "validate");
+> val it = () : unit
 val rec perm = fn n => if n = k then k else n * perm (n - 1);
 > val perm = fn : int -> int
 perm 5;
@@ -207,6 +226,8 @@ in
   perm 5
 end;
 > val it = 60 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) As previous, replacing captured variable with constant.
 (*) The implementation may still use a closure, so that the recursive function

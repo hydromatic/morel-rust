@@ -40,17 +40,25 @@ val list = [5, 6: myInt];
 > val list = [5,6] : int list
 val list = []: myInt list;
 > val list = [] : myInt list
+set("mode", "evaluate");
+> val it = () : unit
 val list = []: int list;
 > val list = [] : int list
 
+set("mode", "validate");
+> val it = () : unit
 type intPair = int * int;
 > type intPair = int * int
 val x: intPair = (4, 5);
 > val x = (4,5) : intPair
 val x2 = (4, 5): intPair;
 > val x2 = (4,5) : intPair
+set("mode", "evaluate");
+> val it = () : unit
 val x3 = (4, 5);
 > val x3 = (4,5) : int * int
+set("mode", "validate");
+> val it = () : unit
 val y: int * int = x;
 > val y = (4,5) : int * int
 val z: intPair = y;

@@ -21,8 +21,6 @@
  * State adjacency data is based upon
  * https://writeonly.wordpress.com/2009/03/20/adjacency-list-of-states-of-the-united-states-us/
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("printLength", 64);
 > val it = () : unit
 
@@ -134,6 +132,9 @@ val coastal_states = ["WA", "OR", "CA", "TX", "LA", "MS",
 >   ["WA","OR","CA","TX","LA","MS","AL","GA","FL","SC","NC","VA","MD","DE","NJ",
 >    "NY","CT","RI","MA","ME","NH","AK","HI"] : string list
 
+set("mode", "validate");
+> val it = () : unit
+
 (*) Pairs of states that share a border
 val pairs =
   from s in adjacent_states,
@@ -238,12 +239,19 @@ from s in states_within "ME" 2 order s;
 > val it = ["MA","ME","VT"] : string list
 from s in states_within "ME" 3 order s;
 > val it = ["CT","MA","NH","NY","RI","VT"] : string list
+
+set("mode", "evaluate");
+> val it = () : unit
+
  (*) maine is not 3 steps from itself
 
 (*) Finding a square root using the Babylonian method
 (*) (An example of a scalar fixed-point query.)
 fun approx_sqrt n a = (n / a + a) * 0.5;
 > val approx_sqrt = fn : real -> real -> real
+
+set("mode", "validate");
+> val it = () : unit
 approx_sqrt 100.0 1.0;
 > val it = 50.5 : real
 
@@ -361,6 +369,10 @@ from s in states_within2 "CA" 10 group {} compute count over ();
 from s in states_within2 "CA" 11 group {} compute count over ();
 > val it = [49] : int list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Floyd-Warshall algorithm (shortest path in weighted graph)
 (*) Data from https://en.wikipedia.org/wiki/Floyd%E2%80%93Warshall_algorithm
 val edges =
@@ -374,6 +386,9 @@ val edges =
 >    {source="b",target="c",weight=3},{source="c",target="d",weight=2},
 >    {source="d",target="b",weight=~1}]
 >   : {source:string, target:string, weight:int} list
+
+set("mode", "validate");
+> val it = () : unit
 fun shortest_path edges =
   let
     val _ = List.length edges (* force edges to be a list *)
