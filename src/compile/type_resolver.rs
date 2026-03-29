@@ -305,7 +305,15 @@ pub struct TypeResolver {
     overload_op: Op,
     record_op: Op,
     fn_op: Op,
+    int_op: Op,
     actions: Vec<(Var, Rc<dyn Action>)>,
+
+    /// Variables that should default to `int` if still free after
+    /// unification. Populated when `op +`, `op -`, `op *`, or `op ~` are
+    /// used without enough context to determine whether they operate on `int`
+    /// or `real`. Matches Standard ML semantics: numeric operators prefer
+    /// `int`.
+    preferred_vars: Vec<Var>,
 }
 
 impl Default for TypeResolver {
@@ -326,6 +334,7 @@ impl TypeResolver {
         let overload_op = unifier.op("overload", None);
         let record_op = unifier.op("record", None);
         let fn_op = unifier.op("fn", Some(2));
+        let int_op = unifier.op("int", Some(0));
         Self {
             warnings: Vec::new(),
             node_var_map: HashMap::new(),
@@ -341,6 +350,8 @@ impl TypeResolver {
             overload_op,
             record_op,
             fn_op,
+            int_op,
+            preferred_vars: Vec::new(),
         }
     }
 
@@ -402,6 +413,21 @@ impl TypeResolver {
             TypeMap::new(&self.node_var_map, Rc::clone(&self.unifier.op_defs));
         for (v, term) in substitution.substitutions {
             type_map.var_term_map.insert(v, term);
+        }
+
+        // Default unconstrained numeric-operator type variables to `int`.
+        // When the user writes e.g. `op +` without context, the element-type
+        // variable is free; Standard ML specifies that numeric operators
+        // prefer `int` in that case.
+        if !self.preferred_vars.is_empty() {
+            let int_term = Term::Sequence(self.unifier.atom(self.int_op));
+            for &pv in &self.preferred_vars {
+                type_map
+                    .var_term_map
+                    .entry(pv)
+                    .or_insert_with(|| int_term.clone());
+            }
+            self.preferred_vars.clear();
         }
 
         // If the code begins with a comment, compute the offset of the first
@@ -1045,6 +1071,31 @@ impl TypeResolver {
                     None => {
                         todo!("identifier '{}' not found", op_name);
                     }
+                }
+                // Numeric operators (+, -, *, ~) prefer `int` when
+                // unconstrained (Standard ML semantics). Add a fresh
+                // element-type variable and record it in `preferred_vars`
+                // so that, if still free after unification, it defaults
+                // to `int`.
+                if matches!(name.as_str(), "+" | "-" | "*" | "~") {
+                    let v_elem = self.variable();
+                    let v_arg = if name == "~" {
+                        Term::Variable(v_elem)
+                    } else {
+                        let seq = self.unifier.apply2(
+                            self.tuple_op,
+                            Term::Variable(v_elem),
+                            Term::Variable(v_elem),
+                        );
+                        Term::Sequence(seq)
+                    };
+                    let fn_seq = self.unifier.apply2(
+                        self.fn_op,
+                        v_arg,
+                        Term::Variable(v_elem),
+                    );
+                    self.equiv(&Term::Sequence(fn_seq), v);
+                    self.preferred_vars.push(v_elem);
                 }
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }

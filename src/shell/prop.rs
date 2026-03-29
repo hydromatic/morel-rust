@@ -469,7 +469,7 @@ impl FromStr for Output {
         match s.to_uppercase().as_str() {
             "CLASSIC" => Ok(Output::Classic),
             "TABULAR" => Ok(Output::Tabular),
-            _ => Err(format!("Invalid output type: {}", s)),
+            _ => Err("value must be one of: 'CLASSIC', 'TABULAR'".to_string()),
         }
     }
 }

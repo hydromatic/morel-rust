@@ -35,7 +35,7 @@ use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::prop::{Mode, create_banner};
+use crate::shell::prop::{Mode, Output, create_banner};
 use crate::shell::utils::prefix_lines;
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
@@ -106,31 +106,84 @@ impl Shell {
             // lint: sort until '#}' where '##[^ }]'
             "hybrid" => {
                 self.session.borrow_mut().config.hybrid =
-                    Some(val.expect_bool());
+                    Some(val.maybe_bool().ok_or_else(|| {
+                        Error::Runtime(
+                            "value for property must have type 'bool'"
+                                .to_string(),
+                        )
+                    })?);
                 Ok(())
             }
             "lineWidth" => {
-                self.config.line_width = Some(val.expect_int());
+                self.config.line_width =
+                    Some(val.maybe_int().ok_or_else(|| {
+                        Error::Runtime(
+                            "value for property must have type 'int'"
+                                .to_string(),
+                        )
+                    })?);
                 Ok(())
             }
             "mode" => {
-                self.config.mode = val.expect_string().parse().ok();
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.config.mode =
+                    Some(s.parse::<Mode>().map_err(Error::Runtime)?);
                 Ok(())
             }
             "optionalInt" => {
-                self.config.optional_int = Some(val.expect_int());
+                let v = val.maybe_int().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'int'".to_string(),
+                    )
+                })?;
+                self.config.optional_int = Some(v);
+                self.session.borrow_mut().config.optional_int = Some(v);
+                Ok(())
+            }
+            "output" => {
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.config.output =
+                    Some(s.parse::<Output>().map_err(Error::Runtime)?);
                 Ok(())
             }
             "printDepth" => {
-                self.config.print_depth = Some(val.expect_int());
+                self.config.print_depth =
+                    Some(val.maybe_int().ok_or_else(|| {
+                        Error::Runtime(
+                            "value for property must have type 'int'"
+                                .to_string(),
+                        )
+                    })?);
                 Ok(())
             }
             "printLength" => {
-                self.config.print_length = Some(val.expect_int());
+                self.config.print_length =
+                    Some(val.maybe_int().ok_or_else(|| {
+                        Error::Runtime(
+                            "value for property must have type 'int'"
+                                .to_string(),
+                        )
+                    })?);
                 Ok(())
             }
             "stringDepth" => {
-                self.config.string_depth = Some(val.expect_int());
+                self.config.string_depth =
+                    Some(val.maybe_int().ok_or_else(|| {
+                        Error::Runtime(
+                            "value for property must have type 'int'"
+                                .to_string(),
+                        )
+                    })?);
                 Ok(())
             }
             _ => todo!("set_prop: {}", prop),
@@ -154,6 +207,11 @@ impl Shell {
             }
             "optionalInt" => {
                 self.config.optional_int = None;
+                self.session.borrow_mut().config.optional_int = None;
+                Ok(())
+            }
+            "output" => {
+                self.config.output = None;
                 Ok(())
             }
             "printDepth" => {
@@ -513,7 +571,9 @@ impl Shell {
                     let _ = session.set_prop(&prop, &val);
                 }
                 Effect::SetShellProp(prop, val) => {
-                    let _ = self.set_prop(&prop, &val);
+                    if let Err(e) = self.set_prop(&prop, &val) {
+                        return Ok(format!("{}\n", e));
+                    }
                 }
                 Effect::UnsetShellProp(prop) => {
                     let _ = self.unset_prop(&prop);

@@ -124,7 +124,15 @@ impl Expr {
                 let mut match_list2 = Vec::new();
                 for m in match_list {
                     let pat = x.transform_pat(env, &m.pat);
-                    let expr = x.transform_expr(env, &m.expr);
+                    // Shadow the pattern's bound names so that inlining
+                    // does not substitute global constants for function
+                    // parameters of the same name.
+                    let body_env = if let Some(name) = pat.name() {
+                        env.child_none(&name, &pat.type_())
+                    } else {
+                        env.clone()
+                    };
+                    let expr = x.transform_expr(&body_env, &m.expr);
                     match_list2.push(Match { pat, expr });
                 }
                 Expr::Fn(t.clone(), match_list2)

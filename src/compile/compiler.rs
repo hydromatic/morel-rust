@@ -1195,7 +1195,9 @@ impl ValDeclAction {
             shell_config
                 .line_width
                 .unwrap_or_else(|| Prop::LineWidth.default_value().as_int()),
-            shell_config.output.unwrap(),
+            shell_config
+                .output
+                .unwrap_or_else(|| Prop::Output.default_value().as_output()),
             shell_config
                 .print_length
                 .unwrap_or_else(|| Prop::PrintLength.default_value().as_int()),

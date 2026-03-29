@@ -191,6 +191,27 @@ impl Val {
         }
     }
 
+    pub(crate) fn maybe_bool(&self) -> Option<bool> {
+        match self {
+            Val::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn maybe_int(&self) -> Option<i32> {
+        match self {
+            Val::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn maybe_string(&self) -> Option<String> {
+        match self {
+            Val::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
     /// Applies this value as a function to a single argument.
     /// Handles Val::Code, Val::Closure, and Val::Fn (built-in functions).
     pub(crate) fn apply_f1(

@@ -173,6 +173,9 @@ fun f NONE:int list = []
 > stdIn:1.5-2.32 Error: parameter or result constraints of clauses don't agree [tycon mismatch]
 >   raised at: stdIn:1.5-2.32
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Annotations that use 'typeof'
 fn x: typeof 1 => true;
 > val it = fn : int -> bool
@@ -192,21 +195,24 @@ end;
 > val it = fn : string -> string list
 
 let
-  val r = {empno = 100, isMgr = true, name = "Fred"}; (*)
+  val r = {empno = 100, isMgr = true, name = "Fred"}
 in
   fn x: typeof r.isMgr => ()
 end;
 > val it = fn : bool -> unit
 
 let
-  val r = {empno = 100, isMgr = true, name = "Fred"}; (*)
+  val r = {empno = 100, isMgr = true, name = "Fred"}
 in
   fn x: typeof r => x.empno
 end;
 > val it = fn : {empno:int, isMgr:bool, name:string} -> int
 
+set("mode", "validate");
+> val it = () : unit
+
 let
-  val r = {empno = 100, isMgr = true, name = "Fred"}; (*)
+  val r = {empno = 100, isMgr = true, name = "Fred"}
 in
   fn x: {a: string, b: typeof r.empno list, c: typeof (r.name ^ "!")} => ()
 end;
@@ -326,11 +332,12 @@ map len (map explode ["ab", "", "cde"]);
 map (fn s => len (explode s)) ["ab", "", "cde"];
 > val it = [2,0,3] : int list
 
+(* Polymorphic type constraints ----------------------------------- *)
 
 set("mode", "evaluate");
 > val it = () : unit
 
-(*) Type resolution involving record selectors
+(* Type resolution involving record selectors --------------------- *)
 val emps =
   [{id = 100, name = "Fred", deptno = 10},
    {id = 101, name = "Velma", deptno = 20},

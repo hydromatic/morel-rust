@@ -297,16 +297,16 @@ set("mode", "evaluate");
 (*) TODO :=;
 (* "val ~ : int -> int" maps to "Int.~" *)
 op ~;
-> val it = fn : 'a -> 'a
+> val it = fn : int -> int
 (* "val + : int * int -> int" maps to "Int.+" *)
 op +;
-> val it = fn : 'a * 'a -> 'a
+> val it = fn : int * int -> int
 (* "val - : int * int -> int" maps to "Int.-" *)
 op -;
-> val it = fn : 'a * 'a -> 'a
+> val it = fn : int * int -> int
 (* "val * : int * int -> int" maps to "Int.*" *)
 op *;
-> val it = fn : 'a * 'a -> 'a
+> val it = fn : int * int -> int
 (* "val @ : ('a list * 'a list) -> 'a list" maps to "List.@" *)
 op @;
 > val it = fn : 'a list * 'a list -> 'a list
@@ -4740,7 +4740,7 @@ case List.find (fn (p, v) => p = "banner") (Sys.showAll ()) of
 Sys.set ("optionalInt", ~5);
 > val it = () : unit
 Sys.show "optionalInt";
-> val it = NONE : string option
+> val it = SOME "-5" : string option
 
 (*) val unset : string -> unit
 Sys.unset;

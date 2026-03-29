@@ -459,7 +459,7 @@ impl Pretty {
             for record in records {
                 if let Val::List(fields) = record {
                     let string_row: Vec<String> =
-                        fields.iter().map(|f| format!("{:?}", f)).collect();
+                        fields.iter().map(Self::format_tabular).collect();
                     // Update column widths
                     for (i, s) in string_row.iter().enumerate() {
                         if i < widths.len() && widths[i] < s.len() {
@@ -481,6 +481,29 @@ impl Pretty {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// Formats a primitive value for tabular display.
+    /// Strings are unquoted; ints use `~` for negative (morel convention).
+    fn format_tabular(val: &Val) -> String {
+        match val {
+            Val::Int(i) => {
+                if *i < 0 {
+                    if *i == i32::MIN {
+                        "~2147483648".to_string()
+                    } else {
+                        format!("~{}", -i)
+                    }
+                } else {
+                    i.to_string()
+                }
+            }
+            Val::Real(f) => Real::to_string(*f),
+            Val::String(s) => s.to_string(),
+            Val::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
+            Val::Char(c) => format!("#\"{}\"", char_to_string(*c)),
+            _ => format!("{:?}", val),
+        }
     }
 
     fn can_print_tabular(&self, type_ref: &Type) -> bool {

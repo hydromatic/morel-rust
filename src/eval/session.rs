@@ -175,6 +175,7 @@ pub struct Config {
     pub directory: Option<Rc<PathBuf>>,
     pub hybrid: Option<bool>,
     pub inline_pass_count: Option<i32>,
+    pub optional_int: Option<i32>,
     pub output: Option<Output>,
     pub script_directory: Option<Rc<PathBuf>>,
 }
@@ -184,9 +185,21 @@ impl Default for Config {
         Self {
             directory: None,
             hybrid: Some(false),
-            output: Some(Output::Classic),
             inline_pass_count: Some(5),
+            optional_int: None,
+            output: Some(Output::Classic),
             script_directory: None,
+        }
+    }
+}
+
+impl Config {
+    /// Returns the value of an optional (non-required) property, or `None`
+    /// if it has not been set.
+    pub fn get_optional(&self, prop: Prop) -> Option<PropVal> {
+        match prop {
+            Prop::OptionalInt => self.optional_int.map(PropVal::Int),
+            _ => None,
         }
     }
 }

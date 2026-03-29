@@ -1185,6 +1185,10 @@ impl EagerF0 {
                         let value = if prop.is_required() {
                             let val = r.session.config.get(*prop);
                             Val::Some(Box::new(Val::String(val.to_string())))
+                        } else if let Some(val) =
+                            r.session.config.get_optional(*prop)
+                        {
+                            Val::Some(Box::new(Val::String(val.to_string())))
                         } else {
                             Val::Unit // NONE is represented as Unit
                         };
@@ -1247,6 +1251,10 @@ impl EagerF1 {
                 let result = if let Some(prop) = Prop::lookup(&prop_name) {
                     if prop.is_required() {
                         let val = r.session.config.get(prop);
+                        Val::Some(Box::new(Val::String(val.to_string())))
+                    } else if let Some(val) =
+                        r.session.config.get_optional(prop)
+                    {
                         Val::Some(Box::new(Val::String(val.to_string())))
                     } else {
                         Val::Unit // NONE is represented as Unit

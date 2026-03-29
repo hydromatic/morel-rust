@@ -108,4 +108,70 @@ set("mode", "evaluate");
 >   [{address={state="CA",zip=94705},id=1},{address={state="CA",zip=94618},id=2}]
 >   : {address:{state:string, zip:int}, id:int} list
 
+set("mode", "evaluate");
+> val it = () : unit
+
+(*) Tabular mode: list of records with all-primitive fields uses tabular style
+Sys.set ("output", "tabular");
+> val it = () : unit
+
+[{id=1, name="Alice"}, {id=2, name="Bob"}];
+> id name
+> -- -----
+> 1  Alice
+> 2  Bob
+>
+> val it : {id:int, name:string} list
+
+(*) Classic mode: same list reverts to classic style
+Sys.set ("output", "classic");
+> val it = () : unit
+
+[{id=1, name="Alice"}, {id=2, name="Bob"}];
+> val it = [{id=1,name="Alice"},{id=2,name="Bob"}] : {id:int, name:string} list
+
+(*) In tabular mode, non-record-list values fall back to classic style
+Sys.set ("output", "tabular");
+> val it = () : unit
+
+(* List of primitives uses classic style. *)
+[1,2,3];
+> val it = [1,2,3] : int list
+
+(* List of lists uses classic style. *)
+[[1,2],[3,4]];
+> val it = [[1,2],[3,4]] : int list list
+
+(* Record uses classic style. *)
+{id=1, name="julian", employed=false};
+> val it = {employed=false,id=1,name="julian"}
+>   : {employed:bool, id:int, name:string}
+
+(* List of records with a list field uses classic style. *)
+[{id=1, pets=["ruby"]}, {id=2, pets=["stealth", "luna"]}];
+> val it = [{id=1,pets=["ruby"]},{id=2,pets=["stealth","luna"]}]
+>   : {id:int, pets:string list} list
+
+(* List of records with a sum-type field uses classic style. *)
+[{id=1, salary=NONE}, {id=2, salary=SOME 100}];
+> val it = [{id=1,salary=NONE},{id=2,salary=SOME 100}]
+>   : {id:int, salary:int option} list
+
+(* List of records with a tuple field uses classic style. *)
+[{id=1, address=(94705,"CA")}, {id=2, address=(94618,"CA")}];
+> val it = [{address=(94705,"CA"),id=1},{address=(94618,"CA"),id=2}]
+>   : {address:int * string, id:int} list
+
+(* List of records with a record field uses classic style. *)
+[{id=1, address={zip=94705,state="CA"}}, {id=2, address={zip=94618, state="CA"}}];
+> val it =
+>   [{address={state="CA",zip=94705},id=1},{address={state="CA",zip=94618},id=2}]
+>   : {address:{state:string, zip:int}, id:int} list
+
+Sys.set ("output", "classic");
+> val it = () : unit
+
+set("mode", "validate");
+> val it = () : unit
+
 (*) End output.smli
