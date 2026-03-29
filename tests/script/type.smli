@@ -936,7 +936,7 @@ fun factorize n =
 
     fun smallestFactor n =
       if n <= 1 then n
-      else findSmallestDivisor (n, 2);
+      else findSmallestDivisor (n, 2)
   in
     if n <= 1 then [n]
     else

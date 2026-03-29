@@ -19,7 +19,7 @@
 WHITESPACE = _{ " " | NEWLINE }
 COMMENT = _{ line_comment | block_comment }
 line_comment = _{ "(*)" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI) }
-block_comment = _{ "(*" ~ (block_comment | (!"*)" ~ ANY))* ~ "*)" }
+block_comment = _{ "(*" ~ (line_comment | block_comment | (!"*)" ~ ANY))* ~ "*)" }
 
 // Keywords
 // lint: sort until '}' where '\|'

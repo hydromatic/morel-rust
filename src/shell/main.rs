@@ -591,14 +591,37 @@ impl Shell {
 /// * Depth 1: `(*) line comment`
 /// * Depth 0: `(*) line comment\n`
 /// * Depth -1: `code; *)`
+/// * Depth 0: `"(*)" ^ "(*)"`  (parentheses inside strings are not comments)
 fn comment_depth(code: &str) -> i32 {
     let mut depth = 0;
     let mut buf = [' '; 3]; // cyclic buffer
     let n = 3;
     let mut i = n;
     let mut in_line_comment = false;
+    let mut in_string = false;
+    let mut in_string_escape = false;
     for c in code.chars() {
-        if buf[i % n] == '(' && c == '*' {
+        if in_string {
+            // Inside a string literal: track escape sequences and closing
+            // quote; do not interpret comment syntax.
+            if in_string_escape {
+                in_string_escape = false;
+            } else if c == '\\' {
+                in_string_escape = true;
+            } else if c == '"' {
+                in_string = false;
+                buf = [' '; 3]; // reset look-back to avoid false positives
+            }
+            continue;
+        }
+
+        // Opening a string literal (only when not inside any comment).
+        if c == '"' && depth == 0 && !in_line_comment {
+            in_string = true;
+            continue;
+        }
+
+        if buf[i % n] == '(' && c == '*' && !in_line_comment {
             // We say "(*", which is a block comment.
             // (It may turn out to be "(*)", a line comment.)
             depth += 1;
@@ -706,6 +729,20 @@ mod tests {
    then it is ignored. *)
 "#;
         assert_eq!(comment_depth(s), 0);
+        // Parentheses inside string literals are not comments.
+        assert_eq!(comment_depth(r#""(*)" ^ "(*)""#), 0);
+        assert_eq!(comment_depth(r#""(*)" ^ "(*)""#), 0);
+        assert_eq!(comment_depth(r#"val x = "(*) not a comment""#), 0);
+        // Escaped quote inside a string does not end the string.
+        assert_eq!(comment_depth(r#""a\"(*) not a comment\"b""#), 0);
+        // A (*) line comment with (*fake block*) inside it:
+        // the fake (*) should NOT increment depth; only the \n matters.
+        assert_eq!(comment_depth("(*) line comment with (* fake\n"), 0);
+        // Multi-line: expression ^ (*) line comment with fake (* \n ^ rest;
+        assert_eq!(
+            comment_depth("\"a\" ^ (*) line comment (* fake\n\"b\";\n"),
+            0
+        );
     }
 
     #[test]
