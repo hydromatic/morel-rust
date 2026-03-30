@@ -2061,8 +2061,8 @@ Sys.plan ();
 List.map (fn x => (x, Math.acos x))
   [1.0, 0.0, ~0.0, ~1.0, 0.5, Math.sqrt 0.5, 2.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,0),(0,1.5707964),(~0,1.5707964),(~1,3.1415927),(0.5,1.0471976),
->    (0.70710677,0.7853982),(2,nan),(inf,nan),(~inf,nan),(nan,nan)]
+>   [(1.0,0),(0,1.5707964),(~0,1.5707964),(~1.0,3.1415927),(0.5,1.0471976),
+>    (0.70710677,0.7853982),(2.0,nan),(inf,nan),(~inf,nan),(nan,nan)]
 >   : (real * real) list
 
 (* "asin x" returns the arc sine of x. asin is the inverse of sin. Its
@@ -2077,8 +2077,8 @@ Sys.plan ();
 List.map (fn x => (x, Math.asin x))
   [1.0, 0.0, ~0.0, ~1.0, 0.5, Math.sqrt 0.5, 2.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,1.5707964),(0,0),(~0,~0),(~1,~1.5707964),(0.5,0.5235988),
->    (0.70710677,0.7853981),(2,nan),(inf,nan),(~inf,nan),(nan,nan)]
+>   [(1.0,1.5707964),(0,0),(~0,~0),(~1.0,~1.5707964),(0.5,0.5235988),
+>    (0.70710677,0.7853981),(2.0,nan),(inf,nan),(~inf,nan),(nan,nan)]
 >   : (real * real) list
 
 (* "atan x" returns the arc tangent of x. atan is the inverse of
@@ -2094,8 +2094,8 @@ Sys.plan ();
 List.map (fn x => (x, Math.atan x))
   [1.0, 0.0, ~0.0, ~1.0, 0.5, Math.sqrt 0.5, 2.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,0.7853982),(0,0),(~0,~0),(~1,~0.7853982),(0.5,0.4636476),
->    (0.70710677,0.6154797),(2,1.1071488),(inf,1.5707964),(~inf,~1.5707964),
+>   [(1.0,0.7853982),(0,0),(~0,~0),(~1.0,~0.7853982),(0.5,0.4636476),
+>    (0.70710677,0.6154797),(2.0,1.1071488),(inf,1.5707964),(~inf,~1.5707964),
 >    (nan,nan)] : (real * real) list
 
 (* "atan2 (y, x)" returns the arc tangent of (y / x) in the closed
@@ -2136,9 +2136,9 @@ Sys.plan ();
 List.map (fn x => (x, Math.atan2 (x, 1.0)))
   [1.0, 0.0, ~1.0, 0.5, Math.sqrt 0.5, 2.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,0.7853982),(0,0),(~1,~0.7853982),(0.5,0.4636476),(0.70710677,0.6154797),
->    (2,1.1071488),(inf,1.5707964),(~inf,~1.5707964),(nan,nan)]
->   : (real * real) list
+>   [(1.0,0.7853982),(0,0),(~1.0,~0.7853982),(0.5,0.4636476),
+>    (0.70710677,0.6154797),(2.0,1.1071488),(inf,1.5707964),(~inf,~1.5707964),
+>    (nan,nan)] : (real * real) list
 List.map (fn (x, y) => (x, y, Math.atan2 (x, y)))
   [(0.0, 1.0), (~0.0, 1.0),
    (0.0, 0.0), (~0.0, 0.0),
@@ -2154,40 +2154,42 @@ List.map (fn (x, y) => (x, y, Math.atan2 (x, y)))
    (nan, 0.0), (nan, 1.0), (nan, ~1.0), (nan, Real.posInf), (nan, Real.negInf),
    (nan, nan)];
 > val it =
->   [(0,1,0),(~0,1,~0),(0,0,0),(~0,0,~0),(0,~1,3.1415927),(~0,~1,~3.1415927),
->    (2.5,0,1.5707964),(2.5,~0,1.5707964),(~2.5,0,~1.5707964),
->    (~2.5,~0,~1.5707964),(3,inf,0),(~3,inf,~0),(4,~inf,3.1415927),
->    (~4,~inf,~3.1415927),(inf,5,1.5707964),(~inf,5,~1.5707964),
->    (inf,inf,0.7853982),(~inf,inf,~0.7853982),(inf,~inf,2.3561945),
->    (~inf,~inf,~2.3561945),(0,nan,nan),(1,nan,nan),(~1,nan,nan),(inf,nan,nan),
->    (~inf,nan,nan),(nan,0,nan),(nan,1,nan),(nan,~1,nan),(nan,inf,nan),
->    (nan,~inf,nan),(nan,nan,nan)] : (real * real * real) list
+>   [(0,1.0,0),(~0,1.0,~0),(0,0,0),(~0,0,~0),(0,~1.0,3.1415927),
+>    (~0,~1.0,~3.1415927),(2.5,0,1.5707964),(2.5,~0,1.5707964),
+>    (~2.5,0,~1.5707964),(~2.5,~0,~1.5707964),(3.0,inf,0),(~3.0,inf,~0),
+>    (4.0,~inf,3.1415927),(~4.0,~inf,~3.1415927),(inf,5.0,1.5707964),
+>    (~inf,5.0,~1.5707964),(inf,inf,0.7853982),(~inf,inf,~0.7853982),
+>    (inf,~inf,2.3561945),(~inf,~inf,~2.3561945),(0,nan,nan),(1.0,nan,nan),
+>    (~1.0,nan,nan),(inf,nan,nan),(~inf,nan,nan),(nan,0,nan),(nan,1.0,nan),
+>    (nan,~1.0,nan),(nan,inf,nan),(nan,~inf,nan),(nan,nan,nan)]
+>   : (real * real * real) list
 
 (* "cos x" returns the cosine of x, measured in radians. If x is an infinity,
    returns NaN. *)
 Math.cos;
 > val it = fn : real -> real
 Math.cos 0.0;
-> val it = 1 : real
+> val it = 1.0 : real
 Sys.plan ();
 > val it = "apply(fnValue Math.cos, argCode constant(0))" : string
 List.map (fn x => (x, Math.cos x))
   [0.0, ~0.0, Math.pi, Math.pi * 0.5, ~Math.pi, Math.pi * 5.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(0,1),(~0,1),(3.1415927,~1),(1.5707964,~4.371139E~8),(~3.1415927,~1),
->    (15.707964,~1),(inf,nan),(~inf,nan),(nan,nan)] : (real * real) list
+>   [(0,1.0),(~0,1.0),(3.1415927,~1.0),(1.5707964,~4.371139E~8),
+>    (~3.1415927,~1.0),(15.707964,~1.0),(inf,nan),(~inf,nan),(nan,nan)]
+>   : (real * real) list
 
 (* "cosh x" returns the hyperbolic cosine of x, that is, (e(x) + e(-x)) / 2.
    It has the properties cosh +-0 = 1, cosh +-infinity = +-infinity. *)
 Math.cosh;
 > val it = fn : real -> real
 Math.cosh 0.0;
-> val it = 1 : real
+> val it = 1.0 : real
 Sys.plan ();
 > val it = "apply(fnValue Math.cosh, argCode constant(0))" : string
 List.map (fn x => (x, Math.cosh x))
   [0.0, ~0.0, 1.0, Real.posInf, Real.negInf, nan];
-> val it = [(0,1),(~0,1),(1,1.5430807),(inf,inf),(~inf,inf),(nan,nan)]
+> val it = [(0,1.0),(~0,1.0),(1.0,1.5430807),(inf,inf),(~inf,inf),(nan,nan)]
 >   : (real * real) list
 
 (* "val e : real" The base e (2.718281828...) of the natural logarithm. *)
@@ -2201,14 +2203,14 @@ Sys.plan ();
 Math.exp;
 > val it = fn : real -> real
 Math.exp 0.0;
-> val it = 1 : real
+> val it = 1.0 : real
 Sys.plan ();
 > val it = "apply(fnValue Math.exp, argCode constant(0))" : string
 List.map (fn x => (x, Math.exp x))
   [0.0, ~0.0, 1.0, ~2.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(0,1),(~0,1),(1,2.7182817),(~2,0.13533528),(inf,inf),(~inf,0),(nan,nan)]
->   : (real * real) list
+>   [(0,1.0),(~0,1.0),(1.0,2.7182817),(~2.0,0.13533528),(inf,inf),(~inf,0),
+>    (nan,nan)] : (real * real) list
 
 (* "ln x" returns the natural logarithm (base e) of x. If x < 0,
    returns NaN; if x = 0, returns -infinity; if x is infinity, returns
@@ -2222,8 +2224,8 @@ Sys.plan ();
 List.map (fn x => (x, Math.ln x))
   [1.0, 2.718, Math.e, 0.0, ~0.0, ~3.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,0),(2.718,0.9998963),(2.7182817,0.99999994),(0,~inf),(~0,~inf),(~3,nan),
->    (inf,inf),(~inf,nan),(nan,nan)] : (real * real) list
+>   [(1.0,0),(2.718,0.9998963),(2.7182817,0.99999994),(0,~inf),(~0,~inf),
+>    (~3.0,nan),(inf,inf),(~inf,nan),(nan,nan)] : (real * real) list
 
 (* "log10 x" returns the decimal logarithm (base 10) of x. If x < 0,
    returns NaN; if x = 0, returns -infinity; if x is infinity, returns
@@ -2237,8 +2239,8 @@ Sys.plan ();
 List.map (fn x => (x, Math.log10 x))
   [1.0, 10.0, 1000.0, 0.0, ~0.0, ~3.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,0),(10,1),(1000,3),(0,~inf),(~0,~inf),(~3,nan),(inf,inf),(~inf,nan),
->    (nan,nan)] : (real * real) list
+>   [(1.0,0),(10.0,1.0),(1000.0,3.0),(0,~inf),(~0,~inf),(~3.0,nan),(inf,inf),
+>    (~inf,nan),(nan,nan)] : (real * real) list
 
 (* "val pi : real" The constant pi (3.141592653...). *)
 Math.pi;
@@ -2275,11 +2277,11 @@ Sys.plan ();
 Math.pow;
 > val it = fn : real * real -> real
 Math.pow (2.0, 3.0);
-> val it = 8 : real
+> val it = 8.0 : real
 Math.pow (2.0, ~4.0);
 > val it = 0.0625 : real
 Math.pow (100.0, 0.5);
-> val it = 10 : real
+> val it = 10.0 : real
 Sys.plan ();
 > val it = "apply2(fnValue Math.pow, constant(100), constant(0.5))" : string
 List.map (fn (x, y) => (x, y, Math.pow (x, y)))
@@ -2303,12 +2305,13 @@ List.map (fn (x, y) => (x, y, Math.pow (x, y)))
    (0.0, 11.0), (~0.0, 11.0),
    (0.0, 12.0), (~0.0, 12.0)];
 > val it =
->   [(0,0,1),(nan,0,1),(2,inf,inf),(~2,inf,inf),(0.5,inf,0),(~0.5,inf,0),
->    (3,~inf,0),(~3,~inf,0),(0.25,~inf,inf),(~0.25,~inf,inf),(inf,0.5,inf),
->    (inf,~0.5,0),(~inf,7,~inf),(~inf,8,inf),(~inf,~7,~0),(~inf,~8,0),
->    (9.5,nan,nan),(nan,9.6,nan),(1,inf,1),(~1,inf,1),(1,~inf,1),(~1,~inf,1),
->    (~9.8,2.5,nan),(0,~9,inf),(~0,~9,~inf),(0,~10,inf),(~0,~10,inf),(0,11,0),
->    (~0,11,~0),(0,12,0),(~0,12,0)] : (real * real * real) list
+>   [(0,0,1.0),(nan,0,1.0),(2.0,inf,inf),(~2.0,inf,inf),(0.5,inf,0),(~0.5,inf,0),
+>    (3.0,~inf,0),(~3.0,~inf,0),(0.25,~inf,inf),(~0.25,~inf,inf),(inf,0.5,inf),
+>    (inf,~0.5,0),(~inf,7.0,~inf),(~inf,8.0,inf),(~inf,~7.0,~0),(~inf,~8.0,0),
+>    (9.5,nan,nan),(nan,9.6,nan),(1.0,inf,1.0),(~1.0,inf,1.0),(1.0,~inf,1.0),
+>    (~1.0,~inf,1.0),(~9.8,2.5,nan),(0,~9.0,inf),(~0,~9.0,~inf),(0,~10.0,inf),
+>    (~0,~10.0,inf),(0,11.0,0),(~0,11.0,~0),(0,12.0,0),(~0,12.0,0)]
+>   : (real * real * real) list
 
 (* "sin x" returns the sine of x, measured in radians.
    If x is an infinity, returns NaN. *)
@@ -2321,7 +2324,7 @@ Sys.plan ();
 List.map (fn x => (x, Math.sin x))
   [0.0, ~0.0, Math.pi, Math.pi * 0.5, ~Math.pi, Math.pi * 5.0, Real.posInf, Real.negInf, nan];
 > val it =
->   [(0,0),(~0,~0),(3.1415927,~8.742278E~8),(1.5707964,1),
+>   [(0,0),(~0,~0),(3.1415927,~8.742278E~8),(1.5707964,1.0),
 >    (~3.1415927,8.742278E~8),(15.707964,~6.755325E~7),(inf,nan),(~inf,nan),
 >    (nan,nan)] : (real * real) list
 
@@ -2335,7 +2338,7 @@ Sys.plan ();
 > val it = "apply(fnValue Math.sinh, argCode constant(0))" : string
 List.map (fn x => (x, Math.sinh x))
   [0.0, ~0.0, 1.0, Real.posInf, Real.negInf, nan];
-> val it = [(0,0),(~0,~0),(1,1.1752012),(inf,inf),(~inf,~inf),(nan,nan)]
+> val it = [(0,0),(~0,~0),(1.0,1.1752012),(inf,inf),(~inf,~inf),(nan,nan)]
 >   : (real * real) list
 
 (* "sqrt x" returns the square root of x. sqrt (~0.0) = ~0.0.
@@ -2343,12 +2346,12 @@ List.map (fn x => (x, Math.sinh x))
 Math.sqrt;
 > val it = fn : real -> real
 Math.sqrt 4.0;
-> val it = 2 : real
+> val it = 2.0 : real
 Sys.plan ();
 > val it = "apply(fnValue Math.sqrt, argCode constant(4))" : string
 List.map (fn x => (x, Math.sqrt x))
   [4.0, 0.0, ~0.0, ~9.0, Real.posInf, Real.negInf, nan];
-> val it = [(4,2),(0,0),(~0,~0),(~9,nan),(inf,inf),(~inf,nan),(nan,nan)]
+> val it = [(4.0,2.0),(0,0),(~0,~0),(~9.0,nan),(inf,inf),(~inf,nan),(nan,nan)]
 >   : (real * real) list
 
 (* "tan x" returns the tangent of x, measured in radians. If x is an
@@ -2377,7 +2380,7 @@ Sys.plan ();
 > val it = "apply(fnValue Math.tanh, argCode constant(0))" : string
 List.map (fn x => (x, Math.tanh x))
   [0.0, ~0.0, 1.0, Real.posInf, Real.negInf, nan];
-> val it = [(0,0),(~0,~0),(1,0.7615942),(inf,1),(~inf,~1),(nan,nan)]
+> val it = [(0,0),(~0,~0),(1.0,0.7615942),(inf,1.0),(~inf,~1.0),(nan,nan)]
 >   : (real * real) list
 set("mode", "validate");
 > val it = () : unit
@@ -3215,23 +3218,23 @@ Real.posInf / Real.negInf;
 Real.rem;
 > val it = fn : real * real -> real
 Real.rem (13.0, 5.0);
-> val it = 3 : real
+> val it = 3.0 : real
 Real.rem (~13.0, 5.0);
-> val it = ~3 : real
+> val it = ~3.0 : real
 Real.rem (13.0, ~5.0);
-> val it = 3 : real
+> val it = 3.0 : real
 Real.rem (~13.0, ~5.0);
-> val it = ~3 : real
+> val it = ~3.0 : real
 Real.rem (13.0, 0.0);
 > val it = nan : real
 Real.rem (13.0, ~0.0);
 > val it = nan : real
 (*) In the following, Morel returns 13.0 per the spec; SML/NJ returns nan.
 Real.rem (13.0, Real.negInf);
-> val it = 13 : real
+> val it = 13.0 : real
 (*) In the following, Morel returns 13.0 per the spec; SML/NJ returns nan.
 Real.rem (13.0, Real.posInf);
-> val it = 13 : real
+> val it = 13.0 : real
 Sys.plan ();
 > val it = "apply2(fnValue Real.rem, constant(13), constant(inf))" : string
 
@@ -3246,7 +3249,7 @@ Sys.plan ();
 (* "~ r" produces the negation of r.
    ~ (+-infinity) = -+infinity. *)
 ~ 2.0;
-> val it = ~2 : real
+> val it = ~2.0 : real
 ~ ~3.5;
 > val it = 3.5 : real
 ~ Real.posInf;
@@ -3389,17 +3392,17 @@ Sys.plan ();
 Real.copySign;
 > val it = fn : real * real -> real
 Real.copySign (2.0, Real.posInf);
-> val it = 2 : real
+> val it = 2.0 : real
 Real.copySign (2.0, Real.negInf);
-> val it = ~2 : real
+> val it = ~2.0 : real
 Real.copySign (2.0, nan);
-> val it = ~2 : real
+> val it = ~2.0 : real
 Real.copySign (~3.5, ~nan);
 > val it = 3.5 : real
 Real.copySign (~3.5, nan);
 > val it = ~3.5 : real
 Real.copySign (2.0, ~0.0);
-> val it = ~2 : real
+> val it = ~2.0 : real
 Sys.plan ();
 > val it = "apply2(fnValue Real.copySign, constant(2), constant(-0))" : string
 
@@ -3667,16 +3670,16 @@ Real.toManExp (Real.minNormalPos / 4.0);
 Real.toManExp Real.minPos;
 > val it = {exp=~126,man=1.1920929E~7} : {exp:int, man:real}
 Real.minNormalPos / Real.minPos;
-> val it = 8388608 : real
+> val it = 8388608.0 : real
 List.map (fn x => (x, Real.toManExp x, Real.fromManExp (Real.toManExp x)))
   [1.0, 0.0, ~0.0, ~1.0, 0.5, 2.0,
    1.23456E~5, 0.00000123456, 0.000000123456, ~0.00000123456,
    Real.minPos, Real.minNormalPos, Real.maxFinite, ~Real.maxFinite,
    Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,{exp=1,man=0.5},1),(0,{exp=~126,man=0},0),(~0,{exp=~126,man=~0},~0),
->    (~1,{exp=1,man=~0.5},~1),(0.5,{exp=0,man=0.5},0.5),(2,{exp=2,man=0.5},2),
->    (1.23456E~5,{exp=~16,man=0.80908126},1.23456E~5),
+>   [(1.0,{exp=1,man=0.5},1.0),(0,{exp=~126,man=0},0),(~0,{exp=~126,man=~0},~0),
+>    (~1.0,{exp=1,man=~0.5},~1.0),(0.5,{exp=0,man=0.5},0.5),
+>    (2.0,{exp=2,man=0.5},2.0),(1.23456E~5,{exp=~16,man=0.80908126},1.23456E~5),
 >    (1.23456E~6,{exp=~19,man=0.647265},1.23456E~6),
 >    (1.23456E~7,{exp=~22,man=0.517812},1.23456E~7),
 >    (~1.23456E~6,{exp=~19,man=~0.647265},~1.23456E~6),
@@ -3694,13 +3697,13 @@ List.map (fn x => (x, Real.toManExp x, Real.fromManExp (Real.toManExp x)))
 Real.fromManExp;
 > val it = fn : {exp:int, man:real} -> real
 Real.fromManExp {man = 1.0, exp = 0};
-> val it = 1 : real
+> val it = 1.0 : real
 Sys.plan ();
 > val it = "apply2(fnValue Real.fromManExp, constant(0), constant(1))" : string
 Real.fromManExp {man = ~1.0, exp = 0};
-> val it = ~1 : real
+> val it = ~1.0 : real
 Real.fromManExp {man = 1.0, exp = 2};
-> val it = 4 : real
+> val it = 4.0 : real
 Real.fromManExp {man = 1.0, exp = ~3};
 > val it = 0.125 : real
 List.map (fn x => (x, Real.fromManExp (Real.toManExp x)))
@@ -3709,10 +3712,11 @@ List.map (fn x => (x, Real.fromManExp (Real.toManExp x)))
    Real.minPos, Real.minNormalPos, Real.maxFinite, ~Real.maxFinite,
    Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,1),(0,0),(~0,~0),(~1,~1),(0.5,0.5),(2,2),(1.23456E~5,1.23456E~5),
->    (1.23456E~6,1.23456E~6),(1.23456E~7,1.23456E~7),(~1.23456E~6,~1.23456E~6),
->    (1E~45,1E~45),(1.1754944E~38,1.1754944E~38),(3.4028235E38,nan),
->    (~3.4028235E38,nan),(inf,inf),(~inf,~inf),(nan,nan)] : (real * real) list
+>   [(1.0,1.0),(0,0),(~0,~0),(~1.0,~1.0),(0.5,0.5),(2.0,2.0),
+>    (1.23456E~5,1.23456E~5),(1.23456E~6,1.23456E~6),(1.23456E~7,1.23456E~7),
+>    (~1.23456E~6,~1.23456E~6),(1E~45,1E~45),(1.1754944E~38,1.1754944E~38),
+>    (3.4028235E38,nan),(~3.4028235E38,nan),(inf,inf),(~inf,~inf),(nan,nan)]
+>   : (real * real) list
 
 (* "split r" returns {whole, frac}, where frac and whole are the fractional and
    integral parts of r, respectively. Specifically, whole is integral,
@@ -3723,15 +3727,15 @@ List.map (fn x => (x, Real.fromManExp (Real.toManExp x)))
 Real.split;
 > val it = fn : real -> {frac:real, whole:real}
 Real.split 2.0;
-> val it = {frac=0,whole=2} : {frac:real, whole:real}
+> val it = {frac=0,whole=2.0} : {frac:real, whole:real}
 Real.split 0.0;
 > val it = {frac=0,whole=0} : {frac:real, whole:real}
 Real.split ~0.0;
 > val it = {frac=~0,whole=~0} : {frac:real, whole:real}
 Real.split 2.75;
-> val it = {frac=0.75,whole=2} : {frac:real, whole:real}
+> val it = {frac=0.75,whole=2.0} : {frac:real, whole:real}
 Real.split ~12.25;
-> val it = {frac=~0.25,whole=~12} : {frac:real, whole:real}
+> val it = {frac=~0.25,whole=~12.0} : {frac:real, whole:real}
 Real.split Real.posInf;
 > val it = {frac=0,whole=inf} : {frac:real, whole:real}
 Real.split Real.negInf;
@@ -3818,15 +3822,15 @@ fun f x = (Real.realFloor x, Real.realCeil x, Real.realTrunc x, Real.realRound x
 f 0.0;
 > val it = (0,0,0,0) : real * real * real * real
 f ~2.0;
-> val it = (~2,~2,~2,~2) : real * real * real * real
+> val it = (~2.0,~2.0,~2.0,~2.0) : real * real * real * real
 f ~1.75;
-> val it = (~2,~1,~1,~2) : real * real * real * real
+> val it = (~2.0,~1.0,~1.0,~2.0) : real * real * real * real
 f ~2.25;
-> val it = (~3,~2,~2,~2) : real * real * real * real
+> val it = (~3.0,~2.0,~2.0,~2.0) : real * real * real * real
 f ~2.5;
-> val it = (~3,~2,~2,~2) : real * real * real * real
+> val it = (~3.0,~2.0,~2.0,~2.0) : real * real * real * real
 f ~3.5;
-> val it = (~4,~3,~3,~4) : real * real * real * real
+> val it = (~4.0,~3.0,~3.0,~4.0) : real * real * real * real
 f Real.negInf;
 > val it = (~inf,~inf,~inf,~inf) : real * real * real * real
 f Real.posInf;
@@ -3932,9 +3936,9 @@ Real.round nan;
 Real.fromInt;
 > val it = fn : int -> real
 Real.fromInt 1;
-> val it = 1 : real
+> val it = 1.0 : real
 Real.fromInt ~2;
-> val it = ~2 : real
+> val it = ~2.0 : real
 Sys.plan ();
 > val it = "apply(fnValue Real.fromInt, argCode constant(~2))" : string
 
@@ -3942,7 +3946,7 @@ Sys.plan ();
 real;
 > val it = fn : int -> real
 real ~2;
-> val it = ~2 : real
+> val it = ~2.0 : real
 Sys.plan ();
 > val it = "apply(fnValue Real.fromInt, argCode constant(~2))" : string
 
@@ -4000,17 +4004,17 @@ Real.fromString "1.5e~";
 Real.fromString "1.5e~0";
 > val it = SOME 1.5 : real option
 Real.fromString "1.5e2";
-> val it = SOME 150 : real option
+> val it = SOME 150.0 : real option
 Real.fromString "1.5e2e";
-> val it = SOME 150 : real option
+> val it = SOME 150.0 : real option
 Real.fromString "1.5e2e3";
-> val it = SOME 150 : real option
+> val it = SOME 150.0 : real option
 Real.fromString "2e3.4";
-> val it = SOME 2000 : real option
+> val it = SOME 2000.0 : real option
 Real.fromString "  2e3.4";
-> val it = SOME 2000 : real option
+> val it = SOME 2000.0 : real option
 Real.fromString "2.x";
-> val it = SOME 2 : real option
+> val it = SOME 2.0 : real option
 (*) fromString cannot parse "inf", "nan" etc.
 Real.fromString "inf";
 > val it = SOME inf : real option
@@ -4027,8 +4031,8 @@ List.map (fn x => (x, Real.fromString (Real.toString x)))
    Real.minPos, Real.minNormalPos, Real.maxFinite, ~Real.maxFinite,
    Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,SOME 1),(0,SOME 0),(~0,SOME ~0),(~1,SOME ~1),(0.5,SOME 0.5),(2,SOME 2),
->    (1.23456E~5,SOME 1.23456E~5),(1.23456E~6,SOME 1.23456E~6),
+>   [(1.0,SOME 1.0),(0,SOME 0),(~0,SOME ~0),(~1.0,SOME ~1.0),(0.5,SOME 0.5),
+>    (2.0,SOME 2.0),(1.23456E~5,SOME 1.23456E~5),(1.23456E~6,SOME 1.23456E~6),
 >    (1.23456E~7,SOME 1.23456E~7),(~1.23456E~6,SOME ~1.23456E~6),
 >    (1E~45,SOME 1E~45),(1.1754944E~38,SOME 1.1754944E~38),
 >    (3.4028235E38,SOME 3.4028235E38),(~3.4028235E38,SOME ~3.4028235E38),
@@ -4098,7 +4102,7 @@ Real.toString 0.0;
 Sys.plan ();
 > val it = "apply(fnValue Real.toString, argCode constant(0))" : string
 Real.toString 1234.0;
-> val it = "1234" : string
+> val it = "1234.0" : string
 Real.toString ~0.0;
 > val it = "~0" : string
 Real.toString 0.01;
@@ -4144,7 +4148,7 @@ List.map (fn x => (x, Real.toString x))
    Real.minPos, Real.minNormalPos, Real.maxFinite, ~Real.maxFinite,
    Real.posInf, Real.negInf, nan];
 > val it =
->   [(1,"1"),(0,"0"),(~0,"~0"),(~1,"~1"),(0.5,"0.5"),(2,"2"),
+>   [(1.0,"1.0"),(0,"0"),(~0,"~0"),(~1.0,"~1.0"),(0.5,"0.5"),(2.0,"2.0"),
 >    (1.23456E~5,"1.23456E~5"),(1.23456E~6,"1.23456E~6"),
 >    (1.23456E~7,"1.23456E~7"),(~1.23456E~6,"~1.23456E~6"),(1E~45,"1E~45"),
 >    (1.1754944E~38,"1.1754944E~38"),(3.4028235E38,"3.4028235E38"),

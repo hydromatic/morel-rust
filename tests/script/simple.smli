@@ -881,20 +881,12 @@ in
 end;
 > val it = (false,false,true) : bool * bool * bool
 
-
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) An example where identifiers with primes (') are more readable
 fun distance (x, y) (x', y') =
   Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
 > val distance = fn : real * real -> real * real -> real
-
-set("mode", "validate");
-> val it = () : unit
 distance (0.0, 1.0) (4.0, 4.0);
 > val it = 5.0 : real
-
 
 set("mode", "evaluate");
 > val it = () : unit

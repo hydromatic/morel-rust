@@ -141,10 +141,10 @@ end;
  *)
 foldl (op +) 0 [2,3,4];
 > val it = 9 : int
-set("mode", "validate");
-> val it = () : unit
 foldl (op +) 0.0 [2.0,3.5,4.5];
 > val it = 10.0 : real
+set("mode", "validate");
+> val it = () : unit
 op +;
 > val it = fn : int * int -> int
 op *;

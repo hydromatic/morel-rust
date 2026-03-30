@@ -52,28 +52,20 @@ Sys.set ("printDepth", ~1);
 > val it = true : bool
 
 (*) Basic operations on 'real'
-set("mode", "validate");
-> val it = () : unit
 2.0 + 3.0;
 > val it = 5.0 : real
 2.0 - 3.0;
 > val it = ~1.0 : real
 2.0 * 3.0;
 > val it = 6.0 : real
-set("mode", "evaluate");
-> val it = () : unit
 2.0 / 3.0;
 > val it = 0.6666667 : real
 3.0 / 2.0;
 > val it = 1.5 : real
-set("mode", "validate");
-> val it = () : unit
 ~2.0 * 3.0;
 > val it = ~6.0 : real
 ~(2.0 + 3.0);
 > val it = ~5.0 : real
-set("mode", "evaluate");
-> val it = () : unit
 2.0 < 3.0;
 > val it = true : bool
 2.0 <= 3.0;

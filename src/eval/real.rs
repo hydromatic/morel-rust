@@ -463,8 +463,8 @@ impl Real {
                 // significant digits.
                 format!("{:E}", r).replace("-", "~")
             } else if r.fract() == 0.0 && abs < i64::MAX as f32 {
-                // Whole numbers display without a .0 suffix.
-                format!("{}", r.trunc() as i64).replace("-", "~")
+                // Whole numbers display with a .0 suffix (SML requires it).
+                format!("{}.0", r.trunc() as i64).replace("-", "~")
             } else {
                 // For non-whole numbers, use default formatting.
                 format!("{}", r).replace('-', "~")
