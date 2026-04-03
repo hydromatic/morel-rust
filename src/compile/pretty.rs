@@ -606,80 +606,85 @@ impl Pretty {
             return self
                 .pretty1(buf, indent, line_end, depth, &args[0], value, 0, 0);
         }
-        let list = match &value {
+
+        let mut print_wrapped =
+            |prefix: &str, type_arg: &Type, inner_val: &Val| {
+            self.pretty_raw(buf, indent, line_end, depth, prefix)?;
+            let need_parens = matches!(type_arg, Type::Data(..));
+
+            if need_parens { buf.push('('); }
+            self.pretty1(
+                buf,
+                indent,
+                line_end,
+                depth,
+                type_arg,
+                inner_val,
+                0,
+                0
+            )?;
+            if need_parens { buf.push(')'); }
+            Ok(())
+        };
+
+        match value {
             Val::Fn(f) => {
-                let name = match f {
+                let fname = match f {
                     BuiltInFunction::OrderEqual => "EQUAL",
                     BuiltInFunction::OrderGreater => "GREATER",
                     BuiltInFunction::OrderLess => "LESS",
                     _ => panic!("Expected list"),
                 };
-                return self.pretty_raw(buf, indent, line_end, depth, name);
+                self.pretty_raw(buf, indent, line_end, depth, fname)
             }
-            Val::List(list) => list,
-            Val::Order(o) => {
-                return self.pretty_raw(buf, indent, line_end, depth, o.name());
-            }
-            Val::Inl(v) => {
-                self.pretty_raw(buf, indent, line_end, depth, "INL ")?;
-                return self
-                    .pretty1(buf, indent, line_end, depth, &args[0], v, 0, 0);
-            }
-            Val::Inr(v) => {
-                self.pretty_raw(buf, indent, line_end, depth, "INR ")?;
-                return self
-                    .pretty1(buf, indent, line_end, depth, &args[1], v, 0, 0);
-            }
-            Val::Some(v) => {
-                self.pretty_raw(buf, indent, line_end, depth, "SOME ")?;
-                return self
-                    .pretty1(buf, indent, line_end, depth, &args[0], v, 0, 0);
-            }
-            Val::Unit => {
-                if name == "option" {
-                    return self
-                        .pretty_raw(buf, indent, line_end, depth, "NONE");
+            Val::Order(o) =>
+                self.pretty_raw(buf, indent, line_end, depth, o.name()),
+
+            Val::Inl(v) =>
+                print_wrapped("INL ", &args[0], v),
+            Val::Inr(v) =>
+                print_wrapped("INR ", &args[1], v),
+            Val::Some(v) =>
+                print_wrapped("SOME ", &args[0], v),
+
+            Val::Unit if name == "option" =>
+                self.pretty_raw(buf, indent, line_end, depth, "NONE"),
+
+            // 5. Handle Lists (Vector, Bag, or Generic Constructors)
+            Val::List(list) => {
+                if name == "vector" || name == "bag" {
+                    if name == "vector" { buf.push('#'); }
+                    let arg_type = args.first().unwrap();
+                    return self.print_list(
+                        buf,
+                        indent,
+                        line_end,
+                        depth,
+                        arg_type,
+                        list
+                    );
                 }
-                panic!("Expected list")
+
+                let ty_con_name = list.first().unwrap().expect_string();
+                buf.push_str(&ty_con_name);
+
+                if let Some(arg) = list.get(1) {
+                    buf.push(' ');
+                    let need_parens = matches!(arg, Val::List(_));
+                    if need_parens { buf.push('('); }
+
+                    self.pretty2(
+                        buf, indent, line_end, depth + 1,
+                        &Type::Primitive(PrimitiveType::String),
+                        arg, 0, 0
+                    )?;
+
+                    if need_parens { buf.push(')'); }
+                }
+                Ok(())
             }
             _ => panic!("Expected list"),
-        };
-        if name == "vector" {
-            let arg_type = args.first().unwrap();
-            buf.push('#');
-            return self
-                .print_list(buf, indent, line_end, depth, arg_type, list);
         }
-        if name == "bag" {
-            let arg_type = args.first().unwrap();
-            return self
-                .print_list(buf, indent, line_end, depth, arg_type, list);
-        }
-        let ty_con_name = list.first().unwrap().expect_string();
-        buf.push_str(&ty_con_name);
-        if let Some(arg) = list.get(1) {
-            // This is a parameterized constructor. (For example, NONE is
-            // not parameterized, SOME x is parameterized with x.)
-            buf.push(' ');
-            let need_parentheses = matches!(arg, Val::List(_));
-            if need_parentheses {
-                buf.push('(');
-            }
-            self.pretty2(
-                buf,
-                indent,
-                line_end,
-                depth + 1,
-                &Type::Primitive(PrimitiveType::String),
-                arg,
-                0,
-                0,
-            )?;
-            if need_parentheses {
-                buf.push(')');
-            }
-        }
-        Ok(())
     }
 
     fn pretty_type(
