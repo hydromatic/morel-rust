@@ -307,9 +307,6 @@ from e in emps
   yield x + y;
 > val it = [202] : int list
 
-set("mode", "validate");
-> val it = () : unit
-
 (* Order ------------------------------------------------------ *)
 from e in emps
   yield {e.deptno, e.name}
@@ -392,10 +389,6 @@ end;
 >   ([{deptno=10,id=100},{deptno=20,id=101}],
 >    [{deptno=20,id=101},{deptno=30,id=102},{deptno=30,id=103}])
 >   : {deptno:int, id:int} list * {deptno:int, id:int} list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Unorder ---------------------------------------------------- *)
 from i in [1,2] unorder;

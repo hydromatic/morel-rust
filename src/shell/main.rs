@@ -555,7 +555,7 @@ impl Shell {
         // Successfully parsed, now evaluate
         let output = self.evaluate_node(&resolved);
         match &output {
-            Ok(s) => Ok(prefix_lines(">", s.as_str())),
+            Ok(s) => Ok(prefix_lines(">", &format!("{}{}", warning_prefix, s))),
             Err(_) => output,
         }
     }

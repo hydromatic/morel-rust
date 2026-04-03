@@ -1392,9 +1392,11 @@ impl TypeResolver {
             }
             StepKind::Order(expr) => {
                 let v = self.unifier.variable();
+                // Validate field ordering on the original expression before
+                // deduce_record_type reorders fields alphabetically.
+                self.validate_order(expr);
                 let expr2 = self.deduce_expr_type(&*p.env, expr, &v)?;
-                let expr3 = self.validate_order(&expr2);
-                let step2 = StepKind::Order(Box::new(expr3));
+                let step2 = StepKind::Order(Box::new(expr2));
                 steps2.push(step2.spanned(&step.span));
                 // 'order' always produces an ordered (list) collection.
                 let c = self.unifier.variable();
@@ -3443,12 +3445,18 @@ impl TypeResolver {
         match &expr.kind {
             ExprKind::Record(ty, labeled_exprs) => {
                 // Collect labels with their span start positions.
-                let labels_with_spans: Vec<(&str, usize)> = labeled_exprs
+                // For explicit labels ({name = e.name}), use the label span.
+                // For implicit labels ({e.name}), use the expression span.
+                let labels_with_spans: Vec<(String, usize)> = labeled_exprs
                     .iter()
                     .filter_map(|le| {
-                        le.label
-                            .as_ref()
-                            .map(|l| (l.name.as_str(), l.span.start_pos()))
+                        le.get_label().map(|name| {
+                            let pos = le.label.as_ref().map_or_else(
+                                || le.expr.span.start_pos(),
+                                |l| l.span.start_pos(),
+                            );
+                            (name, pos)
+                        })
                     })
                     .collect();
 
@@ -3459,7 +3467,7 @@ impl TypeResolver {
                 if !labels_with_spans.is_empty() {
                     let label_strs: Vec<&str> = labels_with_spans
                         .iter()
-                        .map(|(name, _)| *name)
+                        .map(|(name, _)| name.as_str())
                         .collect();
 
                     // Check if spans are in increasing order (source order).
