@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::{Decl, Expr, Match, Pat, Step, StepKind};
+use crate::compile::core::{Decl, Expr, Match, Pat, PatField, Step, StepKind};
 use crate::compile::type_env::Binding;
 use crate::compile::types::{Label, Type};
 use crate::eval::frame::FrameDef;
@@ -140,10 +140,19 @@ impl Pat {
             Pat::Literal(_, _) => {
                 // no variables
             }
+            Pat::Record(_, pat_fields, _) => {
+                for field in pat_fields {
+                    match field {
+                        PatField::Labeled(_, p) | PatField::Anonymous(p) => {
+                            p.collect_vars(collector);
+                        }
+                        PatField::Ellipsis => {}
+                    }
+                }
+            }
             Pat::Wildcard(_) => {
                 // no variables
             }
-            _ => todo!("collect_vars {:?}", self),
         }
     }
 }
@@ -191,6 +200,16 @@ impl Expr {
     pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
         match self {
             // lint: sort until '#}' where '##Expr::'
+            Expr::Aggregate(_, f, _e) => {
+                // `f over e`: f is applied to 'elements'. Collect vars from f,
+                // and ensure 'elements' has a frame slot.
+                f.collect_vars(collector);
+                let has_elements =
+                    collector.defs.iter().any(|b| b.id.name == "elements");
+                if !has_elements {
+                    collector.add_def(Binding::of_name("elements"));
+                }
+            }
             Expr::Apply(_, f, a, _) => {
                 f.collect_vars(collector);
                 a.collect_vars(collector);
@@ -198,6 +217,10 @@ impl Expr {
             Expr::Case(_, expr, matches) => {
                 expr.collect_vars(collector);
                 matches.iter().for_each(|m| m.collect_vars(collector));
+            }
+            Expr::Current(_) => {
+                // 'current' refers to the primary element already in the
+                // frame; no additional frame slot is needed.
             }
             Expr::Fn(_, matches) => {
                 // do not traverse into a function
@@ -220,6 +243,11 @@ impl Expr {
             }
             Expr::Literal(_, _) => {
                 // no variables
+            }
+            Expr::Ordinal(_) => {
+                // 'ordinal' needs a dedicated frame slot so the OrdinalRowSink
+                // can write to it before each row is processed.
+                collector.add_def(Binding::of_name("ordinal"));
             }
             Expr::RecordSelector(_, _) => {
                 // no variables
@@ -286,6 +314,16 @@ impl Step {
                 expr.collect_vars(collector);
             }
             StepKind::Yield(expr) => {
+                // If yielding a record, add field names as defs so that
+                // subsequent steps can reference them as frame variables
+                // (e.g., 'yield {x = e.deptno} where x > 10').
+                if let Type::Record(_, fields) = expr.type_().as_ref() {
+                    for label in fields.keys() {
+                        if let Label::String(name) = label {
+                            collector.add_def(Binding::of_name(name));
+                        }
+                    }
+                }
                 expr.collect_vars(collector);
             }
             _ => {

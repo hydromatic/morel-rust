@@ -36,6 +36,16 @@ fn is_list_type(type_: &Type) -> bool {
     matches!(type_, Type::List(_))
 }
 
+/// Returns the implicit label for a core Expr, if one can be derived.
+/// Mirrors the logic of `ast::Expr::implicit_label_opt`.
+fn agg_implicit_label(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Identifier(_, name) => Some(name.clone()),
+        Expr::Aggregate(_, left, _) => agg_implicit_label(left),
+        _ => None,
+    }
+}
+
 /// Classification of tuple types for yield optimization.
 #[derive(Eq, PartialEq, Debug)]
 enum TupleType {
@@ -66,14 +76,30 @@ fn tuple_type(
     env: &StepEnv,
     env2: Option<&StepEnv>,
 ) -> TupleType {
-    // Extract fields from the tuple.
-    let fields = match tuple {
-        Expr::Tuple(_, exprs) if !exprs.is_empty() => exprs,
+    // Extract fields and the record type from the tuple.
+    let (tuple_type, fields) = match tuple {
+        Expr::Tuple(t, exprs) if !exprs.is_empty() => (t.as_ref(), exprs),
+        _ => return TupleType::Other,
+    };
+
+    // Extract field labels from the record type.
+    let field_labels: Vec<&str> = match tuple_type {
+        Type::Record(_, fields_map) => fields_map
+            .keys()
+            .filter_map(|l| {
+                if let Label::String(s) = l {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect(),
         _ => return TupleType::Other,
     };
 
     // The tuple must have the same number of fields as bindings.
-    if fields.len() != env.bindings.len() {
+    if fields.len() != env.bindings.len() || field_labels.len() != fields.len()
+    {
         return TupleType::Other;
     }
 
@@ -84,11 +110,14 @@ fn tuple_type(
     };
 
     // Check each field in the tuple.
-    for (field_expr, binding) in fields.iter().zip(&env.bindings) {
+    for ((field_expr, field_label), binding) in
+        fields.iter().zip(field_labels.iter()).zip(&env.bindings)
+    {
         match field_expr {
             Expr::Identifier(_, field_name) => {
-                // The field must reference a binding variable.
-                if field_name != &binding.id.name {
+                // For identity: field label == field value name == binding.
+                // If the label differs from the value name, this is a rename.
+                if field_name != field_label || field_name != &binding.id.name {
                     identity = false;
                 }
             }
@@ -296,7 +325,6 @@ impl FromBuilder {
         // - "from x in [1,2] yield {x=x}" -> atom=false (1 binding, tuple exp);
         // - "from x in [1], y in [2] yield {x,y}" -> atom=false (2 bindings).
         let is_tuple_expr = matches!(exp, Expr::Tuple(_, _));
-        let atom = self.bindings.len() == 1 && !is_tuple_expr;
 
         match &exp {
             Expr::Tuple(_, _) => {
@@ -350,9 +378,37 @@ impl FromBuilder {
             }
         }
 
+        // Compute output bindings for subsequent steps from the yield
+        // expression's type. For example, 'yield {x = e.deptno}' makes 'x'
+        // available after the yield, so 'where x > 10' can reference it.
+        let output_bindings: Vec<Binding> = if is_tuple_expr {
+            match exp.type_().as_ref() {
+                Type::Record(_, fields) => fields
+                    .iter()
+                    .filter_map(|(label, t)| {
+                        if let Label::String(name) = label {
+                            Some(Binding::new(
+                                Id::new(name, 0),
+                                Box::new(t.clone()),
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                _ => self.bindings.clone(),
+            }
+        } else {
+            let label = agg_implicit_label(&exp)
+                .unwrap_or_else(|| "current".to_string());
+            vec![Binding::new(Id::new(&label, 0), exp.type_())]
+        };
+        self.bindings = output_bindings;
+        self.atom = self.bindings.len() == 1 && !is_tuple_expr;
+
         // Create the yield step.
         let step_env = env2.unwrap_or_else(|| {
-            StepEnv::new(self.bindings.clone(), atom, env.ordered)
+            StepEnv::new(self.bindings.clone(), self.atom, env.ordered)
         });
         let step = Step::new(StepKind::Yield(Box::new(exp)), step_env);
         self.add_step(step);
@@ -420,9 +476,29 @@ impl FromBuilder {
         {
             let mut new_bindings = Vec::new();
 
-            // Key bindings: scalar identifier key → one binding.
-            if let Expr::Identifier(t, name) = &key_expr {
-                new_bindings.push(Binding::new(Id::new(name, 0), t.clone()));
+            // Key bindings: add one binding per key field.
+            match &key_expr {
+                Expr::Identifier(t, name) => {
+                    // Scalar key (e.g. `group i`).
+                    new_bindings
+                        .push(Binding::new(Id::new(name, 0), t.clone()));
+                }
+                _ => {
+                    // Record/tuple key (e.g. `group {i}` or `group {e = x}`):
+                    // add a binding for each field name.
+                    if let Type::Record(_, key_fields) =
+                        key_expr.type_().as_ref()
+                    {
+                        for (label, t) in key_fields {
+                            if let Label::String(name) = label {
+                                new_bindings.push(Binding::new(
+                                    Id::new(name, 0),
+                                    Box::new(t.clone()),
+                                ));
+                            }
+                        }
+                    }
+                }
             }
 
             // Aggregate field bindings (alphabetical from record type).
@@ -711,17 +787,19 @@ mod tests {
 
         // Yield {x=x, y=y} should be skipped as identity
         let initial_len = builder.steps.len();
+        let int_type = Type::Primitive(PrimitiveType::Int);
+        let record_type = Type::Record(
+            false,
+            std::collections::BTreeMap::from([
+                (Label::String("x".to_string()), int_type.clone()),
+                (Label::String("y".to_string()), int_type.clone()),
+            ]),
+        );
         builder.yield_(Expr::Tuple(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Box::new(record_type),
             vec![
-                Expr::Identifier(
-                    Box::new(Type::Primitive(PrimitiveType::Int)),
-                    "x".to_string(),
-                ),
-                Expr::Identifier(
-                    Box::new(Type::Primitive(PrimitiveType::Int)),
-                    "y".to_string(),
-                ),
+                Expr::Identifier(Box::new(int_type.clone()), "x".to_string()),
+                Expr::Identifier(Box::new(int_type.clone()), "y".to_string()),
             ],
         ));
 

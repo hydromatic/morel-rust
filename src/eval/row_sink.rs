@@ -419,7 +419,9 @@ impl RowSink for CollectRowSink {
 pub struct OrderRowSink {
     order_code: Code,
     comparator: Arc<dyn Comparator>,
-    slot_count: usize,
+    /// The actual frame slot indices for the active bindings at this step.
+    /// Used to save and restore the frame when sorting rows.
+    binding_slots: Vec<usize>,
     row_sink: Box<dyn RowSink>,
     rows: Vec<Val>,
 }
@@ -428,15 +430,41 @@ impl OrderRowSink {
     pub fn new(
         order_code: Code,
         comparator: Arc<dyn Comparator>,
-        slot_count: usize,
+        binding_slots: Vec<usize>,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
             order_code,
             comparator,
-            slot_count,
+            binding_slots,
             row_sink,
             rows: Vec::new(),
+        }
+    }
+
+    /// Saves the current row's frame slots into a Val for later restoration.
+    fn save_row(&self, f: &Frame) -> Val {
+        if self.binding_slots.len() == 1 {
+            f.vals[self.binding_slots[0]].clone()
+        } else {
+            Val::List(
+                self.binding_slots
+                    .iter()
+                    .map(|&s| f.vals[s].clone())
+                    .collect(),
+            )
+        }
+    }
+
+    /// Restores frame slots from a previously saved row Val.
+    fn restore_row(&self, f: &mut Frame, row: Val) {
+        if self.binding_slots.len() == 1 {
+            f.vals[self.binding_slots[0]] = row;
+        } else {
+            let items = row.expect_list();
+            for (&slot, item) in self.binding_slots.iter().zip(items) {
+                f.vals[slot] = item.clone();
+            }
         }
     }
 }
@@ -456,16 +484,7 @@ impl RowSink for OrderRowSink {
         _r: &mut EvalEnv,
         f: &mut Frame,
     ) -> Result<(), MorelError> {
-        // Accumulate the current row for sorting later.
-        // Extract the current row value from the frame.
-        let row_val = if self.slot_count == 1 {
-            // Atom case: single binding.
-            f.vals[0].clone()
-        } else {
-            // Tuple case: create tuple from slots 0..slot_count.
-            Val::List(f.vals[0..self.slot_count].to_vec())
-        };
-        self.rows.push(row_val);
+        self.rows.push(self.save_row(f));
         Ok(())
     }
 
@@ -474,46 +493,29 @@ impl RowSink for OrderRowSink {
         r: &mut EvalEnv,
         f: &mut Frame,
     ) -> Result<Val, MorelError> {
-        // Sort the accumulated rows.
-        // We need to evaluate the order expression for each row and
-        // compare. This is tricky because we need to restore the frame
-        // state for each comparison.
-
         // Create tuples of (row_val, order_key) for stable sorting.
         let mut rows_with_keys: Vec<(Val, Val)> = Vec::new();
 
         for row in &self.rows {
-            // Restore the frame to this row's state.
-            if self.slot_count == 1 {
-                f.vals[0] = row.clone();
-            } else {
-                let items = row.expect_list();
-                f.vals[..self.slot_count]
-                    .clone_from_slice(&items[..self.slot_count]);
-            }
-
-            // Evaluate the order expression for this row.
+            // Restore the frame to this row's state and evaluate the key.
+            self.restore_row(f, row.clone());
             let order_key = self.order_code.eval_f0(r, f)?;
             rows_with_keys.push((row.clone(), order_key));
         }
 
         // Sort by the order keys using the comparator.
-        rows_with_keys.sort_by(|a, b| {
-            // Compare the order keys (second element of the tuple).
-            self.comparator.compare(&a.1, &b.1)
-        });
+        rows_with_keys.sort_by(|a, b| self.comparator.compare(&a.1, &b.1));
 
-        // Pass sorted rows downstream.
+        // Pass sorted rows downstream, catching EarlyReturn to allow
+        // short-circuit sinks (take, exists) to terminate early while still
+        // delivering the final result.
         for (row, _key) in rows_with_keys {
-            // Restore the frame to this row.
-            if self.slot_count == 1 {
-                f.vals[0] = row;
-            } else {
-                let items = row.expect_list();
-                f.vals[..self.slot_count]
-                    .clone_from_slice(&items[..self.slot_count]);
+            self.restore_row(f, row);
+            match self.row_sink.accept(r, f) {
+                Ok(()) => {}
+                Err(MorelError::EarlyReturn) => break,
+                Err(e) => return Err(e),
             }
-            self.row_sink.accept(r, f)?;
         }
 
         self.row_sink.result(r, f)
@@ -898,7 +900,14 @@ pub struct GroupRowSink {
     /// For a record aggregate with N fields, this has N entries.
     agg_output_slots: Vec<usize>,
     slot_count: usize,
-    key_slot_count: usize,
+    /// Frame slots for the key fields. Each slot receives one element of the
+    /// key value. For scalar keys (e.g. `group i`), one slot receives the
+    /// value directly. For record/tuple keys, each slot receives the
+    /// corresponding element from the tuple.
+    key_slots: Vec<usize>,
+    /// True when the key is a record or tuple (Val::List), so each element
+    /// must be unpacked into its slot. False for scalar keys.
+    key_is_record: bool,
     row_sink: Box<dyn RowSink>,
 
     /// We use IndexMap instead of HashMap because we need to iterate in order
@@ -913,7 +922,8 @@ impl GroupRowSink {
         elements_slot: Option<usize>,
         agg_output_slots: Vec<usize>,
         slot_count: usize,
-        key_slot_count: usize,
+        key_slots: Vec<usize>,
+        key_is_record: bool,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
@@ -922,7 +932,8 @@ impl GroupRowSink {
             elements_slot,
             agg_output_slots,
             slot_count,
-            key_slot_count,
+            key_slots,
+            key_is_record,
             row_sink,
             map: IndexMap::new(),
         }
@@ -970,21 +981,24 @@ impl RowSink for GroupRowSink {
         // Handle empty input with empty group key: emit one row.
         // This handles queries like
         // "from e in [] group {} compute count" → [0]
-        if self.map.is_empty() && self.key_slot_count == 0 {
+        if self.map.is_empty() && self.key_slots.is_empty() {
             self.map.insert(Val::List(vec![]), vec![]);
         }
 
         // For each group, evaluate aggregates and emit.
         for (key, rows) in &self.map {
             // 1. Bind group key fields to frame.
-            // The key can be either a scalar (for single-field keys like
-            // "group i") or a record (for multi-field keys like
-            // "group {e.deptno, e.job}", stored as one Val::List).
-            if self.key_slot_count == 1 {
-                // Scalar or record key - bind directly to slot 0.
-                f.vals[0] = key.clone();
+            if self.key_is_record {
+                // Record/tuple key: unpack each element into its slot.
+                let fields = key.expect_list();
+                for (i, slot) in self.key_slots.iter().enumerate() {
+                    f.vals[*slot] = fields[i].clone();
+                }
+            } else if let Some(&slot) = self.key_slots.first() {
+                // Scalar key: store the value directly in the single slot.
+                f.vals[slot] = key.clone();
             }
-            // key_slot_count == 0: empty key, nothing to write.
+            // key_slots.is_empty(): empty key, nothing to write.
 
             // 2. Evaluate the aggregate expression (if present).
             if let Some(agg_code) = &self.aggregate_code {
@@ -1096,5 +1110,282 @@ impl RowSink for ComputeRowSink {
 
         // Evaluate the compute expression once and return the scalar result.
         self.compute_code.eval_f0(r, f)
+    }
+}
+
+/// Implementation of RowSink for a non-terminal `yield` step.
+///
+/// When a `yield` step is followed by more steps (e.g., `yield expr
+/// where ...`), this sink evaluates the yield expression, writes the
+/// result into the "current" frame slot (slot 0 for closures with no
+/// bound vars), and forwards the row to the downstream sink. Downstream
+/// steps (such as `where current mod 2 = 1`) can then read the yielded
+/// value via `current`.
+pub struct YieldRowSink {
+    yield_code: Code,
+    /// If non-empty, the yielded record's fields are written to these frame
+    /// slots (one slot per field, in the same order as the record's fields).
+    /// If empty, the yielded value is written to `current_slot` instead.
+    field_slots: Vec<usize>,
+    current_slot: usize,
+    row_sink: Box<dyn RowSink>,
+}
+
+impl YieldRowSink {
+    /// Creates a sink that writes a scalar (or whole record) to `current_slot`.
+    pub fn new(
+        yield_code: Code,
+        current_slot: usize,
+        row_sink: Box<dyn RowSink>,
+    ) -> Self {
+        Self {
+            yield_code,
+            field_slots: Vec::new(),
+            current_slot,
+            row_sink,
+        }
+    }
+
+    /// Creates a sink that unpacks a record's fields into separate frame slots.
+    /// `field_slots[i]` is the frame slot for the i-th field of the record.
+    pub fn new_record(
+        yield_code: Code,
+        field_slots: Vec<usize>,
+        row_sink: Box<dyn RowSink>,
+    ) -> Self {
+        Self {
+            yield_code,
+            field_slots,
+            current_slot: 0,
+            row_sink,
+        }
+    }
+}
+
+impl RowSink for YieldRowSink {
+    fn start(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.row_sink.start(r, f)
+    }
+
+    fn accept(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        let val = self.yield_code.eval_f0(r, f)?;
+        // Save the frame slots we are about to overwrite, so that callers
+        // higher in the pipeline (e.g. an enclosing join's scan loop) still
+        // see the original values after we return.
+        if self.field_slots.is_empty() {
+            // Scalar (or whole-record) yield: write to current_slot.
+            let saved = f.vals[self.current_slot].clone();
+            f.vals[self.current_slot] = val;
+            let result = self.row_sink.accept(r, f);
+            f.vals[self.current_slot] = saved;
+            result
+        } else {
+            // Record yield: unpack each field into its own frame slot.
+            let saved: Vec<Val> = self
+                .field_slots
+                .iter()
+                .map(|&s| f.vals[s].clone())
+                .collect();
+            for (field_idx, &slot) in self.field_slots.iter().enumerate() {
+                f.vals[slot] = val.get_field(field_idx).unwrap().clone();
+            }
+            let result = self.row_sink.accept(r, f);
+            for (&slot, sv) in self.field_slots.iter().zip(saved) {
+                f.vals[slot] = sv;
+            }
+            result
+        }
+    }
+
+    fn result(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<Val, MorelError> {
+        self.row_sink.result(r, f)
+    }
+}
+
+/// Implementation of RowSink for an `unorder` step.
+///
+/// `unorder` is a pass-through that changes the query result type from
+/// `list` to `bag`, signaling that downstream processing no longer depends
+/// on row order. At runtime there is nothing to do — rows pass straight
+/// through to the downstream sink.
+pub struct UnorderRowSink {
+    row_sink: Box<dyn RowSink>,
+}
+
+impl UnorderRowSink {
+    pub fn new(row_sink: Box<dyn RowSink>) -> Self {
+        Self { row_sink }
+    }
+}
+
+impl RowSink for UnorderRowSink {
+    fn start(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.row_sink.start(r, f)
+    }
+
+    fn accept(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.row_sink.accept(r, f)
+    }
+
+    fn result(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<Val, MorelError> {
+        self.row_sink.result(r, f)
+    }
+}
+
+/// Implementation of RowSink for an `ordinal` step.
+///
+/// Wraps a downstream sink and increments a frame slot (the ordinal counter)
+/// before forwarding each row. The ordinal starts at 0 and increases by 1
+/// for every row accepted.
+pub struct OrdinalRowSink {
+    ordinal_slot: usize,
+    next_ordinal: i32,
+    row_sink: Box<dyn RowSink>,
+}
+
+impl OrdinalRowSink {
+    pub fn new(ordinal_slot: usize, row_sink: Box<dyn RowSink>) -> Self {
+        Self {
+            ordinal_slot,
+            next_ordinal: 0_i32,
+            row_sink,
+        }
+    }
+}
+
+impl RowSink for OrdinalRowSink {
+    fn start(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.next_ordinal = 0;
+        self.row_sink.start(r, f)
+    }
+
+    fn accept(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        // Write the current ordinal into the frame slot, then advance.
+        f.vals[self.ordinal_slot] = Val::Int(self.next_ordinal);
+        self.next_ordinal += 1;
+        self.row_sink.accept(r, f)
+    }
+
+    fn result(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<Val, MorelError> {
+        self.row_sink.result(r, f)
+    }
+}
+
+/// Combined sink for a `where` step whose filter expression uses the live
+/// ordinal counter AND where `ordinal` is also a yielded field that must be
+/// preserved in the output.
+///
+/// It writes the live counter into `ordinal_slot` for filter evaluation, then
+/// restores the original field value before passing the row downstream.  When
+/// `preserve_field` is false (ordinal is only a live counter, not a field) the
+/// sink behaves like `OrdinalRowSink → WhereRowSink`.
+pub struct OrdinalFilterRowSink {
+    ordinal_slot: usize,
+    filter_code: Code,
+    row_sink: Box<dyn RowSink>,
+    next_ordinal: i32,
+    preserve_field: bool,
+}
+
+impl OrdinalFilterRowSink {
+    pub fn new(
+        ordinal_slot: usize,
+        filter_code: Code,
+        row_sink: Box<dyn RowSink>,
+        preserve_field: bool,
+    ) -> Self {
+        Self {
+            ordinal_slot,
+            filter_code,
+            row_sink,
+            next_ordinal: 0,
+            preserve_field,
+        }
+    }
+}
+
+impl RowSink for OrdinalFilterRowSink {
+    fn start(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        self.next_ordinal = 0;
+        self.row_sink.start(r, f)
+    }
+
+    fn accept(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<(), MorelError> {
+        // Optionally save the original field value before overwriting it.
+        let saved = if self.preserve_field {
+            Some(f.vals[self.ordinal_slot].clone())
+        } else {
+            None
+        };
+
+        // Write the live counter into the ordinal slot.
+        f.vals[self.ordinal_slot] = Val::Int(self.next_ordinal);
+        self.next_ordinal += 1;
+
+        // Evaluate the filter in the context of the live counter.
+        let passes = self.filter_code.eval_f0(r, f)?.expect_bool();
+
+        // Restore the original field value so downstream sees the yielded
+        // ordinal value, not the ephemeral counter.
+        if let Some(orig) = saved {
+            f.vals[self.ordinal_slot] = orig;
+        }
+
+        if passes {
+            self.row_sink.accept(r, f)?;
+        }
+        Ok(())
+    }
+
+    fn result(
+        &mut self,
+        r: &mut EvalEnv,
+        f: &mut Frame,
+    ) -> Result<Val, MorelError> {
+        self.row_sink.result(r, f)
     }
 }

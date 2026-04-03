@@ -79,14 +79,19 @@ impl TypeMap {
 
     /// Gets the type for an AST node.
     pub fn get_type(&self, id: i32) -> Option<Box<Type>> {
-        if let Some(var) = self.node_var_map.get(&id)
-            && let Some(term) = self.var_term_map.get(var)
-        {
+        if let Some(var) = self.node_var_map.get(&id) {
             let mut c = TermToTypeConverter {
                 type_map: self,
                 var_map: BTreeMap::new(),
             };
-            return Some(c.term_type(term));
+            if let Some(term) = self.var_term_map.get(var) {
+                return Some(c.term_type(term));
+            }
+            // The variable is the canonical root in union-find and has no
+            // concrete term (it is an unconstrained/free type variable).
+            // Return a generic type variable so that callers (such as the
+            // resolver and type-checker) can still proceed.
+            return Some(c.term_type(&Term::Variable(*var)));
         }
         None
     }
@@ -419,27 +424,47 @@ impl TypeResolver {
         // When the user writes e.g. `op +` without context, the element-type
         // variable is free; Standard ML specifies that numeric operators
         // prefer `int` in that case.
+        //
+        // We follow variable chains: if `pv` maps to `Var(v2)` and `v2` has
+        // no concrete term, default `v2` to `int`. This handles cases where
+        // `pv` is not the canonical representative in the union-find.
         if !self.preferred_vars.is_empty() {
             let int_term = Term::Sequence(self.unifier.atom(self.int_op));
             for &pv in &self.preferred_vars {
-                type_map
-                    .var_term_map
-                    .entry(pv)
-                    .or_insert_with(|| int_term.clone());
+                let mut current = pv;
+                loop {
+                    match type_map.var_term_map.get(&current).cloned() {
+                        None => {
+                            // `current` is the canonical free variable;
+                            // default it to `int`.
+                            type_map
+                                .var_term_map
+                                .insert(current, int_term.clone());
+                            break;
+                        }
+                        Some(Term::Variable(next)) => {
+                            current = next;
+                        }
+                        Some(Term::Sequence(_)) => {
+                            // Already bound to a concrete type; leave it.
+                            break;
+                        }
+                    }
+                }
             }
             self.preferred_vars.clear();
         }
 
-        // If the code begins with a comment, compute the offset of the first
-        // line of code after the comment. This allows us to report the correct
-        // position of errors when there are commented-out lines before them.
-        let pest_span = decl2.span.to_pest_span();
+        // Compute the base-line offset: how many lines of comments/blank lines
+        // precede the first code token.  We use `decl.span` (= statement.span)
+        // rather than `decl2.span` because for `fun` declarations the
+        // converted val-decl span starts after the `fun` keyword (col > 1).
+        // The statement span always starts at column 1 (at the leading keyword
+        // or opening parenthesis), so `line - 1` is exactly the number of
+        // leading comment/blank lines — matching morel-java's parser.zero().
+        let pest_span = decl.span.to_pest_span();
         let start = pest_span.start_pos();
-        let base_line = if start.line_col().1 == 1 {
-            start.line_col().0 - 1
-        } else {
-            0
-        };
+        let base_line = start.line_col().0.saturating_sub(1);
 
         // Extract bindings from the declaration
         let mut bindings = Vec::new();
@@ -787,6 +812,7 @@ impl TypeResolver {
             type_resolver: self,
             env,
             type_variables: BTreeMap::new(),
+            extra_type_vars: BTreeMap::new(),
         };
         converter.type_term(type_, &Subst::Empty, v)
     }
@@ -806,6 +832,7 @@ impl TypeResolver {
             type_resolver: self,
             env,
             type_variables,
+            extra_type_vars: BTreeMap::new(),
         };
         converter.type_scheme_term(type_scheme, v)
     }
@@ -821,6 +848,20 @@ impl TypeResolver {
     ) -> Result<Expr, Error> {
         Ok(match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
+            ExprKind::Aggregate(f, e) => {
+                self.check_in_compute(env, &expr.span)?;
+                let step_env = self.compute_stack.last().unwrap().clone();
+                // f has type: elements_type -> v
+                // where elements_type is the type of the current collection.
+                let v_elements = step_env.c.unwrap();
+                let v_fn = self.variable();
+                self.fn_term(&v_elements, v, &v_fn);
+                let f2 = self.deduce_expr_type(env, f, &v_fn)?;
+                let v_e = self.variable();
+                let e2 = self.deduce_expr_type(env, e, &v_e)?;
+                let x = ExprKind::Aggregate(Box::new(f2), Box::new(e2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::AndAlso(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op andalso", left, right, v)?;
@@ -880,6 +921,22 @@ impl TypeResolver {
                 let x = ExprKind::Cons(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Current => {
+                // 'current' is bound in the query environment for each step.
+                match env.get("current", self) {
+                    Some(BindType::Val(term))
+                    | Some(BindType::Constructor(term)) => {
+                        self.equiv(&term, v);
+                    }
+                    None => {
+                        return Err(Error::Compile(
+                            "'current' is only valid in a query".into(),
+                            expr.span.clone(),
+                        ));
+                    }
+                }
+                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+            }
             ExprKind::Div(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op div", left, right, v)?;
@@ -890,6 +947,12 @@ impl TypeResolver {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op /", left, right, v)?;
                 let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
+            ExprKind::Elem(left, right) => {
+                let (left2, right2) =
+                    self.deduce_call2_type(env, "elem", left, right, v)?;
+                let x = ExprKind::Elem(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Elements => {
@@ -1055,6 +1118,12 @@ impl TypeResolver {
                 let x = ExprKind::Negate(Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::NotElem(left, right) => {
+                let (left2, right2) =
+                    self.deduce_call2_type(env, "notElem", left, right, v)?;
+                let x = ExprKind::NotElem(Box::new(left2), Box::new(right2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::NotEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <>", left, right, v)?;
@@ -1104,6 +1173,11 @@ impl TypeResolver {
                     self.deduce_call2_type(env, "op orelse", left, right, v)?;
                 let x = ExprKind::OrElse(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
+            }
+            ExprKind::Ordinal => {
+                // 'ordinal' is a row counter with type int.
+                self.primitive_term(&PrimitiveType::Int, v);
+                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
             ExprKind::Plus(left, right) => {
                 let (left2, right2) =
@@ -1322,7 +1396,10 @@ impl TypeResolver {
                 let expr3 = self.validate_order(&expr2);
                 let step2 = StepKind::Order(Box::new(expr3));
                 steps2.push(step2.spanned(&step.span));
-                Ok(p.clone())
+                // 'order' always produces an ordered (list) collection.
+                let c = self.unifier.variable();
+                self.list_term(Term::Variable(p.v), &c);
+                Ok(p.with_c(c))
             }
             StepKind::Require(expr) => {
                 let v = self.unifier.variable();
@@ -1357,7 +1434,9 @@ impl TypeResolver {
             ),
             StepKind::Skip(expr) => {
                 let v = self.unifier.variable();
-                let expr2 = self.deduce_expr_type(&*p.env, expr, &v)?;
+                // 'current' from the current query is not available in skip;
+                // only outer-query bindings (root_env) are in scope.
+                let expr2 = self.deduce_expr_type(&*p.root_env, expr, &v)?;
                 self.primitive_term(&PrimitiveType::Int, &v);
                 let step2 = StepKind::Skip(Box::new(expr2));
                 steps2.push(step2.spanned(&step.span));
@@ -1365,7 +1444,9 @@ impl TypeResolver {
             }
             StepKind::Take(expr) => {
                 let v = self.unifier.variable();
-                let expr2 = self.deduce_expr_type(&*p.env, expr, &v)?;
+                // 'current' from the current query is not available in take;
+                // only outer-query bindings (root_env) are in scope.
+                let expr2 = self.deduce_expr_type(&*p.root_env, expr, &v)?;
                 self.primitive_term(&PrimitiveType::Int, &v);
                 let step2 = StepKind::Take(Box::new(expr2));
                 steps2.push(step2.spanned(&step.span));
@@ -1416,7 +1497,11 @@ impl TypeResolver {
         let v0 = self.variable();
         let c0 = self.variable();
 
-        self.list_term(Term::Variable(v0), &c0);
+        // The scan expression may be a list or bag; defer the element-type
+        // constraint until c0 is resolved (instead of forcing list here).
+        if !eq {
+            self.may_be_bag_or_list(&c0, &v0);
+        }
         let expr2 = self.deduce_expr_type(
             &*p.env,
             expr.unwrap(),
@@ -1435,15 +1520,21 @@ impl TypeResolver {
             self.reg_expr(&ExprKind::Identifier(name.clone()), span, None, &v);
             field_vars.push((name.clone(), v));
         }
+        // Bind 'current' to the scanned element type so that 'where' and
+        // other steps after a scan can reference the element via 'current'.
+        env_builder.push("current".to_string(), Term::Variable(v0));
         let env4 = env_builder.build();
 
-        // Determine collection type - simplified for now, just use list.
-        // TODO: Implement full collection type logic from Java
-        // (is_list_or_bag_matching_input, is_list_if_both_are_lists,
-        // may_be_bag_or_list)
+        // Output collection type matches the input's list/bag kind.
         let v = self.field_var(field_vars, true);
         let c = self.unifier.variable();
-        self.list_term(Term::Variable(v), &c);
+        if eq {
+            // ScanEq (= expr): output inherits the preceding collection type.
+            self.is_list_or_bag_matching_input(&p.c.unwrap(), &p.v, &c, &v);
+        } else {
+            // Normal scan: output collection kind matches this scan's input.
+            self.is_list_or_bag_matching_input(&c0, &v0, &c, &v);
+        }
 
         // Handle the condition, if present.
         let condition2 = if let Some(cond) = condition {
@@ -1455,7 +1546,14 @@ impl TypeResolver {
             None
         };
 
-        let step = StepKind::Scan(Box::new(pat2), Box::new(expr2), condition2);
+        // ScanEq steps must stay as ScanEq in the output so that the
+        // resolver can wrap the element expression in a singleton list.
+        // Normal scans (and join scans with a condition) become Scan.
+        let step = if eq {
+            StepKind::ScanEq(Box::new(pat2), Box::new(expr2))
+        } else {
+            StepKind::Scan(Box::new(pat2), Box::new(expr2), condition2)
+        };
         steps.push(step.spanned(span));
 
         Ok(Triple::new(p.root_env.clone(), env4, v, Some(c)))
@@ -1897,9 +1995,17 @@ impl TypeResolver {
         let step2 = StepKind::Group(Box::new(key_expr2), compute_expr2);
         steps2.push(step2.spanned(span));
 
+        // Build the environment for subsequent steps (e.g. yield). It
+        // includes all key fields AND all compute output fields.
+        let mut post_group_env_builder = p.root_env.builder();
+        field_vars.iter().for_each(|(label, v)| {
+            post_group_env_builder.push(label.clone(), Term::Variable(*v));
+        });
+        let post_group_env = post_group_env_builder.build();
+
         Ok(Triple::new(
             p.root_env.clone(),
-            group_env,
+            post_group_env,
             v_result,
             Some(c_result),
         ))
@@ -2483,8 +2589,61 @@ impl TypeResolver {
     // Internally, use [Self::type_term], which allows a [Subst].
     pub fn type_to_term(&mut self, type_: &Type) -> Var {
         let v = self.variable();
-        self.type_term(type_, &Subst::Empty, &v);
+        // For `Forall` types the `type_term` Forall handler creates fresh
+        // unification vars for the bound type variables itself, so we pass an
+        // empty substitution and let it do the work.
+        //
+        // For non-Forall types (e.g. `Type::Fn(List(Var(0)), List(Var(0)))`)
+        // we must pre-populate the substitution so that every occurrence of
+        // the same TypeVariable id maps to the *same* fresh Var — proper
+        // polymorphic instantiation.
+        let subst = if matches!(type_, Type::Forall(..)) {
+            Subst::Empty
+        } else {
+            let var_count = Self::max_type_var_count(type_);
+            let mut s = Subst::Empty;
+            for i in 0..var_count {
+                let type_var = TypeVariable::new(i);
+                s = s.plus(&type_var, Term::Variable(self.variable()));
+            }
+            s
+        };
+        self.type_term(type_, &subst, &v);
         v
+    }
+
+    /// Returns the number of distinct type variable IDs found in `type_`
+    /// (i.e., one more than the maximum id, or 0 if there are none).
+    fn max_type_var_count(type_: &Type) -> usize {
+        match type_ {
+            Type::Variable(tv) => tv.id + 1,
+            Type::Fn(a, b) => {
+                Self::max_type_var_count(a).max(Self::max_type_var_count(b))
+            }
+            Type::List(t) | Type::Bag(t) => Self::max_type_var_count(t),
+            Type::Tuple(ts) | Type::Data(_, ts) | Type::Named(ts, _) => {
+                ts.iter().map(Self::max_type_var_count).max().unwrap_or(0)
+            }
+            Type::Record(_, fields) => fields
+                .values()
+                .map(Self::max_type_var_count)
+                .max()
+                .unwrap_or(0),
+            Type::Alias(_, inner, args) => {
+                let inner_count = Self::max_type_var_count(inner);
+                let args_count = args
+                    .iter()
+                    .map(Self::max_type_var_count)
+                    .max()
+                    .unwrap_or(0);
+                inner_count.max(args_count)
+            }
+            Type::Forall(inner, _) => Self::max_type_var_count(inner),
+            Type::Multi(ts) => {
+                ts.iter().map(Self::max_type_var_count).max().unwrap_or(0)
+            }
+            Type::Primitive(_) => 0,
+        }
     }
 
     /// Creates a term for a primitive type and associates it with a variable.
@@ -2567,12 +2726,119 @@ impl TypeResolver {
         self.equiv(&Term::Sequence(seq3), v3);
     }
 
-    /// Marks that a variable may be either a bag or list.
+    /// Constrains `v` to be the element type of collection `c`, where `c` may
+    /// be either a list or a bag. Does not constrain which kind `c` is.
+    ///
+    /// This corresponds to Java's `mayBeBagOrList(c, v)`.
     fn may_be_bag_or_list(&mut self, c: &Var, v: &Var) {
-        // For now, assume list semantics
-        let list_v = Term::Variable(*v);
-        let seq = self.unifier.apply1(self.list_op, list_v);
-        self.equiv(&Term::Sequence(seq), c);
+        let list_op = self.list_op;
+        let bag_op = self.bag_op;
+        let v = *v;
+
+        struct MayBeBagOrListAction {
+            v: Var,
+            list_op: Op,
+            bag_op: Op,
+        }
+        impl Action for MayBeBagOrListAction {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                if let Term::Sequence(seq) = term
+                    && (seq.op == self.list_op || seq.op == self.bag_op)
+                    && seq.terms.len() == 1
+                {
+                    let v_term =
+                        substitution.resolve_term(&Term::Variable(self.v));
+                    let elem_term = substitution.resolve_term(&seq.terms[0]);
+                    term_pairs.push((v_term, elem_term));
+                }
+            }
+        }
+        self.actions
+            .push((*c, Rc::new(MayBeBagOrListAction { v, list_op, bag_op })));
+    }
+
+    /// Constrains `c2` to have the same collection kind (list or bag) as `c1`,
+    /// and `v1`/`v2` to be the respective element types.
+    ///
+    /// This corresponds to Java's `isListOrBagMatchingInput(c1, v1, c2, v2)`.
+    fn is_list_or_bag_matching_input(
+        &mut self,
+        c1: &Var,
+        v1: &Var,
+        c2: &Var,
+        v2: &Var,
+    ) {
+        let list_op = self.list_op;
+        let bag_op = self.bag_op;
+
+        // When c1 resolves to list(T) or bag(T):
+        //   - constrain v1 = T
+        //   - constrain c2 = list(v2) or bag(v2) (same collection kind)
+        struct MatchInputAction {
+            v_self: Var,  // v1
+            c_other: Var, // c2
+            v_other: Var, // v2
+            list_op: Op,
+            bag_op: Op,
+        }
+        impl Action for MatchInputAction {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                if let Term::Sequence(seq) = term
+                    && (seq.op == self.list_op || seq.op == self.bag_op)
+                    && seq.terms.len() == 1
+                {
+                    // v_self = element type of c
+                    let v_self_term =
+                        substitution.resolve_term(&Term::Variable(self.v_self));
+                    let elem = substitution.resolve_term(&seq.terms[0]);
+                    term_pairs.push((v_self_term, elem));
+
+                    // c_other = same collection kind with element v_other
+                    let v_other_term = Term::Variable(self.v_other);
+                    let c_other_seq = Sequence {
+                        op: seq.op, // same list or bag op
+                        terms: Rc::from(vec![v_other_term]),
+                    };
+                    let c_other_term = substitution
+                        .resolve_term(&Term::Variable(self.c_other));
+                    term_pairs
+                        .push((c_other_term, Term::Sequence(c_other_seq)));
+                }
+            }
+        }
+        // Register bidirectional actions.
+        self.actions.push((
+            *c1,
+            Rc::new(MatchInputAction {
+                v_self: *v1,
+                c_other: *c2,
+                v_other: *v2,
+                list_op,
+                bag_op,
+            }),
+        ));
+        self.actions.push((
+            *c2,
+            Rc::new(MatchInputAction {
+                v_self: *v2,
+                c_other: *c1,
+                v_other: *v1,
+                list_op,
+                bag_op,
+            }),
+        ));
     }
 
     /// Creates a term for a bag type and associates it with a variable.
@@ -3316,6 +3582,10 @@ struct TypeToTermConverter<'a> {
     env: &'a dyn TypeEnv,
     type_resolver: &'a mut TypeResolver,
     type_variables: BTreeMap<String, Box<TypeVariable>>,
+    /// Fresh unification variables for type variables encountered in
+    /// user-written type annotations that are not pre-registered in
+    /// `type_variables` (e.g., `'a` in `fun f (x: 'a list) = x`).
+    extra_type_vars: BTreeMap<String, Var>,
 }
 
 #[allow(dead_code)]
@@ -3450,8 +3720,22 @@ impl<'a> TypeToTermConverter<'a> {
                 )
             }
             TypeKind::Var(name) => {
-                let type_variable = self.type_variables.get(name).unwrap();
-                let term = subst.get(type_variable).unwrap();
+                // If the type variable is pre-registered (via
+                // type_variables + subst), use the substitution. Otherwise
+                // lazily create a fresh unification variable for it
+                // (handles user-written `'a` in pattern annotations such as
+                // `fun f (x: 'a list) = x`).
+                let term = if let Some(type_variable) =
+                    self.type_variables.get(name)
+                {
+                    subst.get(type_variable).unwrap()
+                } else {
+                    let fresh_var = self
+                        .extra_type_vars
+                        .entry(name.clone())
+                        .or_insert_with(|| self.type_resolver.variable());
+                    Term::Variable(*fresh_var)
+                };
                 self.type_resolver.equiv(&term, &v);
                 TypeKind::Var(name.clone()).spanned(&type_node.span)
             }

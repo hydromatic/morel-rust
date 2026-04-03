@@ -501,6 +501,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "drop", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
     ListDrop,
+    #[strum(props(name = "elem", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a list -> bool"))]
+    ListElem,
     #[strum(props(p = "List", name = "except"))]
     #[strum(props(type = "forall 1 'a list list -> 'a list"))]
     ListExcept,
@@ -546,6 +549,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "nil", global = true))]
     #[strum(props(type = "forall 1 'a list", constructor = true))]
     ListNil,
+    #[strum(props(name = "notElem", global = true))]
+    #[strum(props(type = "forall 1 'a * 'a list -> bool"))]
+    ListNotElem,
     #[strum(props(p = "List", name = "nth", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a list * int -> 'a"))]
     ListNth,

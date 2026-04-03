@@ -1003,9 +1003,9 @@ impl Span {
         let end = end_pos.line_col();
         Self::new(&format!(
             "stdIn:{}.{}-{}.{}",
-            start.0 - base_line,
+            start.0.saturating_sub(base_line),
             start.1,
-            end.0 - base_line,
+            end.0.saturating_sub(base_line),
             end.1
         ))
     }
@@ -1703,6 +1703,8 @@ pub enum Eager2 {
     LPZip,
     ListAt,
     ListCons,
+    ListElem,
+    ListNotElem,
     ListRevAppend,
     MathAtan2,
     MathPow,
@@ -1818,6 +1820,8 @@ impl Eager2 {
                 Val::List(List::append(a0.expect_list(), a1.expect_list()))
             }
             ListCons => Val::List(List::cons(&a0, a1.expect_list())),
+            ListElem => Val::Bool(a1.expect_list().iter().any(|x| x == &a0)),
+            ListNotElem => Val::Bool(a1.expect_list().iter().all(|x| x != &a0)),
             ListRevAppend => {
                 Val::List(List::rev_append(a0.expect_list(), a1.expect_list()))
             }
@@ -2766,6 +2770,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::ListConcat.implements(&mut b, ListConcat);
     Eager2::ListCons.implements(&mut b, ListCons);
     EagerF3::ListDrop.implements(&mut b, ListDrop);
+    Eager2::ListElem.implements(&mut b, ListElem);
     Eager1::ListExcept.implements(&mut b, ListExcept);
     EagerF2::ListExists.implements(&mut b, ListExists);
     EagerF2::ListFilter.implements(&mut b, ListFilter);
@@ -2781,6 +2786,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::ListMapPartial.implements(&mut b, ListMapPartial);
     EagerF2::ListMapi.implements(&mut b, ListMapi);
     Eager0::ListNil.implements(&mut b, ListNil);
+    Eager2::ListNotElem.implements(&mut b, ListNotElem);
     EagerF3::ListNth.implements(&mut b, ListNth);
     Eager1::ListNull.implements(&mut b, ListNull);
     EagerF2::ListPartition.implements(&mut b, ListPartition);

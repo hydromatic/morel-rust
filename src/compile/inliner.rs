@@ -120,6 +120,7 @@ impl Expr {
                 }
                 Expr::Case(t.clone(), expr2, matches2)
             }
+            Expr::Current(_) => self.clone(),
             Expr::Fn(t, match_list) => {
                 let mut match_list2 = Vec::new();
                 for m in match_list {
@@ -163,6 +164,7 @@ impl Expr {
                 Self::visit_list(env, x, expr_list).into_iter().collect(),
             ),
             Expr::Literal(_t, _v) => self.clone(),
+            Expr::Ordinal(_) => self.clone(),
             Expr::RecordSelector(_t, _) => self.clone(),
             Expr::Tuple(t, expr_list) => Expr::Tuple(
                 t.clone(),

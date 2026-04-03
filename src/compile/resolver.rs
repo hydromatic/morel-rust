@@ -310,6 +310,9 @@ impl<'a> Resolver<'a> {
             ExprKind::Divide(a0, a1) => {
                 self.call2(t, BuiltInFunction::RealDivide, &span, a0, a1)
             }
+            ExprKind::Elem(a0, a1) => {
+                self.call2(t, BuiltInFunction::ListElem, &span, a0, a1)
+            }
             ExprKind::Elements => {
                 // 'elements' is a pseudo-variable bound inside group/compute
                 // steps. Resolve it as a plain identifier.
@@ -527,7 +530,7 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call2(t, BuiltInFunction::RealMinus, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GMinus, &span, a0, a1),
                 }
             }
             ExprKind::Mod(a0, a1) => {
@@ -541,8 +544,11 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call1(t, BuiltInFunction::RealNegate, a0, &span)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call1(t, BuiltInFunction::GNegate, a0, &span),
                 }
+            }
+            ExprKind::NotElem(a0, a1) => {
+                self.call2(t, BuiltInFunction::ListNotElem, &span, a0, a1)
             }
             ExprKind::NotEqual(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
@@ -581,7 +587,9 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call2(t, BuiltInFunction::RealPlus, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    // Polymorphic / unconstrained type variable: use the
+                    // generic dispatcher which resolves at runtime.
+                    _ => self.call2(t, BuiltInFunction::GPlus, &span, a0, a1),
                 }
             }
             ExprKind::Record(with_base, fields) => {
@@ -650,15 +658,14 @@ impl<'a> Resolver<'a> {
                 CoreExpr::RecordSelector(t, slot)
             }
             ExprKind::Times(a0, a1) => {
-                let a0_type = a0.get_type(self.type_map).expect("type");
-                match a0_type.as_ref() {
+                match a0.get_type(self.type_map).expect("type").as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntTimes, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call2(t, BuiltInFunction::RealTimes, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GTimes, &span, a0, a1),
                 }
             }
             ExprKind::Tuple(elements) => CoreExpr::Tuple(
@@ -769,8 +776,17 @@ impl<'a> Resolver<'a> {
     }
 
     /// Resolves an AST pattern field to a core pattern field.
-    fn resolve_pat_field(&self, _field: &PatField) -> CorePatField {
-        todo!("Implement pat field resolution")
+    fn resolve_pat_field(&self, field: &PatField) -> CorePatField {
+        match field {
+            PatField::Labeled(_, name, pat) => CorePatField::Labeled(
+                name.clone(),
+                Box::new(self.resolve_pat(pat)),
+            ),
+            PatField::Anonymous(_, pat) => {
+                CorePatField::Anonymous(Box::new(self.resolve_pat(pat)))
+            }
+            PatField::Ellipsis(_) => CorePatField::Ellipsis,
+        }
     }
 
     /// Resolves an AST value binding to a core value binding.
@@ -965,6 +981,17 @@ impl<'a> Resolver<'a> {
                     resolved_expr,
                     resolved_condition,
                 );
+            }
+            AstStepKind::ScanEq(pat, expr) => {
+                // `join pat = expr` is a cross join with a singleton list.
+                // Desugar to a scan over `[expr]`.
+                let resolved_pat = self.resolve_pat(pat);
+                let resolved_expr = self.resolve_expr(expr);
+                let elem_type = resolved_expr.type_();
+                let list_type =
+                    Box::new(Type::List(Box::new(elem_type.as_ref().clone())));
+                let singleton = CoreExpr::List(list_type, vec![resolved_expr]);
+                builder.scan_with_condition(resolved_pat, singleton, None);
             }
             AstStepKind::Skip(expr) => {
                 let resolved_expr = self.resolve_expr(expr);
