@@ -21,6 +21,7 @@ pub mod core;
 pub mod from_builder;
 pub mod inliner;
 pub mod library;
+mod pat_coverage;
 mod pretty;
 pub mod resolver;
 pub mod sat;

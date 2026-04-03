@@ -4584,7 +4584,7 @@ Sys.env ();
 >    ("f","real -> int * int * int * int"),("it","(string * string) list"),
 >    ("nan","real"),("nil","forall 'a. 'a bag"),("nil","forall 'a. 'a list"),
 >    ("noneInt","int option"),("print","'a -> unit"),("ten","(bool,int) either"),
->    ("yes","(bool,int) either")] : (string * string) list
+>    ("true","bool"),("yes","(bool,int) either")] : (string * string) list
 
 env;
 > val it = fn : unit -> (string * string) list
@@ -4632,7 +4632,7 @@ env ();
 >    ("f","real -> int * int * int * int"),("it","(string * string) list"),
 >    ("nan","real"),("nil","forall 'a. 'a bag"),("nil","forall 'a. 'a list"),
 >    ("noneInt","int option"),("print","'a -> unit"),("ten","(bool,int) either"),
->    ("yes","(bool,int) either")] : (string * string) list
+>    ("true","bool"),("yes","(bool,int) either")] : (string * string) list
 
 (*) val plan : unit -> string
 Sys.plan;

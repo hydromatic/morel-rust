@@ -200,6 +200,11 @@ impl Shell {
                     })?);
                 Ok(())
             }
+            "matchCoverageEnabled" => {
+                self.session.borrow_mut().config.match_coverage_enabled =
+                    Some(val.expect_bool());
+                Ok(())
+            }
             "mode" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
@@ -275,6 +280,10 @@ impl Shell {
             }
             "lineWidth" => {
                 self.config.line_width = None;
+                Ok(())
+            }
+            "matchCoverageEnabled" => {
+                self.session.borrow_mut().config.match_coverage_enabled = None;
                 Ok(())
             }
             "mode" => {

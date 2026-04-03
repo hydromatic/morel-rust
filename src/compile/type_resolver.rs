@@ -19,6 +19,7 @@
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::collapsible_if)]
 
+use crate::compile::pat_coverage::check_coverage;
 use crate::compile::type_env::{
     BindType, EmptyTypeEnv, TypeEnv, TypeSchemeResolver,
 };
@@ -313,6 +314,21 @@ pub struct TypeResolver {
     int_op: Op,
     actions: Vec<(Var, Rc<dyn Action>)>,
 
+    /// Shared scope for explicit type variables within a declaration.
+    ///
+    /// In SML, all occurrences of `'a` in `fun f (x: 'a) (y: 'a) = ...` refer
+    /// to the same type. This map is cleared at the start of each val-bind and
+    /// accumulates the fresh unifier variables allocated for each `'a`-style
+    /// annotation so that repeated occurrences resolve to the same variable.
+    decl_type_vars: BTreeMap<String, Var>,
+
+    /// User-defined type aliases, populated from `type` declarations.
+    pub type_aliases: HashMap<String, Type>,
+
+    /// Whether to check pattern coverage (exhaustiveness and redundancy).
+    /// Controlled by the `matchCoverageEnabled` property; default is true.
+    pub match_coverage_enabled: bool,
+
     /// Variables that should default to `int` if still free after
     /// unification. Populated when `op +`, `op -`, `op *`, or `op ~` are
     /// used without enough context to determine whether they operate on `int`
@@ -355,6 +371,9 @@ impl TypeResolver {
             overload_op,
             record_op,
             fn_op,
+            decl_type_vars: BTreeMap::new(),
+            type_aliases: HashMap::new(),
+            match_coverage_enabled: true,
             int_op,
             preferred_vars: Vec::new(),
         }
@@ -469,6 +488,13 @@ impl TypeResolver {
         // Extract bindings from the declaration
         let mut bindings = Vec::new();
         Self::collect_bindings_from_decl(&decl2, &type_map, &mut bindings);
+
+        // Check pattern coverage (exhaustiveness and redundancy), unless
+        // disabled by the matchCoverageEnabled property.
+        if self.match_coverage_enabled {
+            let coverage_warnings = check_coverage(&decl2, &type_map)?;
+            self.warnings.extend(coverage_warnings);
+        }
 
         Ok(Resolved {
             decl: decl2,
@@ -682,8 +708,13 @@ impl TypeResolver {
             let mut prev_return_type: Option<Box<AstType>> = None;
 
             for fun_match in &fun_bind.matches {
+                // Use the arm span (fun_match.span) for the pattern, so that
+                // coverage error messages point to the whole arm rather than
+                // just the argument pattern position.
+                let mut arm_pat = self.pat_tuple(&span, &fun_match.pats);
+                arm_pat.span = fun_match.span.clone();
                 match_list.push(Match {
-                    pat: self.pat_tuple(&span, &fun_match.pats),
+                    pat: arm_pat,
                     expr: fun_match.expr.clone(),
                 });
 
@@ -3309,6 +3340,13 @@ impl TypeResolver {
                 self.reg_pat(&x, &pat.span, pat.id, &v)
             }
             PatKind::Identifier(name) => {
+                // "true"/"false" parse as identifiers (id_pat fires before
+                // literal_pat).  Treat them as bool$ constructors internally,
+                // like morel-java, so that the type is inferred as `bool`.
+                if name == "true" || name == "false" {
+                    self.primitive_term(&PrimitiveType::Bool, v);
+                    return self.reg_pat(&pat.kind, &pat.span, pat.id, v);
+                }
                 if let Some(BindType::Constructor(_)) = env.get(name, self) {
                     // The identifier is a constructor, such as `SOME` or `nil`.
                     let kind = PatKind::Constructor(name.clone(), None);

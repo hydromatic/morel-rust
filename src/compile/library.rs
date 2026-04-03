@@ -164,7 +164,7 @@ pub enum BuiltInFunction {
     BoolOrElse,
     #[strum(props(p = "Bool", name = "toString", type = "bool -> string"))]
     BoolToString,
-    #[strum(props(name = "true", type = "bool"))]
+    #[strum(props(name = "true", type = "bool", constructor = true))]
     BoolTrue,
     #[strum(props(p = "Char", name = "chr", global = true))]
     #[strum(props(type = "int -> char", throws = "Chr"))]

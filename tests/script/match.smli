@@ -18,8 +18,6 @@
  *
  * Pattern matching
  *)
-set("mode", "validate");
-> val it = () : unit
 
 (*) Warning: match nonexhaustive
 fun f 1 = 0;
@@ -29,8 +27,7 @@ fun f 1 = 0;
 f 1;
 > val it = 0 : int
 f 2;
-> uncaught exception Bind
->   raised at: stdIn:1.5-1.12
+> Bind error
 
 (*) Warning: match nonexhaustive, twice
 fun f x =
@@ -40,16 +37,15 @@ fun f x =
   in
     (g x) + (h 2)
   end;
-> stdIn:3.9-3.16 Warning: match nonexhaustive
->   raised at: stdIn:3.9-3.16
-> stdIn:4.9-4.16 Warning: match nonexhaustive
->   raised at: stdIn:4.9-4.16
+> stdIn:3.9-4.5 Warning: match nonexhaustive
+>   raised at: stdIn:3.9-4.5
+> stdIn:4.9-5.3 Warning: match nonexhaustive
+>   raised at: stdIn:4.9-5.3
 > val f = fn : int -> int
 f 1;
 > val it = 3 : int
 f 2;
-> uncaught exception Bind
->   raised at: stdIn:3.9-3.16
+> Bind error
 
 (*) Error: match redundant and nonexhaustive
 fun f 1 = 0
@@ -71,11 +67,14 @@ fun f (1, _) = 1
   | f (_, 2) = 2
   | f (1, 2) = 3
   | f (_, _) = 4;
-> stdIn:3.5-3.17 Error: match redundant
->   raised at: stdIn:3.5-3.17
+> stdIn:3.5-4.3 Error: match redundant
+>   raised at: stdIn:3.5-4.3
 
 (*) The Ackermann-Péter function
 (*) See "Recursion Equations as a Programming Language", D A Turner 1982
+(*) (validate mode: recursive functions not yet fully supported in evaluate mode)
+set("mode", "validate");
+> val it = () : unit
 fun ack 0 n = n + 1
   | ack m 0 = ack (m - 1) 1
   | ack m n = ack (m - 1) (ack m (n - 1));
@@ -92,6 +91,8 @@ ack 2 3;
 > val it = 9 : int
 ack 3 3;
 > val it = 61 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Various types, exhaustive & non-exhaustive ------------------ *)
 (*) From https://smlhelp.github.io/book/docs/start/syntax/
@@ -102,8 +103,8 @@ ack 3 3;
 
 (*) bool, non-exhaustive
 (fn true => 1);
-> stdIn:1.2-1.14 Warning: match nonexhaustive
->   raised at: stdIn:1.2-1.14
+> stdIn:1.1-1.15 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.15
 > val it = fn : bool -> int
 
 (*) bool, exhaustive
@@ -113,15 +114,15 @@ ack 3 3;
 
 (*) order, non-exhaustive
 (fn LESS => ~1);
-> stdIn:1.2-1.15 Warning: match nonexhaustive
->   raised at: stdIn:1.2-1.15
+> stdIn:1.1-1.16 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.16
 > val it = fn : order -> int
 
 (*) order, non-exhaustive
 (fn LESS  => ~1
   | EQUAL => 0);
-> stdIn:1.2-2.15 Warning: match nonexhaustive
->   raised at: stdIn:1.2-2.15
+> stdIn:1.1-2.16 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-2.16
 > val it = fn : order -> int
 
 (*) order, exhaustive
@@ -132,8 +133,8 @@ ack 3 3;
 
 (*) int, non-exhaustive
 (fn 0 => true);
-> stdIn:1.2-1.14 Warning: match nonexhaustive
->   raised at: stdIn:1.2-1.14
+> stdIn:1.1-1.15 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.15
 > val it = fn : int -> bool
 
 (*) order, exhaustive
@@ -143,8 +144,8 @@ ack 3 3;
 
 (*) int list, non-exhaustive
 (fn x::_ => x + 1);
-> stdIn:1.2-1.18 Warning: match nonexhaustive
->   raised at: stdIn:1.2-1.18
+> stdIn:1.1-1.19 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.19
 > val it = fn : int list -> int
 
 (*) int list, exhaustive
@@ -154,8 +155,8 @@ ack 3 3;
 
 (*) int * bool, non-exhaustive
 (fn (0,b) => true andalso b);
-> stdIn:1.2-1.28 Warning: match nonexhaustive
->   raised at: stdIn:1.2-1.28
+> stdIn:1.1-1.29 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.29
 > val it = fn : int * bool -> bool
 
 (*) int * bool, exhaustive
@@ -167,24 +168,24 @@ ack 3 3;
 (*) Non-exhaustive function
 fun f [(SOME i)] = i
   | f [] = 0;
-> 0.0-0.0 Warning: match nonexhaustive
->   raised at: 0.0-0.0
+> stdIn:1.5-2.13 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-2.13
 > val f = fn : int option list -> int
 
 (*) Add NONE, still non-exhaustive
 fun f [(SOME i)] = i
   | f [NONE] = ~1
   | f [] = 0;
-> 0.0-0.0 Warning: match nonexhaustive
->   raised at: 0.0-0.0
+> stdIn:1.5-3.13 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-3.13
 > val f = fn : int option list -> int
 
 (*) Allow list longer than 1, still non-exhaustive
 fun f [(SOME i)] = i
   | f [] = 0
   | f (one :: two :: rest) = ~2;
-> 0.0-0.0 Warning: match nonexhaustive
->   raised at: 0.0-0.0
+> stdIn:1.5-3.32 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-3.32
 > val f = fn : int option list -> int
 
 (*) Exhaustive

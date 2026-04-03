@@ -152,16 +152,28 @@ Sys.set ("lineWidth", 78);
 :t fn (x, y) => x * y * 1;
 > val it : int * int -> int
 :t fn NONE => 0;
+> stdIn:1.1-1.13 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.13
 > val it : 'a option -> int
 :t fn (SOME x) => 0;
+> stdIn:1.1-1.17 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.17
 > val it : 'a option -> int
 :t fn (SOME x) => x + 1;
+> stdIn:1.1-1.21 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.21
 > val it : int option -> int
 :t fn nil => 0;
+> stdIn:1.1-1.12 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.12
 > val it : 'a list -> int
 :t fn (h :: t) => 0;
+> stdIn:1.1-1.17 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.17
 > val it : 'a list -> int
 :t fn ("hello" :: t) => 0;
+> stdIn:1.1-1.23 Warning: match nonexhaustive
+>   raised at: stdIn:1.1-1.23
 > val it : string list -> int
 
 (* Basic type tests (migrated from MainTest.testType) *)
@@ -427,6 +439,8 @@ end;
 
 :t val rec len =
   fn nil => 0;
+> stdIn:2.3-2.14 Warning: match nonexhaustive
+>   raised at: stdIn:2.3-2.14
 > val len : 'a list -> int
 
 :t fun len nil = 0
@@ -444,6 +458,8 @@ end;
 :t fun hello2 (name: string) (code : int): string = "hello!";
 > val hello2 : string -> int -> string
 :t fun plus_list x (y :: z) = x + y;
+> stdIn:1.5-1.33 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-1.33
 > val plus_list : 'a -> 'a list -> 'a
 :t fun plus x y = x + y;
 > val plus : 'a -> 'a -> 'a
@@ -459,6 +475,8 @@ end;
 :t fn opt => case opt of
      NONE => NONE
    | SOME (x, [y]) => SOME (y ^ "!", x + 1);
+> stdIn:1.11-3.44 Warning: match nonexhaustive
+>   raised at: stdIn:1.11-3.44
 > val it : (int * string list) option -> (string * int) option
 
 :t bag [1, 2];
