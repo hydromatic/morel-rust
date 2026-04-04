@@ -15,6 +15,8 @@
 // language governing permissions and limitations under the
 // License.
 
+#![allow(clippy::result_large_err)]
+
 use crate::syntax::ast::{
     ConBind, ConDesc, DatatypeBind, DatatypeDesc, Decl, DeclKind, ExnDesc,
     Expr, ExprKind, FunBind, FunMatch, Label, LabeledExpr, Literal,
@@ -40,7 +42,6 @@ pub struct MorelParser;
 ///
 /// The statement may be preceded by whitespace and/or comments;
 /// the statement must end with a semicolon.
-#[allow(clippy::result_large_err)]
 pub fn parse_statement(input: &str) -> ParseResult<Statement> {
     let rc_input_str: Rc<str> = input.to_string().into();
     let nodes = MorelParser::parse_with_userdata(
@@ -55,7 +56,6 @@ pub fn parse_statement(input: &str) -> ParseResult<Statement> {
 
 /// Parses a statement (with no whitespace, comments or semicolon)
 /// and returns its AST.
-#[allow(clippy::result_large_err)]
 pub fn parse_unadorned_statement(input: &str) -> ParseResult<Statement> {
     let rc_input_str = input.to_string().into();
     let nodes =
@@ -66,7 +66,6 @@ pub fn parse_unadorned_statement(input: &str) -> ParseResult<Statement> {
 }
 
 /// Parses a Morel type scheme and returns its AST.
-#[allow(clippy::result_large_err)]
 pub fn parse_type_scheme(input: &str) -> ParseResult<TypeScheme> {
     let rc_input_str: Rc<str> = input.to_string().into();
     let nodes = MorelParser::parse_with_userdata(

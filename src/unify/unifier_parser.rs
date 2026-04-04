@@ -15,6 +15,8 @@
 // language governing permissions and limitations under the
 // License.
 
+#![allow(clippy::result_large_err)]
+
 use crate::unify::unifier;
 use crate::unify::unifier::{
     NullTracer, Substitution, UnificationFailure, Unifier,
@@ -79,7 +81,6 @@ impl<'input> std::fmt::Display for Term<'input> {
 ///
 /// The statement may be preceded by whitespace and/or comments;
 /// the statement must end with a semicolon.
-#[allow(clippy::result_large_err)]
 pub fn parse_pair_list<T>(
     input: &str,
     mut consumer: impl FnMut(Vec<Pair>) -> T,
@@ -164,7 +165,6 @@ pub struct UnifierTask {
 }
 
 impl UnifierTask {
-    #[allow(clippy::result_large_err)]
     pub fn from_grammar(grammar: &str) -> Result<Self, ParseError> {
         let mut task = UnifierTask {
             unifier: Unifier::new(true),
