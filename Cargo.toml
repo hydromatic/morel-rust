@@ -39,7 +39,7 @@ path = "src/main.rs"
 # lint: sort until '^$'
 im = "15.1.0"
 indexmap = "2.0"
-pest = "2.1"
+pest = "2.8"
 pest_ascii_tree = "0.1.0"
 pest_consume = "1.1"
 phf = { version = "0.12", features = ["macros"] }
