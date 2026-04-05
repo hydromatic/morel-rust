@@ -403,9 +403,6 @@ from i in [1,2] unorder unorder;
 from i in [1,2,3,4] where i > 1 unorder where i < 4 unorder;
 > val it = [2,3] : int bag
 
-set("mode", "validate");
-> val it = () : unit
-
 from i in [1,2,3,4] where i > 1 unorder where i < 4 order DESC i;
 > val it = [3,2] : int list
 
@@ -417,9 +414,6 @@ from e in emps
 > val it = [{deptno=20,id=101,name="Velma"},{deptno=30,id=102,name="Shaggy"}]
 >   : {deptno:int, id:int, name:string} bag
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 exists i in [1,2,3,4] unorder where i > 3;
 > val it = true : bool
@@ -439,26 +433,16 @@ from e in emps
 > val it = [{deptno=10,id=100,name="Fred"}]
 >   : {deptno:int, id:int, name:string} list
 
-set("mode", "validate");
-> val it = () : unit
-
 from e in emps,
     d in depts on e.deptno = d.deptno
   yield e.id + d.deptno
   where current mod 2 = 1;
 > val it = [121,133] : int list
 
-
-set("mode", "evaluate");
-> val it = () : unit
-
 from i in [1,2,3]
   yield current + 2
   yield current + 3;
 > val it = [6,7,8] : int list
-
-set("mode", "validate");
-> val it = () : unit
 
 from e in emps,
     d in depts on e.deptno = d.deptno
@@ -483,9 +467,6 @@ from i in [current + 1, current + 2, current + 3];
 > stdIn:1.12-1.19 Error: 'current' is only valid in a query
 >   raised at: stdIn:1.12-1.19
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) ... but it can be used in the second
 from i in [1, 2],
@@ -517,9 +498,6 @@ from i in [1,2,3,4,5]
 > stdIn:2.11-2.18 Error: 'current' is only valid in a query
 >   raised at: stdIn:2.11-2.18
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) But "current" is available in a subquery
 from i in [1,2,3,4,5]
   yield {i, js = (from j in ["a","b","c"] take current)};
@@ -541,6 +519,9 @@ from i in [1,2,3,4,5]
 from i in [1,2,3,4,5]
   where not (exists j in ["a","b","ccc","dd"] skip current);
 > val it = [4,5] : int list
+
+set("mode", "validate");
+> val it = () : unit
 
 (* Ordinal ---------------------------------------------------- *)
 
@@ -605,9 +586,6 @@ from e in emps, i in bag [1]
 >   [{name="Fred",ordinal=0},{name="Velma",ordinal=1},{name="Shaggy",ordinal=2},
 >    {name="Scooby",ordinal=3}] : {name:string, ordinal:int} list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) A 'where' clause after 'yield ordinal' creates gaps in the ordinals.
 from e in emps
   order e.deptno
@@ -619,9 +597,6 @@ from e in emps
 >    {name="Scooby",ordinal=6},{name="Scooby",ordinal=7}]
 >   : {name:string, ordinal:int} list
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Do the equivalent of 'take' using ordinal.
 from e in emps
@@ -637,9 +612,6 @@ from e in emps
 > val it = [{deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
 >   : {deptno:int, id:int, name:string} list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) When there is a field called 'ordinal', it doesn't get used unless you quote it.
 from i in [3,1,4,5,3,5,8,9,7]
   yield {ordinal, i}
@@ -653,6 +625,9 @@ from i in [3,1,4,5,3,5,8,9,7]
   where `ordinal` > 1;
 > val it = [{i=8,ordinal=6},{i=9,ordinal=7},{i=7,ordinal=8}]
 >   : {i:int, ordinal:int} list
+
+set("mode", "validate");
+> val it = () : unit
 
 from e in scott.emps
   yield {e.ename, e.sal, rank = ordinal + 1};
@@ -717,14 +692,10 @@ from i in [1,2]
   join j in (from k in ["a","b","c"] where ordinal < i);
 > val it = [{i=1,j="a"},{i=2,j="a"},{i=2,j="b"}] : {i:int, j:string} list
 
-set("mode", "validate");
-> val it = () : unit
-
 from i in [1,2]
   join j in (from k in ["a","b","c"] yield {m = ordinal} yield m);
 > val it = [{i=1,j=0},{i=1,j=1},{i=1,j=2},{i=2,j=0},{i=2,j=1},{i=2,j=2}]
 >   : {i:int, j:int} list
-
 
 (* Degenerate joins ------------------------------------------- *)
 (*) Join atom to list of units
@@ -737,13 +708,9 @@ from i in [1,2,3]
 from i in [1,2,3],
   _ in [()];
 > val it = [1,2,3] : int list
-
-
 from i in [1,2,3],
   {} in [()];
 > val it = [1,2,3] : int list
-
-
 from i in [1,2,3]
   join _ in [()];
 > val it = [1,2,3] : int list
@@ -784,26 +751,15 @@ from (i, j) in [(1, 2), (3, 4)],
 from (i, j) in [(1, 2), (3, 4)],
   {} in bag [()];
 > val it = [{i=1,j=2},{i=3,j=4}] : {i:int, j:int} bag
-
-set("mode", "evaluate");
-> val it = () : unit
-
 from (i, j) in [(1, 2), (3, 4)]
   join _ in bag [()];
 > val it = [{i=1,j=2},{i=3,j=4}] : {i:int, j:int} bag
 from (i, j) in [(1, 2), (3, 4)]
   join () in bag [()];
 > val it = [{i=1,j=2},{i=3,j=4}] : {i:int, j:int} bag
-
-set("mode", "validate");
-> val it = () : unit
 from (i, j) in [(1, 2), (3, 4)]
   join {} in bag [()];
 > val it = [{i=1,j=2},{i=3,j=4}] : {i:int, j:int} bag
-
-set("mode", "evaluate");
-> val it = () : unit
-
 from (i, j) in [(1, 2), (3, 4)]
   join _ in bag ["a"];
 > val it = [{i=1,j=2},{i=3,j=4}] : {i:int, j:int} bag
@@ -818,21 +774,15 @@ from () in [()],
 from _ in ["a"],
     _ in [true];
 > val it = [()] : unit list
-
 from _ in ["a"],
     _ in bag [true];
 > val it = [()] : unit bag
-
 from () in [()],
     () in [(), ()];
 > val it = [(),()] : unit list
-
-
 from {} in [()],
   {} in [()];
 > val it = [()] : unit list
-
-
 from _ in ["a","b","c"],
   _ in [true,false];
 > val it = [(),(),(),(),(),()] : unit list
@@ -841,26 +791,25 @@ from _ in ["a","b","c"],
 from _ in [()],
   i in [1,2,3];
 > val it = [1,2,3] : int list
-
-
 from {} in [()],
   i in [1,2,3];
 > val it = [1,2,3] : int list
 from _ in [()],
   i in bag [1,2,3];
 > val it = [1,2,3] : int bag
-
-set("mode", "validate");
-> val it = () : unit
 from {} in [()],
   i in bag [1,2,3];
 > val it = [1,2,3] : int bag
 from {} in bag [()],
   i in bag [1,2,3];
 > val it = [1,2,3] : int bag
+set("mode", "validate");
+> val it = () : unit
 from {} in bag [()],
   i in [1,2,3];
 > val it = [1,2,3] : int bag
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Variations of the above with '='
 from i in [1,2,3],
@@ -902,10 +851,6 @@ from e in emps
 >   [{name=30,x="Shaggy",z=31},{name=30,x="Scooby",z=31},
 >    {name=20,x="Velma",z=21},{name=10,x="Fred",z=11}]
 >   : {name:int, x:string, z:int} list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) 'yield' followed by 'join'
 from job in ["CLERK", "MANAGER"]
@@ -1412,9 +1357,6 @@ fun range i j =
   if i >= j then [] else i :: (range (i + 1) j);
 > val range = fn : int -> int -> int list
 
-set("mode", "validate");
-> val it = () : unit
-
 range 0 5;
 > val it = [0,1,2,3,4] : int list
 
@@ -1428,10 +1370,6 @@ from i in range 0 5 where i mod 2 = 1 yield i;
 from i in range 0 5 where i mod 2 = 1;
 > val it = [1,3] : int list
 
-
-set("mode", "evaluate");
-> val it = () : unit
-
 from e in emps where e.deptno = 30 yield e.id;
 > val it = [102,103] : int list
 
@@ -1442,9 +1380,6 @@ from e in emps, e2 in emps yield e.name ^ "-" ^ e2.name;
 >    "Velma-Velma","Velma-Shaggy","Velma-Scooby","Shaggy-Fred","Shaggy-Velma",
 >    "Shaggy-Shaggy","Shaggy-Scooby","Scooby-Fred","Scooby-Velma",
 >    "Scooby-Shaggy","Scooby-Scooby"] : string list
-
-set("mode", "validate");
-> val it = () : unit
 
 (*) cartesian product, missing yield
 from d in depts, i in range 0 5;
@@ -1462,10 +1397,6 @@ from d in depts, i in range 0 5;
 >    {d={deptno=40,name="Support"},i=1},{d={deptno=40,name="Support"},i=2},
 >    {d={deptno=40,name="Support"},i=3},{d={deptno=40,name="Support"},i=4}]
 >   : {d:{deptno:int, name:string}, i:int} list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) 3-way comma join
 from x in ["a", "b"],
@@ -1492,9 +1423,6 @@ from x in [1, 2]
   join y = 3;
 > val it = [{x=1,y=3},{x=2,y=3}] : {x:int, y:int} list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) join
 from e in emps, d in depts
   where e.deptno = d.deptno
@@ -1505,10 +1433,6 @@ from e in emps, d in depts
 >    {deptno=30,dname="Engineering",ename="Shaggy",id=102},
 >    {deptno=30,dname="Engineering",ename="Scooby",id=103}]
 >   : {deptno:int, dname:string, ename:string, id:int} list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) as above, using abbreviated record syntax
 from e in emps, d in depts
@@ -1649,9 +1573,6 @@ in
 end;
 > val it = ["Shaggy","Scooby"] : string list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) elem (equivalent to SQL's IN)
 from e in emps
   where e.deptno elem (from d in depts
@@ -1683,6 +1604,9 @@ from e in emps
     yield d.deptno) = false
 yield e.name;
 > val it = ["Fred","Velma"] : string list
+
+set("mode", "validate");
+> val it = () : unit
 
 (* Set operations (union, intersect, except) ------------------ *)
 
@@ -2438,9 +2362,6 @@ from e in emps
   into sum;
 > val it = 90 : int
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Multiple 'into' is not allowed
 (* TODO: enable
 from e in emps
@@ -2455,9 +2376,6 @@ from e in emps
 from;
 > val it = [()] : unit list
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Empty from with where
 from where true;
@@ -2721,30 +2639,20 @@ set("mode", "evaluate");
 (*) There's no flatMap in the standard library, so define one
 fun flatMap f l = List.concat (map f l);
 > val flatMap = fn : ('a -> 'b list) -> 'a list -> 'b list
-
-set("mode", "validate");
-> val it = () : unit
 flatMap explode ["ab", "", "def"];
 > val it = [#"a",#"b",#"d",#"e",#"f"] : char list
 
 (*) Here's another way to define flatMap
-fun flatMap2 f l = foldl List.at [] (map f l);
+fun flatMap2 f l = foldl (fn (x, y) => x @ y) [] (map f l);
 > val flatMap2 = fn : ('a -> 'b list) -> 'a list -> 'b list
 flatMap2 explode ["ab", "", "def"];
 > val it = [#"d",#"e",#"f",#"a",#"b"] : char list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) A function that runs a query and returns the result
 fun employeesIn deptno =
   from e in emps
   where e.deptno = deptno;
 > val employeesIn = fn : int -> {deptno:int, id:int, name:string} list
-
-set("mode", "validate");
-> val it = () : unit
 
 employeesIn 10;
 > val it = [{deptno=10,id=100,name="Fred"}]
@@ -2784,10 +2692,6 @@ from deptno in [10, 25, 30],
 >   [{deptno=10,id=100,name="Fred"},{deptno=30,id=102,name="Shaggy"},
 >    {deptno=30,id=103,name="Scooby"}] : {deptno:int, id:int, name:string} list
 
-
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) Function in yield
 let
   val intFns = from a in [2, 3, 4] yield {a, f = fn x => x + a}
@@ -2804,8 +2708,6 @@ val triples =
 > val triples = [{foo=fn,x=1,y=2},{foo=fn,x=2,y=6},{foo=fn,x=3,y=5}]
 >   : {foo:int -> int, x:int, y:int} list
 
-set("mode", "validate");
-> val it = () : unit
 from t in triples order t.foo 1;
 > val it = [{foo=fn,x=1,y=2},{foo=fn,x=2,y=6},{foo=fn,x=3,y=5}]
 >   : {foo:int -> int, x:int, y:int} list
@@ -2838,7 +2740,6 @@ from t1 in triples, t2 in triples
  (* (~1+2,2) < (~3+5,5) < (~2+6,6) *)
 
 (*) A deep nested loop
-(* TODO enable
 from e in
   (from e in
     (from e in
@@ -2846,13 +2747,7 @@ from e in
         (from e in
           (from e in
             (from e in
-              (from e in
-                (from e in
-                  (from e in
-                    (from e in emps
-                     yield e)
-                   yield e)
-                 yield e)
+              (from e in emps
                yield e)
              yield e)
            yield e)
@@ -2864,13 +2759,9 @@ from e in
 >   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
 >    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
 >   : {deptno:int, id:int, name:string} list
-*)
 
 (*) Hybrid
 Sys.set ("hybrid", false);
-> val it = () : unit
-
-set("mode", "evaluate");
 > val it = () : unit
 
 from r1 in

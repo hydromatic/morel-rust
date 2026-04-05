@@ -88,6 +88,9 @@ greater_alpha (2, 3);
 > val it = 3 : int
 greater_alpha (2.0, 3.0);
 > val it = 3.0 : real
+
+set("mode", "evaluate");
+> val it = () : unit
 fun greater_int (x, y) = if x < y then y + 0 else x;
 > val greater_int = fn : int * int -> int
 greater_int (2, 3);
@@ -104,9 +107,6 @@ in
   (#1 r) 1
 end;
 > val it = 1 : int
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Record type with a polymorphic member
 let

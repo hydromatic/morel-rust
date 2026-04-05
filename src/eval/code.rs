@@ -747,9 +747,25 @@ impl Code {
             Code::Fn(frame_def, pat_expr_codes) => {
                 Frame::create_and_eval(frame_def, pat_expr_codes, r, a0)
             }
-            Code::Link(slot, _) => {
-                let code = r.link_codes[*slot].clone();
-                code.eval_f1(r, f, a0)
+            Code::Link(slot, name) => {
+                if *slot < r.link_codes.len() {
+                    let code = r.link_codes[*slot].clone();
+                    code.eval_f1(r, f, a0)
+                } else {
+                    // Cross-statement call: resolve via the shell environment.
+                    // When a recursive function defined in a previous statement
+                    // is called from a later statement, the link_codes from
+                    // that earlier statement are no longer in scope. The shell
+                    // environment holds the evaluated function value.
+                    let val = r
+                        .shell
+                        .get_val(name)
+                        .unwrap_or_else(|| {
+                            panic!("link '{}' not found in environment", name)
+                        })
+                        .clone();
+                    val.expect_code().eval_f1(r, f, a0)
+                }
             }
             Code::Nth(_, slot) => Ok(a0.expect_list()[*slot].clone()),
             _ => {

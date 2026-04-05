@@ -72,9 +72,6 @@ fun f (1, _) = 1
 
 (*) The Ackermann-Péter function
 (*) See "Recursion Equations as a Programming Language", D A Turner 1982
-(*) (validate mode: recursive functions not yet fully supported in evaluate mode)
-set("mode", "validate");
-> val it = () : unit
 fun ack 0 n = n + 1
   | ack m 0 = ack (m - 1) 1
   | ack m n = ack (m - 1) (ack m (n - 1));
@@ -89,6 +86,10 @@ ack 1 2;
 > val it = 4 : int
 ack 2 3;
 > val it = 9 : int
+set("mode", "validate");
+> val it = () : unit
+(* Disabled because of stack overflow. Revisit after
+ * hydromatic/morel#151 "Tail call optimization" is fixed. *)
 ack 3 3;
 > val it = 61 : int
 set("mode", "evaluate");

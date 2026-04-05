@@ -353,6 +353,11 @@ impl Shell {
         }
     }
 
+    /// Returns the value of a binding in the environment, if it exists.
+    pub(crate) fn get_val(&self, name: &str) -> Option<&Val> {
+        self.environment.get(name)
+    }
+
     /// Runs the shell with given input/output streams.
     pub fn run<R: Read, W: Write>(
         &mut self,

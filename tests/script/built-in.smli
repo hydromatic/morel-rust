@@ -215,16 +215,11 @@ Sys.plan ();
 > val it = 4 : int
 14 div ~3;
 > val it = ~5 : int
-set("mode", "validate");
-> val it = () : unit
 
 from (i, j) in [(14, 3), (~14, 3), (14, ~3), (~14, ~3)]
  where (i div j) <> Int.`div` (i, j)
  orelse (i mod j) <> Int.`mod` (i, j);
 > val it = [] : {i:int, j:int} list
-
-set("mode", "evaluate");
-> val it = () : unit
 fn x => x + 1;
 > val it = fn : int -> int
 Sys.plan ();

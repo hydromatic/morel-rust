@@ -412,9 +412,6 @@ and o' = 5;
 > val off = 4 : int
 > val o' = 5 : int
 
-set("mode", "validate");
-> val it = () : unit
-
 fun foo x
   x'
   x''
@@ -424,10 +421,6 @@ fun foo x
   Abc_
   `a b` = 1;
 > val foo = fn : 'a -> 'b -> 'c -> 'd -> 'e -> 'f -> 'g -> 'h -> int
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 {x = 1,
  x' = 2,
@@ -491,9 +484,6 @@ set("mode", "evaluate");
        end of outer *)
      "d";
 > val it = "ad" : string
-
-set("mode", "validate");
-> val it = () : unit
 
 (* Test line comment inside block comment *)
 "a" ^ (* block comment start
@@ -621,6 +611,10 @@ in
   fact 5
 end;
 > val it = 120 : int
+
+set("mode", "validate");
+> val it = () : unit
+
 let
   fun plus x y = x + y
 in
@@ -678,8 +672,6 @@ set("mode", "evaluate");
 >   : {a:int, b:int, c:int, d:int, e:int, f:int, g:int, h:int, i:int, j:int,
 >      k:int, l:int, m:int, n:int, o_:int, p:int}
 
-set("mode", "validate");
-> val it = () : unit
 (*
 sml prints the following, but we cannot split types yet:
 
@@ -710,10 +702,6 @@ in
   (in_ 3 [1,2,3], in_ 4 [1,2,3])
 end;
 > val it = (true,false) : bool * bool
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Lambda on unit
 fn () => 1;

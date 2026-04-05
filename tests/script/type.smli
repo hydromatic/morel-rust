@@ -22,8 +22,6 @@
 > val it = ("a",true) : string * bool
 ("a", true);
 > val it = ("a",true) : string * bool
-set("mode", "validate");
-> val it = () : unit
 ("a", true) = {1 = "a", 2 = true};
 > val it = true : bool
 {1 = "a", 2 = true} = ("a", true);
@@ -34,8 +32,6 @@ set("mode", "validate");
 > val it = false : bool
 ("a", false) = {1 = "a", 2 = true};
 > val it = false : bool
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Records with 'with'
 {{a = 1, b = 2} with a = 3};
@@ -346,18 +342,12 @@ map #deptno emps;
 map #deptno (List.filter (fn e => #deptno e > 10) emps);
 > val it = [20,30,30] : int list
 
-set("mode", "validate");
-> val it = () : unit
 map #2 [(1,2),(3,1)];
 > val it = [2,1] : int list
 List.filter #1 [(true,1),(false,2),(true,3)];
 > val it = [(true,1),(true,3)] : (bool * int) list
 map #2 (List.filter #1 [(true,1),(false,2),(true,3)]);
 > val it = [1,3] : int list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Should give
 (*)  Error: duplicate variable in pattern(s): e
@@ -395,12 +385,12 @@ fn LESS => ~1
  | GREATER => 1;
 > val it = fn : order -> int
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Lambda with record argument
 fn {a, b} => if b then a else a + 1;
 > val it = fn : {a:int, b:bool} -> int
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Record containing polymorphic functions:
 (*)  val it = {a=fn,b=fn}
@@ -442,9 +432,6 @@ set("mode", "evaluate");
 from b in [SOME true, NONE];
 > val it = [SOME true,NONE] : bool option list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) If a function type is spread over several lines, put '->' at the start of
 (*) the next line.
 val f : ('a -> (int * int) list) -> ('a -> (int * int) list) -> 'a -> (int * int) list = fn a => fn b => fn c => [];
@@ -461,6 +448,9 @@ fun r0 (a, b, c, d, e, f, g, h, i, j, k, l, m, n, `o`, p, q, r, s, t, u, v, w, x
 >     'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n * 'o *
 >     'p * 'q * 'r * 's * 't * 'u * 'v * 'w * 'x * 'y * 'z * 'ba * 'bb * 'bc
 >     -> {a:'a, b:'b, c:'c}
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Highly curried function with lots of type variables returns record type.
 fun r0 a b c d e f g h i j k l m n p q r s = {a=a,b=b,c=c};
@@ -496,14 +486,8 @@ set("mode", "evaluate");
 let val r = {a=[], b=[]} in r.b end;
 > val it = [] : 'a list
 
-set("mode", "validate");
-> val it = () : unit
 fun f (a, b, c) = {x=c, y=a};
 > val f = fn : 'a * 'b * 'c -> {x:'c, y:'a}
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) When printing a type, 'forall' is omitted. Sometimes that eliminates
 (*) type variables. The following tests make sure that type variables are
@@ -513,14 +497,8 @@ set("mode", "evaluate");
 let val r = {a=[], b=[]} in r.b end;
 > val it = [] : 'a list
 
-set("mode", "validate");
-> val it = () : unit
 fun f (a, b, c) = {x=c, y=a};
 > val f = fn : 'a * 'b * 'c -> {x:'c, y:'a}
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* [MOREL-247] Cannot translate an expression that contains type annotations. *)
 fun divides (n: int, d: int): bool =
@@ -1031,16 +1009,12 @@ in
 end;
 > val it = fn : bool -> unit
 
-set("mode", "validate");
-> val it = () : unit
 let
   val r = {empno = 100, isMgr = true, name = "Fred"}
 in
   fn x: typeof r => x.empno
 end;
 > val it = fn : {empno:int, isMgr:bool, name:string} -> int
-set("mode", "evaluate");
-> val it = () : unit
 
 val m = 5;
 > val m = 5 : int
