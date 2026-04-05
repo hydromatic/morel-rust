@@ -29,8 +29,6 @@ fun print x = General.ignore x;
 > val print = fn : 'a -> unit
 
 (* Structures -------------------------------------------------- *)
-set("mode", "evaluate");
-> val it = () : unit
 Char;
 > val it =
 >   {<=fn,<==fn,<>=fn,==fn,>=fn,>==fn,chr=fn,compare=fn,contains=fn,
@@ -2382,12 +2380,9 @@ List.map (fn x => (x, Math.tanh x))
   [0.0, ~0.0, 1.0, Real.posInf, Real.negInf, nan];
 > val it = [(0,0),(~0,~0),(1.0,0.7615942),(inf,1.0),(~inf,~1.0),(nan,nan)]
 >   : (real * real) list
-set("mode", "validate");
-> val it = () : unit
 
 (* Option ------------------------------------------------------ *)
-set("mode", "evaluate");
-> val it = () : unit
+
 (*) val getOpt : 'a option * 'a -> 'a
 Option.getOpt (SOME 1, 2);
 > val it = 1 : int
@@ -4639,9 +4634,6 @@ env ();
 >    ("noneInt","int option"),("print","'a -> unit"),("ten","(bool,int) either"),
 >    ("yes","(bool,int) either")] : (string * string) list
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) val plan : unit -> string
 Sys.plan;
 > val it = fn : unit -> string
@@ -4753,9 +4745,6 @@ Sys.plan ();
 > val it = "apply(fnValue Sys.unset, constant(optionalInt))" : string
 
 (* Vector ------------------------------------------------------ *)
-set ("mode", "evaluate");
-> val it = () : unit
-
 Vector;
 > val it =
 >   {all=fn,app=fn,appi=fn,collate=fn,concat=fn,exists=fn,find=fn,findi=fn,

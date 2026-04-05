@@ -108,9 +108,6 @@ set("mode", "evaluate");
 >   [{address={state="CA",zip=94705},id=1},{address={state="CA",zip=94618},id=2}]
 >   : {address:{state:string, zip:int}, id:int} list
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) Tabular mode: list of records with all-primitive fields uses tabular style
 Sys.set ("output", "tabular");
 > val it = () : unit

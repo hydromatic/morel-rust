@@ -134,6 +134,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     let vec_paren = concat!("{}{}", "vec!", "(");
     let impl_regex = Regex::new("^ *impl ").unwrap();
     let derive_regex = Regex::new(r"#\[derive\(([^)]+)\)\]").unwrap();
+    let set_mode_re = Regex::new(r#"^set\s*\(\s*"mode""#).unwrap();
     if file_type.header.is_some() {
         let contents = fs::read_to_string(file_name).unwrap();
         if !contents.starts_with(file_type.header.unwrap().as_str()) {
@@ -150,6 +151,17 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         let mut in_raw_string = false;
         let mut sort: Option<Sort> = None;
         let mut impl_lines: HashMap<String, usize> = HashMap::new();
+        // For .smli files: track mode to detect redundant set("mode",...).
+        // The default mode is "evaluate", so setting evaluate first is
+        // redundant; so is repeating either mode consecutively.
+        let is_smli = file_name.ends_with(".smli");
+        let mut smli_mode: Option<&str> = None; // None = evaluate (default)
+        // Track whether any real statement (line ending in ';') has appeared
+        // since the previous set("mode",...). If not, both the previous and
+        // the current set("mode",...) are redundant (no statements ran in the
+        // intermediate mode).
+        let mut last_set_mode_line: usize = 0; // 0 = none yet
+        let mut had_stmt_since_set: bool = false;
         contents
             .lines()
             .chain(iter::once("")) // add a blank line at the end
@@ -245,6 +257,54 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                             file_name, line, l
                         ));
                     }
+                }
+                // In .smli files, any set("mode",...) must be canonical.
+                if is_smli && set_mode_re.is_match(l) {
+                    // Check for a pair of set("mode",...) with no statements
+                    // between them: both are redundant because no statements
+                    // ran in the intermediate mode.
+                    if last_set_mode_line > 0 && !had_stmt_since_set {
+                        warnings.push(format!(
+                            "{}:{}: Redundant set(\"mode\",...): \
+                             no statements before line {}",
+                            file_name, last_set_mode_line, line
+                        ));
+                        warnings.push(format!(
+                            "{}:{}: Redundant set(\"mode\",...): \
+                             no statements after line {}",
+                            file_name, line, last_set_mode_line
+                        ));
+                        last_set_mode_line = 0; // reset; don't chain
+                    } else {
+                        last_set_mode_line = line;
+                    }
+                    had_stmt_since_set = false;
+                    if l == "set(\"mode\", \"evaluate\");" {
+                        if smli_mode.is_none() || smli_mode == Some("evaluate")
+                        {
+                            warnings.push(format!(
+                                "{}:{}: Redundant set(\"mode\", \"evaluate\")",
+                                file_name, line
+                            ));
+                        }
+                        smli_mode = Some("evaluate");
+                    } else if l == "set(\"mode\", \"validate\");" {
+                        if smli_mode == Some("validate") {
+                            warnings.push(format!(
+                                "{}:{}: Redundant set(\"mode\", \"validate\")",
+                                file_name, line
+                            ));
+                        }
+                        smli_mode = Some("validate");
+                    } else {
+                        warnings.push(format!(
+                            "{}:{}: Non-canonical set(\"mode\",...): {}",
+                            file_name, line, l
+                        ));
+                    }
+                } else if is_smli && l.ends_with(';') && !l.starts_with('>') {
+                    // A real statement (not a set("mode",...) or output line).
+                    had_stmt_since_set = true;
                 }
                 // Check for alphabetically sorted derive macros
                 if let Some(caps) = derive_regex.captures(l) {

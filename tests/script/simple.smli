@@ -400,9 +400,6 @@ and Abc_ = 7;
 > val Abc_ = 7 : int
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) Identifiers whose prefix is a keyword
 val if_ = 1
 and then_ = 2
