@@ -66,7 +66,7 @@ val it = [4,6,8] : int list
 * [Change log](CHANGELOG.md)
 * Reading [test scripts](tests/script)
   can be instructive; try, for example,
-  [builtIn.smli](tests/script/builtIn.smli)
+  [built-in.smli](tests/script/built-in.smli)
 
 ## More information
 
