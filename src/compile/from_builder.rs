@@ -43,6 +43,7 @@ pub(crate) fn agg_implicit_label(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Identifier(_, name) => Some(name.clone()),
         Expr::Aggregate(_, left, _) => agg_implicit_label(left),
+        Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
         _ => None,
     }
 }
