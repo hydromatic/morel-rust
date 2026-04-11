@@ -1148,14 +1148,19 @@ impl TypeResolver {
             ExprKind::Aggregate(f, e) => {
                 self.check_in_compute(env, &expr.span)?;
                 let step_env = self.compute_stack.last().unwrap().clone();
-                // f has type: elements_type -> v
-                // where elements_type is the type of the current collection.
-                let v_elements = step_env.c.unwrap();
+                // The `over` expression (e) refers to pre-group variables
+                // (e.g. `a` in `compute sum over a`), so resolve it against
+                // the pre-group environment, not the post-group environment.
+                let v_e = self.variable();
+                let e2 = self.deduce_expr_type(&*step_env.env, e, &v_e)?;
+                // f has type: list(type_of_e) -> v.
+                // The aggregate function operates on a list of the `over`
+                // expression values, not on the full pre-group collection.
+                let v_elements = self.variable();
+                self.list_term(Term::Variable(v_e), &v_elements);
                 let v_fn = self.variable();
                 self.fn_term(&v_elements, v, &v_fn);
                 let f2 = self.deduce_expr_type(env, f, &v_fn)?;
-                let v_e = self.variable();
-                let e2 = self.deduce_expr_type(env, e, &v_e)?;
                 let x = ExprKind::Aggregate(Box::new(f2), Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -2238,7 +2243,11 @@ impl TypeResolver {
 
         // Process the compute expression, if present.
         let compute_expr2 = if let Some(compute) = compute_expr {
-            self.compute_stack.push(p.with_env(&group_env));
+            // Push the pre-group triple so that `Aggregate`'s `over`
+            // expression can resolve pre-group variables (e.g. `a` in
+            // `compute sum over a`). The compute expressions themselves
+            // are evaluated against `group_env` below.
+            self.compute_stack.push(p.clone());
 
             let v_compute = self.variable();
             let result = if let ExprKind::Record(_with, labeled_exprs) =

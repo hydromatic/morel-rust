@@ -186,6 +186,12 @@ pub enum Code {
     /// the time the recursive function is being compiled, there is not yet
     /// code to refer to. `name` is for debugging.
     Link(usize, String),
+    /// `MapElements(elements_code, over_code)` reads a list from
+    /// `elements_code`, and for each element restores scan variable
+    /// slots from the element value, evaluates `over_code`, and
+    /// collects the results into a new list. Used by `f over e`
+    /// aggregates when `e` is not a trivial identity.
+    MapElements(Box<Code>, Box<Code>),
     Native0(Eager0),
     Native1(Eager1, Box<Code>),
     Native2(Eager2, Box<Code>, Box<Code>),
@@ -497,6 +503,7 @@ impl Code {
             Code::GetLocal(_, _) => *mode == EvalMode::EagerF0,
             Code::Let(_, _) => *mode == EvalMode::Eager0,
             Code::Link(_, _) => todo!("{:?}", self),
+            Code::MapElements(_, _) => *mode == EvalMode::EagerF0,
             Code::Native0(_) => *mode == EvalMode::Eager0,
             Code::Native1(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
@@ -653,6 +660,35 @@ impl Code {
                     code.eval_f0(r, f)?;
                 }
                 result_code.eval_f0(r, f)
+            }
+            Code::MapElements(elements_code, over_code) => {
+                let elements = elements_code.eval_f0(r, f)?;
+                let rows = elements.expect_list();
+                let mut mapped = Vec::with_capacity(rows.len());
+                // Determine how many scan slots each element occupies
+                // and save those slots so we can restore after mapping.
+                let slot_count = match rows.first() {
+                    Some(Val::List(fields)) => fields.len(),
+                    _ => 1,
+                };
+                let saved: Vec<Val> = f.vals[..slot_count].to_vec();
+                for row in rows {
+                    match row {
+                        Val::List(fields) => {
+                            for (i, v) in fields.iter().enumerate() {
+                                f.vals[i] = v.clone();
+                            }
+                        }
+                        _ => {
+                            f.vals[0] = row.clone();
+                        }
+                    }
+                    mapped.push(over_code.eval_f0(r, f)?);
+                }
+                // Restore scan slots so subsequent code (e.g. yield
+                // after group+compute) sees the correct key values.
+                f.vals[..slot_count].clone_from_slice(&saved);
+                Ok(Val::List(mapped))
             }
             Code::Native0(eager) => Ok(eager.apply()),
             Code::Native1(eager, code0) => {

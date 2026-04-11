@@ -556,18 +556,29 @@ impl<'a> Compiler<'a> {
     ) -> Code {
         match expr {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(_, f, _e) => {
-                // `f over e`: apply f to the elements collection.
-                // In a compute context, 'elements' is available in the frame.
+            Expr::Aggregate(_, f, e) => {
+                // `f over e`: apply f to a mapped elements list.
                 let elements_slot = cx.frame_def.var_index("elements");
                 let elements_code =
                     Box::new(Code::new_get_local(&cx.frame_def, elements_slot));
+
+                // Compile the `over` expression and determine whether it
+                // needs per-element mapping. If `e` is a trivial read of
+                // slot 0 (single-binding identity), elements already
+                // contain the right values.
+                let e_code = self.compile_expr(cx, None, e);
+                let mapped_code = if matches!(&e_code, Code::GetLocal(_, 0)) {
+                    elements_code
+                } else {
+                    Box::new(Code::MapElements(elements_code, Box::new(e_code)))
+                };
+
                 if let Expr::Literal(_t, Val::Fn(func)) = f.as_ref() {
                     let impl_ = func.get_impl();
-                    Code::new_native(impl_, &[elements_code], &Span::new(""))
+                    Code::new_native(impl_, &[mapped_code], &Span::new(""))
                 } else {
                     let fn_code = self.compile_expr(cx, None, f);
-                    Code::new_apply(&fn_code, &elements_code, &[])
+                    Code::new_apply(&fn_code, &mapped_code, &[])
                 }
             }
             Expr::Apply(result_type, f, a, span) => match f.as_ref() {
