@@ -17,7 +17,7 @@
 
 use crate::compile::inliner::Env;
 use crate::compile::type_env::Id;
-use crate::compile::types::Type;
+use crate::compile::types::{Label, Type};
 use crate::eval::code::Span;
 use crate::eval::val::Val;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
@@ -88,6 +88,7 @@ impl Expr {
     /// Returns this expression's type.
     pub fn type_(&self) -> Box<Type> {
         match self {
+            // lint: sort until '#}' where '##Expr::'
             Expr::Aggregate(t, _, _) => t.clone(),
             Expr::Apply(t, _, _, _) => t.clone(),
             Expr::Case(t, _, _) => t.clone(),
@@ -401,21 +402,132 @@ impl Pat {
         }
     }
 
+    /// Walks this pattern over `val`, calling `consumer` for each variable
+    /// the pattern would bind. Returns `false` if the pattern fails to
+    /// match the value (e.g. literal mismatch, wrong constructor) — the
+    /// caller should raise the `Bind` exception in that case.
     pub(crate) fn bind_recurse(
         &self,
         val: &Val,
         consumer: &mut dyn FnMut(Box<Pat>, &Val),
-    ) {
+    ) -> bool {
         match self {
+            // lint: sort until '#}' where '##Pat::'
+            Pat::As(_, _name, inner) => {
+                // Layered pattern 'p as inner_pat': bind 'p' to the
+                // whole value, then recurse into the inner pattern.
+                consumer(Box::new(self.clone()), val);
+                inner.bind_recurse(val, consumer)
+            }
+            Pat::Cons(_, head, tail) => {
+                // 'h :: t' matches a non-empty list.
+                if let Val::List(vs) = val
+                    && !vs.is_empty()
+                {
+                    head.bind_recurse(&vs[0], consumer)
+                        && tail.bind_recurse(
+                            &Val::List(vs[1..].to_vec()),
+                            consumer,
+                        )
+                } else {
+                    false
+                }
+            }
+            Pat::Constructor(_, name, inner) => {
+                // Constructor pattern. The expected variant depends on
+                // 'name': SOME / INL / INR for the built-in option/either
+                // types; NONE matches Val::Unit; user-defined constructors
+                // are not yet supported here.
+                let matched_inner = match (name.as_str(), val) {
+                    ("SOME", Val::Some(v)) => Some(v.as_ref()),
+                    ("INL", Val::Inl(v)) => Some(v.as_ref()),
+                    ("INR", Val::Inr(v)) => Some(v.as_ref()),
+                    ("NONE", Val::Unit) => None,
+                    _ => return false,
+                };
+                match (inner, matched_inner) {
+                    (Some(p), Some(v)) => p.bind_recurse(v, consumer),
+                    (None, None) => true,
+                    _ => false,
+                }
+            }
             Pat::Identifier(_, _name) => {
                 consumer(Box::new(self.clone()), val);
+                true
             }
-            Pat::Tuple(_, pats) if pats.is_empty() => {
-                // Unit pattern - no bindings to process
+            Pat::List(_, pats) => {
+                // 'val [a, b, c] = e' matches a list of exactly the
+                // pattern's length.
+                if let Val::List(vs) = val
+                    && pats.len() == vs.len()
+                {
+                    for (p, v) in pats.iter().zip(vs.iter()) {
+                        if !p.bind_recurse(v, consumer) {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
             }
-            _ => {
-                todo!("{:?}", self);
+            Pat::Literal(_, lit) => {
+                // Literal pattern matches iff value equals the literal.
+                val == lit
             }
+            Pat::Record(t, fields, _) => {
+                // 'val {a, b = p, ...} = e': for each labelled field,
+                // look up its index in the record type's alphabetical-key
+                // order, then recurse.
+                if let (Type::Record(_, type_fields), Val::List(vs)) =
+                    (t.as_ref(), val)
+                {
+                    let labels: Vec<&Label> = type_fields.keys().collect();
+                    let find = |needle: &str| {
+                        labels.iter().position(|l| {
+                            matches!(
+                                l,
+                                Label::String(s) if s == needle
+                            )
+                        })
+                    };
+                    for field in fields {
+                        let (name_opt, sub_pat) = match field {
+                            PatField::Labeled(name, p) => {
+                                (Some(name.clone()), p.as_ref())
+                            }
+                            PatField::Anonymous(p) => (p.name(), p.as_ref()),
+                            PatField::Ellipsis => continue,
+                        };
+                        if let Some(name) = name_opt
+                            && let Some(i) = find(&name)
+                            && !sub_pat.bind_recurse(&vs[i], consumer)
+                        {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            Pat::Tuple(_, pats) => {
+                // 'val (p1, p2, ...) = e' matches a tuple of the same
+                // arity (or unit if pats is empty).
+                if let Val::List(vs) = val
+                    && pats.len() == vs.len()
+                {
+                    for (p, v) in pats.iter().zip(vs.iter()) {
+                        if !p.bind_recurse(v, consumer) {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    matches!(val, Val::Unit) && pats.is_empty()
+                }
+            }
+            Pat::Wildcard(_) => true,
         }
     }
 
@@ -427,6 +539,10 @@ impl Pat {
     ) {
         match self {
             // lint: sort until '#}' where '##Pat::'
+            Pat::As(t, name, inner) => {
+                (*consumer)((t, name.as_str()));
+                inner.for_each_id_pat(consumer);
+            }
             Pat::Cons(_, head, tail) => {
                 head.for_each_id_pat(consumer);
                 tail.for_each_id_pat(consumer);
@@ -437,6 +553,12 @@ impl Pat {
                 }
             }
             Pat::Identifier(t, name) => (*consumer)((t, name.as_str())),
+            Pat::List(_, pats) => {
+                pats.iter().for_each(|p| p.for_each_id_pat(consumer))
+            }
+            Pat::Literal(_, _) => {
+                // No identifiers to bind.
+            }
             Pat::Record(_, pat_fields, _) => {
                 for field in pat_fields {
                     match field {
@@ -449,7 +571,9 @@ impl Pat {
             Pat::Tuple(_, pats) => {
                 pats.iter().for_each(|p| p.for_each_id_pat(consumer))
             }
-            _ => todo!("{:?}", self),
+            Pat::Wildcard(_) => {
+                // No identifiers to bind.
+            }
         }
     }
 }
@@ -557,7 +681,7 @@ impl Decl {
     /// ```
     pub(crate) fn for_each_binding<F>(&self, action: &mut F)
     where
-        F: FnMut(&Pat, &Expr, &Option<Box<Id>>),
+        F: FnMut(&Pat, &Expr, &Option<Box<Id>>, &Option<Span>),
     {
         match &self {
             Decl::NonRecVal(b) => call(action, b.deref()),
@@ -573,9 +697,9 @@ impl Decl {
 
         fn call<F>(action: &mut F, b: &ValBind)
         where
-            F: FnMut(&Pat, &Expr, &Option<Box<Id>>),
+            F: FnMut(&Pat, &Expr, &Option<Box<Id>>, &Option<Span>),
         {
-            action(&b.pat, &b.expr, &b.overload_pat);
+            action(&b.pat, &b.expr, &b.overload_pat, &b.span);
         }
     }
 
@@ -655,6 +779,10 @@ pub struct ValBind {
     pub t: Type,
     pub expr: Expr,
     pub overload_pat: Option<Box<Id>>,
+    /// Source span of the binding (the pattern + expression, not including
+    /// the leading 'val' keyword or trailing ';'). Used to report the
+    /// location of a 'Bind' exception when the pattern fails to match.
+    pub span: Option<Span>,
 }
 
 impl ValBind {
@@ -666,6 +794,7 @@ impl ValBind {
             t: t.clone(),
             expr: expr.clone(),
             overload_pat: None,
+            span: None,
         }
     }
 }
@@ -701,10 +830,7 @@ impl Display for FunBind {
     }
 }
 
-/// Function match.
-///
-/// E.g. `f 0: int = 1` are `f n = n * f (n - 1)`
-/// are each matches with one pattern. The first has a type.
+/// A single clause within a function binding.
 #[derive(Clone, Debug)]
 pub struct FunMatch {
     pub name: String,

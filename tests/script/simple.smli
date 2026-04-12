@@ -884,22 +884,32 @@ in
 end;
 > val it = 3 : int
 
-set("mode", "validate");
-> val it = () : unit
 val (x, y) = (1, 2);
 > val x = 1 : int
 > val y = 2 : int
+set("mode", "validate");
+> val it = () : unit
 it;
 > val it = (1,2) : int * int
+set("mode", "evaluate");
+> val it = () : unit
 val (x, 2) = (1, 2);
 > val x = 1 : int
+set("mode", "validate");
+> val it = () : unit
 it;
 > val it = (1,2) : int * int
+set("mode", "evaluate");
+> val it = () : unit
 val h :: t = [1, 2, 3];
 > val h = 1 : int
 > val t = [2,3] : int list
+set("mode", "validate");
+> val it = () : unit
 it;
 > val it = [1,2,3] : int list
+set("mode", "evaluate");
+> val it = () : unit
 val _ = 3;
 
 val SOME i = SOME 1;
@@ -908,6 +918,9 @@ val SOME i = SOME 1;
 val SOME i = NONE;
 > uncaught exception Bind
 >   raised at: stdIn:1.5-1.18
+
+set("mode", "validate");
+> val it = () : unit
 
 val SOME (q as (1, i), SOME true) = SOME ((1, 2), SOME true);
 > val q = (1,2) : int * int

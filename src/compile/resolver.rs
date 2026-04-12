@@ -84,6 +84,10 @@ pub struct Resolver<'a> {
 struct PatExpr {
     pat: CorePat,
     expr: CoreExpr,
+    /// Source span covering the pattern and the expression. Used to
+    /// report the location of a 'Bind' exception when the pattern fails
+    /// to match the value.
+    span: Option<Span>,
 }
 
 /// Resolved value declaration that mirrors the Java ResolvedValDecl.
@@ -110,6 +114,7 @@ impl ResolvedValDecl {
                     t: *pat_exp.pat.type_(),
                     expr: pat_exp.expr.clone(),
                     overload_pat: None,
+                    span: pat_exp.span.clone(),
                 })
                 .collect();
 
@@ -128,6 +133,7 @@ impl ResolvedValDecl {
                     t: *pat_exp.pat.type_(),
                     expr: pat_exp.expr.clone(),
                     overload_pat: None,
+                    span: pat_exp.span.clone(),
                 };
 
                 let decl = CoreDecl::NonRecVal(Box::new(val_bind));
@@ -155,6 +161,7 @@ impl ResolvedValDecl {
             t: *expr_type.clone(),
             expr: self.expr.clone(),
             overload_pat: None,
+            span: None,
         };
 
         // Create an identifier expression for the temp variable.
@@ -215,6 +222,7 @@ impl<'a> Resolver<'a> {
                     t: *unit_type.clone(),
                     expr: CoreExpr::Tuple(unit_type, vec![]),
                     overload_pat: None,
+                    span: None,
                 }))
             }
             DeclKind::Type(type_binds) => CoreDecl::Type(
@@ -237,6 +245,7 @@ impl<'a> Resolver<'a> {
                                 t: *pe.pat.type_(),
                                 expr: pe.expr.clone(),
                                 overload_pat: None,
+                                span: pe.span.clone(),
                             })
                             .collect(),
                     )
@@ -247,6 +256,7 @@ impl<'a> Resolver<'a> {
                         t: *pe.pat.type_(),
                         expr: pe.expr.clone(),
                         overload_pat: None,
+                        span: pe.span.clone(),
                     }))
                 } else {
                     // Multiple non-recursive bindings - convert to RecVal.
@@ -259,6 +269,7 @@ impl<'a> Resolver<'a> {
                                 t: *pe.pat.type_(),
                                 expr: pe.expr.clone(),
                                 overload_pat: None,
+                                span: pe.span.clone(),
                             })
                             .collect(),
                     )
@@ -811,11 +822,16 @@ impl<'a> Resolver<'a> {
             }
         };
 
+        let span = Some(Span::from_pest_span(
+            &val_bind.pat.span.union(&val_bind.expr.span).to_pest_span(),
+            self.base_line,
+        ));
         CoreValBind {
             pat,
             t: *type_,
             expr,
             overload_pat: None,
+            span,
         }
     }
 
@@ -1063,10 +1079,15 @@ impl<'a> Resolver<'a> {
         for val_bind in val_binds {
             let core_pat = self.resolve_pat(&val_bind.pat);
             let core_expr = self.resolve_expr(&val_bind.expr);
+            let span = Some(Span::from_pest_span(
+                &val_bind.pat.span.union(&val_bind.expr.span).to_pest_span(),
+                self.base_line,
+            ));
 
             pat_exps.push(PatExpr {
                 pat: core_pat,
                 expr: core_expr,
+                span,
             });
         }
 
@@ -1148,6 +1169,7 @@ impl<'a> Resolver<'a> {
                 t: *pat.type_(),
                 expr: expr.clone(),
                 overload_pat: None,
+                span: None,
             };
 
             let decl = CoreDecl::NonRecVal(Box::new(val_bind));
@@ -1172,6 +1194,7 @@ impl<'a> Resolver<'a> {
             t: *expr_type.clone(),
             expr: expr.clone(),
             overload_pat: None,
+            span: None,
         };
 
         // Create identifier expression for temp variable.

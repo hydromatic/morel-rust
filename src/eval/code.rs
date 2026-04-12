@@ -104,6 +104,11 @@ pub enum Code {
     /// `Bind(pat, expr)` binds the pattern to the expression; throws if the
     /// value does not match.
     Bind(Box<(Code, Code)>),
+    /// `BindAnd(patterns)` applies every pattern to the same argument and
+    /// succeeds only if all of them succeed. Used for layered patterns
+    /// ('p as inner_pat'), where the outer name and the inner pattern
+    /// bind to the same value.
+    BindAnd(Vec<Code>),
     /// `BindCons(head, tail)` succeeds if the argument `head :: tail` (i.e.
     /// a list of length at least 1).
     BindCons(Box<Code>, Box<Code>),
@@ -429,6 +434,7 @@ impl Code {
             Code::ApplyClosure(_, _, _) => *mode == EvalMode::Eager0,
             Code::ApplyConstant(_, _) => *mode == EvalMode::Eager0,
             Code::Bind(_) => *mode == EvalMode::Eager0,
+            Code::BindAnd(_) => *mode == EvalMode::EagerV1,
             Code::BindCons(_, _) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
             }
@@ -687,6 +693,17 @@ impl Code {
                     _ => panic!("Expected closure"),
                 }
             }
+            Code::BindAnd(codes) => {
+                // Apply each pattern to the same argument; succeed only
+                // if all of them succeed.
+                for code in codes {
+                    let r2 = code.eval_f1(r, f, a0)?;
+                    if !r2.expect_bool() {
+                        return Ok(Val::Bool(false));
+                    }
+                }
+                Ok(Val::Bool(true))
+            }
             Code::BindCons(head_code, tail_code) => {
                 let list = a0.expect_list();
                 if list.is_empty() {
@@ -915,6 +932,9 @@ impl Display for Code {
                 write!(f, "apply(fn {} arg {})", fn_code, arg_code)
             }
             Self::Bind(v) => write!(f, "bind({} = {})", v.0, v.1),
+            Self::BindAnd(codes) => {
+                Self::write_codes(f, "bindAnd(", codes, ")")
+            }
             Self::BindLiteral(v) => write!(f, "{}", v),
             Self::BindSlot(_, slot) => write!(f, "bind({})", slot),
             Self::BindTuple(codes) => {

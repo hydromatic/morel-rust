@@ -224,6 +224,7 @@ impl Decl {
                     expr: x.transform_expr(&env2, &val_bind.expr),
                     t: val_bind.t.clone(),
                     overload_pat: val_bind.overload_pat.clone(),
+                    span: val_bind.span.clone(),
                 }))
             }
             Decl::RecVal(val_binds) => {
@@ -241,7 +242,13 @@ impl ValBind {
         let env2 = env.child_none(self.pat.name().unwrap().as_str(), &self.t);
         let pat = x.transform_pat(env, &self.pat);
         let expr = x.transform_expr(&env2, &self.expr);
-        ValBind::of(&pat, &self.t, &expr)
+        ValBind {
+            pat,
+            t: self.t.clone(),
+            expr,
+            overload_pat: self.overload_pat.clone(),
+            span: self.span.clone(),
+        }
     }
 }
 /// Environment for inlining.

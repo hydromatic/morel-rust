@@ -3521,7 +3521,20 @@ impl TypeResolver {
                 self.reg_pat(&PatKind::Tuple(pat_list2), &pat.span, pat.id, &v)
             }
             PatKind::Wildcard => self.reg_pat(&pat.kind, &pat.span, pat.id, &v),
-            _ => todo!("{:?}", pat.kind),
+            PatKind::As(name, inner_pat) => {
+                // 'p as inner_pat' binds 'p' and 'inner_pat' to the same
+                // value, hence the same type. Recurse into the inner
+                // pattern with the same type variable, then add a
+                // term-map entry for the outer name.
+                let pat2 = self.deduce_pat_type(env, inner_pat, term_map, &v);
+                term_map.push((name.clone(), Term::Variable(*v)));
+                self.reg_pat(
+                    &PatKind::As(name.clone(), Box::new(pat2)),
+                    &pat.span,
+                    pat.id,
+                    &v,
+                )
+            }
         }
     }
 

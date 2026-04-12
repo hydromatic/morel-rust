@@ -212,7 +212,7 @@ impl<'a> Compiler<'a> {
         let mut link_code_ordinal = self.links.len();
 
         if let Decl::RecVal(_) = decl {
-            decl.for_each_binding(&mut |pat, _, _| {
+            decl.for_each_binding(&mut |pat, _, _, _| {
                 pat.for_each_id_pat(&mut |(_, name)| {
                     let link_code = self.create_link(name);
                     bindings.push(Binding::of_name_value(
@@ -229,7 +229,10 @@ impl<'a> Compiler<'a> {
         let mut collected_actions = Vec::new();
 
         decl.for_each_binding(
-            &mut |pat: &Pat, expr: &Expr, _overload_pat: &Option<Box<Id>>| {
+            &mut |pat: &Pat,
+                  expr: &Expr,
+                  _overload_pat: &Option<Box<Id>>,
+                  span: &Option<Span>| {
                 let pat_code = self.compile_pat(&cx1, pat);
                 let expr_code = Arc::new(self.compile_expr(&cx1, None, expr));
                 match_codes.push(Code::new_bind(&pat_code, &expr_code));
@@ -262,6 +265,7 @@ impl<'a> Compiler<'a> {
                 collected_actions.push(ValDeclAction {
                     code: expr_code.clone(),
                     pat: pat.clone(),
+                    span: span.clone(),
                 });
             },
         );
@@ -322,6 +326,15 @@ impl<'a> Compiler<'a> {
     pub fn compile_pat(&self, cx: &Context, pat: &Pat) -> Code {
         match pat {
             // lint: sort until '#}' where '##Pat::'
+            Pat::As(_, name, inner) => {
+                // 'p as inner_pat' binds 'p' to the value AND recurses
+                // into 'inner_pat'. Both apply to the same value, so
+                // emit a BindAnd that runs both pattern codes.
+                let slot = cx.frame_def.var_index(name);
+                let outer_code = Code::new_bind_slot(&cx.frame_def, slot);
+                let inner_code = self.compile_pat(cx, inner);
+                Code::BindAnd(vec![outer_code, inner_code])
+            }
             Pat::Cons(_, head, tail) => {
                 let head_code = self.compile_pat(cx, head);
                 let tail_code = self.compile_pat(cx, tail);
@@ -397,9 +410,6 @@ impl<'a> Compiler<'a> {
                 // no variables to bind;
                 // trivially succeeds
                 Code::BindWildcard
-            }
-            _ => {
-                todo!("compile_pat: {:?}", pat)
             }
         }
     }
@@ -1507,7 +1517,13 @@ impl<'a> Compiler<'a> {
             expr: val_bind.expr.clone(),
         };
         let expr2 = Expr::Fn(Box::new(fn_type), vec![match_]);
-        ValBind::of(&pat2, &t2, &expr2)
+        ValBind {
+            pat: pat2,
+            t: t2,
+            expr: expr2,
+            overload_pat: val_bind.overload_pat.clone(),
+            span: val_bind.span.clone(),
+        }
     }
 }
 
@@ -1524,6 +1540,10 @@ trait Action {
 struct ValDeclAction {
     code: Arc<Code>,
     pat: Pat,
+    /// Source span of the val binding (pattern + expression). Used to
+    /// report the location of a 'Bind' exception when the pattern fails
+    /// to match the value at run time.
+    span: Option<Span>,
 }
 
 impl Action for ValDeclAction {
@@ -1537,7 +1557,28 @@ impl Action for ValDeclAction {
             }
             Ok(o) => {
                 let pretty = Self::get_pretty(&r.shell.config);
-                self.pat.bind_recurse(&o, &mut |p2, v2| {
+                // Collect bindings into a buffer first; we will only emit
+                // them if the pattern matches the value (otherwise we
+                // raise the 'Bind' exception).
+                let mut emits: Vec<(Box<Pat>, Val)> = Vec::new();
+                let matched = self.pat.bind_recurse(&o, &mut |p2, v2| {
+                    emits.push((p2, v2.clone()));
+                });
+                if !matched {
+                    let loc = self
+                        .span
+                        .as_ref()
+                        .map_or_else(|| "stdIn".to_string(), Span::to_string);
+                    r.emit_effect(Effect::EmitLine(
+                        "uncaught exception Bind".to_string(),
+                    ));
+                    r.emit_effect(Effect::EmitLine(format!(
+                        "  raised at: {}",
+                        loc
+                    )));
+                    return;
+                }
+                for (p2, v2) in emits {
                     // Emit a line 'val <name> = <value> : <type>'. The
                     // pretty-printer ensures that the value is formatted
                     // correctly for its type, and lines are correctly wrapped
@@ -1552,7 +1593,7 @@ impl Action for ValDeclAction {
                         Binding::of_name_value(id.as_str(), &Some(v2.clone()));
                     r.emit_effect(Effect::AddBinding(binding));
                     r.emit_effect(Effect::EmitLine(line));
-                });
+                }
             }
         }
     }
