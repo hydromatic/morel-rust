@@ -176,22 +176,18 @@ op ~ o op ~ o op ~;
 > val it = fn : int -> int
 it 5;
 > val it = ~5 : int
-(op *) (8,3);
-> val it = 24 : int
 set("mode", "evaluate");
 > val it = () : unit
+(op *) (8,3);
+> val it = 24 : int
 (op +) (3,4);
 > val it = 7 : int
 (op /) (6.0, 4.0);
 > val it = 1.5 : real
 (op ^) ("foo","bar");
 > val it = "foobar" : string
-set("mode", "validate");
-> val it = () : unit
 (op ::) (1,[2,3,4]);
 > val it = [1,2,3,4] : int list
-set("mode", "evaluate");
-> val it = () : unit
 (op @) ([1,2],[3,4]);
 > val it = [1,2,3,4] : int list
 

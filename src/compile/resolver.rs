@@ -1398,8 +1398,8 @@ impl<'a> Resolver<'a> {
             (">", Type::Primitive(PrimitiveType::String)) => StringGt,
             (">=", Type::Primitive(PrimitiveType::String)) => StringGe,
 
-            // List operators - these work on any list type
-            ("::", Type::List(_)) => ListCons,
+            // List operators - these work on any element type
+            ("::", _) => ListCons,
             ("@", Type::List(_)) => ListAt,
 
             _ => todo!(
@@ -1435,6 +1435,7 @@ impl<'a> Resolver<'a> {
     fn multi_op_to_builtin(&self, op_name: &str) -> BuiltInFunction {
         use BuiltInFunction::{
             GEq, GGe, GGt, GLe, GLt, GMinus, GNe, GNegate, GPlus, GTimes,
+            ListCons,
         };
         match op_name {
             "~" => GNegate,
@@ -1447,6 +1448,7 @@ impl<'a> Resolver<'a> {
             ">=" => GGe,
             "=" => GEq,
             "<>" => GNe,
+            "::" => ListCons,
             _ => todo!("overloaded operator '{}' not supported", op_name),
         }
     }
