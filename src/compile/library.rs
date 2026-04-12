@@ -1044,6 +1044,10 @@ pub enum BuiltInRecord {
     Real,
     #[strum(props(name = "Relational"))]
     Relational,
+    /// The `scott` sample database, with fields `bonuses`, `depts`,
+    /// `emps`, `salgrades`. Each field is a `bag` of records.
+    #[strum(props(name = "scott"))]
+    Scott,
     #[strum(props(name = "String"))]
     String,
     #[strum(props(name = "Sys"))]

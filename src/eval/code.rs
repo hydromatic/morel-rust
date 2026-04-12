@@ -3101,6 +3101,12 @@ impl LibBuilder {
             structure_map.insert(*r, (t, Val::List(vals)));
         }
 
+        // Inject the `scott` sample database. It is a structure (record)
+        // with fields `bonuses`, `depts`, `emps`, `salgrades`, each a
+        // bag of records.
+        let (scott_type, scott_val) = build_scott();
+        structure_map.insert(BuiltInRecord::Scott, (scott_type, scott_val));
+
         for r in BuiltInRecord::iter() {
             let name = r.get_str("name").expect("name");
             name_to_built_in.insert(name.to_string(), BuiltIn::Record(r));
@@ -3112,4 +3118,234 @@ impl LibBuilder {
             name_to_built_in,
         }
     }
+}
+
+/// Builds the `scott` sample database value: a record with `bonuses`,
+/// `depts`, `emps`, and `salgrades` fields, each a `bag` of records.
+/// The data is the standard Oracle "scott" schema (14 employees, 4
+/// departments, 5 salary grades).
+#[allow(clippy::too_many_lines)]
+fn build_scott() -> (Type, Val) {
+    use Label::String as S;
+
+    // Schema for one row of `bonuses`: {comm:real, ename:string, job:string,
+    // sal:real}
+    let bonus_fields: BTreeMap<Label, Type> = [
+        (S("comm".to_string()), Type::Primitive(PrimitiveType::Real)),
+        (
+            S("ename".to_string()),
+            Type::Primitive(PrimitiveType::String),
+        ),
+        (S("job".to_string()), Type::Primitive(PrimitiveType::String)),
+        (S("sal".to_string()), Type::Primitive(PrimitiveType::Real)),
+    ]
+    .into_iter()
+    .collect();
+    let bonus_row_type = Type::Record(false, bonus_fields);
+
+    // Schema for one row of `depts`: {deptno:int, dname:string, loc:string}
+    let dept_fields: BTreeMap<Label, Type> = [
+        (S("deptno".to_string()), Type::Primitive(PrimitiveType::Int)),
+        (
+            S("dname".to_string()),
+            Type::Primitive(PrimitiveType::String),
+        ),
+        (S("loc".to_string()), Type::Primitive(PrimitiveType::String)),
+    ]
+    .into_iter()
+    .collect();
+    let dept_row_type = Type::Record(false, dept_fields);
+    // depts data: 4 rows. Each row is alphabetical by field name:
+    // deptno, dname, loc.
+    let dept = |deptno: i32, dname: &str, loc: &str| -> Val {
+        Val::List(vec![
+            Val::Int(deptno),
+            Val::String(dname.to_string()),
+            Val::String(loc.to_string()),
+        ])
+    };
+    let depts = Val::List(vec![
+        dept(10, "ACCOUNTING", "NEW YORK"),
+        dept(20, "RESEARCH", "DALLAS"),
+        dept(30, "SALES", "CHICAGO"),
+        dept(40, "OPERATIONS", "BOSTON"),
+    ]);
+
+    // Schema for one row of `emps`: {comm:real, deptno:int, empno:int,
+    // ename:string, hiredate:string, job:string, mgr:int, sal:real}
+    let emp_fields: BTreeMap<Label, Type> = [
+        (S("comm".to_string()), Type::Primitive(PrimitiveType::Real)),
+        (S("deptno".to_string()), Type::Primitive(PrimitiveType::Int)),
+        (S("empno".to_string()), Type::Primitive(PrimitiveType::Int)),
+        (
+            S("ename".to_string()),
+            Type::Primitive(PrimitiveType::String),
+        ),
+        (
+            S("hiredate".to_string()),
+            Type::Primitive(PrimitiveType::String),
+        ),
+        (S("job".to_string()), Type::Primitive(PrimitiveType::String)),
+        (S("mgr".to_string()), Type::Primitive(PrimitiveType::Int)),
+        (S("sal".to_string()), Type::Primitive(PrimitiveType::Real)),
+    ]
+    .into_iter()
+    .collect();
+    let emp_row_type = Type::Record(false, emp_fields);
+    // emps data: 14 rows. Each row is alphabetical by field name:
+    // comm, deptno, empno, ename, hiredate, job, mgr, sal.
+    #[allow(clippy::too_many_arguments)]
+    let emp = |comm: f32,
+               deptno: i32,
+               empno: i32,
+               ename: &str,
+               hiredate: &str,
+               job: &str,
+               mgr: i32,
+               sal: f32|
+     -> Val {
+        Val::List(vec![
+            Val::Real(comm),
+            Val::Int(deptno),
+            Val::Int(empno),
+            Val::String(ename.to_string()),
+            Val::String(hiredate.to_string()),
+            Val::String(job.to_string()),
+            Val::Int(mgr),
+            Val::Real(sal),
+        ])
+    };
+    let emps = Val::List(vec![
+        emp(0.0, 20, 7369, "SMITH", "1980-12-17", "CLERK", 7902, 800.0),
+        emp(
+            300.0,
+            30,
+            7499,
+            "ALLEN",
+            "1981-02-20",
+            "SALESMAN",
+            7698,
+            1600.0,
+        ),
+        emp(
+            500.0,
+            30,
+            7521,
+            "WARD",
+            "1981-02-21",
+            "SALESMAN",
+            7698,
+            1250.0,
+        ),
+        emp(
+            0.0,
+            20,
+            7566,
+            "JONES",
+            "1981-02-03",
+            "MANAGER",
+            7839,
+            2975.0,
+        ),
+        emp(
+            1400.0,
+            30,
+            7654,
+            "MARTIN",
+            "1981-09-28",
+            "SALESMAN",
+            7698,
+            1250.0,
+        ),
+        emp(
+            0.0,
+            30,
+            7698,
+            "BLAKE",
+            "1981-01-05",
+            "MANAGER",
+            7839,
+            2850.0,
+        ),
+        emp(
+            0.0,
+            10,
+            7782,
+            "CLARK",
+            "1981-06-09",
+            "MANAGER",
+            7839,
+            2450.0,
+        ),
+        emp(
+            0.0,
+            20,
+            7788,
+            "SCOTT",
+            "1987-04-19",
+            "ANALYST",
+            7566,
+            3000.0,
+        ),
+        emp(0.0, 10, 7839, "KING", "1981-11-17", "PRESIDENT", 0, 5000.0),
+        emp(
+            0.0,
+            30,
+            7844,
+            "TURNER",
+            "1981-09-08",
+            "SALESMAN",
+            7698,
+            1500.0,
+        ),
+        emp(0.0, 20, 7876, "ADAMS", "1987-05-23", "CLERK", 7788, 1100.0),
+        emp(0.0, 30, 7900, "JAMES", "1981-12-03", "CLERK", 7698, 950.0),
+        emp(0.0, 20, 7902, "FORD", "1981-12-03", "ANALYST", 7566, 3000.0),
+        emp(0.0, 10, 7934, "MILLER", "1982-01-23", "CLERK", 7782, 1300.0),
+    ]);
+
+    // Schema for one row of `salgrades`: {grade:int, hisal:real, losal:real}
+    let salgrade_fields: BTreeMap<Label, Type> = [
+        (S("grade".to_string()), Type::Primitive(PrimitiveType::Int)),
+        (S("hisal".to_string()), Type::Primitive(PrimitiveType::Real)),
+        (S("losal".to_string()), Type::Primitive(PrimitiveType::Real)),
+    ]
+    .into_iter()
+    .collect();
+    let salgrade_row_type = Type::Record(false, salgrade_fields);
+    let salgrade = |grade: i32, hisal: f32, losal: f32| -> Val {
+        Val::List(vec![Val::Int(grade), Val::Real(hisal), Val::Real(losal)])
+    };
+    let salgrades = Val::List(vec![
+        salgrade(1, 1200.0, 700.0),
+        salgrade(2, 1400.0, 1201.0),
+        salgrade(3, 2000.0, 1401.0),
+        salgrade(4, 3000.0, 2001.0),
+        salgrade(5, 9999.0, 3001.0),
+    ]);
+
+    // The outer record. Field order must be alphabetical: bonuses, depts,
+    // emps, salgrades.
+    let scott_fields: BTreeMap<Label, Type> = [
+        (
+            S("bonuses".to_string()),
+            Type::Bag(Box::new(bonus_row_type)),
+        ),
+        (S("depts".to_string()), Type::Bag(Box::new(dept_row_type))),
+        (S("emps".to_string()), Type::Bag(Box::new(emp_row_type))),
+        (
+            S("salgrades".to_string()),
+            Type::Bag(Box::new(salgrade_row_type)),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let scott_type = Type::Record(false, scott_fields);
+    let scott_val = Val::List(vec![
+        Val::List(vec![]), // bonuses (empty bag)
+        depts,
+        emps,
+        salgrades,
+    ]);
+    (scott_type, scott_val)
 }

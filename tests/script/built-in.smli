@@ -4578,8 +4578,11 @@ Sys.env ();
 >    ("emps","{empno:int, ename:string, mgr:int} list"),
 >    ("f","real -> int * int * int * int"),("it","(string * string) list"),
 >    ("nan","real"),("nil","forall 'a. 'a bag"),("nil","forall 'a. 'a list"),
->    ("noneInt","int option"),("print","'a -> unit"),("ten","(bool,int) either"),
->    ("true","bool"),("yes","(bool,int) either")] : (string * string) list
+>    ("noneInt","int option"),("print","'a -> unit"),
+>    ("scott",
+>     "{bonuses:{comm:real, ename:string, job:string, sal:real} bag, depts:{deptno:int, dname:string, loc:string} bag, emps:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag, salgrades:{grade:int, hisal:real, losal:real} bag}"),
+>    ("ten","(bool,int) either"),("true","bool"),("yes","(bool,int) either")]
+>   : (string * string) list
 
 env;
 > val it = fn : unit -> (string * string) list
@@ -4626,8 +4629,11 @@ env ();
 >    ("emps","{empno:int, ename:string, mgr:int} list"),
 >    ("f","real -> int * int * int * int"),("it","(string * string) list"),
 >    ("nan","real"),("nil","forall 'a. 'a bag"),("nil","forall 'a. 'a list"),
->    ("noneInt","int option"),("print","'a -> unit"),("ten","(bool,int) either"),
->    ("true","bool"),("yes","(bool,int) either")] : (string * string) list
+>    ("noneInt","int option"),("print","'a -> unit"),
+>    ("scott",
+>     "{bonuses:{comm:real, ename:string, job:string, sal:real} bag, depts:{deptno:int, dname:string, loc:string} bag, emps:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag, salgrades:{grade:int, hisal:real, losal:real} bag}"),
+>    ("ten","(bool,int) either"),("true","bool"),("yes","(bool,int) either")]
+>   : (string * string) list
 
 (*) val plan : unit -> string
 Sys.plan;

@@ -20,8 +20,6 @@
  * web site, documentation, and blog posts. Just, you know, to keep
  * us honest.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("printDepth", ~1);
 > val it = () : unit
 Sys.set ("lineWidth", 78);
@@ -71,14 +69,20 @@ val depts =
 >    {deptno=30,name="Engineering"},{deptno=40,name="Support"}]
 >   : {deptno:int, name:string} list
 (*) the expression
+set("mode", "validate");
+> val it = () : unit
 from e in emps where e.deptno = 30 yield e.id;
 > val it = [102,103] : int list
+set("mode", "evaluate");
+> val it = () : unit
 (*) is equivalent to standard ML
 map (fn e => (#id e)) (filter (fn e => (#deptno e) = 30) emps);
 > val it = [102,103] : int list
 
 (*) You can iterate over more than one collection, and therefore
 (*) generate a join or a cartesian product:
+set("mode", "validate");
+> val it = () : unit
 from e in emps, d in depts
   where e.deptno = d.deptno
   yield {e.id, e.deptno, ename = e.name, dname = d.name};
@@ -91,7 +95,6 @@ from e in emps, d in depts
 (*) As in any ML expression, you can define functions within a from
 (*) expression, and those functions can operate on lists. Thus we can
 (*) implement equivalents of SQL's IN and EXISTS operators:
-(* FIXME
 let
   fun in_ e [] = false
     | in_ e (h :: t) = e = h orelse (in_ e t)
@@ -102,7 +105,6 @@ in
                 yield d.deptno)
   yield e.name
 end;
-*)
 (* FIXME
 let
   fun exists [] = false
@@ -115,6 +117,8 @@ in
   yield e.name
 end;
 *)
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) === Screen cast =================================================
 
@@ -135,8 +139,12 @@ end;
 (*) The Morel shell deduces the type of each expression,
 (*) and assigns it to a variable called "it".
 (*) We can use "it" in the next expression...
+set("mode", "validate");
+> val it = () : unit
 it + 4;
 > val it = 7 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) We just saw string and int expressions.
 (*) There are also boolean, list, record and tuple types:
@@ -170,6 +178,8 @@ plusOne 1000;
 > val it = 1001 : int
 
 (*) Functions can have multiple arguments, separated by spaces.
+set("mode", "validate");
+> val it = () : unit
 fun plus x y = x + y;
 > val plus = fn : int -> int -> int
 plus 3 4;
@@ -181,6 +191,8 @@ val plusTen = plus 10;
 > val plusTen = fn : int -> int
 plusTen 2;
 > val it = 12 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Functions can be recursive.
 fun fact n = if n = 1 then 1 else n * fact (n - 1);
@@ -205,6 +217,8 @@ end;
 
 (*) "filter" keeps only those elements of a list for which
 (*) a predicate evaluates to true.
+set("mode", "validate");
+> val it = () : unit
 let
   fun filter p [] = []
     | filter p (head :: tail) =
@@ -217,6 +231,8 @@ in
   filter even [1, 2, 3, 4]
 end;
 > val it = [2,4] : int list
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) You may notice that "map" and "filter" are very similar to the
 (*) "select" and "where" clauses of a SQL statement.
@@ -257,6 +273,8 @@ from e in emps yield e;
 >   : {deptno:int, id:int, name:string} list
 
 (*) Now "select e.id from emps as e where e.deptno = 30"
+set("mode", "validate");
+> val it = () : unit
 from e in emps where (#deptno e) = 30 yield (#id e);
 > val it = [102,103] : int list
 
