@@ -614,12 +614,7 @@ impl TypeResolver {
         term_map: &mut Vec<(String, Term)>,
     ) -> Result<Decl, Error> {
         match &decl.kind {
-            DeclKind::Val(rec, inst, val_binds) => {
-                let x = &self.deduce_val_decl_type(
-                    env, *rec, *inst, val_binds, term_map,
-                )?;
-                Ok(self.reg_decl(&x, &decl.span, decl.id))
-            }
+            // lint: sort until '#}' where '##DeclKind::'
             DeclKind::Fun(fun_binds) => {
                 let val_decl = self.convert_fun_to_val(env, fun_binds);
                 self.deduce_decl_type(env, &val_decl, term_map)
@@ -632,6 +627,24 @@ impl TypeResolver {
                 // TODO: Implement proper signature type checking once
                 // structures are added.
                 Ok(decl.clone())
+            }
+            DeclKind::Type(type_binds) => {
+                // 'type myInt = int' declarations register a type alias
+                // in the resolver. The alias maps the new name to the
+                // resolved core type of the RHS, so subsequent uses of
+                // 'myInt' in type position resolve to 'int'.
+                for tb in type_binds {
+                    if let Some(rhs_type) = ast_type_to_core_type(&tb.type_) {
+                        self.type_aliases.insert(tb.name.clone(), rhs_type);
+                    }
+                }
+                Ok(decl.clone())
+            }
+            DeclKind::Val(rec, inst, val_binds) => {
+                let x = &self.deduce_val_decl_type(
+                    env, *rec, *inst, val_binds, term_map,
+                )?;
+                Ok(self.reg_decl(&x, &decl.span, decl.id))
             }
             _ => todo!("{:?}", decl.kind),
         }
@@ -3677,6 +3690,55 @@ impl TypeSchemeResolver for TypeResolver {
     }
 }
 
+/// Best-effort conversion of an AST [`AstType`] to a core [`Type`],
+/// used to register the right-hand side of a `type myInt = ...`
+/// declaration as a type alias. Only the simple shapes that
+/// type-alias.smli exercises (primitive ids, tuples, function types,
+/// applications of `list`/`bag`/`option`) are supported; anything
+/// else returns `None` and the alias is silently dropped.
+pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
+    match &ast_type.kind {
+        TypeKind::Id(name) => PrimitiveType::parse_name(name)
+            .map(Type::Primitive)
+            .or_else(|| match name.as_str() {
+                "order" | "option" | "list" | "bag" | "vector" => {
+                    Some(Type::Data(name.clone(), vec![]))
+                }
+                _ => None,
+            }),
+        TypeKind::Tuple(types) => {
+            let cores: Vec<Type> =
+                types.iter().filter_map(ast_type_to_core_type).collect();
+            if cores.len() == types.len() {
+                Some(Type::Tuple(cores))
+            } else {
+                None
+            }
+        }
+        TypeKind::Fn(t1, t2) => {
+            let c1 = ast_type_to_core_type(t1)?;
+            let c2 = ast_type_to_core_type(t2)?;
+            Some(Type::Fn(Box::new(c1), Box::new(c2)))
+        }
+        TypeKind::App(args, t) => {
+            // Recognise applications of the parameterised collection
+            // types: `int list`, `int bag`, `int option`, `int vector`.
+            if let TypeKind::Id(name) = &t.kind
+                && args.len() == 1
+            {
+                let arg_core = ast_type_to_core_type(&args[0])?;
+                return Some(match name.as_str() {
+                    "list" => Type::List(Box::new(arg_core)),
+                    "bag" => Type::Bag(Box::new(arg_core)),
+                    _ => Type::Data(name.clone(), vec![arg_core]),
+                });
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 /// Ensures that a statement is a declaration.
 /// An expression 'e' is wrapped as a value declaration 'val it = e'.
 fn ensure_decl(statement: &Statement) -> Decl {
@@ -3797,6 +3859,18 @@ impl<'a> TypeToTermConverter<'a> {
                 )
             }
             TypeKind::Id(name) => {
+                // First check user-defined type aliases ('type myInt = int').
+                // If found, register the alias's underlying type term.
+                if let Some(alias_type) =
+                    self.type_resolver.type_aliases.get(name).cloned()
+                {
+                    self.type_resolver.type_term(&alias_type, subst, v);
+                    return self.type_resolver.reg_type(
+                        &type_node.kind,
+                        &type_node.span,
+                        &v,
+                    );
+                }
                 let p = PrimitiveType::parse_name(name).unwrap();
                 self.type_resolver.primitive_term(&p, &v);
                 self.type_resolver.reg_type(

@@ -842,9 +842,20 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Resolves an AST type binding to a core type binding.
-    fn resolve_type_bind(&self, _type_bind: &TypeBind) -> CoreTypeBind {
-        todo!("Implement type bind resolution")
+    /// Resolves an AST type binding to a core type binding. The
+    /// alias's right-hand side is converted to a core type via
+    /// the same simple-shape recogniser used by the type-resolver.
+    /// Unsupported shapes fall back to `unit`.
+    fn resolve_type_bind(&self, type_bind: &TypeBind) -> CoreTypeBind {
+        let core_type = crate::compile::type_resolver::ast_type_to_core_type(
+            &type_bind.type_,
+        )
+        .unwrap_or(Type::Primitive(PrimitiveType::Unit));
+        CoreTypeBind {
+            type_vars: type_bind.type_vars.clone(),
+            name: type_bind.name.clone(),
+            type_: core_type,
+        }
     }
 
     /// Resolves an AST datatype binding to a core datatype binding.

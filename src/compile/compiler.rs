@@ -318,10 +318,20 @@ impl<'a> Compiler<'a> {
 
     fn compile_type_decl(
         &self,
-        _type_binds: &[TypeBind],
+        type_binds: &[TypeBind],
         _bindings: &mut [Binding],
-        _actions: Option<&mut Vec<Box<dyn Action>>>,
+        actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
+        // For each 'type name = body' binding, emit one line of the form
+        // 'type name = body'. Multiple type bindings join with '\n'.
+        if let Some(actions) = actions {
+            for tb in type_binds {
+                actions.push(Box::new(TypeDeclAction {
+                    name: tb.name.clone(),
+                    type_: tb.type_.clone(),
+                }));
+            }
+        }
     }
 
     fn compile_datatype_decl(
@@ -1804,6 +1814,23 @@ impl ValDeclAction {
                 .string_depth
                 .unwrap_or_else(|| Prop::StringDepth.default_value().as_int()),
         )
+    }
+}
+
+/// Action emitted for a `type alias = body` declaration. At evaluation
+/// time it just emits the line 'type alias = body' (no value is bound;
+/// the alias has already been registered in the type-resolver).
+struct TypeDeclAction {
+    name: String,
+    type_: Type,
+}
+
+impl Action for TypeDeclAction {
+    fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) {
+        r.emit_effect(Effect::EmitLine(format!(
+            "type {} = {}",
+            self.name, self.type_
+        )));
     }
 }
 

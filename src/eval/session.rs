@@ -46,6 +46,10 @@ pub struct Session {
     /// Accumulated type bindings from all statements. When a name is redefined,
     /// the HashMap::insert naturally overwrites the old binding.
     pub type_bindings: HashMap<String, Type>,
+    /// Accumulated type aliases from `type` declarations across all
+    /// statements. Each new `TypeResolver` is seeded with this map so
+    /// that aliases defined in one statement are visible in later ones.
+    pub type_aliases: HashMap<String, Type>,
     // Debug ID to track session instances
     // pub debug_id: usize,
 }
@@ -73,6 +77,7 @@ impl Session {
             out: None,
             type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
             type_bindings: HashMap::new(),
+            type_aliases: HashMap::new(),
             // debug_id: id,
         }
     }
@@ -135,9 +140,18 @@ impl Session {
         let mut type_resolver = TypeResolver::new();
         type_resolver.match_coverage_enabled =
             self.config.match_coverage_enabled.unwrap_or(true);
+        // Seed with type aliases accumulated from previous statements,
+        // so that 'type myInt = int' in one statement and 'val x: myInt = 5'
+        // in the next can both refer to the alias.
+        type_resolver.type_aliases = self.type_aliases.clone();
 
         // Use the accumulated type environment from previous statements
         let resolved = type_resolver.deduce_type(&*self.type_env, node)?;
+
+        // Capture any new aliases introduced by this statement.
+        for (name, t) in &type_resolver.type_aliases {
+            self.type_aliases.insert(name.clone(), t.clone());
+        }
 
         // Update the accumulated environment with new bindings from this
         // statement. We store bindings in a single HashMap; when a name is
