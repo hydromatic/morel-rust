@@ -916,7 +916,7 @@ val SOME i = SOME 1;
 > val i = 1 : int
 
 val SOME i = NONE;
-> uncaught exception Bind
+> uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.18
 
 set("mode", "validate");

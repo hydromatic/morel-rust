@@ -63,9 +63,9 @@ pub enum Expr {
     Apply(Box<Type>, Box<Expr>, Box<Expr>, Span),
 
     // Control structures. (There is no 'If'; use 'Case' instead.)
-    Case(Box<Type>, Box<Expr>, Vec<Match>),
+    Case(Box<Type>, Box<Expr>, Vec<Match>, Span),
     Let(Box<Type>, Vec<Decl>, Box<Expr>),
-    Fn(Box<Type>, Vec<Match>),
+    Fn(Box<Type>, Vec<Match>, Span),
 
     // Constructors for data structures
     Tuple(Box<Type>, Vec<Expr>), // e.g. `(x, y, z)`
@@ -91,10 +91,10 @@ impl Expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Aggregate(t, _, _) => t.clone(),
             Expr::Apply(t, _, _, _) => t.clone(),
-            Expr::Case(t, _, _) => t.clone(),
+            Expr::Case(t, _, _, _) => t.clone(),
             Expr::Current(t) => t.clone(),
             Expr::Exists(t, _) => t.clone(),
-            Expr::Fn(t, _) => t.clone(),
+            Expr::Fn(t, _, _) => t.clone(),
             Expr::Forall(t, _) => t.clone(),
             Expr::From(t, _) => t.clone(),
             Expr::Identifier(t, _) => t.clone(),
@@ -116,7 +116,7 @@ impl Display for Expr {
                 write!(f, "({} over {})", a0, a1)
             }
             Expr::Apply(_, fx, arg, _) => write!(f, "{} {}", fx, arg),
-            Expr::Case(_, e, arms) => {
+            Expr::Case(_, e, arms, _) => {
                 write!(f, "case {} of ", e)?;
                 for (i, match_) in arms.iter().enumerate() {
                     if i > 0 {
@@ -128,7 +128,7 @@ impl Display for Expr {
             }
             Expr::Current(_) => write!(f, "current"),
             Expr::Exists(_, steps) => write!(f, "exists {:?}", steps),
-            Expr::Fn(_, arms) => {
+            Expr::Fn(_, arms, _) => {
                 write!(f, "fn ")?;
                 for (i, match_) in arms.iter().enumerate() {
                     if i > 0 {

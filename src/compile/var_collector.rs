@@ -203,7 +203,7 @@ impl Expr {
                 f.collect_vars(collector);
                 a.collect_vars(collector);
             }
-            Expr::Case(_, expr, matches) => {
+            Expr::Case(_, expr, matches, _) => {
                 expr.collect_vars(collector);
                 matches.iter().for_each(|m| m.collect_vars(collector));
             }
@@ -211,7 +211,7 @@ impl Expr {
                 // 'current' refers to the primary element already in the
                 // frame; no additional frame slot is needed.
             }
-            Expr::Fn(_, _) => {
+            Expr::Fn(_, _, _) => {
                 // do not traverse into a function
             }
             Expr::From(_, steps) => {

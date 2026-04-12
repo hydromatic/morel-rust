@@ -19,7 +19,7 @@ use crate::compile::core::{
     DatatypeBind, Decl, Expr, Match, Pat, PatField, Step, StepEnv, StepKind,
     TypeBind, ValBind,
 };
-use crate::compile::library::BuiltInFunction;
+use crate::compile::library::{BuiltInExn, BuiltInFunction};
 use crate::compile::pretty::Pretty;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
@@ -36,7 +36,7 @@ use crate::eval::session::Session;
 use crate::eval::val::Val;
 use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
-use crate::shell::main::Environment;
+use crate::shell::main::{Environment, MorelError};
 use crate::shell::prop::Prop;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -235,7 +235,11 @@ impl<'a> Compiler<'a> {
                   span: &Option<Span>| {
                 let pat_code = self.compile_pat(&cx1, pat);
                 let expr_code = Arc::new(self.compile_expr(&cx1, None, expr));
-                match_codes.push(Code::new_bind(&pat_code, &expr_code));
+                match_codes.push(Code::new_bind_with_span(
+                    &pat_code,
+                    &expr_code,
+                    span.clone(),
+                ));
 
                 // Special treatment for 'val id =' so that 'fun' declarations
                 // can be inlined.
@@ -647,7 +651,7 @@ impl<'a> Compiler<'a> {
                     Code::new_apply(&fn_code, &arg_code, &[])
                 }
             },
-            Expr::Case(_, expr, matches) => {
+            Expr::Case(_, expr, matches, span) => {
                 let expr_code = self.compile_expr(cx, None, expr);
                 let mut codes = vec![expr_code];
 
@@ -657,7 +661,7 @@ impl<'a> Compiler<'a> {
                     codes.push(pat_code);
                     codes.push(expr_code);
                 }
-                Code::new_match(&codes)
+                Code::new_match(&codes, Some(span.clone()))
             }
             Expr::Current(_) => {
                 // 'current' is the primary element: the first local variable
@@ -665,7 +669,7 @@ impl<'a> Compiler<'a> {
                 let slot = cx.frame_def.bound_vars.len();
                 Code::new_get_local(&cx.frame_def, slot)
             }
-            Expr::Fn(_, match_list) => {
+            Expr::Fn(_, match_list, fn_span) => {
                 let mut collector = VarCollector::new(&cx.env);
                 for m in match_list {
                     m.collect_vars(&mut collector);
@@ -681,7 +685,11 @@ impl<'a> Compiler<'a> {
                     pat_expr_codes.push((pat_code, expr_code));
                 }
                 if frame_def.bound_vars.is_empty() {
-                    Code::new_fn(&cx1.frame_def, &pat_expr_codes)
+                    Code::new_fn(
+                        &cx1.frame_def,
+                        &pat_expr_codes,
+                        Some(fn_span.clone()),
+                    )
                 } else {
                     let mut codes = Vec::new();
                     for binding in &frame_def.bound_vars {
@@ -701,6 +709,7 @@ impl<'a> Compiler<'a> {
                         &cx1.frame_def,
                         &pat_expr_codes,
                         &codes,
+                        Some(fn_span.clone()),
                     )
                 }
             }
@@ -1428,7 +1437,7 @@ impl<'a> Compiler<'a> {
             Expr::Apply(_, f, a, _) => {
                 Self::expr_uses_ordinal(f) || Self::expr_uses_ordinal(a)
             }
-            Expr::Case(_, e, matches) => {
+            Expr::Case(_, e, matches, _) => {
                 Self::expr_uses_ordinal(e)
                     || matches.iter().any(|m| Self::expr_uses_ordinal(&m.expr))
             }
@@ -1516,7 +1525,13 @@ impl<'a> Compiler<'a> {
             pat: Pat::Literal(Box::new(UNIT_TYPE), Val::Unit),
             expr: val_bind.expr.clone(),
         };
-        let expr2 = Expr::Fn(Box::new(fn_type), vec![match_]);
+        // The lift wraps the original expression as 'fn () => expr'.
+        // Use the val binding's source span as the synthetic Fn's span,
+        // so a Match exception raised at runtime points back to the
+        // user's source.
+        let synth_span =
+            val_bind.span.clone().unwrap_or_else(|| Span::new("stdIn"));
+        let expr2 = Expr::Fn(Box::new(fn_type), vec![match_], synth_span);
         ValBind {
             pat: pat2,
             t: t2,
@@ -1565,17 +1580,14 @@ impl Action for ValDeclAction {
                     emits.push((p2, v2.clone()));
                 });
                 if !matched {
-                    let loc = self
-                        .span
-                        .as_ref()
-                        .map_or_else(|| "stdIn".to_string(), Span::to_string);
-                    r.emit_effect(Effect::EmitLine(
-                        "uncaught exception Bind".to_string(),
-                    ));
-                    r.emit_effect(Effect::EmitLine(format!(
-                        "  raised at: {}",
-                        loc
-                    )));
+                    // Format identically to MorelError::Runtime so that
+                    // every nonexhaustive-pattern failure (whether from
+                    // a 'val' decl, a function application, or a 'case'
+                    // expression) has the same shape.
+                    let loc =
+                        self.span.clone().unwrap_or_else(|| Span::new("stdIn"));
+                    let err = MorelError::Runtime(BuiltInExn::Bind, loc);
+                    r.emit_effect(Effect::EmitLine(err.to_string()));
                     return;
                 }
                 for (p2, v2) in emits {

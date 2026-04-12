@@ -110,7 +110,7 @@ impl Expr {
                     ),
                 }
             }
-            Expr::Case(t, expr, matches) => {
+            Expr::Case(t, expr, matches, span) => {
                 let expr2 = Box::new(x.transform_expr(env, expr));
                 let mut matches2 = Vec::new();
                 for m in matches {
@@ -118,10 +118,10 @@ impl Expr {
                     let expr = x.transform_expr(env, &m.expr);
                     matches2.push(Match { pat, expr });
                 }
-                Expr::Case(t.clone(), expr2, matches2)
+                Expr::Case(t.clone(), expr2, matches2, span.clone())
             }
             Expr::Current(_) => self.clone(),
-            Expr::Fn(t, match_list) => {
+            Expr::Fn(t, match_list, span) => {
                 let mut match_list2 = Vec::new();
                 for m in match_list {
                     let pat = x.transform_pat(env, &m.pat);
@@ -136,7 +136,7 @@ impl Expr {
                     let expr = x.transform_expr(&body_env, &m.expr);
                     match_list2.push(Match { pat, expr });
                 }
-                Expr::Fn(t.clone(), match_list2)
+                Expr::Fn(t.clone(), match_list2, span.clone())
             }
             Expr::From(t, steps) => {
                 let steps2 =

@@ -814,6 +814,7 @@ fn comment_depth(code: &str) -> i32 {
     depth
 }
 
+#[derive(Clone, PartialEq, Debug)]
 pub enum MorelError {
     Runtime(BuiltInExn, Span),
 
@@ -823,9 +824,6 @@ pub enum MorelError {
     EarlyReturn,
 
     Other,
-
-    /// "Bind [nonexhaustive binding failure]"
-    Bind,
 }
 
 impl Display for MorelError {
@@ -842,7 +840,6 @@ impl Display for MorelError {
                 write!(f, "EarlyReturn (internal signal)")
             }
             MorelError::Other => write!(f, "Other error"),
-            MorelError::Bind => write!(f, "Bind error"),
         }
     }
 }

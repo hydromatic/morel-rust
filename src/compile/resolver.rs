@@ -173,8 +173,12 @@ impl ResolvedValDecl {
             expr: result_expr.clone(),
         };
 
-        let case_expr =
-            Box::new(CoreExpr::Case(self.pat.type_(), temp_id, vec![match_]));
+        let case_expr = Box::new(CoreExpr::Case(
+            self.pat.type_(),
+            temp_id,
+            vec![match_],
+            Span::new("stdIn"),
+        ));
 
         // Create the let expression.
         let decl = CoreDecl::NonRecVal(Box::new(temp_val_bind));
@@ -306,10 +310,11 @@ impl<'a> Resolver<'a> {
             ExprKind::Caret(a0, a1) => {
                 self.call2(t, BuiltInFunction::StringCaret, &span, a0, a1)
             }
-            ExprKind::Case(expr, matches) => CoreExpr::Case(
+            ExprKind::Case(case_expr, matches) => CoreExpr::Case(
                 t,
-                Box::new(self.resolve_expr(expr)),
+                Box::new(self.resolve_expr(case_expr)),
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
+                span.clone(),
             ),
             ExprKind::Cons(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListCons, &span, a0, a1)
@@ -368,6 +373,7 @@ impl<'a> Resolver<'a> {
             ExprKind::Fn(matches) => CoreExpr::Fn(
                 t,
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
+                span.clone(),
             ),
             ExprKind::Forall(steps) => {
                 // Translate "forall ... require e" as
@@ -478,6 +484,7 @@ impl<'a> Resolver<'a> {
                     t,
                     Box::new(cond_core),
                     vec![true_match, false_match],
+                    span.clone(),
                 )
             }
             ExprKind::Implies(a0, a1) => {
@@ -1206,8 +1213,12 @@ impl<'a> Resolver<'a> {
             expr: result_expr.clone(),
         };
 
-        let case_expr =
-            Box::new(CoreExpr::Case(pat.type_(), temp_id, vec![match_]));
+        let case_expr = Box::new(CoreExpr::Case(
+            pat.type_(),
+            temp_id,
+            vec![match_],
+            Span::new("stdIn"),
+        ));
 
         // Create the let expression.
         let decl = CoreDecl::NonRecVal(Box::new(temp_val_bind));

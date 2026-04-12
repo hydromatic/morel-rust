@@ -27,7 +27,37 @@ fun f 1 = 0;
 f 1;
 > val it = 0 : int
 f 2;
-> Bind error
+> uncaught exception Match [nonexhaustive match failure]
+>   raised at: stdIn:1.5-1.12
+
+(*) Three forms that all reach a non-exhaustive pattern at runtime,
+(*) showing the difference between the 'Bind' exception (raised by a
+(*) failing 'val' binding) and the 'Match' exception (raised by a
+(*) failing function application).
+
+(*) 'val' with a non-exhaustive pattern raises 'Bind'.
+val (1, x) = (2, 3);
+> uncaught exception Bind [nonexhaustive binding failure]
+>   raised at: stdIn:1.5-1.20
+
+(*) 'fun' with a non-exhaustive pattern: defining is OK (warning),
+(*) but applying it to a non-matching value raises 'Match'.
+fun f1 (1, x) = 3;
+> stdIn:1.5-1.18 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-1.18
+> val f1 = fn : int * 'a -> int
+f1 (2, 3);
+> uncaught exception Match [nonexhaustive match failure]
+>   raised at: stdIn:1.5-1.18
+
+(*) 'val ... = fn' with the same body behaves the same as 'fun'.
+val g1 = fn (1, x) => 3;
+> stdIn:1.10-1.24 Warning: match nonexhaustive
+>   raised at: stdIn:1.10-1.24
+> val g1 = fn : int * 'a -> int
+g1 (2, 3);
+> uncaught exception Match [nonexhaustive match failure]
+>   raised at: stdIn:1.10-1.24
 
 (*) Warning: match nonexhaustive, twice
 fun f x =
@@ -45,7 +75,8 @@ fun f x =
 f 1;
 > val it = 3 : int
 f 2;
-> Bind error
+> uncaught exception Match [nonexhaustive match failure]
+>   raised at: stdIn:3.9-4.5
 
 (*) Error: match redundant and nonexhaustive
 fun f 1 = 0

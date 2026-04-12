@@ -1073,7 +1073,7 @@ impl BuiltInRecord {
     EnumCount, EnumIter, EnumProperty, EnumString, strum_macros::Display,
 )]
 pub enum BuiltInExn {
-    #[strum(props(p = "General"))]
+    #[strum(props(p = "General", explain = "nonexhaustive binding failure"))]
     Bind,
     #[strum(props(p = "General"))]
     Chr,
@@ -1083,6 +1083,8 @@ pub enum BuiltInExn {
     Domain,
     #[strum(props(p = "List"))]
     Empty,
+    #[strum(props(p = "General", explain = "nonexhaustive match failure"))]
+    Match,
     #[strum(props(p = "Option"))]
     Option,
     #[strum(props(p = "General", explain = "overflow"))]
