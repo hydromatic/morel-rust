@@ -30,6 +30,7 @@ use crate::eval::code::{
 };
 use crate::eval::comparator::comparator_for;
 use crate::eval::frame::FrameDef;
+use crate::eval::link_table::LinkTable;
 use crate::eval::order::Order;
 use crate::eval::row_sink::{RowSink, RowSinkFactory};
 use crate::eval::session::Session;
@@ -41,27 +42,34 @@ use crate::shell::prop::Prop;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
-use std::ops::Deref;
 use std::sync::Arc;
 
 /// Compiles a declaration to code that can be evaluated.
+///
+/// `link_table` is the shell-wide, persistent table of recursive
+/// `Code` references. The compiler reserves and fills slots in
+/// it; the slots remain valid forever, so functions defined in
+/// this statement can resolve their self-references when invoked
+/// from later statements. See [`LinkTable`] for the rationale.
 pub fn compile_statement(
     type_map: &TypeMap,
     env: &Environment,
     decl: &Decl,
+    link_table: &mut LinkTable,
 ) -> Box<dyn CompiledStatement> {
-    let mut compiler = Compiler::new(type_map);
+    let mut compiler = Compiler::new(type_map, link_table);
     compiler.compile_statement(env, decl, None, &HashSet::new())
 }
 
 struct Compiler<'a> {
     type_map: &'a TypeMap,
-    links: Vec<Link>,
-}
-
-struct Link {
-    name: String,
-    code: Option<Arc<Code>>,
+    /// The shell-wide link table. Recursive function bodies
+    /// reserve a slot in this table while compiling their
+    /// pattern, then fill it once the body is compiled. Slots
+    /// are absolute indices into this table — they remain valid
+    /// across statement boundaries, allowing recursive functions
+    /// to be invoked from a later statement.
+    link_table: &'a mut LinkTable,
 }
 
 struct Closure;
@@ -89,10 +97,10 @@ impl<'a> Compiler<'a> {
         static ORDINAL_CODE: RefCell<Vec<i32>> = RefCell::new(vec![0]);
     }
 
-    fn new(type_map: &'a TypeMap) -> Self {
+    fn new(type_map: &'a TypeMap, link_table: &'a mut LinkTable) -> Self {
         Self {
             type_map,
-            links: Vec::new(),
+            link_table,
         }
     }
 
@@ -143,19 +151,11 @@ impl<'a> Compiler<'a> {
         };
 
         let context = self.create_context(env);
-        let link_codes: Vec<Code> = self
-            .links
-            .iter()
-            .filter_map(|link| {
-                link.code.as_ref().map(|code| code.deref().clone())
-            })
-            .collect();
 
         Box::new(CompiledStatementImpl {
             type_,
             context,
             actions,
-            link_codes,
         })
     }
 
@@ -206,10 +206,11 @@ impl<'a> Compiler<'a> {
         bindings: &mut Vec<Binding>,
         actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
-        // Remember the ordinal of the first link.
-        // After we have defined recursive functions, we will
-        // iterate the links again and assign the code.
-        let mut link_code_ordinal = self.links.len();
+        // Remember the absolute slot of the first link reserved
+        // by this declaration. After we have compiled the
+        // recursive bodies we walk the patterns in the same order
+        // and fill these slots in the shell-wide link table.
+        let mut link_code_ordinal = self.link_table.len();
 
         if let Decl::RecVal(_) = decl {
             decl.for_each_binding(&mut |pat, _, _, _| {
@@ -259,9 +260,34 @@ impl<'a> Compiler<'a> {
                 // therefore that links will be resolved in the same order that
                 // they were created.
                 if let Decl::RecVal(_) = decl {
+                    // Strip the unit-arg wrapper that `lift_decl`
+                    // applies to the val expression. The wrapper
+                    // has the shape
+                    //   Code::Fn(_, [(BindLiteral(Unit), inner)], _)
+                    // and exists only so that ValDeclAction can
+                    // call eval_f1(unit) to obtain the value.
+                    // Recursive references resolve through the
+                    // LinkTable and must see the *inner* function
+                    // (the actual user-defined fn), not the
+                    // wrapper, otherwise calling the function
+                    // recursively would re-pass the recursive
+                    // argument through the unit-pattern and raise
+                    // a Match exception.
+                    let inner_code: Arc<Code> = match expr_code.as_ref() {
+                        Code::Fn(_, matches, _)
+                            if matches.len() == 1
+                                && matches!(
+                                    matches[0].0,
+                                    Code::BindLiteral(Val::Unit)
+                                ) =>
+                        {
+                            Arc::new(matches[0].1.clone())
+                        }
+                        _ => expr_code.clone(),
+                    };
                     pat.for_each_id_pat(&mut |(_, _)| {
-                        self.links[link_code_ordinal].code =
-                            Some(expr_code.clone());
+                        self.link_table
+                            .fill(link_code_ordinal, inner_code.clone());
                         link_code_ordinal += 1;
                     })
                 }
@@ -1621,11 +1647,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn create_link(&mut self, name: &str) -> Code {
-        let i = self.links.len();
-        self.links.push(Link {
-            name: name.to_string(),
-            code: None,
-        });
+        let i = self.link_table.reserve(name);
         Code::new_link(i, name)
     }
 
@@ -1874,7 +1896,6 @@ struct CompiledStatementImpl {
     type_: Type,
     actions: Vec<Box<dyn Action>>,
     context: Context,
-    link_codes: Vec<Code>,
 }
 
 impl CompiledStatement for CompiledStatementImpl {
@@ -1886,8 +1907,11 @@ impl CompiledStatement for CompiledStatementImpl {
         effects: &mut Vec<Effect>,
         _type_map: &TypeMap,
     ) {
-        let mut eval_env =
-            EvalEnv::new(session, shell, effects, &self.link_codes);
+        // Recursive `Code::Link` references resolve through the
+        // shell-wide [`LinkTable`], so the per-statement link
+        // vector that used to be threaded through `EvalEnv` is
+        // gone — `EvalEnv::new` now needs only the shell.
+        let mut eval_env = EvalEnv::new(session, shell, effects);
         let mut vals = vec![];
         let mut frame = Frame { vals: &mut vals };
         for action in &self.actions {

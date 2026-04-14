@@ -23,6 +23,7 @@ pub mod comparator;
 pub mod either;
 pub mod frame;
 pub mod int;
+pub mod link_table;
 pub mod list;
 pub mod list_pair;
 pub mod math;

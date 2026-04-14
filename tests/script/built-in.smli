@@ -707,7 +707,7 @@ Bag.tabulate (~1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact
 >   raised at: stdIn:1.1-1.86
 Sys.plan ();
 > val it =
->   "apply(fnValue Bag.tabulate, argCode tuple(constant(~1), let(bind(bind(0) = fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(0), apply(fn link(0, fact) arg apply2(fnValue Int.minus, get(0), constant(1))))))) in get(0)), constant(stdIn:1.1-1.86)))"
+>   "apply(fnValue Bag.tabulate, argCode tuple(constant(~1), let(bind(bind(0) = fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(0), apply(fn link(4, fact) arg apply2(fnValue Int.minus, get(0), constant(1))))))) in get(0)), constant(stdIn:1.1-1.86)))"
 >   : string
 
 (* Bool -------------------------------------------------------- *)
@@ -1781,7 +1781,7 @@ List.tabulate (~1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fac
 >   raised at: stdIn:1.1-1.87
 Sys.plan ();
 > val it =
->   "apply(fnValue List.tabulate, argCode tuple(constant(~1), let(bind(bind(0) = fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(0), apply(fn link(0, fact) arg apply2(fnValue Int.minus, get(0), constant(1))))))) in get(0)), constant(stdIn:1.1-1.87)))"
+>   "apply(fnValue List.tabulate, argCode tuple(constant(~1), let(bind(bind(0) = fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(0), apply(fn link(10, fact) arg apply2(fnValue Int.minus, get(0), constant(1))))))) in get(0)), constant(stdIn:1.1-1.87)))"
 >   : string
 
 (*) val collate : ('a * 'a -> order) -> 'a list * 'a list -> order
@@ -4820,7 +4820,7 @@ Vector.tabulate (5, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fa
 > val it = #[1,1,2,6,24] : int vector
 Sys.plan ();
 > val it =
->   "apply(fnValue Vector.tabulate, argCode tuple(constant(5), let(bind(bind(0) = fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(0), apply(fn link(0, fact) arg apply2(fnValue Int.minus, get(0), constant(1))))))) in get(0)), constant(stdIn:1.1-1.88)))"
+>   "apply(fnValue Vector.tabulate, argCode tuple(constant(5), let(bind(bind(0) = fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(0), apply(fn link(13, fact) arg apply2(fnValue Int.minus, get(0), constant(1))))))) in get(0)), constant(stdIn:1.1-1.88)))"
 >   : string
 
 (*) Vector.length : 'a vector -> int

@@ -161,12 +161,8 @@ fun baz4 f =
     fact4 5
 end;
 > val baz4 = fn : (int -> int) -> int
-set("mode", "validate");
-> val it = () : unit
 baz4 (fn i => i - 1);
 > val it = 120 : int
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Closure; function 'f' is not the only argument.
 fun baz5 (f, m) =
@@ -177,12 +173,8 @@ fun baz5 (f, m) =
     fact5 m
 end;
 > val baz5 = fn : (int -> int) * int -> int
-set("mode", "validate");
-> val it = () : unit
 baz5 (fn i => i - 1, 5);
 > val it = 120 : int
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) As previous, with shadowed 'n'.
 fun baz6 (f, n) =
@@ -193,18 +185,12 @@ fun baz6 (f, n) =
     fact6 n
 end;
 > val baz6 = fn : (int -> int) * int -> int
-set("mode", "validate");
-> val it = () : unit
 baz6 (fn i => i - 1, 5);
 > val it = 120 : int
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Permutations. Captured variable 'k', is at the top level to prevent inlining.
 val k = 3;
 > val k = 3 : int
-set("mode", "validate");
-> val it = () : unit
 val rec perm = fn n => if n = k then k else n * perm (n - 1);
 > val perm = fn : int -> int
 perm 5;
@@ -218,8 +204,6 @@ in
   perm 5
 end;
 > val it = 60 : int
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) As previous, replacing captured variable with constant.
 (*) The implementation may still use a closure, so that the recursive function

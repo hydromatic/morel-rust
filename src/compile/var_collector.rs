@@ -20,6 +20,7 @@ use crate::compile::from_builder::agg_implicit_label;
 use crate::compile::type_env::Binding;
 use crate::compile::types::{Label, Type};
 use crate::eval::frame::FrameDef;
+use crate::eval::val::Val;
 use crate::shell::main::Environment;
 use std::collections::HashSet;
 
@@ -99,9 +100,17 @@ impl<'a> VarCollector<'a> {
         for binding in &self.refs {
             let name = &binding.id.name;
             // Include this binding if not defined locally, not a recursive
-            // function, and not already seen.
+            // function (a `Val::Code` in the env, typically a `Code::Link`
+            // for a `fun` / `val rec`), and not already seen. Other env
+            // entries — outer-scope `val` bindings holding plain data —
+            // are NOT filtered: an inner function parameter that happens
+            // to share a name with such an outer binding still needs to
+            // be captured into the closure's frame, otherwise the
+            // shadowing parameter would be invisible to the body.
+            let env_recursive_fn =
+                matches!(self.rec_fns.get(name), Some(Val::Code(_)));
             if !defined_vars.contains(name)
-                && self.rec_fns.get(name).is_none()
+                && !env_recursive_fn
                 && seen_refs.insert(name.clone())
             {
                 result.push(binding.clone());
@@ -211,8 +220,41 @@ impl Expr {
                 // 'current' refers to the primary element already in the
                 // frame; no additional frame slot is needed.
             }
-            Expr::Fn(_, _, _) => {
-                // do not traverse into a function
+            Expr::Fn(_, match_list, _) => {
+                // Propagate the inner fn's *free* variables (variables
+                // it references but does not itself define) into the
+                // outer collector, so the outer fn captures them and
+                // can pass them through to the inner fn's closure.
+                //
+                // Without this, multi-clause `fun` declarations like
+                //   fun strTimes s 0 l = l
+                //     | strTimes s i l = strTimes ("a"^s) (i-1) (s::l)
+                // are silently miscompiled. They desugar (in
+                // type_resolver) to a chain of curried fns wrapping a
+                // case expression:
+                //   fn v0 => fn v1 => fn v2 =>
+                //     case (v0, v1, v2) of ...
+                // Each desugared fn defines exactly one of v0, v1, v2.
+                // The innermost fn references all three in the case
+                // body, so it correctly puts v0 and v1 in its
+                // bound_vars. But to read v0 from the middle fn's
+                // frame at runtime, the middle fn must itself have
+                // captured v0 from the outermost fn — and so on. If
+                // we treat `Expr::Fn` as opaque here, the middle fn
+                // never learns that it needs to capture v0, and the
+                // innermost fn's CreateClosure reads from a slot that
+                // does not exist.
+                let mut inner = VarCollector::new(collector.rec_fns);
+                for m in match_list {
+                    m.collect_vars(&mut inner);
+                }
+                let inner_defs: HashSet<String> =
+                    inner.defs.iter().map(|b| b.id.name.clone()).collect();
+                for r in inner.refs {
+                    if !inner_defs.contains(&r.id.name) {
+                        collector.add_ref(r);
+                    }
+                }
             }
             Expr::From(_, steps) => {
                 steps.iter().for_each(|s| s.collect_vars(collector));

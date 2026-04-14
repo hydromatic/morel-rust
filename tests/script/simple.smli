@@ -612,9 +612,6 @@ in
 end;
 > val it = 120 : int
 
-set("mode", "validate");
-> val it = () : unit
-
 let
   fun plus x y = x + y
 in
@@ -650,9 +647,6 @@ strTimes "" 20 [];
 >    "aaaaaaaaaaaa","aaaaaaaaaaa","aaaaaaaaaa","aaaaaaaaa","aaaaaaaa",...]
 >   : string list
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 [{a="aaaaaaaaaaaaaaaaaaaaaa",b="bbbbbbbbbbbbbb",c="cccccccccccccccccc",d="ddddddddd"}];
 > val it =

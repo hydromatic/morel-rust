@@ -250,8 +250,6 @@ set("mode", "evaluate");
 fun approx_sqrt n a = (n / a + a) * 0.5;
 > val approx_sqrt = fn : real -> real -> real
 
-set("mode", "validate");
-> val it = () : unit
 approx_sqrt 100.0 1.0;
 > val it = 50.5 : real
 
@@ -289,6 +287,9 @@ fixp as100 0.0;
 > val it = inf : real
 fixp as100 ~1.0;
 > val it = ~10.0 : real
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Given a list of strings, 'prefixes' returns a list of their
 (*) prefixes that are one character shorter.

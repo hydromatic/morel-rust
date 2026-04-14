@@ -29,6 +29,7 @@ use crate::compile::type_resolver::Resolved;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::{compiler, inliner, library};
 use crate::eval::code::{Effect, Span};
+use crate::eval::link_table::LinkTable;
 use crate::eval::session::Config as SessionConfig;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
@@ -128,6 +129,14 @@ pub struct Shell {
     pub(crate) config: Config,
     environment: Environment,
     session: Rc<RefCell<Session>>,
+    /// Persistent table of compiled `Code` values referenced
+    /// indirectly by recursive `fun` / `val rec` bindings. See
+    /// [`crate::eval::link_table::LinkTable`] for the full
+    /// rationale; in short, this table outlives any single
+    /// statement so that recursive functions defined in one
+    /// statement can still resolve their self-references when
+    /// they are invoked from a later statement.
+    pub(crate) link_table: RefCell<LinkTable>,
 }
 
 /// Simple environment for storing bindings.
@@ -153,8 +162,16 @@ impl Environment {
         self.bindings.insert(name, value.clone());
     }
 
+    /// Returns a new environment with the given bindings merged on top
+    /// of `self`. New bindings shadow existing ones with the same name;
+    /// any existing binding whose name is not mentioned in `bindings`
+    /// is preserved. (Previously, `bind_all` returned an environment
+    /// containing only the new bindings — silently dropping every
+    /// outer binding — which broke any compilation step that walks
+    /// into a let body or function body, since the recursive name
+    /// would no longer be visible.)
     pub fn bind_all(&self, bindings: &[Binding]) -> Self {
-        let mut env = Self::new();
+        let mut env = self.clone();
         for b in bindings {
             if b.value.is_some() {
                 env.bind(b.id.name.clone(), b.value.as_ref().unwrap());
@@ -350,6 +367,7 @@ impl Shell {
             config,
             environment: Environment::new(),
             session: Rc::new(RefCell::new(Session::new())),
+            link_table: RefCell::new(LinkTable::new()),
         }
     }
 
@@ -625,11 +643,15 @@ impl Shell {
         let env2 = env.multi(&map);
         let decl2 = inliner::inline_decl(&env2, &decl);
 
-        let compiled_statement = compiler::compile_statement(
-            &resolved.type_map,
-            &self.environment,
-            &decl2,
-        );
+        let compiled_statement = {
+            let mut link_table = self.link_table.borrow_mut();
+            compiler::compile_statement(
+                &resolved.type_map,
+                &self.environment,
+                &decl2,
+                &mut link_table,
+            )
+        };
         let mut result = String::new();
         let mut bindings = Vec::new();
         // Collect effects from evaluation
