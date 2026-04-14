@@ -139,12 +139,8 @@ set("mode", "evaluate");
 (*) The Morel shell deduces the type of each expression,
 (*) and assigns it to a variable called "it".
 (*) We can use "it" in the next expression...
-set("mode", "validate");
-> val it = () : unit
 it + 4;
 > val it = 7 : int
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) We just saw string and int expressions.
 (*) There are also boolean, list, record and tuple types:

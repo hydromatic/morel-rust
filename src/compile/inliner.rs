@@ -115,7 +115,13 @@ impl Expr {
                 let mut matches2 = Vec::new();
                 for m in matches {
                     let pat = x.transform_pat(env, &m.pat);
-                    let expr = x.transform_expr(env, &m.expr);
+                    // Shadow names bound by the case pattern in the
+                    // arm's body environment, just like Expr::Fn.
+                    let mut body_env = env.clone();
+                    pat.for_each_id_pat(&mut |(t, name)| {
+                        body_env = body_env.child_none(name, t);
+                    });
+                    let expr = x.transform_expr(&body_env, &m.expr);
                     matches2.push(Match { pat, expr });
                 }
                 Expr::Case(t.clone(), expr2, matches2, span.clone())
@@ -125,14 +131,17 @@ impl Expr {
                 let mut match_list2 = Vec::new();
                 for m in match_list {
                     let pat = x.transform_pat(env, &m.pat);
-                    // Shadow the pattern's bound names so that inlining
-                    // does not substitute global constants for function
-                    // parameters of the same name.
-                    let body_env = if let Some(name) = pat.name() {
-                        env.child_none(&name, &pat.type_())
-                    } else {
-                        env.clone()
-                    };
+                    // Shadow every name bound by the pattern so that
+                    // inlining does not substitute global constants for
+                    // function parameters of the same name. We must
+                    // walk the whole pattern tree (e.g. tuple, record,
+                    // cons, as patterns) — `pat.name()` only returns
+                    // the top-level name and is None for compound
+                    // patterns like `(p, v)`.
+                    let mut body_env = env.clone();
+                    pat.for_each_id_pat(&mut |(t, name)| {
+                        body_env = body_env.child_none(name, t);
+                    });
                     let expr = x.transform_expr(&body_env, &m.expr);
                     match_list2.push(Match { pat, expr });
                 }

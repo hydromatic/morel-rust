@@ -308,6 +308,36 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Either", name = "proj"))]
     #[strum(props(type = "forall 1 ('a,'a) either -> 'a"))]
     EitherProj,
+    #[strum(props(p = "Fn", name = "apply"))]
+    #[strum(props(type = "forall 2 ('a -> 'b) * 'a -> 'b"))]
+    FnApply,
+    #[strum(props(p = "Fn", name = "const"))]
+    #[strum(props(type = "forall 2 'a -> 'b -> 'a"))]
+    FnConst,
+    #[strum(props(p = "Fn", name = "curry"))]
+    #[strum(props(type = "forall 3 ('a * 'b -> 'c) -> 'a -> 'b -> 'c"))]
+    FnCurry,
+    #[strum(props(p = "Fn", name = "equal"))]
+    #[strum(props(type = "forall 1 'a -> 'a -> bool"))]
+    FnEqual,
+    #[strum(props(p = "Fn", name = "flip"))]
+    #[strum(props(type = "forall 3 ('a * 'b -> 'c) -> 'b * 'a -> 'c"))]
+    FnFlip,
+    #[strum(props(p = "Fn", name = "id"))]
+    #[strum(props(type = "forall 1 'a -> 'a"))]
+    FnId,
+    #[strum(props(p = "Fn", name = "notEqual"))]
+    #[strum(props(type = "forall 1 'a -> 'a -> bool"))]
+    FnNotEqual,
+    #[strum(props(p = "Fn", name = "o", alias = "op o"))]
+    #[strum(props(type = "forall 3 ('a -> 'b) * ('c -> 'a) -> 'c -> 'b"))]
+    FnO,
+    #[strum(props(p = "Fn", name = "repeat"))]
+    #[strum(props(type = "forall 1 int -> ('a -> 'a) -> 'a -> 'a"))]
+    FnRepeat,
+    #[strum(props(p = "Fn", name = "uncurry"))]
+    #[strum(props(type = "forall 3 ('a -> 'b -> 'c) -> 'a * 'b -> 'c"))]
+    FnUncurry,
     #[strum(props(name = "=", alias = "op ="))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GEq,
@@ -1028,6 +1058,8 @@ pub enum BuiltInRecord {
     Char,
     #[strum(props(name = "Either"))]
     Either,
+    #[strum(props(name = "Fn"))]
+    Fn,
     #[strum(props(name = "General"))]
     General,
     #[strum(props(name = "Int"))]

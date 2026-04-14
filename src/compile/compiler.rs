@@ -534,13 +534,120 @@ impl<'a> Compiler<'a> {
                     Code::new_apply(&fn_code, &elements_code, &[])
                 }
             }
-            Expr::Apply(_, f, a, span) => match f.as_ref() {
+            Expr::Apply(result_type, f, a, span) => match f.as_ref() {
                 Expr::Literal(_t, Val::Fn(f)) => {
                     let impl_ = f.get_impl();
+                    // Detect partial application of a curried 2-arg
+                    // built-in (e.g., `List.map f`, `Fn.o (f, g)`): the
+                    // call's result type is itself a function type.
+                    // Eta-expand into a CreateClosure that captures the
+                    // supplied first argument and waits for the second.
+                    // Use compile_arg (not compile_args_boxed) because we
+                    // want the source argument as a single Code, even if
+                    // it happens to be a tuple expression — the function's
+                    // first parameter takes the whole tuple.
+                    // 1-argument partial application of an EF3 or E3
+                    // function (e.g., `Fn.curry f`): build a nested
+                    // closure. The outer closure captures `f` and
+                    // returns an inner closure capturing `(f, x)` that
+                    // takes the third argument.
+                    if matches!(impl_, Impl::E3(_) | Impl::EF3(_))
+                        && matches!(result_type.as_ref(), Type::Fn(_, _))
+                    {
+                        let cap_code = self.compile_arg(cx, a);
+                        let outer_frame = Arc::new(FrameDef::new(
+                            &[Binding::of_name("__cap1")],
+                            &[Binding::of_name("__arg1")],
+                        ));
+                        let inner_frame = Arc::new(FrameDef::new(
+                            &[
+                                Binding::of_name("__cap1"),
+                                Binding::of_name("__cap2"),
+                            ],
+                            &[Binding::of_name("__arg2")],
+                        ));
+                        let inner_body = match impl_ {
+                            Impl::EF3(ef3) => Code::NativeF3(
+                                ef3,
+                                Box::new(Code::GetLocal(
+                                    inner_frame.clone(),
+                                    0,
+                                )),
+                                Box::new(Code::GetLocal(
+                                    inner_frame.clone(),
+                                    1,
+                                )),
+                                Box::new(Code::GetLocal(
+                                    inner_frame.clone(),
+                                    2,
+                                )),
+                            ),
+                            Impl::E3(e3) => Code::Native3(
+                                e3,
+                                Box::new(Code::GetLocal(
+                                    inner_frame.clone(),
+                                    0,
+                                )),
+                                Box::new(Code::GetLocal(
+                                    inner_frame.clone(),
+                                    1,
+                                )),
+                                Box::new(Code::GetLocal(
+                                    inner_frame.clone(),
+                                    2,
+                                )),
+                            ),
+                            _ => unreachable!(),
+                        };
+                        let inner_pat = Code::BindSlot(inner_frame.clone(), 2);
+                        let inner_create = Code::CreateClosure(
+                            inner_frame,
+                            vec![(inner_pat, inner_body)],
+                            vec![
+                                Code::GetLocal(outer_frame.clone(), 0),
+                                Code::GetLocal(outer_frame.clone(), 1),
+                            ],
+                            None,
+                        );
+                        let outer_pat = Code::BindSlot(outer_frame.clone(), 1);
+                        return Code::CreateClosure(
+                            outer_frame,
+                            vec![(outer_pat, inner_create)],
+                            vec![cap_code],
+                            None,
+                        );
+                    }
+                    if matches!(result_type.as_ref(), Type::Fn(_, _))
+                        && matches!(impl_, Impl::E2(_) | Impl::EF2(_))
+                    {
+                        let single_arg = self.compile_arg(cx, a);
+                        let codes: Vec<Box<Code>> = vec![Box::new(single_arg)];
+                        let frame_def = Arc::new(FrameDef::new(
+                            &[Binding::of_name("__cap")],
+                            &[Binding::of_name("__arg")],
+                        ));
+                        let body = match impl_ {
+                            Impl::E2(e2) => Code::Native2(
+                                e2,
+                                Box::new(Code::GetLocal(frame_def.clone(), 0)),
+                                Box::new(Code::GetLocal(frame_def.clone(), 1)),
+                            ),
+                            Impl::EF2(ef2) => Code::NativeF2(
+                                ef2,
+                                Box::new(Code::GetLocal(frame_def.clone(), 0)),
+                                Box::new(Code::GetLocal(frame_def.clone(), 1)),
+                            ),
+                            _ => unreachable!(),
+                        };
+                        let pat = Code::BindSlot(frame_def.clone(), 1);
+                        return Code::CreateClosure(
+                            frame_def,
+                            vec![(pat, body)],
+                            vec![*codes[0].clone()],
+                            None,
+                        );
+                    }
                     let codes = self.compile_args_boxed(cx, a);
-                    // TODO: Support partial application of curried built-in
-                    // functions. Currently only works when all arguments are
-                    // provided.
                     Code::new_native(impl_, &codes, span)
                 }
                 // Handle curried application of EF3 functions like
@@ -594,8 +701,12 @@ impl<'a> Compiler<'a> {
                     // Handle curried application of 2-argument EF3 functions
                     // like ListPair.allEq. Pattern:
                     //   (ListPair.allEq f) tuple => ListPair.allEq (f, tuple)
+                    // Only fires when the result is NOT a function type;
+                    // otherwise it would shadow partial application of a
+                    // truly-3-arg function like Fn.curry.
                     if let Expr::Literal(_t, Val::Fn(func)) = middle_f.as_ref()
                         && matches!(func.get_impl(), Impl::EF3(_))
+                        && !matches!(result_type.as_ref(), Type::Fn(_, _))
                     {
                         // This is a curried call to a 2-argument EF3 function.
                         // Gather both arguments.
@@ -624,6 +735,47 @@ impl<'a> Compiler<'a> {
                             func.get_impl(),
                             &[arg1_code, arg2_code],
                             span,
+                        );
+                    }
+
+                    // Handle 2-argument partial application of an EF3 or
+                    // E3 function (e.g., `Fn.curry f x` returns a closure
+                    // expecting one more argument). Eta-expand into a
+                    // CreateClosure capturing both arguments.
+                    if let Expr::Literal(_, Val::Fn(func)) = middle_f.as_ref()
+                        && matches!(func.get_impl(), Impl::EF3(_) | Impl::E3(_))
+                        && matches!(result_type.as_ref(), Type::Fn(_, _))
+                    {
+                        let cap1_code = self.compile_arg(cx, second_arg);
+                        let cap2_code = self.compile_arg(cx, a);
+                        let frame_def = Arc::new(FrameDef::new(
+                            &[
+                                Binding::of_name("__cap1"),
+                                Binding::of_name("__cap2"),
+                            ],
+                            &[Binding::of_name("__arg")],
+                        ));
+                        let body = match func.get_impl() {
+                            Impl::EF3(ef3) => Code::NativeF3(
+                                ef3,
+                                Box::new(Code::GetLocal(frame_def.clone(), 0)),
+                                Box::new(Code::GetLocal(frame_def.clone(), 1)),
+                                Box::new(Code::GetLocal(frame_def.clone(), 2)),
+                            ),
+                            Impl::E3(e3) => Code::Native3(
+                                e3,
+                                Box::new(Code::GetLocal(frame_def.clone(), 0)),
+                                Box::new(Code::GetLocal(frame_def.clone(), 1)),
+                                Box::new(Code::GetLocal(frame_def.clone(), 2)),
+                            ),
+                            _ => unreachable!(),
+                        };
+                        let pat = Code::BindSlot(frame_def.clone(), 2);
+                        return Code::CreateClosure(
+                            frame_def,
+                            vec![(pat, body)],
+                            vec![cap1_code, cap2_code],
+                            None,
                         );
                     }
                     // Fall through to default handling

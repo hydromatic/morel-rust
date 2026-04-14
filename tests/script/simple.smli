@@ -706,15 +706,8 @@ end;
 (*) Lambda on unit
 fn () => 1;
 > val it = fn : unit -> int
-
-set("mode", "validate");
-> val it = () : unit
 it ();
 > val it = 1 : int
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Multiple functions
 let
@@ -887,30 +880,20 @@ end;
 val (x, y) = (1, 2);
 > val x = 1 : int
 > val y = 2 : int
-set("mode", "validate");
-> val it = () : unit
 it;
-> val it = (1,2) : int * int
-set("mode", "evaluate");
-> val it = () : unit
+> val it = 3 : int
 val (x, 2) = (1, 2);
 > val x = 1 : int
-set("mode", "validate");
-> val it = () : unit
 it;
-> val it = (1,2) : int * int
-set("mode", "evaluate");
-> val it = () : unit
+> val it = 3 : int
 val h :: t = [1, 2, 3];
 > val h = 1 : int
 > val t = [2,3] : int list
-set("mode", "validate");
-> val it = () : unit
 it;
-> val it = [1,2,3] : int list
-set("mode", "evaluate");
-> val it = () : unit
-val _ = 3;
+> val it = 3 : int
+val _ = 4;
+it;
+> val it = 3 : int
 
 val SOME i = SOME 1;
 > val i = 1 : int
