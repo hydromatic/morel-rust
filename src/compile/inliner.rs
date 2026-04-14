@@ -161,11 +161,18 @@ impl Expr {
             }
             Expr::Let(t, decl_list, e) => {
                 let mut decl_list2 = Vec::new();
+                // Shadow names defined by the let's declarations so
+                // that the body uses the let-local definitions, not
+                // any outer-scope bindings of the same name.
+                let mut body_env = env.clone();
                 for d in decl_list {
                     let d2 = x.transform_decl(env, d);
+                    d.for_each_id_pat(&mut |(t, name): (&Type, &str)| {
+                        body_env = body_env.child_none(name, t);
+                    });
                     decl_list2.push(d2);
                 }
-                let e2 = Box::new(x.transform_expr(env, e));
+                let e2 = Box::new(x.transform_expr(&body_env, e));
                 Expr::Let(t.clone(), decl_list2, e2)
             }
             Expr::List(t, expr_list) => Expr::List(
