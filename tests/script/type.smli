@@ -307,9 +307,6 @@ val rec len = fn x =>
             | [] => 0;
 > val len = fn : 'a list -> int
 
-set("mode", "validate");
-> val it = () : unit
-
 len [];
 > val it = 0 : int
 len [1];
@@ -323,9 +320,6 @@ map (fn s => len (explode s)) ["ab", "", "cde"];
 > val it = [2,0,3] : int list
 
 (* Polymorphic type constraints ----------------------------------- *)
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Type resolution involving record selectors --------------------- *)
 val emps =

@@ -949,7 +949,7 @@ impl<'a> Compiler<'a> {
                             _ => (vec![0], false),
                         }
                     } else {
-                        // No aggregate: use old single-slot behaviour.
+                        // No aggregate: determine key slots from the step env.
                         match key_expr.type_().as_ref() {
                             Type::Record(_, fields) if fields.is_empty() => {
                                 (vec![], false)
@@ -957,7 +957,36 @@ impl<'a> Compiler<'a> {
                             Type::Primitive(PrimitiveType::Unit) => {
                                 (vec![], false)
                             }
-                            _ => (vec![0], false),
+                            Type::Record(_, fields) => {
+                                // Record key: unpack each field into its named
+                                // frame slot (same logic as aggregate case).
+                                let slots: Vec<usize> = fields
+                                    .keys()
+                                    .filter_map(|label| {
+                                        cx.frame_def
+                                            .try_var_index(&label.to_string())
+                                    })
+                                    .collect();
+                                if slots.len() == fields.len() {
+                                    (slots, true)
+                                } else {
+                                    (vec![0], false)
+                                }
+                            }
+                            _ => {
+                                // Scalar key: find its named slot.
+                                if let Some(b) = step_env.bindings.first() {
+                                    if let Some(slot) =
+                                        cx.frame_def.try_var_index(&b.id.name)
+                                    {
+                                        (vec![slot], false)
+                                    } else {
+                                        (vec![0], false)
+                                    }
+                                } else {
+                                    (vec![0], false)
+                                }
+                            }
                         }
                     };
 
@@ -976,20 +1005,29 @@ impl<'a> Compiler<'a> {
 
                         // Slots for aggregate output fields, in field order.
                         let out_slots: Vec<usize> =
-                            match agg_expr.type_().as_ref() {
-                                Type::Record(_, fields) => fields
+                            if let Type::Record(_, fields) =
+                                agg_expr.type_().as_ref()
+                            {
+                                fields
                                     .keys()
                                     .map(|label| {
                                         cx.frame_def
                                             .var_index(&label.to_string())
                                     })
-                                    .collect(),
-                                _ => {
-                                    // Scalar aggregate: output goes to slot
-                                    // key_slot_count (which is 0 for empty
-                                    // key, overwriting the scan variable).
-                                    vec![key_slot_count]
-                                }
+                                    .collect()
+                            } else {
+                                // Scalar aggregate: output goes to the frame
+                                // slot of the agg binding (which follows key
+                                // bindings in the group step's own output env).
+                                let slot = first_step
+                                    .env
+                                    .bindings
+                                    .get(key_slot_count)
+                                    .and_then(|b| {
+                                        cx.frame_def.try_var_index(&b.id.name)
+                                    })
+                                    .unwrap_or(key_slot_count);
+                                vec![slot]
                             };
 
                         (Some(agg_code), els, out_slots)

@@ -37,8 +37,9 @@ fn is_list_type(type_: &Type) -> bool {
 }
 
 /// Returns the implicit label for a core Expr, if one can be derived.
+/// Used to name scalar aggregate outputs (e.g. `count over e` → "count").
 /// Mirrors the logic of `ast::Expr::implicit_label_opt`.
-fn agg_implicit_label(expr: &Expr) -> Option<String> {
+pub(crate) fn agg_implicit_label(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Identifier(_, name) => Some(name.clone()),
         Expr::Aggregate(_, left, _) => agg_implicit_label(left),
@@ -467,21 +468,34 @@ impl FromBuilder {
         key_expr: Expr,
         aggregate_expr: Option<Expr>,
     ) -> &mut Self {
-        // For aggregate groups with named output fields, update the bindings
-        // to reflect the combined key + aggregate output fields. This enables
-        // get_collection_code to emit the correct slot-read codes.
-        if let Some(agg) = &aggregate_expr
-            && let Type::Record(_, fields) = agg.type_().as_ref()
-            && !fields.is_empty()
+        // Update bindings to reflect the combined key + aggregate output
+        // fields. This enables get_collection_code to emit the correct
+        // slot-read codes and compute_result_type to derive the right type.
+        //
+        // For scalar keys (e.g. `group i`), bindings carry forward from the
+        // preceding scan step. For record keys (e.g. `group {j, k}`), we
+        // replace them with the key field bindings so that the frame allocates
+        // the correct named slots. Aggregate bindings are always added.
         {
             let mut new_bindings = Vec::new();
+            let mut has_key_bindings = false;
+            let mut has_scalar_agg = false;
+            let mut has_record_key = false;
 
-            // Key bindings: add one binding per key field.
+            // Key bindings: add one binding per record-key field.
+            // Scalar keys (Identifier) do not replace bindings here—they
+            // stay as the scan's binding, which is already in the frame.
             match &key_expr {
                 Expr::Identifier(t, name) => {
-                    // Scalar key (e.g. `group i`).
-                    new_bindings
-                        .push(Binding::new(Id::new(name, 0), t.clone()));
+                    // Scalar key: push binding only when there is an
+                    // aggregate (so the collect step sees the key field).
+                    // For pure group-only (no aggregate), the binding
+                    // carries forward from the scan step unchanged.
+                    if aggregate_expr.is_some() {
+                        new_bindings
+                            .push(Binding::new(Id::new(name, 0), t.clone()));
+                    }
+                    has_key_bindings = true;
                 }
                 _ => {
                     // Record/tuple key (e.g. `group {i}` or `group {e = x}`):
@@ -495,24 +509,60 @@ impl FromBuilder {
                                     Id::new(name, 0),
                                     Box::new(t.clone()),
                                 ));
+                                has_key_bindings = true;
+                                has_record_key = true;
                             }
                         }
                     }
                 }
             }
 
-            // Aggregate field bindings (alphabetical from record type).
-            for (label, t) in fields {
-                if let Label::String(name) = label {
-                    new_bindings.push(Binding::new(
-                        Id::new(name, 0),
-                        Box::new(t.clone()),
-                    ));
+            // Aggregate field bindings (only when there is an aggregate).
+            if let Some(agg) = &aggregate_expr {
+                match agg.type_().as_ref() {
+                    Type::Record(_, fields) if !fields.is_empty() => {
+                        // Record aggregate: add one binding per field.
+                        for (label, t) in fields {
+                            if let Label::String(name) = label {
+                                new_bindings.push(Binding::new(
+                                    Id::new(name, 0),
+                                    Box::new(t.clone()),
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        // Scalar aggregate: add a binding using the implicit
+                        // label (e.g. "count" for `count over e`) or "agg".
+                        let label = agg_implicit_label(agg)
+                            .unwrap_or_else(|| "agg".to_string());
+                        new_bindings.push(Binding::new(
+                            Id::new(&label, 0),
+                            agg.type_().clone(),
+                        ));
+                        has_scalar_agg = true;
+                    }
                 }
             }
 
-            self.bindings = new_bindings;
-            self.atom = self.bindings.len() == 1;
+            // Only replace self.bindings when there is something new to set:
+            // - always for aggregate (record or scalar agg fields)
+            // - for record keys, so named frame slots are created
+            // - not for pure scalar-key groups (bindings carry from scan)
+            if aggregate_expr.is_some() || has_record_key {
+                if !new_bindings.is_empty() {
+                    self.bindings = new_bindings;
+                }
+                // atom=true only for a pure scalar aggregate with no key
+                // fields. Record keys and record aggregates produce non-atom.
+                if aggregate_expr.is_some() {
+                    self.atom = !has_key_bindings && has_scalar_agg;
+                } else {
+                    // No aggregate, but record key: result is a record list,
+                    // so atom must be false (regardless of binding count).
+                    self.atom = false;
+                }
+            }
         }
 
         // Build the step env from the (possibly updated) bindings.

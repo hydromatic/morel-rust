@@ -16,6 +16,7 @@
 // License.
 
 use crate::compile::core::{Decl, Expr, Match, Pat, PatField, Step, StepKind};
+use crate::compile::from_builder::agg_implicit_label;
 use crate::compile::type_env::Binding;
 use crate::compile::types::{Label, Type};
 use crate::eval::frame::FrameDef;
@@ -185,18 +186,6 @@ impl Decl {
 }
 
 impl Expr {
-    pub(crate) fn collect_vars_top(&self, collector: &mut VarCollector) {
-        match self {
-            Expr::Fn(_, matches) => {
-                // We only traverse into 'fn' if it is the whole expression.
-                matches.iter().for_each(|m| m.collect_vars(collector));
-            }
-            _ => {
-                self.collect_vars(collector);
-            }
-        }
-    }
-
     pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
         match self {
             // lint: sort until '#}' where '##Expr::'
@@ -222,11 +211,8 @@ impl Expr {
                 // 'current' refers to the primary element already in the
                 // frame; no additional frame slot is needed.
             }
-            Expr::Fn(_, matches) => {
+            Expr::Fn(_, _) => {
                 // do not traverse into a function
-                if false {
-                    matches.iter().for_each(|m| m.collect_vars(collector));
-                }
             }
             Expr::From(_, steps) => {
                 steps.iter().for_each(|s| s.collect_vars(collector));
@@ -273,7 +259,13 @@ impl Step {
                     collector.add_def(Binding::of_name("elements"));
                 }
             }
-            StepKind::Group(_, None) => {}
+            StepKind::Group(_, None) => {
+                // Add group key field names as frame slot defs so that
+                // the collection code can read them.
+                for binding in &self.env.bindings {
+                    collector.add_def(Binding::of_name(&binding.id.name));
+                }
+            }
             StepKind::Group(_, Some(aggregate_expr)) => {
                 // Add aggregate output field names as frame slot defs.
                 // These are the named fields produced by the aggregate
@@ -287,6 +279,14 @@ impl Step {
                             collector.add_def(Binding::of_name(name));
                         }
                     }
+                } else {
+                    // Scalar aggregate: add the implicit label (e.g. "count"
+                    // for `count over e`) as a frame slot def. This slot
+                    // receives the aggregate result. It must come BEFORE
+                    // "elements" so that agg_output_slots[0] = key_slot_count.
+                    let label = agg_implicit_label(aggregate_expr)
+                        .unwrap_or_else(|| "agg".to_string());
+                    collector.add_def(Binding::of_name(&label));
                 }
 
                 // Traverse aggregate expression for variable refs.
