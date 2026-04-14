@@ -143,14 +143,8 @@ Sys.set ("printLength", 64);
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
-
 useSilently "scott.smli";
 > [opening scott.smli]
-> val it = () : unit
-
-set("mode", "evaluate");
 > val it = () : unit
 
 let val emp0 = {id = 100, name = "Fred", deptno = 10} in #id emp0 end;

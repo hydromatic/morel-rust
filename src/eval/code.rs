@@ -91,6 +91,9 @@ pub enum Effect {
     SetShellProp(String, Val),
     /// Unsets a shell property.
     UnsetShellProp(String),
+    /// Loads and executes a file. The bool indicates whether
+    /// output should be silent (true = useSilently).
+    UseFile(String, bool),
 }
 
 /// Wrapper around `Arc<dyn Comparator>` that implements `Clone`,
@@ -1733,9 +1736,14 @@ impl EagerF0 {
 #[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF1 {
     // lint: sort until '#}'
+    InteractUse,
+    InteractUseSilently,
     SysShow,
     SysUnset,
 }
+
+// 'Interact' sorts after 'Int*' but before 'L*' as a name; here the
+// enum has no Int* variants so the order is fine.
 
 impl EagerF1 {
     fn plan(&self) -> String {
@@ -1761,6 +1769,18 @@ impl EagerF1 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            InteractUse => {
+                let path = a0.expect_string();
+                r.emit_effect(Effect::EmitLine(format!("[opening {}]", path)));
+                r.emit_effect(Effect::UseFile(path, false));
+                Ok(Val::Unit)
+            }
+            InteractUseSilently => {
+                let path = a0.expect_string();
+                r.emit_effect(Effect::EmitLine(format!("[opening {}]", path)));
+                r.emit_effect(Effect::UseFile(path, true));
+                Ok(Val::Unit)
+            }
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
@@ -3208,6 +3228,8 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::IntToInt.implements(&mut b, IntToInt);
     Eager1::IntToLarge.implements(&mut b, IntToLarge);
     Eager1::IntToString.implements(&mut b, IntToString);
+    EagerF1::InteractUse.implements(&mut b, InteractUse);
+    EagerF1::InteractUseSilently.implements(&mut b, InteractUseSilently);
     EagerF2::LPAll.implements(&mut b, LPAll);
     EagerF2::LPAllEq.implements(&mut b, LPAllEq);
     EagerF2::LPApp.implements(&mut b, LPApp);

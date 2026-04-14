@@ -525,11 +525,14 @@ fn test_smli_coverage() {
 
     // Read all .smli files from tests/script/
     let script_dir = Path::new("tests/script");
+    // Helper scripts loaded by other tests, not standalone tests.
+    let helper_scripts: HashSet<&str> = HashSet::from(["use-1"]);
     let smli_files: HashSet<String> = fs::read_dir(script_dir)
         .expect("Failed to read tests/script directory")
         .filter_map(Result::ok)
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "smli"))
         .map(|e| e.path().file_stem().unwrap().to_str().unwrap().to_string())
+        .filter(|name| !helper_scripts.contains(name.as_str()))
         .collect();
 
     // Read smile.rs and extract test function names
@@ -553,6 +556,7 @@ fn test_smli_coverage() {
             let smli_name = match fn_name {
                 "type_" => "type".to_string(),
                 "match_test" => "match".to_string(),
+                "use_" => "use".to_string(),
                 _ => fn_name.replace('_', "-"),
             };
             Some((smli_name, fn_name.to_string()))
@@ -614,6 +618,7 @@ fn smli_to_fn_name(smli_name: &str) -> String {
     match smli_name {
         "type" => "type_".to_string(),
         "match" => "match_test".to_string(),
+        "use" => "use_".to_string(),
         _ => smli_name.replace('-', "_"),
     }
 }

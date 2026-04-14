@@ -81,6 +81,9 @@ impl ScriptTest {
         // Create and run the shell
         let mut shell = Shell::with_config(shell_config);
 
+        // Apply session config (script directory, etc.)
+        shell.apply_session_config(&session_config);
+
         // Run the input file and capture output
         let mut output = Vec::new();
         shell.run_file(&in_file, &mut output)?;
