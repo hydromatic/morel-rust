@@ -371,6 +371,17 @@ impl Shell {
         }
     }
 
+    /// Applies session configuration settings (script directory, etc.).
+    pub fn apply_session_config(&mut self, config: &SessionConfig) {
+        let mut session = self.session.borrow_mut();
+        if let Some(dir) = &config.script_directory {
+            session.config.script_directory = Some(dir.clone());
+        }
+        if let Some(dir) = &config.directory {
+            session.config.directory = Some(dir.clone());
+        }
+    }
+
     /// Returns the value of a binding in the environment, if it exists.
     pub(crate) fn get_val(&self, name: &str) -> Option<&Val> {
         self.environment.get(name)
@@ -705,6 +716,31 @@ impl Shell {
                 Effect::UnsetShellProp(prop) => {
                     let _ = self.unset_prop(&prop);
                 }
+                Effect::UseFile(path, silent) => {
+                    // Resolve the file path relative to the script
+                    // directory.
+                    let file_path = self.resolve_use_path(&path);
+                    match self.execute_use_file(&file_path, silent) {
+                        Ok(output) => {
+                            if !silent {
+                                // The nested process_statement calls add
+                                // "> " prefix; strip it since the outer
+                                // process_statement will re-add it.
+                                for line in output.lines() {
+                                    let stripped =
+                                        line.strip_prefix("> ").unwrap_or(line);
+                                    result.push_str(stripped);
+                                    result.push('\n');
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if !silent {
+                                result.push_str(&format!("{}\n", e));
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -757,6 +793,83 @@ impl Shell {
 
         writeln!(output, "{}", output_str)?;
         Ok(())
+    }
+
+    /// Resolves a path from a `use` command relative to the script
+    /// directory (if set), otherwise relative to the working directory.
+    fn resolve_use_path(&self, path: &str) -> PathBuf {
+        let session = self.session.borrow();
+        if let Some(script_dir) = &session.config.script_directory {
+            script_dir.join(path)
+        } else if let Some(dir) = &session.config.directory {
+            dir.join(path)
+        } else {
+            PathBuf::from(path)
+        }
+    }
+
+    /// Reads a file and executes each statement in the current
+    /// shell context, returning the combined output.
+    fn execute_use_file(
+        &mut self,
+        file_path: &Path,
+        silent: bool,
+    ) -> ShellResult<String> {
+        let content = fs::read_to_string(file_path).map_err(|_| {
+            Error::FileNotFound(format!(
+                "use failed: File not found: {}",
+                file_path.display(),
+            ))
+        })?;
+        // Save shell mode — the loaded file might change it (e.g.
+        // set("mode", "validate")) but we don't want that to persist
+        // after the use returns.
+        let saved_mode = self.config.mode;
+        let mut output = String::new();
+        let mut statement_buffer = String::new();
+        for line in content.lines() {
+            // Skip expected-output lines (from .smli idempotent
+            // format).
+            if line.starts_with('>') {
+                continue;
+            }
+
+            if !silent {
+                // Echo the line (including comments).
+                output.push_str(line);
+                output.push('\n');
+            }
+
+            let trimmed = line.trim_end();
+            if trimmed.is_empty() {
+                continue;
+            }
+            statement_buffer.push_str(trimmed);
+            if statement_buffer.ends_with(';')
+                && comment_depth(&statement_buffer) == 0
+            {
+                // Remove the trailing semicolon.
+                statement_buffer.pop();
+                match self.process_statement(&statement_buffer, None) {
+                    Ok(stmt_output) => {
+                        if !silent {
+                            output.push_str(&stmt_output);
+                        }
+                    }
+                    Err(e) => {
+                        if !silent {
+                            output.push_str(&format!("{}\n", e));
+                        }
+                    }
+                }
+                statement_buffer.clear();
+            } else {
+                statement_buffer.push('\n');
+            }
+        }
+        // Restore shell mode.
+        self.config.mode = saved_mode;
+        Ok(output)
     }
 
     /// Returns the current environment.

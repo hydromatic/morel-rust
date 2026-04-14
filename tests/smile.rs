@@ -152,6 +152,11 @@ fn type_inference() {
 }
 
 #[test]
+fn use_() {
+    run_script("tests/script/use.smli");
+}
+
+#[test]
 fn wordle() {
     run_script("tests/script/wordle.smli");
 }

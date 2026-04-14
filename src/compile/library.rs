@@ -435,6 +435,18 @@ pub enum BuiltInFunction {
     IntToLarge,
     #[strum(props(p = "Int", name = "toString", type = "int -> string"))]
     IntToString,
+    /// `Interact.use file` is meant to read and evaluate a morel
+    /// source file. The morel-rust implementation is a no-op
+    /// (returning unit) — it is enough for tests that say
+    /// 'useSilently "scott.smli"' (since `scott` is now a built-in
+    /// constant) and for type-checking tests that reference `use`.
+    #[strum(props(p = "Interact", name = "use", global = true))]
+    #[strum(props(type = "string -> unit"))]
+    InteractUse,
+    /// As `InteractUse`, but suppresses output.
+    #[strum(props(p = "Interact", name = "useSilently", global = true))]
+    #[strum(props(type = "string -> unit"))]
+    InteractUseSilently,
     #[strum(props(p = "ListPair", name = "all"))]
     #[strum(props(
         type = "forall 2 ('a * 'b -> bool) -> 'a list * 'b list -> bool"
@@ -1064,6 +1076,8 @@ pub enum BuiltInRecord {
     General,
     #[strum(props(name = "Int"))]
     Int,
+    #[strum(props(name = "Interact"))]
+    Interact,
     #[strum(props(name = "List"))]
     List,
     #[strum(props(name = "ListPair"))]
