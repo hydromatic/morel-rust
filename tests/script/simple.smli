@@ -50,6 +50,15 @@ in
 end;
 > val it = "hello" : string
 
+(* Inliner must not leak outer-scope 'f' into the let body.
+ * If 'g 5' returns 500, we're getting the wrong definition of 'f'. *)
+fun f x = x * 10;
+> val f = fn : int -> int
+fun g x = let fun f x = x + 1 in f (f x) end;
+> val g = fn : int -> int
+g 5;
+> val it = 7 : int
+
 (* Literals ------------------------------------------------------- *)
 
 1;
@@ -446,8 +455,6 @@ val `val` = "yes, you can use keywords as identifiers";
 val x: `int` = 1;
 > val x = 1 : int
 
-set("mode", "validate");
-> val it = () : unit
 val x: `order` = LESS;
 > val x = LESS : order
 fun f (x: `order` list) = List.length x;
@@ -459,9 +466,6 @@ fun compareInt (x: int, y: int) : `order` =
   else if x > y then GREATER
   else EQUAL;
 > val compareInt = fn : int * int -> order
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Comments ------------------------------------------------------- *)
 
@@ -711,6 +715,19 @@ in
   f (g 0)
 end;
 > val it = 1 : int
+
+(*) A `val` binding may reference earlier `val`s in the same `let`.
+(*) Previously failed type-checking with "identifier 'ten' not found"
+(*) because each decl in a let block was processed against the
+(*) original outer environment, not against an env extended with
+(*) the previous decls' bindings.
+let
+  val ten = 6 + 4
+  val eleven = ten + 1
+in
+  eleven
+end;
+> val it = 11 : int
 
 set("mode", "validate");
 > val it = () : unit

@@ -1358,12 +1358,28 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Let(decl_list, expr) => {
+                // Each successive decl must see the bindings of the
+                // previous decls. We track the accumulated bindings
+                // in `term_map` and rebuild a running env that starts
+                // from the original `env` plus all bindings seen so
+                // far. Without this, a let body like
+                //   let val ten = 6 + 4 val eleven = ten + 1 in ... end
+                // fails type-checking because `ten` is not yet in
+                // scope when `val eleven = ten + 1` is processed.
                 let mut term_map = Vec::new();
                 let mut decl_list2 = Vec::new();
+                let mut running_env: Rc<dyn TypeEnv> = env.bind_all(&[]);
                 for decl in decl_list {
-                    let decl2 =
-                        self.deduce_decl_type(env, decl, &mut term_map)?;
+                    let before_len = term_map.len();
+                    let decl2 = self.deduce_decl_type(
+                        &*running_env,
+                        decl,
+                        &mut term_map,
+                    )?;
                     decl_list2.push(decl2);
+                    if term_map.len() > before_len {
+                        running_env = env.bind_all(term_map.as_ref());
+                    }
                 }
                 let env2 = env.bind_all(term_map.as_ref());
                 let expr2 = self.deduce_expr_type(&*env2, expr, v)?;
@@ -4137,8 +4153,15 @@ impl<'a> TypeToTermConverter<'a> {
                         &v,
                     );
                 }
-                let p = PrimitiveType::parse_name(name).unwrap();
-                self.type_resolver.primitive_term(&p, &v);
+                if let Some(p) = PrimitiveType::parse_name(name) {
+                    self.type_resolver.primitive_term(&p, &v);
+                } else {
+                    // Treat as a nilary built-in datatype (e.g.
+                    // 'order'). The runtime representation is
+                    // Type::Data(name, vec![]).
+                    let data_type = Type::Data(name.clone(), vec![]);
+                    self.type_resolver.type_term(&data_type, subst, v);
+                }
                 self.type_resolver.reg_type(
                     &type_node.kind,
                     &type_node.span,
