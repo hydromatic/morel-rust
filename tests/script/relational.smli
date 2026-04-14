@@ -2472,9 +2472,9 @@ fun mustBeList (list: 'a list) = list;
 fun sumPairs pairs =
   from (l, r) in mustBeList pairs
   yield l + r;
-> val sumPairs = fn : ('a * 'a) list -> 'a list
+> val sumPairs = fn : (int * int) list -> int list
 sumPairs [];
-> val it = [] : 'a list
+> val it = [] : int list
 sumPairs [(1, 2), (3, 4)];
 > val it = [3,7] : int list
 

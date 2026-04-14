@@ -1134,6 +1134,7 @@ impl TypeResolver {
             ExprKind::Minus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op -", left, right, v)?;
+                self.preferred_vars.push(*v);
                 let x = ExprKind::Minus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -1146,6 +1147,7 @@ impl TypeResolver {
             ExprKind::Negate(e) => {
                 let e2 =
                     self.deduce_call1_type(env, "op ~", e, &expr.span, v)?;
+                self.preferred_vars.push(*v);
                 let x = ExprKind::Negate(Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -1213,6 +1215,7 @@ impl TypeResolver {
             ExprKind::Plus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op +", left, right, v)?;
+                self.preferred_vars.push(*v);
                 let x = ExprKind::Plus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -1268,6 +1271,7 @@ impl TypeResolver {
             ExprKind::Times(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op *", left, right, v)?;
+                self.preferred_vars.push(*v);
                 let x = ExprKind::Times(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }

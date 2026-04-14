@@ -460,9 +460,9 @@ end;
 :t fun plus_list x (y :: z) = x + y;
 > stdIn:1.5-1.33 Warning: match nonexhaustive
 >   raised at: stdIn:1.5-1.33
-> val plus_list : 'a -> 'a list -> 'a
+> val plus_list : int -> int list -> int
 :t fun plus x y = x + y;
-> val plus : 'a -> 'a -> 'a
+> val plus : int -> int -> int
 :t let
   fun map f [] = []
     | map f (x::xs) = f x :: map f xs
