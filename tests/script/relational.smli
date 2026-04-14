@@ -2496,9 +2496,6 @@ from {c = b, a = c, b = a} in [{a=1,b=2,c=3}];
 from {a = c, b = a, c = b} in [{a=1,b=2,c=3}];
 > val it = [{a=2,b=3,c=1}] : {a:int, b:int, c:int} list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Record with wildcards
 from {a = a, ...} in [{a=1,b=2}];
 > val it = [1] : int list
@@ -2506,6 +2503,9 @@ from {a = a, b = true, c = c} in [{a=1,b=true,c=3}];
 > val it = [{a=1,c=3}] : {a:int, c:int} list
 from {a = c, b = true, c = a} in [{a=1,b=true,c=3}];
 > val it = [{a=3,c=1}] : {a:int, c:int} list
+
+set("mode", "validate");
+> val it = () : unit
 from {a = c, b = true, c = a} in [{a=1,b=true,c=3},{a=1,b=true,c=4}] group c compute sum over a;
 > val it = [{c=1,sum=7}] : {c:int, sum:int} list
 
@@ -2519,8 +2519,6 @@ from {a = a, b = b, c = _} in [{a=1,b=true,c=3},{a=1,b=true,c=4}], d in ["a", "b
 >   [{a=1,b=true,d="a"},{a=1,b=true,d="b"},{a=1,b=true,d="a"},{a=1,b=true,d="b"}]
 >   : {a:int, b:bool, d:string} list
 
-set("mode", "validate");
-> val it = () : unit
 from {a = a, b = b, ...} in [{a=1,b=true,c=3},{a=1,b=true,c=4}];
 > val it = [{a=1,b=true},{a=1,b=true}] : {a:int, b:bool} list
 from {a = a, c = c, ...} in [{a=1,b=true,c=3},{a=1,b=true,c=4}];
@@ -2530,9 +2528,6 @@ from {a, c, ...} in [{a=1,b=true,c=3},{a=1,b=true,c=4}];
 from {b = y, ...} in [{a=1,b=2}];
 > val it = [2] : int list
 
-set("mode", "evaluate");
-> val it = () : unit
-
 from {b = y, a = (p, q)} in [{a=(1,true),b=2}];
 > val it = [{p=1,q=true,y=2}] : {p:int, q:bool, y:int} list
 from {b = y, a = (2, q)} in [{a=(1,true),b=2},{a=(2,false),b=3}];
@@ -2540,12 +2535,13 @@ from {b = y, a = (2, q)} in [{a=(1,true),b=2},{a=(2,false),b=3}];
 from {b = y, a = x} in [{a=1,b=2}];
 > val it = [{x=1,y=2}] : {x:int, y:int} list
 
-set("mode", "validate");
-> val it = () : unit
 from {a = x, ...} in [{a=1,b=2,c=3}];
 > val it = [1] : int list
 from {a = x, b = y, ...} in [{a=1,b=2,c=3}];
 > val it = [{x=1,y=2}] : {x:int, y:int} list
+
+set("mode", "validate");
+> val it = () : unit
 
 fun listHeads (lists: 'a list) =
   from hd :: tl in lists

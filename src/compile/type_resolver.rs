@@ -3421,7 +3421,74 @@ impl TypeResolver {
                         }
                     };
                 }
-                self.record_term(&map, &v);
+                if *ellipsis {
+                    // Open record pattern: v may have more fields than
+                    // named here. Register a single Action on v that,
+                    // once v's full record type is known, unifies each
+                    // named field's variable with the actual field type
+                    // from v. Multiple actions per variable are not
+                    // supported (HashMap), so we collect all named
+                    // fields into one combined action.
+                    let pattern_fields: Vec<(String, Var)> = map
+                        .iter()
+                        .filter_map(|(label, term)| {
+                            if let (Label::String(name), Term::Variable(vf)) =
+                                (label, term)
+                            {
+                                Some((name.clone(), *vf))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    struct OpenRecordAction {
+                        pattern_fields: Vec<(String, Var)>,
+                        op_defs: Rc<Vec<OpDef>>,
+                    }
+                    impl Action for OpenRecordAction {
+                        fn accept(
+                            &self,
+                            _variable: &Var,
+                            term: &Term,
+                            substitution: &Substitution,
+                            term_pairs: &mut Vec<(Term, Term)>,
+                        ) {
+                            if let Term::Sequence(seq) = term
+                                && let Some(field_list) =
+                                    TypeResolver::field_list(&self.op_defs, seq)
+                            {
+                                for (field_name, v_field) in
+                                    &self.pattern_fields
+                                {
+                                    if let Some(i) = field_list
+                                        .iter()
+                                        .position(|f| f == field_name)
+                                    {
+                                        let v_field_term = substitution
+                                            .resolve_term(&Term::Variable(
+                                                *v_field,
+                                            ));
+                                        let field_term = substitution
+                                            .resolve_term(
+                                                seq.terms.get(i).unwrap(),
+                                            );
+                                        term_pairs
+                                            .push((v_field_term, field_term));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    self.actions.push((
+                        *v,
+                        Rc::new(OpenRecordAction {
+                            pattern_fields,
+                            op_defs: self.unifier.op_defs.clone(),
+                        }),
+                    ));
+                } else {
+                    self.record_term(&map, &v);
+                }
                 self.reg_pat(
                     &PatKind::Record(fields2, *ellipsis),
                     &pat.span,
