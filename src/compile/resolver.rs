@@ -31,9 +31,10 @@ use crate::eval::val::Val;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match,
     Pat, PatField, PatKind, Step as AstStep, StepKind as AstStepKind,
-    Type as AstType, TypeBind, ValBind,
+    Type as AstType, TypeBind, TypeKind, ValBind,
 };
 use crate::syntax::parser;
+use crate::unify::unifier::Var;
 use std::collections::{HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
@@ -751,10 +752,32 @@ impl<'a> Resolver<'a> {
 
         match &pat.kind {
             // lint: sort until '#}' where '##PatKind::'
-            PatKind::Annotated(pat, _) => {
-                // For annotated patterns, just resolve the inner pattern
+            PatKind::Annotated(inner_pat, ann_type) => {
+                // For annotated patterns, resolve the inner pattern
                 // since core patterns have embedded types.
-                self.resolve_pat(pat)
+                // If the annotation is a type alias, wrap the inner
+                // pattern's type in Type::Alias (unless already
+                // wrapped by the inner Identifier handler).
+                let resolved = self.resolve_pat(inner_pat);
+                if matches!(*resolved.type_(), Type::Alias(..)) {
+                    // Already wrapped by get_type_with_alias
+                    return resolved;
+                }
+                if let TypeKind::Id(name) = &ann_type.kind
+                    && let Some(ann_id) = ann_type.id
+                {
+                    let var = Var { id: ann_id };
+                    if self.type_map.var_alias_map.contains_key(&var) {
+                        let inner_type = resolved.type_().clone();
+                        let alias_type = Box::new(Type::Alias(
+                            name.clone(),
+                            inner_type,
+                            vec![],
+                        ));
+                        return resolved.with_type(alias_type);
+                    }
+                }
+                resolved
             }
             PatKind::As(name, sub_pat) => CorePat::As(
                 t,
@@ -771,7 +794,17 @@ impl<'a> Resolver<'a> {
                     opt_pat.as_ref().map(|p| Box::new(self.resolve_pat(p)));
                 CorePat::Constructor(t, name.clone(), resolved_pat)
             }
-            PatKind::Identifier(name) => CorePat::Identifier(t, name.clone()),
+            PatKind::Identifier(name) => {
+                // Check if the pattern's var carries a type alias
+                // (e.g. from `val x = 6 : myInt` where the annotation
+                // is on the expression, not the pattern).
+                let t = if let Some(id) = pat.id {
+                    self.type_map.get_type_with_alias(id).unwrap_or(t)
+                } else {
+                    t
+                };
+                CorePat::Identifier(t, name.clone())
+            }
             PatKind::List(pats) => {
                 let resolved_pats =
                     pats.iter().map(|p| self.resolve_pat(p)).collect();
@@ -808,6 +841,39 @@ impl<'a> Resolver<'a> {
     }
 
     /// Resolves an AST value binding to a core value binding.
+    /// Checks if a val-bind's expression has an alias annotation
+    /// that should propagate to the pattern's type. Handles cases
+    /// like `val list = [1: myInt]` where the first list element's
+    /// annotation should make the list type `myInt list`.
+    fn expr_alias_for_pat(&self, expr: &Expr, pat: &CorePat) -> Option<Type> {
+        // Already aliased by resolve_pat? Skip.
+        if matches!(*pat.type_(), Type::Alias(..)) {
+            return None;
+        }
+        match &expr.kind {
+            ExprKind::List(elems) if !elems.is_empty() => {
+                // Check if the first element has an alias annotation.
+                if let ExprKind::Annotated(_, ann_type) = &elems[0].kind
+                    && let TypeKind::Id(name) = &ann_type.kind
+                    && let Some(ann_id) = ann_type.id
+                {
+                    let var = Var { id: ann_id };
+                    if self.type_map.var_alias_map.contains_key(&var)
+                        && let Type::List(elem_type) = &*pat.type_()
+                    {
+                        return Some(Type::List(Box::new(Type::Alias(
+                            name.clone(),
+                            elem_type.clone(),
+                            vec![],
+                        ))));
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
     fn resolve_val_bind(&self, val_bind: &ValBind) -> CoreValBind {
         let pat = self.resolve_pat(&val_bind.pat);
         let expr = self.resolve_expr(&val_bind.expr);
@@ -1095,7 +1161,14 @@ impl<'a> Resolver<'a> {
         let mut pat_exps = Vec::new();
 
         for val_bind in val_binds {
-            let core_pat = self.resolve_pat(&val_bind.pat);
+            let mut core_pat = self.resolve_pat(&val_bind.pat);
+            // Check if the expression has an alias annotation that
+            // should propagate to the pattern type.
+            if let Some(alias_type) =
+                self.expr_alias_for_pat(&val_bind.expr, &core_pat)
+            {
+                core_pat = core_pat.with_type(Box::new(alias_type));
+            }
             let core_expr = self.resolve_expr(&val_bind.expr);
             let span = Some(Span::from_pest_span(
                 &val_bind.pat.span.union(&val_bind.expr.span).to_pest_span(),
