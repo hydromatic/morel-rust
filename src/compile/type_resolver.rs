@@ -105,6 +105,22 @@ impl TypeMap {
         self.get_type_inner(id, true)
     }
 
+    /// Resolves a unification variable directly to a Type. Used
+    /// to capture overload instance types after deduction.
+    pub fn var_to_type(&self, var: &Var) -> Option<Type> {
+        let term = self
+            .var_term_map
+            .get(var)
+            .cloned()
+            .unwrap_or(Term::Variable(*var));
+        let mut c = TermToTypeConverter {
+            type_map: self,
+            var_map: BTreeMap::new(),
+            with_alias: false,
+        };
+        Some(*c.term_type(&term))
+    }
+
     fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Box<Type>> {
         if let Some(var) = self.node_var_map.get(&id) {
             let mut c = TermToTypeConverter {
@@ -570,6 +586,22 @@ pub struct TypeResolver {
     /// Record selectors to validate after unification.
     /// Each entry is (record_var, field_name, span).
     field_selectors: Vec<(Var, String, Span)>,
+
+    /// Overloaded operator instances. Maps name to list of
+    /// candidate terms (the types of each `val inst` binding).
+    overloads: HashMap<String, Vec<Term>>,
+
+    /// New overload instances added by THIS statement (not seeded
+    /// from previous). Used by Session to persist them.
+    pub new_overloads: HashMap<String, Vec<Var>>,
+
+    /// Seeded overload instance types from previous statements.
+    /// At the start of each statement, these are converted to
+    /// fresh Terms in the current unifier.
+    pub seed_overloads: HashMap<String, Vec<Type>>,
+
+    /// Constraints to pass to the unifier for overload resolution.
+    overload_constraints: Vec<crate::unify::unifier::Constraint>,
 }
 
 impl Default for TypeResolver {
@@ -618,6 +650,10 @@ impl TypeResolver {
             var_alias_map: HashMap::new(),
             field_errors: Rc::new(RefCell::new(Vec::new())),
             field_selectors: Vec::new(),
+            overloads: HashMap::new(),
+            new_overloads: HashMap::new(),
+            seed_overloads: HashMap::new(),
+            overload_constraints: Vec::new(),
         }
     }
 
@@ -677,6 +713,20 @@ impl TypeResolver {
     ) -> Result<Resolved, Error> {
         self.terms.clear();
 
+        // Seed overloads from previous statements: convert each
+        // accumulated instance Type to a fresh Term in the
+        // current unifier.
+        let seed = std::mem::take(&mut self.seed_overloads);
+        for (name, types) in seed {
+            for t in types {
+                let v = self.type_to_term(&t);
+                self.overloads
+                    .entry(name.clone())
+                    .or_default()
+                    .push(Term::Variable(v));
+            }
+        }
+
         let decl = ensure_decl(statement);
         let mut term_map = Vec::new();
         let decl2 = self.deduce_decl_type(env, &decl, &mut term_map)?;
@@ -688,10 +738,11 @@ impl TypeResolver {
             .map(|(var, term)| (term.clone(), Term::Variable(*var)))
             .collect();
 
-        let substitution = match self.unifier.unify(
+        let substitution = match self.unifier.unify_with_constraints(
             term_pairs.as_ref(),
             &NullTracer,
             self.actions.as_ref(),
+            &self.overload_constraints,
         ) {
             Ok(x) => {
                 if false {
@@ -1002,6 +1053,16 @@ impl TypeResolver {
                 let val_decl = self.convert_fun_to_val(env, fun_binds);
                 self.deduce_decl_type(env, &val_decl, term_map)
             }
+            DeclKind::Over(name) => {
+                // Register the name as an overloaded operator.
+                // At this point we don't know the type; instances
+                // will be added by subsequent `val inst` decls.
+                // We bind to a fresh variable so the name is in
+                // scope for later decls.
+                let v = self.variable();
+                term_map.push((name.clone(), Term::Variable(v)));
+                Ok(decl.clone())
+            }
             DeclKind::Signature(_) => {
                 // Signatures don't have types themselves in the type system.
                 // They are purely compile-time constructs for defining
@@ -1029,7 +1090,6 @@ impl TypeResolver {
                 )?;
                 Ok(self.reg_decl(&x, &decl.span, decl.id))
             }
-            _ => todo!("{:?}", decl.kind),
         }
     }
 
@@ -1300,6 +1360,21 @@ impl TypeResolver {
             let var = *v_supplier.get_or_init(|| self.variable());
             let val_bind2 =
                 self.deduce_val_bind_type(&*env2, &val_bind, term_map, &var)?;
+            // If this is an 'val inst' binding, store the
+            // binding's var as a candidate for the overloaded
+            // operator's instance set.
+            if inst {
+                if let PatKind::Identifier(name) = &val_bind2.pat.kind {
+                    self.overloads
+                        .entry(name.clone())
+                        .or_default()
+                        .push(Term::Variable(var));
+                    self.new_overloads
+                        .entry(name.clone())
+                        .or_default()
+                        .push(var);
+                }
+            }
             val_binds2.push(val_bind2);
         }
 
@@ -1533,6 +1608,19 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Identifier(name) => {
+                // If the name is overloaded, add a constraint
+                // that v must match one of the candidate types.
+                if let Some(candidates) = self.overloads.get(name).cloned() {
+                    self.overload_constraints.push(
+                        crate::unify::unifier::Constraint {
+                            var: *v,
+                            candidates,
+                        },
+                    );
+                    return Ok(
+                        self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                    );
+                }
                 let lookup_result =
                     if let Some(bare_name) = name.strip_prefix("op ") {
                         // Try "op <name>" first, then fall back to bare name
@@ -1586,6 +1674,10 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Let(decl_list, expr) => {
+                // Save overload state so let-bound `over`/`val inst`
+                // declarations don't leak to outer scope.
+                let saved_overloads = self.overloads.clone();
+                let saved_new_overloads = self.new_overloads.clone();
                 // Each successive decl must see the bindings of the
                 // previous decls. We track the accumulated bindings
                 // in `term_map` and rebuild a running env that starts
@@ -1611,6 +1703,9 @@ impl TypeResolver {
                 }
                 let env2 = env.bind_all(term_map.as_ref());
                 let expr2 = self.deduce_expr_type(&*env2, expr, v)?;
+                // Restore overload state.
+                self.overloads = saved_overloads;
+                self.new_overloads = saved_new_overloads;
                 let x = ExprKind::Let(decl_list2, Box::new(expr2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }

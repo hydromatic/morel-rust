@@ -18,14 +18,14 @@
  *
  * Pretty-printing and output modes
  *)
-set("mode", "validate");
-> val it = () : unit
-
 (* -------------------------------------------------------------
  * [MOREL-259] Tabular mode
  *)
 
 Sys.set ("output", "tabular");
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 
 from e in scott.depts;
@@ -48,7 +48,14 @@ from e in scott.depts order DESC e.deptno;
 >
 > val it : {deptno:int, dname:string, loc:string} list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.unset "output";
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 
 from e in scott.depts;
@@ -67,12 +74,13 @@ from e in scott.depts order DESC e.deptno;
 >    {deptno=10,dname="ACCOUNTING",loc="NEW YORK"}]
 >   : {deptno:int, dname:string, loc:string} list
 
-Sys.set ("output", "tabular");
-> val it = () : unit
-
 
 set("mode", "evaluate");
 > val it = () : unit
+
+Sys.set ("output", "tabular");
+> val it = () : unit
+
 
 (* List of primitives uses classic style. *)
 [1,2,3];

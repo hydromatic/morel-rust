@@ -107,11 +107,19 @@ impl Term {
     }
 
     /// Returns whether this term could potentially unify with another term.
+    /// Checks structure recursively to allow filtering overload
+    /// candidates as unification progresses.
     pub fn could_unify_with(&self, other: &Term) -> bool {
         match (self, other) {
             (Term::Variable(_), _) | (_, Term::Variable(_)) => true,
             (Term::Sequence(seq1), Term::Sequence(seq2)) => {
-                seq1.op == seq2.op && seq1.terms.len() == seq2.terms.len()
+                if seq1.op != seq2.op || seq1.terms.len() != seq2.terms.len() {
+                    return false;
+                }
+                seq1.terms
+                    .iter()
+                    .zip(seq2.terms.iter())
+                    .all(|(a, b)| a.could_unify_with(b))
             }
         }
     }
@@ -634,6 +642,8 @@ impl TermActions {
 
 /// Action to perform when a constraint is resolved.
 enum ConstraintAction {
+    /// Just add the equation `arg = candidate`.
+    Noop,
     Accept(Box<dyn Fn(&Term, &Term, &mut dyn FnMut(Term, Term))>),
 }
 
@@ -641,6 +651,15 @@ enum ConstraintAction {
 struct MutableConstraint {
     arg: Term,
     term_actions: TermActions,
+}
+
+/// An overload constraint: variable `var` must unify with one of
+/// the `candidates`. As unification progresses, candidates that
+/// can't unify are eliminated. When one candidate remains, it is
+/// selected and its equation `var = candidate` is added.
+pub struct Constraint {
+    pub var: Var,
+    pub candidates: Vec<Term>,
 }
 
 /// Unifier.
@@ -699,7 +718,11 @@ impl Display for Work<'_> {
 }
 
 impl<'a> Work<'a> {
-    fn new(tracer: &'a (dyn Tracer + 'a), term_pairs: &[(Term, Term)]) -> Self {
+    fn new(
+        tracer: &'a (dyn Tracer + 'a),
+        term_pairs: &[(Term, Term)],
+        constraints: &[Constraint],
+    ) -> Self {
         let mut work = Work {
             tracer,
             var_any_queue: Rc::new(RefCell::new(VecDeque::new())),
@@ -710,8 +733,18 @@ impl<'a> Work<'a> {
         term_pairs
             .iter()
             .for_each(|(left, right)| work.add(left.clone(), right.clone()));
-        // constraints.forEach(c ->
-        //   constraintQueue.add(new MutableConstraint(c)));
+        for c in constraints {
+            let mut ta = TermActions::new();
+            for candidate in &c.candidates {
+                ta.left_list.push(candidate.clone());
+                // No-op action: just add the equation.
+                ta.right_list.push(ConstraintAction::Noop);
+            }
+            work.constraint_queue.push_back(MutableConstraint {
+                arg: Term::Variable(c.var),
+                term_actions: ta,
+            });
+        }
         work
     }
 
@@ -881,13 +914,14 @@ impl<'a> Work<'a> {
                 match constraint.term_actions.size() {
                     0 => return Self::failure("no valid overloads"),
                     1 => {
-                        let _term1 = constraint.term_actions.left(0).clone();
-                        let _action = &constraint.term_actions.right(0);
-                        // Note: This would need to be implemented based on the
-                        // actual action interface
-                        //   action.accept(&constraint.arg, &term1,
-                        //       &mut |left, right| self.add2(left, right));
-                        // For now, we'll leave this as a placeholder.
+                        // Single candidate remains — select it by
+                        // adding the equation arg = candidate and
+                        // removing the constraint.
+                        let arg = constraint.arg.clone();
+                        let candidate = constraint.term_actions.left(0).clone();
+                        self.constraint_queue.remove(i);
+                        self.add(arg, candidate);
+                        continue; // Don't increment i
                     }
                     _ => {} // Multiple options still available
                 }
@@ -1162,8 +1196,18 @@ impl Unifier {
     pub fn unify(
         &self,
         term_pairs: &[(Term, Term)],
+        tracer: &dyn Tracer,
+        term_action_list: &[(Var, Rc<dyn Action>)],
+    ) -> Result<Substitution, UnificationFailure> {
+        self.unify_with_constraints(term_pairs, tracer, term_action_list, &[])
+    }
+
+    pub fn unify_with_constraints(
+        &self,
+        term_pairs: &[(Term, Term)],
         _tracer: &dyn Tracer,
         term_action_list: &[(Var, Rc<dyn Action>)],
+        constraints: &[Constraint],
     ) -> Result<Substitution, UnificationFailure> {
         let tracer = &NullTracer; // switch to PrintTracer for debugging
         let term_actions: HashMap<Var, Rc<dyn Action>> =
@@ -1199,7 +1243,7 @@ impl Unifier {
         //  => fail
         // if x in vars(f(s0, ..., sk))
 
-        let mut work = Work::new(tracer, term_pairs);
+        let mut work = Work::new(tracer, term_pairs, constraints);
 
         #[cfg(feature = "profiling")]
         println!("Before: {}", work);

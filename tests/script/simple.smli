@@ -807,6 +807,10 @@ in
 end;
 > val it = 13 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) A fun in a fun (test case for [MOREL-19])
 fun foo arg =
   let
@@ -815,12 +819,22 @@ fun foo arg =
     baz arg
   end;
 > val foo = fn : 'a -> 'a
+
+set("mode", "validate");
+> val it = () : unit
 foo 3;
 > val it = 3 : int
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Define a function using higher-order functions
 val longest = foldl (fn (s, t) => if size s > size t then s else t) "";
 > val longest = fn : string list -> string
+
+set("mode", "validate");
+> val it = () : unit
 longest ["ab", "cde", "", "f"];
 > val it = "cde" : string
 longest [];
@@ -870,10 +884,17 @@ in
 end;
 > val it = (false,false,true) : bool * bool * bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) An example where identifiers with primes (') are more readable
 fun distance (x, y) (x', y') =
   Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
 > val distance = fn : real * real -> real * real -> real
+
+set("mode", "validate");
+> val it = () : unit
 distance (0.0, 1.0) (4.0, 4.0);
 > val it = 5.0 : real
 
@@ -924,7 +945,14 @@ val SOME (i, NONE) = SOME (1, SOME false);
 > uncaught exception Bind
 >   raised at: stdIn:1.5-1.42
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.set ("matchCoverageEnabled", false);
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 val (i, true) = (1, true);
 > val i = 1 : int
@@ -938,11 +966,11 @@ in
 end;
 > uncaught exception Bind
 >   raised at: stdIn:2.7-2.29
-Sys.unset "matchCoverageEnabled";
-> val it = () : unit
-
 
 set("mode", "evaluate");
+> val it = () : unit
+
+Sys.unset "matchCoverageEnabled";
 > val it = () : unit
 
 (* Patterns ------------------------------------------------------- *)
@@ -961,14 +989,25 @@ val ( l as (ll,lr), r ) = x;
 > val lr = true : bool
 > val r = 17 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 fun f (true, []) = ~1
   | f (true, l as (hd :: tl)) = length l
   | f (false, list) = 0;
 > val f = fn : bool * 'a list -> int
+
+set("mode", "validate");
+> val it = () : unit
 f (true, ["a","b","c"]);
 > val it = 3 : int
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit
 
@@ -1006,9 +1045,6 @@ val x as y as z = 3;
 > val z = 3 : int
 
 (* Field access --------------------------------------------------- *)
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Record field access using accessor
 val r = {a = 1, b = "two"};

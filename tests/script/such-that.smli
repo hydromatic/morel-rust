@@ -422,6 +422,10 @@ from p where path p;
 > val it = [(1,2),(2,3),(1,3)] : (int * int) list
 *)
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* More edges *)
 (*
    1 --> 4 ----+
@@ -431,8 +435,15 @@ from p where path p;
 *)
 val edges = [(1, 2), (2, 3), (1, 4), (4, 2), (4, 3)];
 > val edges = [(1,2),(2,3),(1,4),(4,2),(4,3)] : (int * int) list
+
+set("mode", "validate");
+> val it = () : unit
 fun edge (x, y) = (x, y) elem edges;
 > val edge = fn : int * int -> bool
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Return points that are 2 hops apart.
 (*
@@ -479,6 +490,9 @@ val barPatrons = [
 >    {bar="cask",patron="scooby"},{bar="cask",patron="shaggy"},
 >    {bar="cask",patron="velma"}] : {bar:string, patron:string} list
 
+set("mode", "validate");
+> val it = () : unit
+
 val barBeers = [
   {bar =  "squirrel", beer =  "ipa", price =  2},
   {bar =  "squirrel", beer =  "pale", price =  2},
@@ -490,6 +504,10 @@ val barBeers = [
 >    {bar="squirrel",beer="amber",price=3},{bar="cask",beer="stout",price=4},
 >    {bar="cask",beer="ipa",price=5}] : {bar:string, beer:string, price:int} list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 val patronBeers = [
   {patron =  "shaggy", beer = "amber"},
   {patron =  "fred", beer = "amber"},
@@ -497,6 +515,9 @@ val patronBeers = [
 > val patronBeers =
 >   [{beer="amber",patron="shaggy"},{beer="amber",patron="fred"},
 >    {beer="stout",patron="velma"}] : {beer:string, patron:string} list
+
+set("mode", "validate");
+> val it = () : unit
 
 fun frequents (patron, bar) =
   {patron, bar} elem barPatrons;
@@ -705,6 +726,10 @@ enumerate cousin2;
 > Error: non-stratified
 *)
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* ------------------------------------------------------ *)
 (* Coloring Australia using three colors.
  * (From "Basic Modelling in MiniZinc".)
@@ -733,6 +758,9 @@ enumerate cousin2;
  *)
 datatype Color = BLUE | GREEN | RED;
 > datatype Color = BLUE | GREEN | RED
+
+set("mode", "validate");
+> val it = () : unit
 from wa, nt, sa, q, nsw, v, t
 where q = RED
   andalso t = GREEN

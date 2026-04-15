@@ -219,8 +219,15 @@ end;
 > stdIn:3.19 Error: unbound variable or constructor: n
 >   raised at: stdIn:3.19
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 val m = 5;
 > val m = 5 : int
+
+set("mode", "validate");
+> val it = () : unit
 let
   val rec fact =
     fn n : typeof m =>
@@ -231,13 +238,24 @@ in
 end;
 > val it = 120 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Function with unit arg
 fun one () = 1;
 > val one = fn : unit -> int
+
+set("mode", "validate");
+> val it = () : unit
 one ();
 > val it = 1 : int
 one {};
 > val it = 1 : int
+
+set("mode", "evaluate");
+> val it = () : unit
+
 let
   fun one () = 1
 in
@@ -266,6 +284,9 @@ fun g [] = NONE
 (*) Pattern-match on record
 fun f {a = c, b} = b + c;
 > val f = fn : {a:int, b:int} -> int
+
+set("mode", "validate");
+> val it = () : unit
 f {a = 5, b = 6};
 > val it = 11 : int
 
@@ -277,14 +298,25 @@ f2 {a = 1, b = 6};
 f2 {a = 2, b = 6};
 > val it = 18 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 fun f3 {a = 1, b} = b * 2;
 > val f3 = fn : {a:int, b:int} -> int
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit
+
+set("mode", "validate");
+> val it = () : unit
 f3 {a = 1, b = 6};
 > val it = 12 : int
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) The following correctly throws
 (*)   unbound variable or constructor: a
@@ -294,6 +326,9 @@ f3 {a = 1, b = 6};
 (*) Variable with polymorphic type
 val x = map;
 > val x = fn : ('a -> 'b) -> 'a list -> 'b list
+
+set("mode", "validate");
+> val it = () : unit
 x explode ["ab", "c"];
 > val it = [[#"a",#"b"],[#"c"]] : char list list
 
@@ -383,9 +418,6 @@ fn LESS => ~1
 fn {a, b} => if b then a else a + 1;
 > val it = fn : {a:int, b:bool} -> int
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Record containing polymorphic functions:
 (*)  val it = {a=fn,b=fn}
 (*) : {a:'a list -> ('a * 'a list) option, b:'b list -> ('b * 'b list) option}
@@ -411,10 +443,6 @@ end;
 (*) as above
 {a = 1, b = let fun g [] = NONE | g (h :: t) = SOME (h, t) in g end};
 > val it = {a=1,b=fn} : {a:int, b:'a list -> ('a * 'a list) option}
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) List of monotype
 [SOME true, NONE];
@@ -504,9 +532,16 @@ set("mode", "validate");
 divides (10, 4): bool;
 > val it = false : bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* An expression whose type is complicated to infer. *)
 fun f1 x = x;
 > val f1 = fn : 'a -> 'a
+
+set("mode", "validate");
+> val it = () : unit
 fun f2 x = f1 (f1 x);
 > val f2 = fn : 'a -> 'a
 fun f3 x = f2 (f2 x);
@@ -551,10 +586,17 @@ fun g2 y =
 
 (* Identity function, and chain functions that apply the identity
    function multiple times. *)
+
+set("mode", "evaluate");
+> val it = () : unit
+
 fun id x = x;
 > val id = fn : 'a -> 'a
 fun chain0 f = f;
 > val chain0 = fn : 'a -> 'a
+
+set("mode", "validate");
+> val it = () : unit
 fun chain1 f = fn x => f (id x);
 > val chain1 = fn : ('a -> 'b) -> 'a -> 'b
 fun chain2 f = fn x => f (id (id x));
@@ -598,6 +640,10 @@ fun chain20 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (i
 > val chain20 = fn : ('a -> 'b) -> 'a -> 'b
 *)
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* Helper functions for creating more complex type constraints. *)
 fun apply f x = f x;
 > val apply = fn : ('a -> 'b) -> 'a -> 'b
@@ -615,6 +661,9 @@ datatype ('a, 'b) either = LEFT of 'a | RIGHT of 'b;
 > datatype ('a,'b) either = LEFT of 'a | RIGHT of 'b
 datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree;
 > datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree
+
+set("mode", "validate");
+> val it = () : unit
 
 (* Function that creates a quadratic unification case. *)
 fun quadratic_case () =
@@ -883,6 +932,10 @@ fun quadratic_case3 () =
 >        ('co -> 'co list) * ('cp -> 'cp option) * ('cq -> 'cq * 'cq * 'cq) *
 >        ('cr -> 'cs -> 'cr * 'cs) * ('ct -> {field:'ct}) * ('cu -> 'cu)
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 let
   val v01 = 1
   val v02 = 2
@@ -894,6 +947,9 @@ in
   v01 + v02 + v03 + v04 + v05 + v06
 end;
 > val it = 21 : int
+
+set("mode", "validate");
+> val it = () : unit
 
 
 (* Factorize a number. *)
@@ -929,7 +985,14 @@ factorize 84;
 factorize 101;
 > val it = [101] : int list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.set ("stringDepth", 1000000);
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 
 (* Generates a program of length 'n', to stress the unifier. *)

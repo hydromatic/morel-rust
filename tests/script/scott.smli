@@ -16,9 +16,10 @@
  * language governing permissions and limitations under the
  * License.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("printLength", 64);
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 
 val scott = {

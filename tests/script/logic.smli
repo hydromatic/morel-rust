@@ -252,6 +252,10 @@ exists e in scott.emps where e.deptno = 20 require false;
 forall i in [2, 4, 6] require i mod 2 = 0;
 > val it = true : bool
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 forall i in [2, 3, 4] require i mod 2 = 0;
 > val it = false : bool
 forall i in [] require i mod 2 = 0;
@@ -266,6 +270,9 @@ forall require true;
 > val it = true : bool
 forall require false;
 > val it = false : bool
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) 'forall' requires 'require'
 (*

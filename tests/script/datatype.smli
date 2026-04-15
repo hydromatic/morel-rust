@@ -206,16 +206,24 @@ Node (Empty, true, "yes", Empty);
 
 datatype ('a, 'b) Union = A of 'a | B of 'b;
 > datatype ('a,'b) Union = A of 'a | B of 'b
+
+set("mode", "validate");
+> val it = () : unit
 A 1;
 > val it = A 1 : (int,'a) Union
 B true;
 > val it = B true : ('a,bool) Union
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Mutually recursive
 datatype 'a tree = Empty | Node of 'a * 'a forest
 and      'a forest = Nil | Cons of 'a tree * 'a forest;
 > datatype 'a tree = Empty | Node of 'a * 'a forest
 > datatype 'a forest = Nil | Cons of 'a tree * 'a forest
+
+set("mode", "validate");
+> val it = () : unit
 Empty;
 > val it = Empty : 'a tree
 Nil;
@@ -228,6 +236,10 @@ Cons (Empty, Nil);
 > val it = Cons (Empty,Nil) : 'a forest
 Cons (Empty, Cons (Node (true, Nil), Nil));
 > val it = Cons (Empty,Cons (Node (true,Nil),Nil)) : bool forest
+
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Parentheses are required for 2 or more type parameters,
 (*) optional for 1 type parameter,
@@ -249,6 +261,9 @@ datatype void = Void;
 > datatype void = Void
 datatype unitVoid = Void of unit;
 > datatype unitVoid = Void of unit
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Recursive datatype with 2 type parameters
 datatype ('a, 'b) tree = EMPTY | NODE of 'a * 'b * ('a, 'b) tree;
@@ -364,12 +379,19 @@ f [];
 f [SOME 5];
 > val it = 5 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Ordering of user-defined datatypes.
 datatype 'a tree =
     Empty
   | Leaf of 'a
   | Node of 'a * 'a tree * 'a tree;
 > datatype 'a tree = Empty | Leaf of 'a | Node of 'a * 'a tree * 'a tree
+
+set("mode", "validate");
+> val it = () : unit
 
 (* The comparison order of a datatype is determined by order of
   constructors, not their names. Empty compares less than Leaf,
@@ -389,9 +411,16 @@ Relational.compare (Node (2, Leaf 4, Leaf 10), Node (2, Leaf 4, Leaf 11));
 Relational.compare (Node (2, Leaf 5, Leaf 10), Node (2, Leaf 4, Leaf 11));
 > val it = GREATER : order
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Datatype with a record member.
 datatype foo = Foo of {a: int, b: string} | Bar of int;
 > datatype foo = Foo of {a:int, b:string} | Bar of int
+
+set("mode", "validate");
+> val it = () : unit
 fun baz (Foo r) = #a r
   | baz (Bar i) = i * 2;
 > val baz = fn : foo -> int
@@ -403,9 +432,16 @@ baz (Bar 3);
 baz (Foo {b = "a", a = 4});
 > val it = 4 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Datatype with spaces in its name.
 datatype `foo bar baz` = `Foo Bar` of {a: int, b: string} | Baz of int;
 > datatype foo bar baz = Foo Bar of {a:int, b:string} | Baz of int
+
+set("mode", "validate");
+> val it = () : unit
 `Foo Bar` {a = 1, b = "x"};
 > val it = Foo Bar {a=1,b="x"} : foo bar baz
 `Foo Bar`;

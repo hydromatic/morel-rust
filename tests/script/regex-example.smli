@@ -21,13 +21,14 @@
  * Code and text is based upon sections 3.2 and 3.3 of "Seminaïve Evaluation for
  * a Higher-Order Functional Language" (Arntzenius, Krishnaswami, 2020).
  *)
-set("mode", "validate");
-> val it = () : unit
 
 (* "chars" splits a string into a list of (index, character) pairs. *)
 fun chars s =
     List.tabulate (size s, fn i => (i, String.sub (s, i)));
 > val chars = fn : string -> (int * char) list
+
+set("mode", "validate");
+> val it = () : unit
 chars "abc";
 > val it = [(0,#"a"),(1,#"b"),(2,#"c")] : (int * char) list
 
@@ -37,11 +38,18 @@ chars "abc";
    pairs "(i, j)" such that the substring "si, . . . , sj − 1" matches the
    regular expression. *)
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) Prints a solution
 fun matchStrings (matches: 'a list) s =
     from (i, j) in matches
       yield substring (s, i, j - i);
 > val matchStrings = fn : (int * int) list -> string -> string list
+
+set("mode", "validate");
+> val it = () : unit
 
 (* "sym" finds all matches for a single character "c"; it
     returns the range "(i, i + 1)" whenever "(i, c) is in "chars s": *)
@@ -57,17 +65,31 @@ sym #"z" "hello";
 
 (* "epsilon" finds all matches for the empty regex, i.e. all empty substrings,
    including the one "beyond the last character" *)
+
+set("mode", "evaluate");
+> val it = () : unit
+
 fun epsilon s =
     List.tabulate ((size s) + 1, fn i => (i, i));
 > val epsilon = fn : string -> (int * int) list
+
+set("mode", "validate");
+> val it = () : unit
 epsilon "";
 > val it = [(0,0)] : (int * int) list
 epsilon "abc";
 > val it = [(0,0),(1,1),(2,2),(3,3)] : (int * int) list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* Workaround for [MOREL-270] Ambiguous collection types. *)
 fun mustBeList (list: 'a list) = list;
 > val mustBeList = fn : 'a list -> 'a list
+
+set("mode", "validate");
+> val it = () : unit
 
 (* Appending regexes r1, r2 amounts to relation composition, since we wish to
    find all substrings consisting of adjacent substrings "si . . . sj − 1" and
@@ -135,6 +157,10 @@ val matches =
 matchStrings matches "hello world";
 > val it = ["e","el","ell","r","rl"] : string list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* -------------------------------------------------------------------------- *)
 (* The combinators in the previous section found all matches within a given
    substring, but often we are not interested in all matches: we only want to
@@ -156,6 +182,9 @@ matchStrings matches "hello world";
 fun range n =
     List.tabulate (n, fn i => i);
 > val range = fn : int -> int list
+
+set("mode", "validate");
+> val it = () : unit
 fun matchStringsPos r s =
   from i in range (size s),
       j in mustBeList (r (s, i))
@@ -179,8 +208,15 @@ r ("hello", 3);
 matchStringsPos r "hello";
 > val it = [(2,"l"),(3,"l")] : (int * string) list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 fun epsilonPos (s, i) = [i];
 > val epsilonPos = fn : 'a * 'b -> 'b list
+
+set("mode", "validate");
+> val it = () : unit
 val r = epsilonPos;
 > val r = fn : 'a * 'b -> 'b list
 matchStringsPos r "hello";

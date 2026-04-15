@@ -310,7 +310,14 @@ from e in emp2
 >    {ename="MILLER",job="CLERK",salIn2020=1560.0,salIn2021=1820.0}]
 >   : {ename:string, job:string, salIn2020:real, salIn2021:real} bag
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 "end";
 > val it = "end" : string
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) End foreign.smli

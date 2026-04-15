@@ -300,9 +300,16 @@ val prefixes = List.map (fn s =>
 prefixes ["cat", "dog", "", "car", "cart"];
 > val it = ["ca","do","","ca","car"] : string list
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 (* Workaround for [MOREL-270] Ambiguous collection types. *)
 fun mustBeList (list: 'a list) = list;
 > val mustBeList = fn : 'a list -> 'a list
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) Fixed-point over union.
 (*) A naive algorithm recomputes the whole set each hop,

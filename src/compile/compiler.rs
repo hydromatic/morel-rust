@@ -330,10 +330,15 @@ impl<'a> Compiler<'a> {
 
     fn compile_over_decl(
         &self,
-        _name: &str,
+        name: &str,
         _bindings: &mut [Binding],
-        _actions: Option<&mut Vec<Box<dyn Action>>>,
+        actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
+        if let Some(actions) = actions {
+            actions.push(Box::new(OverDeclAction {
+                name: name.to_string(),
+            }));
+        }
     }
 
     fn compile_type_decl(
@@ -1941,6 +1946,17 @@ impl ValDeclAction {
 /// Action emitted for a `type alias = body` declaration. At evaluation
 /// time it just emits the line 'type alias = body' (no value is bound;
 /// the alias has already been registered in the type-resolver).
+/// Action emitted for an `over` declaration.
+struct OverDeclAction {
+    name: String,
+}
+
+impl Action for OverDeclAction {
+    fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) {
+        r.emit_effect(Effect::EmitLine(format!("over {}", self.name)));
+    }
+}
+
 struct TypeDeclAction {
     name: String,
     type_: Type,

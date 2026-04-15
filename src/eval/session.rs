@@ -61,6 +61,9 @@ pub struct Session {
     /// Constructor argument types accumulated across statements.
     /// Used by the pretty printer to format record arguments.
     pub constructor_arg_types: HashMap<String, Type>,
+    /// Accumulated overload instance types. Maps overloaded name
+    /// to a list of instance types (one per `val inst` declaration).
+    pub overloads: HashMap<String, Vec<Type>>,
 }
 
 // static SESSION_COUNTER: std::sync::atomic::AtomicUsize =
@@ -89,6 +92,7 @@ impl Session {
             type_aliases: HashMap::new(),
             datatype_constructors: HashMap::new(),
             constructor_arg_types: HashMap::new(),
+            overloads: HashMap::new(),
         }
     }
 
@@ -158,9 +162,28 @@ impl Session {
             self.datatype_constructors.clone();
         type_resolver.prior_constructor_arg_types =
             self.constructor_arg_types.clone();
+        type_resolver.seed_overloads = self.overloads.clone();
 
         // Use the accumulated type environment from previous statements
         let resolved = type_resolver.deduce_type(&*self.type_env, node)?;
+        let new_overloads = std::mem::take(&mut type_resolver.new_overloads);
+
+        // Capture new overload instances: convert candidate Vars
+        // to Types using the resolved type_map.
+        for (name, vars) in &new_overloads {
+            let mut types = Vec::new();
+            for v in vars {
+                if let Some(t) = resolved.type_map.var_to_type(v) {
+                    types.push(t);
+                }
+            }
+            if !types.is_empty() {
+                self.overloads
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(types);
+            }
+        }
 
         // Capture any new aliases introduced by this statement.
         for (name, t) in &type_resolver.type_aliases {

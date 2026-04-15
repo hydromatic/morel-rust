@@ -21,8 +21,6 @@
  * choosing the optimal guess given the information from previous
  * guesses.
  *)
-set("mode", "validate");
-> val it = () : unit
 Sys.set ("lineWidth", 78);
 > val it = () : unit
 Sys.set ("printLength", 64);
@@ -31,6 +29,9 @@ Sys.set ("printLength", 64);
 (*) Set this to false in tests, true if you want to do some slow/clever stuff.
 val slow = false;
 > val slow = false : bool
+
+set("mode", "validate");
+> val it = () : unit
 
 val words = from w in file.data.wordle.words yield w.word;
 > val words =
@@ -79,7 +80,14 @@ mask ("abcde", "spree");
 mask ("abcde", "spuds");
 > val it = 6 : int
 
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.set ("matchCoverageEnabled", false);
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 fun maskToString m =
   let
@@ -95,7 +103,14 @@ fun maskToString m =
     maskToString2 (m, "", 5)
   end;
 > val maskToString = fn : int -> string
+
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.unset "matchCoverageEnabled";
+> val it = () : unit
+
+set("mode", "validate");
 > val it = () : unit
 
 maskToString 0;

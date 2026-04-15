@@ -743,7 +743,7 @@ impl Decl {
                     val_bind.pat.for_each_id_pat(&mut p0)
                 }
             }
-            _ => todo!(),
+            Decl::Over(_) | Decl::Type(_) | Decl::Datatype(_) => {}
         }
     }
 
