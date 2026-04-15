@@ -402,6 +402,21 @@ impl Pat {
         }
     }
 
+    /// Returns a copy of this pattern with a different type.
+    pub fn with_type(self, t: Box<Type>) -> Self {
+        match self {
+            Pat::As(_, n, p) => Pat::As(t, n, p),
+            Pat::Cons(_, h, tl) => Pat::Cons(t, h, tl),
+            Pat::Constructor(_, n, p) => Pat::Constructor(t, n, p),
+            Pat::Identifier(_, n) => Pat::Identifier(t, n),
+            Pat::List(_, ps) => Pat::List(t, ps),
+            Pat::Literal(_, v) => Pat::Literal(t, v),
+            Pat::Record(_, fs, e) => Pat::Record(t, fs, e),
+            Pat::Tuple(_, ps) => Pat::Tuple(t, ps),
+            Pat::Wildcard(_) => Pat::Wildcard(t),
+        }
+    }
+
     /// Walks this pattern over `val`, calling `consumer` for each variable
     /// the pattern would bind. Returns `false` if the pattern fails to
     /// match the value (e.g. literal mismatch, wrong constructor) — the

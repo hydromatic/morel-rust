@@ -738,6 +738,9 @@ impl Pretty {
 
         match type_ref {
             // lint: sort until '#}' where '##Type::'
+            Type::Alias(name, _inner, _args) => {
+                self.pretty_raw(buf, indent2, line_end, depth, name)
+            }
             Type::Bag(element_type) => self.pretty_collection_type(
                 buf,
                 indent2,

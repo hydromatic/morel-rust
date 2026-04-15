@@ -64,6 +64,9 @@ pub struct TypeMap {
     pub var_term_map: HashMap<Var, Term>,
     // Reference to operator definitions for looking up operator names.
     pub op_defs: Rc<Vec<OpDef>>,
+    /// Maps unifier variables to type alias names. Used during
+    /// type reconstruction to wrap resolved types in `Type::Alias`.
+    pub var_alias_map: HashMap<Var, String>,
 }
 
 impl TypeMap {
@@ -75,26 +78,141 @@ impl TypeMap {
             node_var_map: node_var_map.clone(),
             var_term_map: HashMap::new(),
             op_defs,
+            var_alias_map: HashMap::new(),
         }
     }
 
     /// Gets the type for an AST node.
     pub fn get_type(&self, id: i32) -> Option<Box<Type>> {
+        self.get_type_inner(id, false)
+    }
+
+    /// Gets the type for an AST node, optionally wrapping in
+    /// `Type::Alias` if the node's variable carries a type alias.
+    pub fn get_type_with_alias(&self, id: i32) -> Option<Box<Type>> {
+        self.get_type_inner(id, true)
+    }
+
+    fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Box<Type>> {
         if let Some(var) = self.node_var_map.get(&id) {
             let mut c = TermToTypeConverter {
                 type_map: self,
                 var_map: BTreeMap::new(),
+                with_alias,
             };
-            if let Some(term) = self.var_term_map.get(var) {
-                return Some(c.term_type(term));
+            let term = self
+                .var_term_map
+                .get(var)
+                .cloned()
+                .unwrap_or(Term::Variable(*var));
+            // When with_alias, replace inlined sub-Sequences
+            // that match an alias var's concrete term with
+            // Variable(alias_var), so term_type can detect them.
+            let term = if with_alias {
+                self.reinstate_alias_refs(&term)
+            } else {
+                term
+            };
+            let type_ = c.term_type(&term);
+            // Check if this node's var has a top-level alias.
+            if with_alias {
+                if let Some(alias_name) = self.var_alias_map.get(var) {
+                    return Some(Box::new(Type::Alias(
+                        alias_name.clone(),
+                        type_,
+                        vec![],
+                    )));
+                }
             }
-            // The variable is the canonical root in union-find and has no
-            // concrete term (it is an unconstrained/free type variable).
-            // Return a generic type variable so that callers (such as the
-            // resolver and type-checker) can still proceed.
-            return Some(c.term_type(&Term::Variable(*var)));
+            return Some(type_);
         }
         None
+    }
+
+    /// For a composite term, replaces sub-terms that resolve to the
+    /// same concrete value as an alias var with `Variable(alias_var)`.
+    /// This reverses the unifier's inlining so that `term_type` can
+    /// detect aliases in sub-types (e.g. `list(int)` → `list(myInt)`).
+    fn reinstate_alias_refs(&self, term: &Term) -> Term {
+        if self.var_alias_map.is_empty() {
+            return term.clone();
+        }
+        // Collect alias var → concrete term pairs.
+        let alias_concrete: Vec<(Var, Term)> = self
+            .var_alias_map
+            .keys()
+            .filter_map(|v| {
+                let mut current = *v;
+                loop {
+                    match self.var_term_map.get(&current) {
+                        Some(Term::Variable(next)) => current = *next,
+                        Some(term) => return Some((*v, term.clone())),
+                        None => return None,
+                    }
+                }
+            })
+            .collect();
+        if alias_concrete.is_empty() {
+            return term.clone();
+        }
+        self.reinstate_in_term(term, &alias_concrete)
+    }
+
+    fn reinstate_in_term(
+        &self,
+        term: &Term,
+        alias_concrete: &[(Var, Term)],
+    ) -> Term {
+        match term {
+            Term::Sequence(seq) if !seq.terms.is_empty() => {
+                let new_terms: Vec<Term> = seq
+                    .terms
+                    .iter()
+                    .map(|t| {
+                        match t {
+                            // If the sub-term is already an inlined
+                            // Sequence, leave it — the unifier inlined
+                            // it because there was no alias var in the
+                            // chain.
+                            Term::Sequence(_) => t.clone(),
+                            // If the sub-term is a Variable, resolve
+                            // it and check if it matches an alias.
+                            Term::Variable(v) => {
+                                let concrete = {
+                                    let mut current = *v;
+                                    loop {
+                                        match self.var_term_map.get(&current) {
+                                            Some(Term::Variable(next)) => {
+                                                current = *next
+                                            }
+                                            Some(term) => {
+                                                break Some(term.clone());
+                                            }
+                                            None => break None,
+                                        }
+                                    }
+                                };
+                                if let Some(concrete) = &concrete {
+                                    for (alias_var, alias_term) in
+                                        alias_concrete
+                                    {
+                                        if concrete == alias_term {
+                                            return Term::Variable(*alias_var);
+                                        }
+                                    }
+                                }
+                                t.clone()
+                            }
+                        }
+                    })
+                    .collect();
+                Term::Sequence(Sequence {
+                    op: seq.op,
+                    terms: new_terms.into(),
+                })
+            }
+            _ => term.clone(),
+        }
     }
 
     /// Ensures that a type is closed.
@@ -160,6 +278,9 @@ impl Triple {
 struct TermToTypeConverter<'a> {
     type_map: &'a TypeMap,
     var_map: BTreeMap<i32, Box<Type>>,
+    /// When true, check each variable for a type alias annotation
+    /// and wrap the result in `Type::Alias`.
+    with_alias: bool,
 }
 
 impl<'a> TermToTypeConverter<'a> {
@@ -243,17 +364,80 @@ impl<'a> TermToTypeConverter<'a> {
                 }
             }
             Term::Variable(v) => {
-                if let Some(term) = self.type_map.var_term_map.get(v) {
-                    self.term_type(term)
+                // Check if this variable carries a type alias,
+                // either directly or by resolving to the same
+                // concrete term as an alias var.
+                let alias_name = if self.with_alias {
+                    self.find_alias_for_var(v)
                 } else {
-                    let id = self.var_map.len();
-                    self.var_map
-                        .entry(v.id)
-                        .or_insert_with(|| {
-                            Box::new(Type::Variable(TypeVariable { id }))
-                        })
-                        .clone()
+                    None
+                };
+                let inner =
+                    if let Some(term) = self.type_map.var_term_map.get(v) {
+                        self.term_type(term)
+                    } else {
+                        let id = self.var_map.len();
+                        self.var_map
+                            .entry(v.id)
+                            .or_insert_with(|| {
+                                Box::new(Type::Variable(TypeVariable { id }))
+                            })
+                            .clone()
+                    };
+                if let Some(name) = alias_name {
+                    Box::new(Type::Alias(name, inner, vec![]))
+                } else {
+                    inner
                 }
+            }
+        }
+    }
+
+    /// Finds an alias for variable `v`. First checks if `v` itself
+    /// has an alias (direct hit). If not, resolves `v` to its
+    /// concrete term and checks if any alias var resolves to the
+    /// same concrete term (equivalence class match).
+    fn find_alias_for_var(&self, v: &Var) -> Option<String> {
+        // Direct hit: v itself has an alias.
+        if let Some(name) = self.type_map.var_alias_map.get(v) {
+            return Some(name.clone());
+        }
+        // Follow the chain from v; if any intermediate var has alias,
+        // use it.
+        let mut current = *v;
+        while let Some(Term::Variable(next)) =
+            self.type_map.var_term_map.get(&current)
+        {
+            if let Some(name) = self.type_map.var_alias_map.get(next) {
+                return Some(name.clone());
+            }
+            current = *next;
+        }
+        // Resolve v to its concrete term and check if any alias var
+        // resolves to the same term. This handles cases where the
+        // unifier resolved both v and the alias var to the same
+        // concrete term without linking them.
+        let v_term = self.resolve_to_concrete(v);
+        for (alias_var, name) in &self.type_map.var_alias_map {
+            if alias_var == v {
+                continue;
+            }
+            let alias_term = self.resolve_to_concrete(alias_var);
+            if v_term == alias_term {
+                return Some(name.clone());
+            }
+        }
+        None
+    }
+
+    /// Resolves a var to its concrete (non-Variable) term.
+    fn resolve_to_concrete(&self, v: &Var) -> Option<Term> {
+        let mut current = *v;
+        loop {
+            match self.type_map.var_term_map.get(&current) {
+                Some(Term::Variable(next)) => current = *next,
+                Some(term) => return Some(term.clone()),
+                None => return None,
             }
         }
     }
@@ -335,6 +519,12 @@ pub struct TypeResolver {
     /// or `real`. Matches Standard ML semantics: numeric operators prefer
     /// `int`.
     preferred_vars: Vec<Var>,
+
+    /// Maps unifier variables to type alias names. When a type annotation
+    /// references an alias (e.g. `val x: myInt = 5`), we record the
+    /// variable → alias name so that the reconstructed type preserves
+    /// the alias (e.g. `myInt` instead of `int`).
+    var_alias_map: HashMap<Var, String>,
 }
 
 impl Default for TypeResolver {
@@ -376,6 +566,7 @@ impl TypeResolver {
             match_coverage_enabled: true,
             int_op,
             preferred_vars: Vec::new(),
+            var_alias_map: HashMap::new(),
         }
     }
 
@@ -485,6 +676,10 @@ impl TypeResolver {
         let start = pest_span.start_pos();
         let base_line = start.line_col().0.saturating_sub(1);
 
+        // Transfer alias mappings from the resolver (before collecting
+        // bindings, which needs alias info for Type::Alias wrapping).
+        type_map.var_alias_map = self.var_alias_map.clone();
+
         // Extract bindings from the declaration
         let mut bindings = Vec::new();
         Self::collect_bindings_from_decl(&decl2, &type_map, &mut bindings);
@@ -531,16 +726,39 @@ impl TypeResolver {
         }
     }
 
-    /// Collects bindings from a pattern.
+    /// Collects bindings from a pattern. `alias` is the name of a
+    /// type alias from an enclosing `Annotated` pattern, if any.
     fn collect_bindings_from_pat(
         pat: &Pat,
         type_map: &TypeMap,
         bindings: &mut Vec<TypeBinding>,
     ) {
+        Self::collect_bindings_from_pat2(pat, type_map, bindings, None);
+    }
+
+    fn collect_bindings_from_pat2(
+        pat: &Pat,
+        type_map: &TypeMap,
+        bindings: &mut Vec<TypeBinding>,
+        alias: Option<&str>,
+    ) {
         match &pat.kind {
             PatKind::Identifier(name) => {
                 if let Some(id) = pat.id {
-                    if let Some(resolved_type) = type_map.get_type(id) {
+                    if let Some(resolved_type) = if alias.is_some() {
+                        type_map.get_type(id)
+                    } else {
+                        type_map.get_type_with_alias(id)
+                    } {
+                        let resolved_type = if let Some(alias_name) = alias {
+                            Box::new(Type::Alias(
+                                alias_name.to_string(),
+                                resolved_type,
+                                vec![],
+                            ))
+                        } else {
+                            resolved_type
+                        };
                         bindings.push(TypeBinding {
                             name: name.clone(),
                             resolved_type: *resolved_type,
@@ -561,29 +779,35 @@ impl TypeResolver {
                     }
                 }
                 // Also collect from the inner pattern
-                Self::collect_bindings_from_pat(inner_pat, type_map, bindings);
+                Self::collect_bindings_from_pat2(
+                    inner_pat, type_map, bindings, alias,
+                );
             }
             PatKind::Tuple(pats) => {
                 for p in pats {
-                    Self::collect_bindings_from_pat(p, type_map, bindings);
+                    Self::collect_bindings_from_pat2(
+                        p, type_map, bindings, None,
+                    );
                 }
             }
             PatKind::List(pats) => {
                 for p in pats {
-                    Self::collect_bindings_from_pat(p, type_map, bindings);
+                    Self::collect_bindings_from_pat2(
+                        p, type_map, bindings, None,
+                    );
                 }
             }
             PatKind::Record(fields, _ellipsis) => {
                 for field in fields {
                     match field {
                         PatField::Labeled(_span, _name, p) => {
-                            Self::collect_bindings_from_pat(
-                                p, type_map, bindings,
+                            Self::collect_bindings_from_pat2(
+                                p, type_map, bindings, None,
                             );
                         }
                         PatField::Anonymous(_span, p) => {
-                            Self::collect_bindings_from_pat(
-                                p, type_map, bindings,
+                            Self::collect_bindings_from_pat2(
+                                p, type_map, bindings, None,
                             );
                         }
                         PatField::Ellipsis(_span) => {}
@@ -591,14 +815,43 @@ impl TypeResolver {
                 }
             }
             PatKind::Cons(left, right) => {
-                Self::collect_bindings_from_pat(left, type_map, bindings);
-                Self::collect_bindings_from_pat(right, type_map, bindings);
+                Self::collect_bindings_from_pat2(
+                    left, type_map, bindings, None,
+                );
+                Self::collect_bindings_from_pat2(
+                    right, type_map, bindings, None,
+                );
             }
-            PatKind::Annotated(inner_pat, _type) => {
-                Self::collect_bindings_from_pat(inner_pat, type_map, bindings);
+            PatKind::Annotated(inner_pat, ann_type) => {
+                // If the annotation references a type alias, pass the
+                // alias name down so that the binding's resolved type
+                // is wrapped in Type::Alias.
+                let alias_name: Option<&str> =
+                    if let TypeKind::Id(name) = &ann_type.kind {
+                        // Check if the annotation type id maps to a var
+                        // with an alias. The annotation's id is the Var's
+                        // id (set by reg_type), so look it up directly.
+                        if let Some(ann_id) = ann_type.id {
+                            let var = Var { id: ann_id };
+                            if type_map.var_alias_map.contains_key(&var) {
+                                Some(name.as_str())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                Self::collect_bindings_from_pat2(
+                    inner_pat, type_map, bindings, alias_name,
+                );
             }
             PatKind::Constructor(_name, Some(inner_pat)) => {
-                Self::collect_bindings_from_pat(inner_pat, type_map, bindings);
+                Self::collect_bindings_from_pat2(
+                    inner_pat, type_map, bindings, None,
+                );
             }
             _ => {
                 // Other patterns don't create bindings
@@ -3735,6 +3988,15 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
             }
             None
         }
+        TypeKind::Record(fields) => {
+            let mut field_map = BTreeMap::new();
+            for field in fields {
+                let field_type = ast_type_to_core_type(&field.type_)?;
+                field_map
+                    .insert(Label::from(field.label.name.clone()), field_type);
+            }
+            Some(Type::Record(false, field_map))
+        }
         _ => None,
     }
 }
@@ -3865,6 +4127,10 @@ impl<'a> TypeToTermConverter<'a> {
                     self.type_resolver.type_aliases.get(name).cloned()
                 {
                     self.type_resolver.type_term(&alias_type, subst, v);
+                    // Record that this variable carries an alias, so
+                    // that type reconstruction wraps the resolved type
+                    // in Type::Alias.
+                    self.type_resolver.var_alias_map.insert(*v, name.clone());
                     return self.type_resolver.reg_type(
                         &type_node.kind,
                         &type_node.span,
