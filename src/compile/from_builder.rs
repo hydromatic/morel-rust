@@ -361,19 +361,16 @@ impl FromBuilder {
                     }
                 }
             }
-            Expr::Identifier(_, name) => {
-                // Check if this is a trivial "yield x" where x is the
-                // only binding.
+            Expr::Identifier(_, name)
                 if self.bindings.len() == 1
                     && self.bindings[0].id.name == *name
                     // After 'yield {x = something}', 'yield x' may seem
                     // trivial, but it converts a singleton record to an
                     // atom, so don't remove it.
                     && (self.steps.is_empty()
-                        || self.steps.last().unwrap().env.atom)
-                {
-                    return self;
-                }
+                        || self.steps.last().unwrap().env.atom) =>
+            {
+                return self;
             }
             _ => {
                 // Other expressions, continue to add the step.

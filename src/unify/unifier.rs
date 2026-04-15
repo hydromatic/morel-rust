@@ -236,7 +236,7 @@ impl Display for SubstitutionDisplay<'_> {
         // Sort by variable for deterministic output (uses Var::Ord).
         let mut entries: Vec<_> =
             self.substitution.substitutions.iter().collect();
-        entries.sort_by(|(var1, _), (var2, _)| var1.cmp(var2));
+        entries.sort_by_key(|(var, _)| *var);
         for (var, term) in entries {
             if !first {
                 f.write_str(", ")?;

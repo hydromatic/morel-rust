@@ -1254,13 +1254,17 @@ impl Span {
         let end_pos = span.end_pos();
         let start = start_pos.line_col();
         let end = end_pos.line_col();
-        Self::new(&format!(
-            "stdIn:{}.{}-{}.{}",
-            start.0.saturating_sub(base_line),
-            start.1,
-            end.0.saturating_sub(base_line),
-            end.1
-        ))
+        let start_line = start.0.saturating_sub(base_line);
+        let end_line = end.0.saturating_sub(base_line);
+        if start_line == end_line && end.1 == start.1 + 1 {
+            // Single-character span: just print the start position.
+            Self::new(&format!("stdIn:{}.{}", start_line, start.1))
+        } else {
+            Self::new(&format!(
+                "stdIn:{}.{}-{}.{}",
+                start_line, start.1, end_line, end.1
+            ))
+        }
     }
 }
 
