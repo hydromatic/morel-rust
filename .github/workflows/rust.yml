@@ -29,6 +29,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Rust version
+      run: rustc --version && cargo --version
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
     - name: Install wasm32 target

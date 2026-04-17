@@ -1288,3 +1288,15 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
 pub fn lookup(name: &str) -> Option<BuiltIn> {
     LIBRARY.name_to_built_in.get(name).cloned()
 }
+
+/// Looks up a structure field by `"Struct.field"` name.
+/// Returns the built-in function if found.
+pub fn lookup_struct_field(
+    struct_name: &str,
+    field_name: &str,
+) -> Option<BuiltInFunction> {
+    BuiltInFunction::iter().find(|f| {
+        f.get_str("p") == Some(struct_name)
+            && f.get_str("name") == Some(field_name)
+    })
+}

@@ -1149,6 +1149,34 @@ impl<'a> Resolver<'a> {
                 let resolved_expr = self.resolve_expr(expr);
                 builder.take(resolved_expr);
             }
+            AstStepKind::Through(pat, expr) => {
+                // Desugar "from ... through p in f"
+                // to "from p in f (from ...)".
+                let from_expr = builder
+                    .build_simplify()
+                    .expect("Failed to build From expression");
+                builder.clear();
+                let fn_expr = self.resolve_expr(expr);
+                let resolved_pat = self.resolve_pat(pat);
+                let result_type = match fn_expr.type_().as_ref() {
+                    Type::Fn(_, result) => Box::new(result.as_ref().clone()),
+                    t => panic!(
+                        "through expression must be a function, got {:?}",
+                        t
+                    ),
+                };
+                let span = Span::from_pest_span(
+                    &step.span.to_pest_span(),
+                    self.base_line,
+                );
+                let apply = CoreExpr::Apply(
+                    result_type,
+                    Box::new(fn_expr),
+                    Box::new(from_expr),
+                    span,
+                );
+                builder.scan(resolved_pat, apply);
+            }
             AstStepKind::Union(distinct, exprs) => {
                 let resolved_exprs: Vec<_> =
                     exprs.iter().map(|e| self.resolve_expr(e)).collect();

@@ -2167,6 +2167,9 @@ from i in [1, 2, 3, 4, 5, 6, 7]
   take 3;
 > val it = [1,2,3] : int list
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (* Define a table function that returns the even numbers
    from a collection. *)
 fun evenNumbers (xs: int list) =
@@ -2175,9 +2178,13 @@ fun evenNumbers (xs: int list) =
 > val evenNumbers = fn : int list -> int list
 
 (* Use the table function in a query. *)
+set("mode", "validate");
+> val it = () : unit
 from i in [1, 2, 3, 4, 5, 6, 7]
   through j in evenNumbers;
 > val it = [2,4,6] : int list
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Define a table function that returns the numbers from
    a collection that are multiples of base. *)
@@ -2187,6 +2194,8 @@ fun multiplesOf base (xs: int list) =
 > val multiplesOf = fn : int -> int list -> int list
 
 (* Use the table function to find multiples of 3. *)
+set("mode", "validate");
+> val it = () : unit
 from i in [1, 2, 3, 4, 5, 6, 7]
   through j in multiplesOf 3;
 > val it = [3,6] : int list

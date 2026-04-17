@@ -2761,23 +2761,20 @@ impl TypeResolver {
         let step2 = StepKind::Through(Box::new(pat2.clone()), Box::new(expr2));
         steps2.push(step2.spanned(span));
 
-        // Build the environment with pattern bindings added to existing env.
-        let mut env5 = p.env.clone();
-        // Keep the existing field_vars and add new ones from the pattern.
+        // A Through replaces the entire collection: only the new
+        // pattern's bindings survive. Clear previous field_vars and
+        // rebuild the environment from root_env.
+        field_vars.clear();
+        let mut env_builder = p.root_env.builder();
         for (name, term) in term_map {
-            env5 = env5.bind(name.clone(), term.clone());
-            if let Term::Variable(v) = &term {
-                field_vars.push((name, *v));
-            }
+            env_builder.push(name.clone(), term.clone());
+            let v = self.term_to_variable(&term);
+            field_vars.push((name, v));
         }
+        env_builder.push("current".to_string(), Term::Variable(v_element));
+        let env5 = env_builder.build();
 
-        // The result element type is a record of all field_vars.
-        let v_result = self.variable();
-        let mut map: BTreeMap<Label, Term> = BTreeMap::new();
-        for (name, var) in field_vars.iter() {
-            map.insert(Label::from(name.clone()), Term::Variable(*var));
-        }
-        self.record_term(&map, &v_result);
+        let v_result = self.field_var(field_vars, true);
 
         Ok(Triple::new(
             p.root_env.clone(),

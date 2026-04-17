@@ -2841,6 +2841,9 @@ Sys.plan();
 >   : string
 
 (*) into and through
+set("mode", "evaluate");
+> val it = () : unit
+
 from i in [1,2,3]
   through i2 in (map (fn x => [x]));
 > val it = [[1],[2],[3]] : int list list
@@ -2849,6 +2852,9 @@ from i in [1,2,3]
   through i2 in (map (fn x => [x]))
   through i3 in (map (fn x => [x]));
 > val it = [[[1]],[[2]],[[3]]] : int list list list
+
+set("mode", "validate");
+> val it = () : unit
 
 let
   fun clean emps =
@@ -2886,8 +2892,6 @@ fun threes list =
   end;
 > val threes = fn : 'a list -> 'a list list
 
-set("mode", "validate");
-> val it = () : unit
 threes [1];
 > val it = [[1]] : int list list
 threes [1,2];
@@ -2913,6 +2917,9 @@ fun threeBag list = bag (threes list);
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
+
+set("mode", "validate");
+> val it = () : unit
 
 let
   fun clean emps =

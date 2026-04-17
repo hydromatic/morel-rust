@@ -352,7 +352,6 @@ pub enum StepKind {
     Scan(Box<Pat>, Box<Expr>, Option<Box<Expr>>),
     Skip(Box<Expr>),
     Take(Box<Expr>),
-    Through(Box<Pat>, Box<Expr>),
     Union(bool, Vec<Expr>),
     Unorder,
     Where(Box<Expr>),

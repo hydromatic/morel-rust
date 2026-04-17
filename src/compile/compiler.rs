@@ -26,7 +26,7 @@ use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
 use crate::eval::code::{
-    CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep, Span,
+    self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep, Span,
 };
 use crate::eval::comparator::{self, comparator_for};
 use crate::eval::frame::FrameDef;
@@ -1035,9 +1035,23 @@ impl<'a> Compiler<'a> {
                 );
                 Code::FromRowSink(factory)
             }
-            Expr::Identifier(_, name) => {
-                let slot = cx.frame_def.var_index(name);
-                Code::new_get_local(&cx.frame_def, slot)
+            Expr::Identifier(type_, name) => {
+                if let Some(slot) = cx.frame_def.try_var_index(name) {
+                    Code::new_get_local(&cx.frame_def, slot)
+                } else if let Some(val) = cx.env.get(name) {
+                    Code::new_constant(type_, val.clone())
+                } else if let Some(rec) =
+                    crate::compile::library::name_to_rec(name)
+                {
+                    let (_, val) = code::LIBRARY
+                        .structure_map
+                        .get(&rec)
+                        .expect("structure not in library");
+                    Code::new_constant(type_, val.clone())
+                } else {
+                    cx.frame_def.var_index(name);
+                    unreachable!()
+                }
             }
             Expr::Let(_, decl_list, expr) => {
                 let mut bindings = Vec::new();
