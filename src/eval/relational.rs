@@ -15,87 +15,41 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::eval::comparator::{Comparator, NaturalComparator};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
-use std::cmp::Ordering;
 
 /// Support for the `Relational` structure.
 pub struct Relational;
 
 impl Relational {
-    /// Returns `LESS`, `EQUAL`, or `GREATER` according to whether the first
-    /// argument is less than, equal to, or greater than the second.
-    ///
-    /// Comparisons are based on the structure of the type. Primitive types
-    /// are compared using their natural order; Option types compare with NONE
-    /// last; Tuple types compare lexicographically; Record types compare
-    /// lexicographically, with fields compared in alphabetical order; List
-    /// values compare lexicographically; Bag values compare lexicographically.
+    /// Fallback comparison using `NaturalComparator`. Prefer
+    /// type-directed `Code::Compare` when the type is known at
+    /// compile time.
     pub(crate) fn compare(a: &Val, b: &Val) -> Val {
-        Val::Order(Order(Self::compare_vals(a, b)))
+        Val::Order(Order(NaturalComparator.compare(a, b)))
     }
 
-    /// Internal comparison function that returns a Rust Ordering.
-    fn compare_vals(a: &Val, b: &Val) -> Ordering {
-        // For simplicity, delegate to Val's equality check and manual ordering.
-        // A full implementation would handle all Val types systematically.
-        if a == b {
-            return Ordering::Equal;
-        }
-
-        // For now, use a basic ordering based on discriminant.
-        // TODO: Implement proper structural comparison for all types.
-        match (a, b) {
-            (Val::Bool(a), Val::Bool(b)) => a.cmp(b),
-            (Val::Char(a), Val::Char(b)) => a.cmp(b),
-            (Val::Int(a), Val::Int(b)) => a.cmp(b),
-            (Val::Real(a), Val::Real(b)) => {
-                a.partial_cmp(b).unwrap_or(Ordering::Equal)
-            }
-            (Val::String(a), Val::String(b)) => a.cmp(b),
-            (
-                Val::Constructor(ord_a, inner_a),
-                Val::Constructor(ord_b, inner_b),
-            ) => ord_a
-                .cmp(ord_b)
-                .then_with(|| Self::compare_vals(inner_a, inner_b)),
-            (Val::List(a), Val::List(b)) => Self::compare_lists(a, b),
-            (Val::Unit, Val::Unit) => Ordering::Equal,
-            _ => Ordering::Equal, // Default for unimplemented comparisons
-        }
-    }
-
-    /// Compare two lists lexicographically.
-    fn compare_lists(a: &[Val], b: &[Val]) -> Ordering {
-        for (x, y) in a.iter().zip(b.iter()) {
-            match Self::compare_vals(x, y) {
-                Ordering::Equal => continue,
-                other => return other,
-            }
-        }
-        a.len().cmp(&b.len())
-    }
-
-    /// Returns the greatest element of the list.
-    /// Throws Empty exception if the list is empty.
+    /// Fallback max using `NaturalComparator`.
     pub(crate) fn max(list: &[Val]) -> Val {
+        use crate::eval::comparator::NaturalComparator;
         if list.is_empty() {
             panic!("Empty");
         }
         list.iter()
-            .max_by(|a, b| Self::compare_vals(a, b))
+            .max_by(|a, b| NaturalComparator.compare(a, b))
             .unwrap()
             .clone()
     }
 
-    /// Returns the least element of the list.
-    /// Throws Empty exception if the list is empty.
+    /// Fallback min using `NaturalComparator`.
     pub(crate) fn min(list: &[Val]) -> Val {
+        use crate::eval::comparator::NaturalComparator;
         if list.is_empty() {
             panic!("Empty");
         }
         list.iter()
-            .min_by(|a, b| Self::compare_vals(a, b))
+            .min_by(|a, b| NaturalComparator.compare(a, b))
             .unwrap()
             .clone()
     }

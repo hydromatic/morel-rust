@@ -30,6 +30,11 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+/// Sentinel ordinal for the built-in `DESC` constructor of the
+/// `descending` datatype. Distinct from any user-defined constructor
+/// ordinal (which are 0-based).
+pub const DESC_ORDINAL: usize = usize::MAX;
+
 /// Runtime value.
 ///
 /// The [Val::Typed], [Val::Named], [Val::Labeled], and [Val::Type] variants are
@@ -67,7 +72,8 @@ pub enum Val {
     /// constructor in the datatype declaration (used for comparison
     /// ordering). Nullary constructors carry `Val::Unit`. For example,
     /// `Y 0` of `datatype foo = X | Y of int` becomes
-    /// `Constructor(1, Box::new(Int(0)))`.
+    /// `Constructor(1, Box::new(Int(0)))`. The built-in `DESC`
+    /// constructor uses [`DESC_ORDINAL`] as its ordinal.
     Constructor(usize, Box<Val>),
 
     /// Wrapper that indicates that a value should be printed with its name
