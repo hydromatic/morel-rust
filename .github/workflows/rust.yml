@@ -45,5 +45,7 @@ jobs:
       run: cargo fmt --all -- --check
     - name: Doc
       run: cargo doc
-    - name: Run tests
+    - name: Run tests (debug)
       run: cargo test --verbose
+    - name: Run tests (release)
+      run: cargo test --verbose --release
