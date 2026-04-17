@@ -71,7 +71,8 @@ impl<'a> CoverageChecker<'a> {
         }
 
         // Create SAT variables for all constructors of this type.
-        let names = closed_constructors(type_)?;
+        let names =
+            closed_constructors(type_, &self.type_map.datatype_constructors)?;
         let vars: Vec<usize> =
             names.iter().map(|_| self.sat.new_var()).collect();
 
@@ -396,7 +397,10 @@ impl<'a> CoverageChecker<'a> {
 
 /// Returns the constructor names for a closed (finite) type, or `None` for
 /// open (infinite) types like `int` and `string`.
-fn closed_constructors(type_: &Type) -> Option<Vec<String>> {
+fn closed_constructors(
+    type_: &Type,
+    user_datatypes: &HashMap<String, Vec<String>>,
+) -> Option<Vec<String>> {
     match type_ {
         Type::Primitive(PrimitiveType::Bool) => {
             Some(vec!["true".to_string(), "false".to_string()])
@@ -408,6 +412,10 @@ fn closed_constructors(type_: &Type) -> Option<Vec<String>> {
         ]),
         Type::Data(name, _) if name == "option" => {
             Some(vec!["NONE".to_string(), "SOME".to_string()])
+        }
+        Type::Data(name, _) => {
+            // Look up user-defined datatype constructors.
+            user_datatypes.get(name).cloned()
         }
         Type::List(_) => Some(vec!["nil".to_string(), "cons".to_string()]),
         _ => None,

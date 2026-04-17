@@ -18,7 +18,7 @@
 use crate::compile::type_env::{
     BindType, EmptyTypeEnv, FunTypeEnv, SimpleTypeEnv, TypeEnv, TypeEnvBuilder,
 };
-use crate::compile::type_resolver::{Resolved, TypeResolver};
+use crate::compile::type_resolver::{BindingKind, Resolved, TypeResolver};
 use crate::compile::types::Type;
 use crate::eval::code::Code;
 use crate::eval::val::Val;
@@ -43,13 +43,21 @@ pub struct Session {
     pub out: Option<Vec<String>>,
     /// The accumulated type environment (bindings from previous statements).
     pub type_env: Rc<dyn TypeEnv>,
-    /// Accumulated type bindings from all statements. When a name is redefined,
-    /// the HashMap::insert naturally overwrites the old binding.
-    pub type_bindings: HashMap<String, Type>,
-    /// Accumulated type aliases from `type` declarations across all
-    /// statements. Each new `TypeResolver` is seeded with this map so
-    /// that aliases defined in one statement are visible in later ones.
+    /// Accumulated type bindings from all statements. When a name is
+    /// redefined, HashMap::insert naturally overwrites the old binding.
+    /// The bool indicates whether this is a constructor (true) or a
+    /// regular value (false).
+    pub type_bindings: HashMap<String, (Type, bool)>,
+    /// Accumulated type aliases from `type` and `datatype` declarations
+    /// across all statements. Each new `TypeResolver` is seeded with
+    /// this map so that aliases defined in one statement are visible in
+    /// later ones.
     pub type_aliases: HashMap<String, Type>,
+    /// Accumulated constructor sets from `datatype` declarations.
+    /// Each new `TypeMap` is seeded with this map so that the match
+    /// coverage checker knows the constructor set of previously
+    /// declared datatypes.
+    pub datatype_constructors: HashMap<String, Vec<String>>,
     // Debug ID to track session instances
     // pub debug_id: usize,
 }
@@ -78,6 +86,7 @@ impl Session {
             type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
             type_bindings: HashMap::new(),
             type_aliases: HashMap::new(),
+            datatype_constructors: HashMap::new(),
             // debug_id: id,
         }
     }
@@ -144,6 +153,8 @@ impl Session {
         // so that 'type myInt = int' in one statement and 'val x: myInt = 5'
         // in the next can both refer to the alias.
         type_resolver.type_aliases = self.type_aliases.clone();
+        type_resolver.prior_datatype_constructors =
+            self.datatype_constructors.clone();
 
         // Use the accumulated type environment from previous statements
         let resolved = type_resolver.deduce_type(&*self.type_env, node)?;
@@ -153,16 +164,25 @@ impl Session {
             self.type_aliases.insert(name.clone(), t.clone());
         }
 
+        // Capture any new constructor sets from datatype declarations.
+        for (name, cons) in &resolved.type_map.datatype_constructors {
+            self.datatype_constructors
+                .insert(name.clone(), cons.clone());
+        }
+
         // Update the accumulated environment with new bindings from this
         // statement. We store bindings in a single HashMap; when a name is
         // redefined, HashMap::insert overwrites the old binding, preventing
         // memory growth from shadowed values.
         let mut has_new_bindings = false;
         for binding in &resolved.bindings {
-            if binding.kind == crate::compile::type_resolver::BindingKind::Val {
+            if binding.kind == BindingKind::Val
+                || binding.kind == BindingKind::Constructor
+            {
+                let is_con = binding.kind == BindingKind::Constructor;
                 self.type_bindings.insert(
                     binding.name.clone(),
-                    binding.resolved_type.clone(),
+                    (binding.resolved_type.clone(), is_con),
                 );
                 has_new_bindings = true;
             }
@@ -304,15 +324,20 @@ impl Configurable for Config {
 /// and converts them to terms on-demand.
 pub struct ResolvedTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
-    pub bindings: HashMap<String, Type>,
+    /// `(type, is_constructor)`.
+    pub bindings: HashMap<String, (Type, bool)>,
 }
 
 impl TypeEnv for ResolvedTypeEnv {
     fn get(&self, name: &str, t: &mut TypeResolver) -> Option<BindType> {
-        if let Some(type_) = self.bindings.get(name) {
-            // Convert the type to a term using the current TypeResolver
+        if let Some((type_, is_con)) = self.bindings.get(name) {
             let term = t.type_to_term(type_);
-            Some(BindType::Val(Term::Variable(term)))
+            let term = Term::Variable(term);
+            Some(if *is_con {
+                BindType::Constructor(term)
+            } else {
+                BindType::Val(term)
+            })
         } else {
             self.parent.get(name, t)
         }

@@ -124,8 +124,6 @@ end;
 > val it = ("x",2) : string * int
 
 (*) A datatype whose constructor overwrites another datatype's constructor
-set("mode", "validate");
-> val it = () : unit
 datatype foo = W | X | Y of int;
 > datatype foo = W | X | Y of int
 X;
@@ -178,8 +176,8 @@ height it;
 (*) Recursive
 datatype 'x tree = Empty | Node of 'x tree * 'x * 'x tree;
 > datatype 'a tree = Empty | Node of 'a tree * 'a * 'a tree
-fun greater (x, y) = if x < y then y else x;
-> val greater = fn : 'a * 'a -> 'a
+fun greater (x: int, y) = if x < y then y else x;
+> val greater = fn : int * int -> int
 fun height Empty = 0
   | height (Node (lft, _, rht)) = 1 + greater (height lft, height rht);
 > val height = fn : 'a tree -> int
@@ -316,8 +314,6 @@ val it = 3 : int
 *)
 
 (*) Pattern matching on the same type constructor, nested.
-set("mode", "evaluate");
-> val it = () : unit
 fun f (SOME (SOME i)) = i + 1
   | f (SOME NONE) = 0
   | f NONE = ~1;

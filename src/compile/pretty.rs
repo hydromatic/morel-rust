@@ -612,6 +612,58 @@ impl Pretty {
         Ok(())
     }
 
+    /// Pretty-prints a `Val::Constructor(name, inner)` value.
+    /// Handles tuple args as `(a,b,c)` and recurses into nested
+    /// constructors.
+    fn pretty_constructor(
+        buf: &mut String,
+        name: &str,
+        inner: &Val,
+    ) -> Result<(), std::fmt::Error> {
+        buf.push_str(name);
+        if *inner == Val::Unit {
+            return Ok(());
+        }
+        buf.push(' ');
+        match inner {
+            Val::List(items) if items.len() != 1 => {
+                buf.push('(');
+                let start = buf.len();
+                for item in items {
+                    if buf.len() > start {
+                        buf.push(',');
+                    }
+                    Self::pretty_val(buf, item)?;
+                }
+                buf.push(')');
+            }
+            _ => Self::pretty_val(buf, inner)?,
+        }
+        Ok(())
+    }
+
+    /// Pretty-prints a Val using constructor-aware formatting.
+    fn pretty_val(buf: &mut String, val: &Val) -> Result<(), std::fmt::Error> {
+        match val {
+            Val::Constructor(name, inner) => {
+                Self::pretty_constructor(buf, name, inner)
+            }
+            Val::List(items) if items.len() != 1 => {
+                buf.push('(');
+                let start = buf.len();
+                for item in items {
+                    if buf.len() > start {
+                        buf.push(',');
+                    }
+                    Self::pretty_val(buf, item)?;
+                }
+                buf.push(')');
+                Ok(())
+            }
+            _ => write!(buf, "{}", val),
+        }
+    }
+
     fn pretty_data_type(
         &self,
         buf: &mut String,
@@ -664,6 +716,10 @@ impl Pretty {
                         .pretty_raw(buf, indent, line_end, depth, "NONE");
                 }
                 panic!("Expected list")
+            }
+            Val::Constructor(con_name, inner) => {
+                Self::pretty_constructor(buf, con_name, inner)?;
+                return Ok(());
             }
             _ => panic!("Expected list"),
         };

@@ -336,10 +336,17 @@ impl<'a> Compiler<'a> {
 
     fn compile_datatype_decl(
         &self,
-        _datatype_binds: &[DatatypeBind],
+        datatype_binds: &[DatatypeBind],
         _bindings: &mut [Binding],
-        _actions: Option<&mut Vec<Box<dyn Action>>>,
+        actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
+        if let Some(actions) = actions {
+            for db in datatype_binds {
+                actions.push(Box::new(DatatypeDeclAction {
+                    datatype_bind: db.clone(),
+                }));
+            }
+        }
     }
 
     /// Creates a context.
@@ -1842,6 +1849,69 @@ impl Action for TypeDeclAction {
             "type {} = {}",
             self.name, self.type_
         )));
+    }
+}
+
+/// Action emitted for a `datatype` declaration. At evaluation
+/// time it emits one line per datatype bind:
+/// `datatype 'a tree = Empty | Node of 'a tree * 'a * 'a tree`.
+struct DatatypeDeclAction {
+    datatype_bind: DatatypeBind,
+}
+
+impl Action for DatatypeDeclAction {
+    fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) {
+        let db = &self.datatype_bind;
+        let type_vars = if db.type_vars.is_empty() {
+            String::new()
+        } else {
+            let vars: Vec<String> = (0..db.type_vars.len())
+                .map(|i| format!("'{}", (b'a' + i as u8) as char))
+                .collect();
+            if vars.len() == 1 {
+                format!("{} ", vars[0])
+            } else {
+                format!("({}) ", vars.join(","))
+            }
+        };
+        let cons: Vec<String> = db
+            .constructors
+            .iter()
+            .map(|c| {
+                if let Some(t) = &c.type_ {
+                    format!("{} of {}", c.name, t)
+                } else {
+                    c.name.clone()
+                }
+            })
+            .collect();
+        r.emit_effect(Effect::EmitLine(format!(
+            "datatype {}{} = {}",
+            type_vars,
+            db.name,
+            cons.join(" | ")
+        )));
+
+        // Register each constructor as a runtime binding.
+        for con in &db.constructors {
+            let val = if con.type_.is_some() {
+                // Value-carrying: a Code that wraps arg in
+                // Val::Constructor(name, arg).
+                Val::Code(Arc::new(Code::ConstructorWrap(Arc::from(
+                    con.name.as_str(),
+                ))))
+            } else {
+                // Nullary: just the tagged value.
+                Val::Constructor(
+                    Arc::from(con.name.as_str()),
+                    Box::new(Val::Unit),
+                )
+            };
+            r.emit_effect(Effect::AddBinding(Binding::of_name_value(
+                &con.name,
+                &Some(val),
+            )));
+        }
     }
 }
 
