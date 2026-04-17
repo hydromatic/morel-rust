@@ -53,6 +53,12 @@ impl Relational {
                 a.partial_cmp(b).unwrap_or(Ordering::Equal)
             }
             (Val::String(a), Val::String(b)) => a.cmp(b),
+            (
+                Val::Constructor(ord_a, inner_a),
+                Val::Constructor(ord_b, inner_b),
+            ) => ord_a
+                .cmp(ord_b)
+                .then_with(|| Self::compare_vals(inner_a, inner_b)),
             (Val::List(a), Val::List(b)) => Self::compare_lists(a, b),
             (Val::Unit, Val::Unit) => Ordering::Equal,
             _ => Ordering::Equal, // Default for unimplemented comparisons

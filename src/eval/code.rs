@@ -119,11 +119,11 @@ pub enum Code {
     /// type-constructor called `name` and its argument matches `pat`.
     /// (Zero argument constructors become [Code::BindLiteral].)
     BindConstructor(String, Box<Code>),
-    /// `BindConstructor2(name, pat_code)` matches a user-defined
+    /// `BindConstructor2(ordinal, pat_code)` matches a user-defined
     /// constructor value. It succeeds if `a0` is
-    /// `Val::Constructor(name, inner)` and the inner value matches
+    /// `Val::Constructor(ordinal, inner)` and the inner value matches
     /// `pat_code`.
-    BindConstructor2(Arc<str>, Option<Box<Code>>),
+    BindConstructor2(usize, Option<Box<Code>>),
     /// `BindList(patterns)` succeeds if the argument is a list the same length
     /// as `patterns` and each element successfully binds.
     BindList(Vec<Code>),
@@ -150,13 +150,12 @@ pub enum Code {
     /// the value more intelligently.
     Constant(Box<Type>, Val),
 
-    /// `ConstructorWrap(name)` is a function that, when applied
+    /// `ConstructorWrap(ordinal)` is a function that, when applied
     /// to a value via `eval_f1`, wraps it in
-    /// `Val::Constructor(name, Box::new(arg))`. Used as the
+    /// `Val::Constructor(ordinal, Box::new(arg))`. Used as the
     /// runtime representation of value-carrying user-defined
-    /// datatype constructors. The name is `Arc<str>` so that
-    /// cloning the code and resulting values is cheap.
-    ConstructorWrap(Arc<str>),
+    /// datatype constructors.
+    ConstructorWrap(usize),
 
     /// `CreateClosure(frame, matches, binds, no_match)` creates a
     /// [Val::Closure] value that is similar to a function, but has a
@@ -262,6 +261,7 @@ impl Code {
     pub(crate) fn new_bind_constructor(
         type_: &Type,
         name: &str,
+        ordinal: Option<usize>,
         t: &Option<Code>,
     ) -> Code {
         // Determine whether this is a built-in constructor (SOME,
@@ -276,7 +276,7 @@ impl Code {
         if !is_builtin {
             // User-defined constructor: use BindConstructor2.
             return Code::BindConstructor2(
-                Arc::from(name),
+                ordinal.expect("user-defined constructor must have ordinal"),
                 t.clone().map(Box::new),
             );
         }
@@ -877,10 +877,12 @@ impl Code {
                     _ => Ok(Val::Bool(false)),
                 }
             }
-            Code::BindConstructor2(name, pat_code) => {
+            Code::BindConstructor2(ordinal, pat_code) => {
                 // User-defined constructor pattern.
                 match a0 {
-                    Val::Constructor(con_name, inner) if con_name == name => {
+                    Val::Constructor(con_ordinal, inner)
+                        if con_ordinal == ordinal =>
+                    {
                         if let Some(pat) = pat_code {
                             pat.eval_f1(r, f, inner)
                         } else {
@@ -929,8 +931,8 @@ impl Code {
                 }))
             }
             Code::Constant(_, v) => Ok(v.clone()),
-            Code::ConstructorWrap(name) => {
-                Ok(Val::Constructor(name.clone(), Box::new(a0.clone())))
+            Code::ConstructorWrap(ordinal) => {
+                Ok(Val::Constructor(*ordinal, Box::new(a0.clone())))
             }
             Code::CreateClosure(frame_def, matches, bind_codes, no_match) => {
                 // Build the closure's bound values from the current
@@ -1188,8 +1190,8 @@ impl Display for Code {
             Self::BindAnd(codes) => {
                 Self::write_codes(f, "bindAnd(", codes, ")")
             }
-            Self::BindConstructor2(name, _) => {
-                write!(f, "bindCon2({})", name)
+            Self::BindConstructor2(ordinal, _) => {
+                write!(f, "bindCon2(#{})", ordinal)
             }
             Self::BindLiteral(v) => write!(f, "{}", v),
             Self::BindSlot(_, slot) => write!(f, "bind({})", slot),
@@ -1206,8 +1208,8 @@ impl Display for Code {
                 Val::Unit => write!(f, "constant([NONE])"),
                 _ => write!(f, "constant({})", v),
             },
-            Self::ConstructorWrap(name) => {
-                write!(f, "conWrap({})", name)
+            Self::ConstructorWrap(ordinal) => {
+                write!(f, "conWrap(#{})", ordinal)
             }
             Self::CreateClosure(_, matches, bind_codes, _) => {
                 write!(f, "createClosure(captures(")?;

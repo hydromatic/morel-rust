@@ -73,6 +73,10 @@ pub struct TypeMap {
     /// checker to determine whether a set of constructor patterns
     /// is exhaustive.
     pub datatype_constructors: HashMap<String, Vec<String>>,
+    /// Constructor argument types. Maps constructor name → argument
+    /// type. Used by the pretty printer to format record arguments
+    /// with field names.
+    pub constructor_arg_types: HashMap<String, Type>,
 }
 
 impl TypeMap {
@@ -86,6 +90,7 @@ impl TypeMap {
             op_defs,
             var_alias_map: HashMap::new(),
             datatype_constructors: HashMap::new(),
+            constructor_arg_types: HashMap::new(),
         }
     }
 
@@ -535,6 +540,8 @@ pub struct TypeResolver {
     /// statements. Seeded by `Session::deduce_type_inner` so that
     /// the coverage checker can see them.
     pub prior_datatype_constructors: HashMap<String, Vec<String>>,
+    /// Constructor arg types from previous statements.
+    pub prior_constructor_arg_types: HashMap<String, Type>,
 
     /// Whether to check pattern coverage (exhaustiveness and redundancy).
     /// Controlled by the `matchCoverageEnabled` property; default is true.
@@ -592,6 +599,7 @@ impl TypeResolver {
             type_aliases: HashMap::new(),
             datatype_bindings: Vec::new(),
             prior_datatype_constructors: HashMap::new(),
+            prior_constructor_arg_types: HashMap::new(),
             match_coverage_enabled: true,
             int_op,
             preferred_vars: Vec::new(),
@@ -719,6 +727,8 @@ impl TypeResolver {
         // add any new ones from this statement.
         type_map.datatype_constructors =
             self.prior_datatype_constructors.clone();
+        type_map.constructor_arg_types =
+            self.prior_constructor_arg_types.clone();
         if let DeclKind::Datatype(datatype_binds) = &decl.kind {
             for db in datatype_binds {
                 let con_names: Vec<String> =
@@ -726,6 +736,20 @@ impl TypeResolver {
                 type_map
                     .datatype_constructors
                     .insert(db.name.clone(), con_names);
+                // Store constructor argument types for the pretty
+                // printer (e.g. record arguments).
+                for con in &db.constructors {
+                    if let Some(ast_type) = &con.type_ {
+                        if let Some(arg_type) = ast_type_to_core_type_with_vars(
+                            ast_type,
+                            &db.type_vars,
+                        ) {
+                            type_map
+                                .constructor_arg_types
+                                .insert(con.name.clone(), arg_type);
+                        }
+                    }
+                }
             }
         }
 
