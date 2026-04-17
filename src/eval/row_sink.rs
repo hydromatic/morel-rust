@@ -824,67 +824,6 @@ impl RowSink for ExceptRowSink {
     }
 }
 
-/// Implementation of RowSink for a `distinct` step.
-///
-/// Filters out duplicate rows, passing only the first occurrence of each
-/// unique value to the downstream sink.
-pub struct DistinctRowSink {
-    slot_count: usize,
-    row_sink: Box<dyn RowSink>,
-    seen: Vec<Val>,
-}
-
-impl DistinctRowSink {
-    pub fn new(slot_count: usize, row_sink: Box<dyn RowSink>) -> Self {
-        Self {
-            slot_count,
-            row_sink,
-            seen: Vec::new(),
-        }
-    }
-}
-
-impl RowSink for DistinctRowSink {
-    fn start(
-        &mut self,
-        r: &mut EvalEnv,
-        f: &mut Frame,
-    ) -> Result<(), MorelError> {
-        self.seen.clear();
-        self.row_sink.start(r, f)
-    }
-
-    fn accept(
-        &mut self,
-        r: &mut EvalEnv,
-        f: &mut Frame,
-    ) -> Result<(), MorelError> {
-        // Extract the current row value from the frame.
-        let row_val = if self.slot_count == 1 {
-            // Atom case: single binding.
-            f.vals[0].clone()
-        } else {
-            // Tuple case: create tuple from slots 0..slot_count.
-            Val::List(f.vals[0..self.slot_count].to_vec())
-        };
-
-        // Only pass through if we haven't seen this value before.
-        if !self.seen.contains(&row_val) {
-            self.seen.push(row_val);
-            self.row_sink.accept(r, f)?;
-        }
-        Ok(())
-    }
-
-    fn result(
-        &mut self,
-        r: &mut EvalEnv,
-        f: &mut Frame,
-    ) -> Result<Val, MorelError> {
-        self.row_sink.result(r, f)
-    }
-}
-
 /// Implementation of RowSink for a `group` step.
 ///
 /// Accumulates rows by group key, evaluates aggregate functions over each

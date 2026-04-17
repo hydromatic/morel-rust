@@ -1127,11 +1127,10 @@ impl<'a> Compiler<'a> {
         element_type: &Type,
     ) -> RowSinkFactory {
         use crate::eval::row_sink::{
-            CollectRowSink, ComputeRowSink, DistinctRowSink, ExceptRowSink,
-            ExistsRowSink, GroupRowSink, IntersectRowSink, OrderRowSink,
-            OrdinalFilterRowSink, OrdinalRowSink, ScanRowSink, SkipRowSink,
-            TakeRowSink, UnionRowSink, UnorderRowSink, WhereRowSink,
-            YieldRowSink,
+            CollectRowSink, ComputeRowSink, ExceptRowSink, ExistsRowSink,
+            GroupRowSink, IntersectRowSink, OrderRowSink, OrdinalFilterRowSink,
+            OrdinalRowSink, ScanRowSink, SkipRowSink, TakeRowSink,
+            UnionRowSink, UnorderRowSink, WhereRowSink, YieldRowSink,
         };
 
         if steps.is_empty() {
@@ -1175,6 +1174,8 @@ impl<'a> Compiler<'a> {
                 })
             }
             StepKind::Distinct => {
+                // Distinct is equivalent to `group` on all current
+                // bindings with no aggregate.
                 let next_factory = self.create_row_sink_factory(
                     cx,
                     &first_step.env,
@@ -1182,12 +1183,44 @@ impl<'a> Compiler<'a> {
                     element_type,
                 );
 
-                // Distinct filters duplicate rows based on current bindings.
-                let slot_count = step_env.bindings.len();
+                // Compute the frame slots for the current bindings.
+                // Fall back to positional 0..N when binding names
+                // are not in the frame.
+                let mut slots: Vec<usize> = step_env
+                    .bindings
+                    .iter()
+                    .filter_map(|b| cx.frame_def.try_var_index(&b.id.name))
+                    .collect();
+                if slots.is_empty() {
+                    let n = step_env.bindings.len();
+                    slots = (0..n).collect();
+                }
+
+                // Build key_code: read current row from frame slots.
+                let key_code = if slots.len() == 1 {
+                    Code::new_get_local(&cx.frame_def, slots[0])
+                } else {
+                    Code::new_tuple(
+                        &slots
+                            .iter()
+                            .map(|&s| Code::new_get_local(&cx.frame_def, s))
+                            .collect::<Vec<_>>(),
+                    )
+                };
+                let key_slots = slots.clone();
+                let key_is_record = slots.len() > 1;
+                let scan_slots = slots;
 
                 RowSinkFactory::new(move || {
-                    Box::new(DistinctRowSink::new(
-                        slot_count,
+                    Box::new(GroupRowSink::new(
+                        key_code.clone(),
+                        None, // no aggregate
+                        None, // no elements slot
+                        vec![],
+                        false,
+                        scan_slots.clone(),
+                        key_slots.clone(),
+                        key_is_record,
                         next_factory.create(),
                     ))
                 })

@@ -1314,9 +1314,6 @@ from e in emps
     end;
 > val it = [200,202,204,206] : int list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) 'distinct' is equivalent to 'group' with all fields
 (*) Query 1, using `distinct`
 (*) (The 'order' clause is for deterministic results.)
@@ -1341,11 +1338,6 @@ from e in scott.emps
 >    {deptno=30,job="CLERK"},{deptno=10,job="MANAGER"},{deptno=20,job="MANAGER"},
 >    {deptno=30,job="MANAGER"},{deptno=10,job="PRESIDENT"},
 >    {deptno=30,job="SALESMAN"}] : {deptno:int, job:string} list
-
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Function defined inside query
 from e in emps
