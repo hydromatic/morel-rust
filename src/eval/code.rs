@@ -119,6 +119,11 @@ pub enum Code {
     /// type-constructor called `name` and its argument matches `pat`.
     /// (Zero argument constructors become [Code::BindLiteral].)
     BindConstructor(String, Box<Code>),
+    /// `BindConstructor2(name, pat_code)` matches a user-defined
+    /// constructor value. It succeeds if `a0` is
+    /// `Val::Constructor(name, inner)` and the inner value matches
+    /// `pat_code`.
+    BindConstructor2(Arc<str>, Option<Box<Code>>),
     /// `BindList(patterns)` succeeds if the argument is a list the same length
     /// as `patterns` and each element successfully binds.
     BindList(Vec<Code>),
@@ -144,6 +149,14 @@ pub enum Code {
     /// `Constant(type, val)` returns the value `val`. The type lets us display
     /// the value more intelligently.
     Constant(Box<Type>, Val),
+
+    /// `ConstructorWrap(name)` is a function that, when applied
+    /// to a value via `eval_f1`, wraps it in
+    /// `Val::Constructor(name, Box::new(arg))`. Used as the
+    /// runtime representation of value-carrying user-defined
+    /// datatype constructors. The name is `Arc<str>` so that
+    /// cloning the code and resulting values is cheap.
+    ConstructorWrap(Arc<str>),
 
     /// `CreateClosure(frame, matches, binds, no_match)` creates a
     /// [Val::Closure] value that is similar to a function, but has a
@@ -251,6 +264,22 @@ impl Code {
         name: &str,
         t: &Option<Code>,
     ) -> Code {
+        // Determine whether this is a built-in constructor (SOME,
+        // NONE, INL, INR, order values) or a user-defined one.
+        let is_builtin = match type_ {
+            Type::Data(n, _) => matches!(
+                n.as_str(),
+                "option" | "either" | "order" | "descending"
+            ),
+            _ => true,
+        };
+        if !is_builtin {
+            // User-defined constructor: use BindConstructor2.
+            return Code::BindConstructor2(
+                Arc::from(name),
+                t.clone().map(Box::new),
+            );
+        }
         if let Some(t) = t {
             Code::BindConstructor(name.to_string(), Box::new(t.clone()))
         } else if let Type::Data(type_name, _) = type_
@@ -479,6 +508,9 @@ impl Code {
             Code::BindConstructor(_, _) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
             }
+            Code::BindConstructor2(_, _) => {
+                *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
+            }
             Code::BindList(_) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
             }
@@ -493,6 +525,9 @@ impl Code {
             }
             Code::Constant(_, _) => {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
+            Code::ConstructorWrap(_) => {
+                *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
             }
             Code::CreateClosure(_, _, _, _) => {
                 *mode == EvalMode::EagerF0 || *mode == EvalMode::EagerV1
@@ -554,7 +589,7 @@ impl Code {
                             &arg,
                         )
                     }
-                    _ => panic!("Expected code"),
+                    _ => panic!("Expected code, got {:?}", fn_),
                 }
             }
             Code::ApplyClosure(fn_code, arg_code, _bind_codes) => {
@@ -595,6 +630,7 @@ impl Code {
                 }))
             }
             Code::Constant(_, c) => Ok(c.clone()),
+            Code::ConstructorWrap(_) => Ok(Val::Code(Arc::new(self.clone()))),
             Code::CreateClosure(frame_def, matches, bind_codes, no_match) => {
                 let values = capture_bound_vals(frame_def, bind_codes, r, f)?;
                 Ok(Val::Closure(
@@ -606,7 +642,7 @@ impl Code {
             }
             Code::Fn(_, _, _) | Code::Nth(_, _) => {
                 // Fn and Nth are practically literals. When evaluated, they
-                // return themselves.
+                // return themselves as Val::Code.
                 Ok(Val::Code(Arc::new(self.clone())))
             }
             Code::From(steps) => {
@@ -841,6 +877,19 @@ impl Code {
                     _ => Ok(Val::Bool(false)),
                 }
             }
+            Code::BindConstructor2(name, pat_code) => {
+                // User-defined constructor pattern.
+                match a0 {
+                    Val::Constructor(con_name, inner) if con_name == name => {
+                        if let Some(pat) = pat_code {
+                            pat.eval_f1(r, f, inner)
+                        } else {
+                            Ok(Val::Bool(true))
+                        }
+                    }
+                    _ => Ok(Val::Bool(false)),
+                }
+            }
             Code::BindList(codes) => {
                 let list = a0.expect_list();
                 if list.len() != codes.len() {
@@ -880,6 +929,9 @@ impl Code {
                 }))
             }
             Code::Constant(_, v) => Ok(v.clone()),
+            Code::ConstructorWrap(name) => {
+                Ok(Val::Constructor(name.clone(), Box::new(a0.clone())))
+            }
             Code::CreateClosure(frame_def, matches, bind_codes, no_match) => {
                 // Build the closure's bound values from the current
                 // frame, then immediately apply it to `a0`. This is
@@ -1136,6 +1188,9 @@ impl Display for Code {
             Self::BindAnd(codes) => {
                 Self::write_codes(f, "bindAnd(", codes, ")")
             }
+            Self::BindConstructor2(name, _) => {
+                write!(f, "bindCon2({})", name)
+            }
             Self::BindLiteral(v) => write!(f, "{}", v),
             Self::BindSlot(_, slot) => write!(f, "bind({})", slot),
             Self::BindTuple(codes) => {
@@ -1151,6 +1206,9 @@ impl Display for Code {
                 Val::Unit => write!(f, "constant([NONE])"),
                 _ => write!(f, "constant({})", v),
             },
+            Self::ConstructorWrap(name) => {
+                write!(f, "conWrap({})", name)
+            }
             Self::CreateClosure(_, matches, bind_codes, _) => {
                 write!(f, "createClosure(captures(")?;
                 let mut first = true;
@@ -1528,7 +1586,7 @@ impl EagerF0 {
                 }
 
                 // Add user-defined variables from type_bindings.
-                for (name, ty) in &r.session.type_bindings {
+                for (name, (ty, _is_con)) in &r.session.type_bindings {
                     pairs.push((name.clone(), format!("{}", ty)));
                 }
 

@@ -16,9 +16,9 @@
 // License.
 
 use crate::compile::core::{
-    DatatypeBind as CoreDatatypeBind, Decl as CoreDecl, Expr as CoreExpr,
-    Match as CoreMatch, Pat as CorePat, PatField as CorePatField,
-    TypeBind as CoreTypeBind, ValBind as CoreValBind,
+    ConBind as CoreConBind, DatatypeBind as CoreDatatypeBind, Decl as CoreDecl,
+    Expr as CoreExpr, Match as CoreMatch, Pat as CorePat,
+    PatField as CorePatField, TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
 use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
@@ -927,9 +927,29 @@ impl<'a> Resolver<'a> {
     /// Resolves an AST datatype binding to a core datatype binding.
     fn resolve_datatype_bind(
         &self,
-        _datatype_bind: &DatatypeBind,
+        datatype_bind: &DatatypeBind,
     ) -> CoreDatatypeBind {
-        todo!("Implement datatype bind resolution")
+        CoreDatatypeBind {
+            type_vars: datatype_bind.type_vars.clone(),
+            name: datatype_bind.name.clone(),
+            constructors: datatype_bind
+                .constructors
+                .iter()
+                .map(|con| {
+                    let tvs = &datatype_bind.type_vars;
+                    let core_type = con.type_.as_ref().and_then(|t| {
+                        crate::compile::type_resolver
+                            ::ast_type_to_core_type_with_vars(
+                                t, tvs,
+                            )
+                    });
+                    CoreConBind {
+                        name: con.name.clone(),
+                        type_: core_type,
+                    }
+                })
+                .collect(),
+        }
     }
 
     /// Resolves an AST type to a core type.

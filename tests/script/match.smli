@@ -101,6 +101,29 @@ fun f (1, _) = 1
 > stdIn:3.5-4.3 Error: match redundant
 >   raised at: stdIn:3.5-4.3
 
+(*) Exhaustive match on a user-defined datatype
+datatype color = Red | Green | Blue;
+> datatype color = Red | Green | Blue
+fun name Red = "red"
+  | name Green = "green"
+  | name Blue = "blue";
+> val name = fn : color -> string
+name Red;
+> val it = "red" : string
+name Blue;
+> val it = "blue" : string
+
+(*) Non-exhaustive match on a user-defined datatype
+fun warm Red = true;
+> stdIn:1.5-1.20 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-1.20
+> val warm = fn : color -> bool
+warm Red;
+> val it = true : bool
+warm Green;
+> uncaught exception Match [nonexhaustive match failure]
+>   raised at: stdIn:1.5-1.20
+
 (*) The Ackermann-Péter function
 (*) See "Recursion Equations as a Programming Language", D A Turner 1982
 fun ack 0 n = n + 1
