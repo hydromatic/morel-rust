@@ -1615,8 +1615,13 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Elem(left, right) => {
-                let (left2, right2) =
-                    self.deduce_call2_type(env, "elem", left, right, v)?;
+                // 'elem' works on both lists and bags.
+                let v_elem = self.variable();
+                let left2 = self.deduce_expr_type(env, left, &v_elem)?;
+                let v_coll = self.variable();
+                self.may_be_bag_or_list(&v_coll, &v_elem);
+                let right2 = self.deduce_expr_type(env, right, &v_coll)?;
+                self.primitive_term(&PrimitiveType::Bool, v);
                 let x = ExprKind::Elem(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -1837,8 +1842,13 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::NotElem(left, right) => {
-                let (left2, right2) =
-                    self.deduce_call2_type(env, "notElem", left, right, v)?;
+                // 'notelem' works on both lists and bags.
+                let v_elem = self.variable();
+                let left2 = self.deduce_expr_type(env, left, &v_elem)?;
+                let v_coll = self.variable();
+                self.may_be_bag_or_list(&v_coll, &v_elem);
+                let right2 = self.deduce_expr_type(env, right, &v_coll)?;
+                self.primitive_term(&PrimitiveType::Bool, v);
                 let x = ExprKind::NotElem(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
