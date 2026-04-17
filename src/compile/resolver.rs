@@ -790,6 +790,13 @@ impl<'a> Resolver<'a> {
                 Box::new(self.resolve_pat(tail)),
             ),
             PatKind::Constructor(name, opt_pat) => {
+                // `nil` in a pattern is an empty-list literal.
+                if name == "nil"
+                    && opt_pat.is_none()
+                    && matches!(*t, Type::List(_))
+                {
+                    return CorePat::List(t, vec![]);
+                }
                 let resolved_pat =
                     opt_pat.as_ref().map(|p| Box::new(self.resolve_pat(p)));
                 CorePat::Constructor(t, name.clone(), resolved_pat)

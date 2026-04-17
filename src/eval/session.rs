@@ -58,8 +58,9 @@ pub struct Session {
     /// coverage checker knows the constructor set of previously
     /// declared datatypes.
     pub datatype_constructors: HashMap<String, Vec<String>>,
-    // Debug ID to track session instances
-    // pub debug_id: usize,
+    /// Constructor argument types accumulated across statements.
+    /// Used by the pretty printer to format record arguments.
+    pub constructor_arg_types: HashMap<String, Type>,
 }
 
 // static SESSION_COUNTER: std::sync::atomic::AtomicUsize =
@@ -87,7 +88,7 @@ impl Session {
             type_bindings: HashMap::new(),
             type_aliases: HashMap::new(),
             datatype_constructors: HashMap::new(),
-            // debug_id: id,
+            constructor_arg_types: HashMap::new(),
         }
     }
 
@@ -155,6 +156,8 @@ impl Session {
         type_resolver.type_aliases = self.type_aliases.clone();
         type_resolver.prior_datatype_constructors =
             self.datatype_constructors.clone();
+        type_resolver.prior_constructor_arg_types =
+            self.constructor_arg_types.clone();
 
         // Use the accumulated type environment from previous statements
         let resolved = type_resolver.deduce_type(&*self.type_env, node)?;
@@ -168,6 +171,9 @@ impl Session {
         for (name, cons) in &resolved.type_map.datatype_constructors {
             self.datatype_constructors
                 .insert(name.clone(), cons.clone());
+        }
+        for (name, t) in &resolved.type_map.constructor_arg_types {
+            self.constructor_arg_types.insert(name.clone(), t.clone());
         }
 
         // Update the accumulated environment with new bindings from this

@@ -35,6 +35,13 @@ pub struct Pretty {
     print_depth: i32,
     string_depth: i32,
     newline: char,
+    /// Maps constructor name → argument type. Used to format record
+    /// arguments with field names (e.g. `Foo {a=1,b="x"}` instead
+    /// of `Foo (1,"x")`).
+    constructor_arg_types: HashMap<String, Type>,
+    /// Maps datatype name → list of constructor names. Used to look
+    /// up a constructor's name from its ordinal.
+    datatype_constructors: HashMap<String, Vec<String>>,
 }
 
 impl Type {
@@ -144,6 +151,8 @@ impl Pretty {
         print_length: i32,
         print_depth: i32,
         string_depth: i32,
+        constructor_arg_types: HashMap<String, Type>,
+        datatype_constructors: HashMap<String, Vec<String>>,
     ) -> Self {
         Self {
             line_width,
@@ -152,6 +161,8 @@ impl Pretty {
             print_depth,
             string_depth,
             newline: '\n',
+            constructor_arg_types,
+            datatype_constructors,
         }
     }
 
@@ -168,6 +179,36 @@ impl Pretty {
             buf.len() as i32 + self.line_width
         };
         self.pretty1(buf, 0, &mut [line_end], 0, type_, value, 0, 0)
+    }
+
+    /// Substitutes `Type::Variable(i)` with `args[i]` throughout a type.
+    fn instantiate(type_: &Type, args: &[Type]) -> Type {
+        match type_ {
+            // lint: sort until '#}' where '##Type::'
+            Type::Bag(t) => Type::Bag(Box::new(Self::instantiate(t, args))),
+            Type::Data(name, ts) => Type::Data(
+                name.clone(),
+                ts.iter().map(|t| Self::instantiate(t, args)).collect(),
+            ),
+            Type::Fn(a, b) => Type::Fn(
+                Box::new(Self::instantiate(a, args)),
+                Box::new(Self::instantiate(b, args)),
+            ),
+            Type::List(t) => Type::List(Box::new(Self::instantiate(t, args))),
+            Type::Record(p, fields) => Type::Record(
+                *p,
+                fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Self::instantiate(v, args)))
+                    .collect(),
+            ),
+            Type::Tuple(ts) => Type::Tuple(
+                ts.iter().map(|t| Self::instantiate(t, args)).collect(),
+            ),
+            Type::Variable(tv) if tv.id < args.len() => args[tv.id].clone(),
+            // #}
+            _ => type_.clone(),
+        }
     }
 
     /// Prints a value to a buffer. If the first attempt goes beyond line_end,
@@ -389,7 +430,15 @@ impl Pretty {
                 self.pretty_primitive(buf, prim_type, value)?;
             }
             Type::Record(_progressive, arg_name_types) => {
-                let list = value.expect_list();
+                // Single-field records are stored as bare values, not
+                // wrapped in Val::List.
+                let list_owned;
+                let list = if let Val::List(l) = value {
+                    l.as_slice()
+                } else {
+                    list_owned = [value.clone()];
+                    &list_owned
+                };
                 buf.push('{');
                 let start = buf.len();
                 for ((name, field_type), val2) in zip(arg_name_types, list) {
@@ -429,6 +478,10 @@ impl Pretty {
                     )?;
                 }
                 buf.push(')');
+            }
+            Type::Variable(_) => {
+                // Type variable: no structural info, print value directly.
+                write!(buf, "{}", value)?;
             }
             _ => todo!("{:?}", current_type),
         }
@@ -612,42 +665,14 @@ impl Pretty {
         Ok(())
     }
 
-    /// Pretty-prints a `Val::Constructor(name, inner)` value.
-    /// Handles tuple args as `(a,b,c)` and recurses into nested
-    /// constructors.
-    fn pretty_constructor(
-        buf: &mut String,
-        name: &str,
-        inner: &Val,
-    ) -> Result<(), std::fmt::Error> {
-        buf.push_str(name);
-        if *inner == Val::Unit {
-            return Ok(());
-        }
-        buf.push(' ');
-        match inner {
-            Val::List(items) if items.len() != 1 => {
-                buf.push('(');
-                let start = buf.len();
-                for item in items {
-                    if buf.len() > start {
-                        buf.push(',');
-                    }
-                    Self::pretty_val(buf, item)?;
-                }
-                buf.push(')');
-            }
-            _ => Self::pretty_val(buf, inner)?,
-        }
-        Ok(())
-    }
-
     /// Pretty-prints a Val using constructor-aware formatting.
-    fn pretty_val(buf: &mut String, val: &Val) -> Result<(), std::fmt::Error> {
+    fn pretty_val(
+        &self,
+        buf: &mut String,
+        val: &Val,
+    ) -> Result<(), std::fmt::Error> {
         match val {
-            Val::Constructor(name, inner) => {
-                Self::pretty_constructor(buf, name, inner)
-            }
+            Val::Constructor(_, _) => write!(buf, "{}", val),
             Val::List(items) if items.len() != 1 => {
                 buf.push('(');
                 let start = buf.len();
@@ -655,7 +680,7 @@ impl Pretty {
                     if buf.len() > start {
                         buf.push(',');
                     }
-                    Self::pretty_val(buf, item)?;
+                    self.pretty_val(buf, item)?;
                 }
                 buf.push(')');
                 Ok(())
@@ -717,8 +742,38 @@ impl Pretty {
                 }
                 panic!("Expected list")
             }
-            Val::Constructor(con_name, inner) => {
-                Self::pretty_constructor(buf, con_name, inner)?;
+            Val::Constructor(ordinal, inner) => {
+                if let Some(constructors) = self.datatype_constructors.get(name)
+                {
+                    let con_name = &constructors[*ordinal];
+                    self.pretty_raw(buf, indent, line_end, depth, con_name)?;
+                    if **inner != Val::Unit {
+                        buf.push(' ');
+                        if let Some(arg_type) =
+                            self.constructor_arg_types.get(con_name)
+                        {
+                            // Substitute type variables in the
+                            // constructor's generic arg type with the
+                            // datatype's actual type arguments.
+                            let instantiated =
+                                Self::instantiate(arg_type, args);
+                            self.pretty1(
+                                buf,
+                                indent,
+                                line_end,
+                                depth,
+                                &instantiated,
+                                inner,
+                                0,
+                                0,
+                            )?;
+                        } else {
+                            write!(buf, "{}", inner)?;
+                        }
+                    }
+                } else {
+                    write!(buf, "{}", value)?;
+                }
                 return Ok(());
             }
             _ => panic!("Expected list"),

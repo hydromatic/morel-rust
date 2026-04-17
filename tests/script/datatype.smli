@@ -313,13 +313,27 @@ stdIn:4.1-4.11 Error: operator and operand don't agree [tycon mismatch]
 val it = 3 : int
 *)
 
+(*) Pretty-printing SOME with a record argument.
+(SOME {a=1}, SOME {a=true});
+> val it = (SOME {a=1},SOME {a=true}) : {a:int} option * {a:bool} option
+(SOME {}, SOME {a=1,b=true}, SOME {a=true});
+> val it = (SOME (),SOME {a=1,b=true},SOME {a=true})
+>   : unit option * {a:int, b:bool} option * {a:bool} option
+
+(*) Pretty-printing a user-defined datatype with record arguments.
+datatype 'a my_option = MY_NONE | MY_SOME of 'a;
+> datatype 'a my_option = MY_NONE | MY_SOME of 'a
+(MY_SOME 1, MY_SOME "a");
+> val it = (MY_SOME 1,MY_SOME "a") : int my_option * string my_option
+(MY_SOME {a=1}, MY_SOME {a=true, b=1});
+> val it = (MY_SOME {a=1},MY_SOME {a=true,b=1})
+>   : {a:int} my_option * {a:bool, b:int} my_option
+
 (*) Pattern matching on the same type constructor, nested.
 fun f (SOME (SOME i)) = i + 1
   | f (SOME NONE) = 0
   | f NONE = ~1;
 > val f = fn : int option option -> int
-set("mode", "validate");
-> val it = () : unit
 f (SOME (SOME 3));
 > val it = 4 : int
 f (SOME (SOME 2));
@@ -332,8 +346,8 @@ f NONE;
 (*) Test cases from [MOREL-126].
 fun f ((SOME i) :: nil) = i + 1
   | f nil = 0;
-> 0.0-0.0 Warning: match nonexhaustive
->   raised at: 0.0-0.0
+> stdIn:1.5-2.14 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-2.14
 > val f = fn : int option list -> int
 f [];
 > val it = 0 : int
@@ -342,8 +356,8 @@ f [SOME 5];
 
 fun f [(SOME i)] = i
   | f [] = 0;
-> 0.0-0.0 Warning: match nonexhaustive
->   raised at: 0.0-0.0
+> stdIn:1.5-2.13 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-2.13
 > val f = fn : int option list -> int
 f [];
 > val it = 0 : int
