@@ -26,9 +26,9 @@ use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
 use crate::eval::code::{
-    Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep, Span,
+    CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep, Span,
 };
-use crate::eval::comparator::comparator_for;
+use crate::eval::comparator::{self, comparator_for};
 use crate::eval::frame::FrameDef;
 use crate::eval::link_table::LinkTable;
 use crate::eval::order::Order;
@@ -612,6 +612,37 @@ impl<'a> Compiler<'a> {
             Expr::Apply(result_type, f, a, span) => match f.as_ref() {
                 Expr::Literal(_t, Val::Fn(f)) => {
                     let impl_ = f.get_impl();
+                    // For 1-arg functions (E1, EF1), always compile the
+                    // argument as a single Code — even if it's a tuple
+                    // expression. The function takes one argument; a
+                    // source-level tuple IS that argument.
+                    if matches!(impl_, Impl::E1(_) | Impl::EF1(_)) {
+                        // Intercept Relational.max/min to use
+                        // type-directed comparators.
+                        if *f == BuiltInFunction::RelationalMax
+                            || *f == BuiltInFunction::RelationalMin
+                        {
+                            let elem_type = match a.type_().as_ref() {
+                                Type::List(e) => *e.clone(),
+                                Type::Bag(e) => *e.clone(),
+                                _ => *a.type_(),
+                            };
+                            let cmp = CmpRef(comparator::comparator_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ));
+                            let arg = self.compile_arg(cx, a);
+                            return if *f == BuiltInFunction::RelationalMax {
+                                Code::Max(cmp, Box::new(arg))
+                            } else {
+                                Code::Min(cmp, Box::new(arg))
+                            };
+                        }
+                        let arg = self.compile_arg(cx, a);
+                        let codes: Vec<Box<Code>> = vec![Box::new(arg)];
+                        return Code::new_native(impl_, &codes, span);
+                    }
                     // Detect partial application of a curried 2-arg
                     // built-in (e.g., `List.map f`, `Fn.o (f, g)`): the
                     // call's result type is itself a function type.
@@ -720,6 +751,25 @@ impl<'a> Compiler<'a> {
                             vec![(pat, body)],
                             vec![*codes[0].clone()],
                             None,
+                        );
+                    }
+                    // Intercept Relational.compare to use a
+                    // type-directed comparator.
+                    if *f == BuiltInFunction::RelationalCompare {
+                        let args = self.compile_args_boxed(cx, a);
+                        let elem_type = match a.type_().as_ref() {
+                            Type::Tuple(ts) if !ts.is_empty() => ts[0].clone(),
+                            _ => *a.type_(),
+                        };
+                        let cmp = CmpRef(comparator::comparator_for_with(
+                            &elem_type,
+                            &self.type_map.datatype_constructors,
+                            &self.type_map.constructor_arg_types,
+                        ));
+                        return Code::Compare(
+                            cmp,
+                            args[0].clone(),
+                            args[1].clone(),
                         );
                     }
                     // For 1-argument impls (E1/EF1), compile the
