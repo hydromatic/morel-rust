@@ -27,11 +27,9 @@ Sys.set ("printLength", 64);
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
-(*
 useSilently "scott.smli";
 > [opening scott.smli]
 > val it = () : unit
-*)
 
 (*) constants
 bag [1,2,3];
@@ -43,11 +41,13 @@ bag [(1,true),(2,false)];
 bag [[1],[2],[3]];
 > val it = [[1],[2],[3]] : int list bag
 
+set("mode", "validate");
+> val it = () : unit
 (*) check that we get good error messages when we apply a list function to
 (*) a bag, and vice versa
 String.size 1;
-> stdIn:1.1-1.14 Error: Cannot deduce type: conflict: int vs string
->   raised at: stdIn:1.1-1.14
+> 0.0-0.0 Error: Cannot deduce type: conflict: int vs string
+>   raised at: 0.0-0.0
 List.length List.nil;
 > val it = 0 : int
 Bag.length Bag.nil;
@@ -59,6 +59,8 @@ Bag.length List.nil;
 > val it = 0 : int
 *)
 
+set("mode", "evaluate");
+> val it = () : unit
 (*) assign to variables
 val intList = [1,2,1,3];
 > val intList = [1,2,1,3] : int list
@@ -85,44 +87,26 @@ from i in [1];
 > val it = [1] : int list
 from i in intList;
 > val it = [1,2,1,3] : int list
-set("mode", "validate");
-> val it = () : unit
 from i in intBag;
 > val it = [1,2,1,3] : int bag
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) where is ordered iff its input is ordered
 from i in intList where i > 1;
 > val it = [2,3] : int list
-set("mode", "validate");
-> val it = () : unit
 from i in intBag where i > 1;
 > val it = [2,3] : int bag
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) yield is ordered iff its input is ordered
 from i in intList yield i;
 > val it = [1,2,1,3] : int list
-set("mode", "validate");
-> val it = () : unit
 from i in intBag yield i;
 > val it = [1,2,1,3] : int bag
-set("mode", "evaluate");
-> val it = () : unit
 from i in intList yield i * 2;
 > val it = [2,4,2,6] : int list
-set("mode", "validate");
-> val it = () : unit
 from i in intBag yield i * 2;
 > val it = [2,4,2,6] : int bag
-set("mode", "evaluate");
-> val it = () : unit
 from i in intList yield {j=i*i, i};
 > val it = [{i=1,j=1},{i=2,j=4},{i=1,j=1},{i=3,j=9}] : {i:int, j:int} list
-set("mode", "validate");
-> val it = () : unit
 from i in intBag yield {j=i*i, i};
 > val it = [{i=1,j=1},{i=2,j=4},{i=1,j=1},{i=3,j=9}] : {i:int, j:int} bag
 
@@ -151,7 +135,6 @@ from r in recList group r.i compute {bs = (fn x => x) over r.b};
 > val it = [{bs=[true,false],i=1},{bs=[false],i=2}] : {bs:bool list, i:int} list
 from r in recBag group r.i compute {bs = (fn x => x) over r.b};
 > val it = [{bs=[true,false],i=1},{bs=[false],i=2}] : {bs:bool bag, i:int} bag
-
 (*) distinct is ordered iff its input is ordered
 from i in intList distinct;
 > val it = [1,2,3] : int list
@@ -202,7 +185,6 @@ from i in intBag order ordinal;
 >   raised at: stdIn:1.24-1.31
 from i in intList order ordinal;
 > val it = [1,2,1,3] : int list
-
 (*) join's output is list if all inputs are lists, otherwise bag
 from i in intList, j in intList where i = j;
 > val it = [{i=1,j=1},{i=1,j=1},{i=2,j=2},{i=1,j=1},{i=1,j=1},{i=3,j=3}]
@@ -222,16 +204,10 @@ from h in [] join i in intList, j in intList where i = j;
 from h in bag [] join i in intList, j in intList where i = j;
 > val it = [] : {h:'a, i:int, j:int} bag
 
-set("mode", "evaluate");
-> val it = () : unit
-
 fun doubleList list = List.map (fn i => i * 2) list;
 > val doubleList = fn : int list -> int list
-fun doubleBag bag = Bag.map (fn i => i * 2) bag;
+fun doubleBag xs = Bag.map (fn i => i * 2) xs;
 > val doubleBag = fn : int bag -> int bag
-
-set("mode", "validate");
-> val it = () : unit
 
 (*) union's output is bag if any input is a bag
 from i in intList union intList;
@@ -250,13 +226,13 @@ from i in intList union distinct intBag;
 
 (*) intersect's output is bag if any input is a bag
 from i in intList intersect intList;
-> val it = [1,1,2,3] : int list
+> val it = [1,2,1,3] : int list
 from i in intList intersect intBag;
-> val it = [1,1,2,3] : int bag
+> val it = [1,2,1,3] : int bag
 from i in intBag intersect intList;
-> val it = [1,1,2,3] : int bag
+> val it = [1,2,1,3] : int bag
 from i in intBag intersect intBag;
-> val it = [1,1,2,3] : int bag
+> val it = [1,2,1,3] : int bag
 
 from i in intList intersect distinct intList;
 > val it = [1,2,3] : int list
@@ -283,10 +259,12 @@ from i in intList except distinct intBag;
 from i in intList into doubleList;
 > val it = [2,4,2,6] : int list
 from i in intList into doubleBag;
-> 0.0-0.0 Error: Cannot deduce type: conflict: list(T3) vs bag(int)
->   raised at: 0.0-0.0
+> stdIn:1.1-1.33 Error: Cannot deduce type: conflict: list(int) vs bag(int)
+>   raised at: stdIn:1.1-1.33
 from i in intBag into doubleBag;
 > val it = [2,4,2,6] : int bag
+set("mode", "validate");
+> val it = () : unit
 from i in intBag into doubleList;
 > 0.0-0.0 Error: Cannot deduce type: conflict: bag(T3) vs list(int)
 >   raised at: 0.0-0.0
@@ -316,6 +294,8 @@ from i in intBag through j in doubleList yield j - 1;
 1 notelem intBag;
 > val it = false : bool
 
+set("mode", "evaluate");
+> val it = () : unit
 (*) skip preserves collection type (but makes more sense for ordered)
 from i in intList skip 1;
 > val it = [2,1,3] : int list
@@ -332,15 +312,8 @@ from i in intList skip 1 take 1;
 from i in intBag skip 1 take 1;
 > val it = [2] : int bag
 
-
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) dummy
 from message in ["the end"];
 > val it = ["the end"] : string list
-
-set("mode", "validate");
-> val it = () : unit
 
 (*) End bag.smli

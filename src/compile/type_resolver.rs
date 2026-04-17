@@ -277,6 +277,9 @@ struct Triple {
     env: Rc<dyn TypeEnv>,
     v: Var,
     c: Option<Var>,
+    /// Whether the collection is ordered (list) or unordered (bag).
+    /// Used to validate that `ordinal` is only used in ordered queries.
+    ordered: bool,
 }
 
 impl Triple {
@@ -291,15 +294,38 @@ impl Triple {
             env,
             v,
             c,
+            ordered: true,
         }
     }
 
     fn with_env(&self, env: &Rc<dyn TypeEnv>) -> Self {
-        Self::new(self.root_env.clone(), env.clone(), self.v, self.c)
+        Self {
+            root_env: self.root_env.clone(),
+            env: env.clone(),
+            v: self.v,
+            c: self.c,
+            ordered: self.ordered,
+        }
     }
 
     fn with_c(&self, c: Var) -> Self {
-        Self::new(self.root_env.clone(), self.env.clone(), self.v, Some(c))
+        Self {
+            root_env: self.root_env.clone(),
+            env: self.env.clone(),
+            v: self.v,
+            c: Some(c),
+            ordered: self.ordered,
+        }
+    }
+
+    fn with_ordered(&self, ordered: bool) -> Self {
+        Self {
+            root_env: self.root_env.clone(),
+            env: self.env.clone(),
+            v: self.v,
+            c: self.c,
+            ordered,
+        }
     }
 }
 
@@ -527,6 +553,10 @@ pub struct TypeResolver {
     /// Nesting depth of `from`/`exists`/`forall` queries. Used to
     /// validate that `ordinal` only appears inside a query.
     query_depth: usize,
+    /// Whether the current query step is ordered (list). Set during
+    /// step processing, checked by `ExprKind::Ordinal` to reject
+    /// `ordinal` in unordered queries.
+    query_ordered: bool,
 
     /// Cached operators for common type-constructors.
     list_op: Op,
@@ -573,6 +603,11 @@ pub struct TypeResolver {
     /// or `real`. Matches Standard ML semantics: numeric operators prefer
     /// `int`.
     preferred_vars: Vec<Var>,
+    /// Collection variables in aggregate inputs that should default to
+    /// list (if ordered=true) or bag (if ordered=false) when
+    /// unconstrained after unification. Each entry is
+    /// (collection_var, element_var, ordered).
+    preferred_collection_vars: Vec<(Var, Var, bool)>,
 
     /// Maps unifier variables to type alias names. When a type annotation
     /// references an alias (e.g. `val x: myInt = 5`), we record the
@@ -628,6 +663,7 @@ impl TypeResolver {
             node_var_map: HashMap::new(),
             compute_stack: Vec::new(),
             query_depth: 0,
+            query_ordered: true,
             actions: Vec::new(),
             terms: Vec::new(),
             next_id: 0,
@@ -647,6 +683,7 @@ impl TypeResolver {
             match_coverage_enabled: true,
             int_op,
             preferred_vars: Vec::new(),
+            preferred_collection_vars: Vec::new(),
             var_alias_map: HashMap::new(),
             field_errors: Rc::new(RefCell::new(Vec::new())),
             field_selectors: Vec::new(),
@@ -808,6 +845,40 @@ impl TypeResolver {
                 }
             }
             self.preferred_vars.clear();
+        }
+
+        // Default unconstrained aggregate-input collection variables
+        // to list (ordered) or bag (unordered).
+        if !self.preferred_collection_vars.is_empty() {
+            for &(pv, elem_var, ordered) in &self.preferred_collection_vars {
+                let mut current = pv;
+                loop {
+                    match type_map.var_term_map.get(&current).cloned() {
+                        None => {
+                            // Unconstrained: default based on ordering.
+                            let op = if ordered {
+                                self.list_op
+                            } else {
+                                self.bag_op
+                            };
+                            let term = Term::Sequence(
+                                self.unifier
+                                    .apply1(op, Term::Variable(elem_var)),
+                            );
+                            type_map.var_term_map.insert(current, term);
+                            break;
+                        }
+                        Some(Term::Variable(next)) => {
+                            current = next;
+                        }
+                        Some(Term::Sequence(_)) => {
+                            // Already bound; leave it.
+                            break;
+                        }
+                    }
+                }
+            }
+            self.preferred_collection_vars.clear();
         }
 
         // Compute the base-line offset: how many lines of comments/blank lines
@@ -1436,11 +1507,20 @@ impl TypeResolver {
                 // the pre-group environment, not the post-group environment.
                 let v_e = self.variable();
                 let e2 = self.deduce_expr_type(&*step_env.env, e, &v_e)?;
-                // f has type: list(type_of_e) -> v.
-                // The aggregate function operates on a list of the `over`
-                // expression values, not on the full pre-group collection.
+                // f has type: collection(type_of_e) -> v.
+                // The aggregate input may be list or bag. Built-in
+                // aggregates like `count` (typed `'a list -> int`)
+                // will constrain it to list. User-provided functions
+                // like `(fn x => x)` leave it unconstrained; in that
+                // case we default to list or bag based on whether the
+                // query is ordered.
                 let v_elements = self.variable();
-                self.list_term(Term::Variable(v_e), &v_elements);
+                self.may_be_bag_or_list(&v_elements, &v_e);
+                self.preferred_collection_vars.push((
+                    v_elements,
+                    v_e,
+                    step_env.ordered,
+                ));
                 let v_fn = self.variable();
                 self.fn_term(&v_elements, v, &v_fn);
                 let f2 = self.deduce_expr_type(env, f, &v_fn)?;
@@ -1825,6 +1905,12 @@ impl TypeResolver {
                         expr.span.clone(),
                     ));
                 }
+                if !self.query_ordered {
+                    return Err(Error::Compile(
+                        "cannot use 'ordinal' in unordered query".to_string(),
+                        expr.span.clone(),
+                    ));
+                }
                 // 'ordinal' is a row counter with type int.
                 self.primitive_term(&PrimitiveType::Int, v);
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
@@ -1971,6 +2057,7 @@ impl TypeResolver {
                 _ => {}
             }
 
+            self.query_ordered = p.ordered;
             let p_next =
                 self.deduce_step_type(&step, &p, &mut field_vars, &mut steps2)?;
             p = p_next;
@@ -2059,7 +2146,7 @@ impl TypeResolver {
                 // 'order' always produces an ordered (list) collection.
                 let c = self.unifier.variable();
                 self.list_term(Term::Variable(p.v), &c);
-                Ok(p.with_c(c))
+                Ok(p.with_c(c).with_ordered(true))
             }
             StepKind::Require(expr) => {
                 let v = self.unifier.variable();
@@ -2119,7 +2206,7 @@ impl TypeResolver {
                 let c = self.variable();
                 self.bag_term(Term::Variable(p.v), &c);
                 steps2.push(StepKind::Unorder.spanned(&step.span));
-                Ok(p.with_c(c))
+                Ok(p.with_c(c).with_ordered(false))
             }
             StepKind::Where(expr) => {
                 let v = self.unifier.variable();
@@ -2216,7 +2303,17 @@ impl TypeResolver {
         };
         steps.push(step.spanned(span));
 
-        Ok(Triple::new(p.root_env.clone(), env4, v, Some(c)))
+        // Determine ordering: ordered iff previous state is ordered
+        // AND this scan's input is a list (not bag).
+        let scan_ordered = if eq {
+            p.ordered
+        } else {
+            p.ordered && self.var_is_list(&c0)
+        };
+
+        let mut triple = Triple::new(p.root_env.clone(), env4, v, Some(c));
+        triple.ordered = scan_ordered;
+        Ok(triple)
     }
 
     /// Deduces a Yield step's type (e.g., "yield i + 4").
@@ -2235,10 +2332,9 @@ impl TypeResolver {
         let step = StepKind::Yield(Box::new(expr2.clone()));
         steps2.push(step.spanned(span));
 
-        // Output is ordered iff input is ordered. Yield behaves like a
-        // 'map' function with these overloaded forms:
-        //  * map: 'a -> 'b -> 'a list -> 'b list
-        //  * map: 'a -> 'b -> 'a bag -> 'b bag
+        // Output collection type. We initially produce list; the
+        // FromBuilder uses its `ordered` flag to determine if the actual
+        // output should be bag.
         let c6 = self.variable();
         self.list_term(Term::Variable(v6), &c6);
 
@@ -2318,22 +2414,24 @@ impl TypeResolver {
         let mut terms = vec![Term::Variable(p.c.unwrap())];
         let mut exprs2 = Vec::new();
 
-        // Deduce each argument expression and unify with element type
+        // Deduce each argument expression and unify with element type.
+        // Each argument may be a list or bag.
         for expr in exprs {
             let c_arg = self.variable();
             let expr2 = self.deduce_expr_type(&*p.root_env, expr, &c_arg)?;
             exprs2.push(expr2);
 
             // Extract the element type from this collection and unify with
-            // the common element type.
+            // the common element type. The collection may be list or bag.
             let v_arg = self.variable();
-            self.list_term(Term::Variable(v_arg), &c_arg);
+            self.may_be_bag_or_list(&c_arg, &v_arg);
             self.equiv(&Term::Variable(v_arg), &element_type);
 
             terms.push(Term::Variable(c_arg));
         }
 
-        // Result collection has the same element type
+        // Result collection has the same element type. Use list here;
+        // the FromBuilder will override to bag if any input is bag.
         let c_result = self.variable();
         self.list_term(Term::Variable(element_type), &c_result);
 
@@ -3480,6 +3578,114 @@ impl TypeResolver {
         }
         self.actions
             .push((*c, Rc::new(MayBeBagOrListAction { v, list_op, bag_op })));
+    }
+
+    /// Checks whether a variable's term (in self.terms) is a list.
+    /// Returns false if it's a bag or unknown.
+    fn var_is_list(&self, v: &Var) -> bool {
+        for (var, term) in self.terms.iter().rev() {
+            if var == v {
+                if let Term::Sequence(seq) = term {
+                    return seq.op == self.list_op;
+                }
+                // Variable mapped to another variable or non-sequence;
+                // follow the chain.
+                if let Term::Variable(v2) = term {
+                    return self.var_is_list(v2);
+                }
+                return true; // assume list if unknown
+            }
+        }
+        true // assume list if not found
+    }
+
+    /// If `c_from` resolves to a bag, forces `c_to` to also be a bag
+    /// (with element type `v_to`). If `c_from` is a list, does nothing.
+    /// This implements the rule: if ANY input is unordered, the output
+    /// is unordered.
+    fn if_bag_force_bag(&mut self, c_from: &Var, c_to: &Var, v_to: &Var) {
+        let bag_op = self.bag_op;
+        let c_to = *c_to;
+        let v_to = *v_to;
+
+        struct IfBagAction {
+            c_to: Var,
+            v_to: Var,
+            bag_op: Op,
+        }
+        impl Action for IfBagAction {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                if let Term::Sequence(seq) = term
+                    && seq.op == self.bag_op
+                {
+                    let c_to_seq = Sequence {
+                        op: self.bag_op,
+                        terms: Rc::from(vec![Term::Variable(self.v_to)]),
+                    };
+                    let c_to_term =
+                        substitution.resolve_term(&Term::Variable(self.c_to));
+                    term_pairs.push((c_to_term, Term::Sequence(c_to_seq)));
+                }
+            }
+        }
+        self.actions
+            .push((*c_from, Rc::new(IfBagAction { c_to, v_to, bag_op })));
+    }
+
+    /// Constrains `c_to` to have the same collection kind (list or bag) as
+    /// `c_from`, with element type `v_to`. Unlike
+    /// `is_list_or_bag_matching_input`, this does NOT unify the element types
+    /// of the two collections — it only copies the kind.
+    fn match_collection_kind(&mut self, c_from: &Var, c_to: &Var, v_to: &Var) {
+        let list_op = self.list_op;
+        let bag_op = self.bag_op;
+        let c_to = *c_to;
+        let v_to = *v_to;
+
+        struct MatchKindAction {
+            c_to: Var,
+            v_to: Var,
+            list_op: Op,
+            bag_op: Op,
+        }
+        impl Action for MatchKindAction {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                if let Term::Sequence(seq) = term
+                    && (seq.op == self.list_op || seq.op == self.bag_op)
+                    && seq.terms.len() == 1
+                {
+                    // Build c_to = kind(v_to) using the same op as c_from.
+                    let c_to_seq = Sequence {
+                        op: seq.op,
+                        terms: Rc::from(vec![Term::Variable(self.v_to)]),
+                    };
+                    let c_to_term =
+                        substitution.resolve_term(&Term::Variable(self.c_to));
+                    term_pairs.push((c_to_term, Term::Sequence(c_to_seq)));
+                }
+            }
+        }
+        self.actions.push((
+            *c_from,
+            Rc::new(MatchKindAction {
+                c_to,
+                v_to,
+                list_op,
+                bag_op,
+            }),
+        ));
     }
 
     /// Constrains `c2` to have the same collection kind (list or bag) as `c1`,

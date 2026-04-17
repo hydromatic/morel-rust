@@ -26,7 +26,7 @@
 
 use crate::compile::core::{Binding, Expr, Pat, Step, StepEnv, StepKind};
 use crate::compile::type_env::Id;
-use crate::compile::types::{Label, Type};
+use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::shell::error::Error;
 use std::fmt;
@@ -267,9 +267,10 @@ impl FromBuilder {
         self.add_step(step)
     }
 
-    /// Adds an "order" step.
+    /// Adds an "order" step. Always produces ordered (list) output.
     pub fn order(&mut self, exp: Expr) -> &mut Self {
-        let env = self.step_env();
+        let mut env = self.step_env();
+        env.ordered = true;
         let step = Step::new(StepKind::Order(Box::new(exp)), env);
         self.add_step(step)
     }
@@ -484,16 +485,26 @@ impl FromBuilder {
             // Scalar keys (Identifier) do not replace bindings here—they
             // stay as the scan's binding, which is already in the frame.
             match &key_expr {
+                Expr::Tuple(t, _)
+                    if matches!(
+                        t.as_ref(),
+                        Type::Primitive(PrimitiveType::Unit)
+                    ) =>
+                {
+                    // Empty key (group {}): no key fields, but we need
+                    // to clear scan bindings so output is unit (when
+                    // there is no aggregate).
+                }
                 Expr::Identifier(t, name) => {
-                    // Scalar key: push binding only when there is an
+                    // Scalar key: push binding when there is an
                     // aggregate (so the collect step sees the key field).
-                    // For pure group-only (no aggregate), the binding
-                    // carries forward from the scan step unchanged.
+                    // For pure group-only (no aggregate), bindings
+                    // carry forward from the scan step unchanged.
                     if aggregate_expr.is_some() {
                         new_bindings
                             .push(Binding::new(Id::new(name, 0), t.clone()));
+                        has_key_bindings = true;
                     }
-                    has_key_bindings = true;
                 }
                 _ => {
                     if let Type::Record(_, key_fields) =
@@ -511,7 +522,7 @@ impl FromBuilder {
                                 has_record_key = true;
                             }
                         }
-                    } else if aggregate_expr.is_some() {
+                    } else {
                         // Scalar key via field access (e.g.
                         // `group e.deptno`): derive binding name.
                         if let Some(name) = key_expr.implicit_label() {
@@ -553,22 +564,39 @@ impl FromBuilder {
                 }
             }
 
-            // Only replace self.bindings when there is something new to set:
-            // - always for aggregate (record or scalar agg fields)
-            // - for record keys, so named frame slots are created
-            // - not for pure scalar-key groups (bindings carry from scan)
-            if aggregate_expr.is_some() || has_record_key {
-                if !new_bindings.is_empty() {
-                    self.bindings = new_bindings;
-                }
-                // atom=true only for a pure scalar aggregate with no key
-                // fields. Record keys and record aggregates produce non-atom.
+            // For empty key (group {}) without aggregate, clear bindings
+            // so compute_result_type produces unit.
+            let empty_key = matches!(
+                key_expr.type_().as_ref(),
+                Type::Primitive(PrimitiveType::Unit)
+            );
+            if empty_key && aggregate_expr.is_none() {
+                self.bindings.clear();
+                self.atom = false;
+            }
+
+            // For empty key (group {}) without aggregate, clear bindings
+            // so compute_result_type produces unit.
+            let empty_key = matches!(
+                key_expr.type_().as_ref(),
+                Type::Primitive(PrimitiveType::Unit)
+            );
+            if empty_key && aggregate_expr.is_none() {
+                self.bindings.clear();
+                self.atom = false;
+            }
+
+            // Replace self.bindings when there is something new to set.
+            if has_key_bindings || aggregate_expr.is_some() {
+                self.bindings = new_bindings.clone();
                 if aggregate_expr.is_some() {
+                    // atom=true only for a pure scalar aggregate
+                    // with no key fields.
                     self.atom = !has_key_bindings && has_scalar_agg;
                 } else {
-                    // No aggregate, but record key: result is a record list,
-                    // so atom must be false (regardless of binding count).
-                    self.atom = false;
+                    // No aggregate: atom=true for scalar keys (single
+                    // binding), false for record/empty keys.
+                    self.atom = new_bindings.len() == 1 && !has_record_key;
                 }
             }
         }
@@ -614,7 +642,10 @@ impl FromBuilder {
         Binding::collect_bindings(&pat, &mut self.bindings);
         self.atom = self.bindings.len() == 1;
 
-        let env = self.step_env();
+        // Output is ordered only if the previous state is ordered AND
+        // this scan's input is a list (not bag). Per morel#273.
+        let mut env = self.step_env();
+        env.ordered = env.ordered && exp.type_().is_list();
         let step = Step::new(
             StepKind::Scan(
                 Box::new(pat),
@@ -665,21 +696,29 @@ impl FromBuilder {
         use crate::compile::types::Label;
         use std::collections::BTreeMap;
 
-        // The element type is the type of each element in the result list.
-        // If we have a single binding that matches the atom flag, use its type.
-        // Otherwise, create a record type from all bindings.
+        // The element type is the type of each element in the result
+        // collection. If we have a single binding that matches the atom
+        // flag, use its type. Otherwise, create a record type.
         let env = self.step_env();
-        if env.bindings.len() == 1 && env.atom {
-            // Single scalar binding - element type is that binding's type.
-            Ok(*env.bindings[0].type_.clone())
+        let element_type = if env.bindings.is_empty() {
+            Type::Primitive(PrimitiveType::Unit)
+        } else if env.bindings.len() == 1 && env.atom {
+            *env.bindings[0].type_.clone()
         } else {
-            // Multiple bindings or non-atom - element type is a record.
             let fields: BTreeMap<Label, Type> = env
                 .bindings
                 .iter()
                 .map(|b| (Label::String(b.id.name.clone()), *b.type_.clone()))
                 .collect();
-            Ok(Type::Record(false, fields))
+            Type::Record(false, fields)
+        };
+
+        // Wrap in List or Bag based on ordering. Per morel#273,
+        // output is ordered (list) iff all scan inputs are ordered.
+        if env.ordered {
+            Ok(Type::List(Box::new(element_type)))
+        } else {
+            Ok(Type::Bag(Box::new(element_type)))
         }
     }
 }

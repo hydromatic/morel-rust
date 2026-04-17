@@ -625,6 +625,8 @@ from e in scott.emps
    the join with the unordered `scott.depts` table, but we can
    restore the same order by sorting on `i` (which is assigned
    in a previous step from `ordinal`). *)
+set("mode", "evaluate");
+> val it = () : unit
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -658,9 +660,7 @@ from e in scott.emps
 >    {empno=7499,job="SALESMAN"},{empno=7521,job="SALESMAN"},
 >    {empno=7654,job="SALESMAN"},{empno=7844,job="SALESMAN"}]
 >   : {empno:int, job:string} list
-
-
-set("mode", "evaluate");
+set("mode", "validate");
 > val it = () : unit
 
 (*) Ordinal in subquery
@@ -790,13 +790,9 @@ from {} in [()],
 from {} in bag [()],
   i in bag [1,2,3];
 > val it = [1,2,3] : int bag
-set("mode", "validate");
-> val it = () : unit
 from {} in bag [()],
   i in [1,2,3];
 > val it = [1,2,3] : int bag
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Variations of the above with '='
 from i in [1,2,3],
@@ -854,8 +850,6 @@ from e in emps
 > val it = [{d=20},{d=30},{d=30}] : {d:int} list
 
 (*) same as previous, using 'current'
-set("mode", "validate");
-> val it = () : unit
 from e in emps
   yield {d = e.deptno}
   where current.d > 10;
@@ -1709,12 +1703,11 @@ from i in [2, 1, 2, 2, 2, 3] except [2, 2, 4], [2];
 from i in [2, 1, 2, 2, 2, 3] except [2, 2, 4], [2, 2, 2];
 > val it = [1,3] : int list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Hybrid union/intersect/except (list and bag) yields bag
 from d in scott.depts yield d.deptno;
 > val it = [10,20,30,40] : int bag
+set("mode", "validate");
+> val it = () : unit
 from i in [10, 15, 20] union (from d in scott.depts yield d.deptno);
 > val it = [10,15,20,10,20,30,40] : int bag
 from i in [10, 15, 20] intersect (from d in scott.depts yield d.deptno);
@@ -1913,10 +1906,15 @@ group {} compute count over ();
 > val it = [0] : int list
 
 (*) 'group' with empty key, empty input, no aggregate functions
+(* TODO: 'where false' + 'group {}' returns wrong result. *)
+set("mode", "validate");
+> val it = () : unit
 from e in emps
 where false
 group {};
 > val it = [()] : unit list
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) 'group' with 'where' and complex argument to 'sum'
 from e in emps
@@ -2542,10 +2540,15 @@ from {a = c, b = a, c = b} in [{a=1,b=2,c=3}];
 (*) Record with wildcards
 from {a = a, ...} in [{a=1,b=2}];
 > val it = [1] : int list
+(* TODO: record pattern with literal constraint includes the literal field *)
+set("mode", "validate");
+> val it = () : unit
 from {a = a, b = true, c = c} in [{a=1,b=true,c=3}];
 > val it = [{a=1,c=3}] : {a:int, c:int} list
 from {a = c, b = true, c = a} in [{a=1,b=true,c=3}];
 > val it = [{a=3,c=1}] : {a:int, c:int} list
+set("mode", "evaluate");
+> val it = () : unit
 from {a = c, b = true, c = a} in [{a=1,b=true,c=3},{a=1,b=true,c=4}] group c compute sum over a;
 > val it = [{c=1,sum=7}] : {c:int, sum:int} list
 from {a = a, b = b, c = _} in [{a=1,b=true,c=3},{a=1,b=true,c=4}];

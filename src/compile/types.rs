@@ -89,6 +89,11 @@ impl Type {
         }
     }
 
+    /// Returns true if this is a list type (not bag).
+    pub fn is_list(&self) -> bool {
+        matches!(self, Type::List(_))
+    }
+
     /// Returns the ordinal of a field with a given name.
     /// Always returns None if not a record or tuple type.
     pub fn lookup_field(&self, field_name: &str) -> Option<usize> {

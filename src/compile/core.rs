@@ -124,6 +124,14 @@ impl Expr {
             Expr::Tuple(t, _) => t.clone(),
         }
     }
+
+    /// Returns the steps if this is a From expression.
+    pub fn steps(&self) -> Option<&[Step]> {
+        match self {
+            Expr::From(_, steps) => Some(steps),
+            _ => None,
+        }
+    }
 }
 
 impl Display for Expr {

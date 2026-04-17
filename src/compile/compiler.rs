@@ -1014,7 +1014,7 @@ impl<'a> Compiler<'a> {
                     )
                 }
             }
-            Expr::From(element_type, steps) => {
+            Expr::From(collection_type, steps) => {
                 // Use row sinks (push-based evaluation) matching the Java
                 // implementation.
                 let step_env = if steps.is_empty() {
@@ -1031,6 +1031,13 @@ impl<'a> Compiler<'a> {
                         .any(|s| matches!(s.kind, StepKind::Exists)),
                     "Exists step must only occur as the last step"
                 );
+
+                // Extract element type from the collection type
+                // (Type::List(e) or Type::Bag(e)).
+                let element_type = match collection_type.as_ref() {
+                    Type::List(e) | Type::Bag(e) => e,
+                    _ => collection_type,
+                };
 
                 let factory = self.create_row_sink_factory(
                     cx,

@@ -18,7 +18,8 @@
 use crate::compile::core::{
     ConBind as CoreConBind, DatatypeBind as CoreDatatypeBind, Decl as CoreDecl,
     Expr as CoreExpr, Match as CoreMatch, Pat as CorePat,
-    PatField as CorePatField, TypeBind as CoreTypeBind, ValBind as CoreValBind,
+    PatField as CorePatField, StepKind as CoreStepKind,
+    TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
 use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
@@ -245,42 +246,78 @@ impl<'a> Resolver<'a> {
                 // Uses the new resolve_val_decl method.
                 let resolved_val_decl = self.resolve_val_decl(val_binds, *rec);
 
+                // Use the expression's type for the val binding.
+                // For query expressions (From), the FromBuilder
+                // computes the authoritative collection type
+                // (List vs Bag) via the `ordered` flag (morel#273).
+                let to_val_bind = |pe: &PatExpr| {
+                    // For query expressions (From) whose type is a
+                    // collection (List or Bag), use the expr's type
+                    // which has the correct collection kind from
+                    // FromBuilder's `ordered` flag (morel#273).
+                    // For other expressions (including exists/forall
+                    // which return bool), use the pat's type which
+                    // preserves type aliases.
+                    // Use FromBuilder's type only for queries that
+                    // return a collection. Queries ending in Exists
+                    // (returns bool), Compute (returns scalar), or
+                    // Into (returns fn result) have non-collection
+                    // output types.
+                    // Use the expr's type when it's a collection and
+                    // differs from the pat's type in list/bag wrapping.
+                    // This handles both From expressions (with ordered
+                    // flag from FromBuilder) and simplified queries
+                    // (where build_simplify returns the scan expression
+                    // directly, e.g. `from i in intBag yield i` →
+                    // `intBag`).
+                    let expr_type = pe.expr.type_();
+                    let pat_type = pe.pat.type_();
+                    let t = match (expr_type.as_ref(), pat_type.as_ref()) {
+                        (Type::Bag(_), Type::List(_)) => {
+                            expr_type.as_ref().clone()
+                        }
+                        (Type::List(_) | Type::Bag(_), _)
+                            if matches!(pe.expr, CoreExpr::From(_, _))
+                                && !pe.expr.steps().is_some_and(|steps| {
+                                    steps.iter().any(|s| {
+                                        matches!(
+                                            s.kind,
+                                            CoreStepKind::Exists
+                                                | CoreStepKind::Compute(_)
+                                        )
+                                    })
+                                }) =>
+                        {
+                            expr_type.as_ref().clone()
+                        }
+                        _ => *pat_type,
+                    };
+                    CoreValBind {
+                        pat: pe.pat.clone().with_type(Box::new(t.clone())),
+                        t,
+                        expr: pe.expr.clone(),
+                        overload_pat: None,
+                        span: pe.span.clone(),
+                    }
+                };
                 if resolved_val_decl.rec {
                     CoreDecl::RecVal(
                         resolved_val_decl
                             .pat_exps
                             .iter()
-                            .map(|pe| CoreValBind {
-                                pat: pe.pat.clone(),
-                                t: *pe.pat.type_(),
-                                expr: pe.expr.clone(),
-                                overload_pat: None,
-                                span: pe.span.clone(),
-                            })
+                            .map(to_val_bind)
                             .collect(),
                     )
                 } else if resolved_val_decl.pat_exps.len() == 1 {
                     let pe = &resolved_val_decl.pat_exps[0];
-                    CoreDecl::NonRecVal(Box::new(CoreValBind {
-                        pat: pe.pat.clone(),
-                        t: *pe.pat.type_(),
-                        expr: pe.expr.clone(),
-                        overload_pat: None,
-                        span: pe.span.clone(),
-                    }))
+                    CoreDecl::NonRecVal(Box::new(to_val_bind(pe)))
                 } else {
                     // Multiple non-recursive bindings - convert to RecVal.
                     CoreDecl::RecVal(
                         resolved_val_decl
                             .pat_exps
                             .iter()
-                            .map(|pe| CoreValBind {
-                                pat: pe.pat.clone(),
-                                t: *pe.pat.type_(),
-                                expr: pe.expr.clone(),
-                                overload_pat: None,
-                                span: pe.span.clone(),
-                            })
+                            .map(to_val_bind)
                             .collect(),
                     )
                 }
