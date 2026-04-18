@@ -36,7 +36,7 @@ use crate::syntax::ast::{
 use crate::unify::unifier::{
     Action, NullTracer, Op, OpDef, Sequence, Substitution, Term, Unifier, Var,
 };
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::zip;
@@ -508,6 +508,10 @@ pub struct TypeResolver {
     /// Stack of `compute` clauses.
     compute_stack: Vec<Triple>,
 
+    /// Nesting depth of `from`/`exists`/`forall` queries. Used to
+    /// validate that `ordinal` only appears inside a query.
+    query_depth: usize,
+
     /// Cached operators for common type-constructors.
     list_op: Op,
     bag_op: Op,
@@ -559,6 +563,13 @@ pub struct TypeResolver {
     /// variable → alias name so that the reconstructed type preserves
     /// the alias (e.g. `myInt` instead of `int`).
     var_alias_map: HashMap<Var, String>,
+
+    /// Errors from record selector actions, populated during unification.
+    field_errors: Rc<RefCell<Vec<(String, Span)>>>,
+
+    /// Record selectors to validate after unification.
+    /// Each entry is (record_var, field_name, span).
+    field_selectors: Vec<(Var, String, Span)>,
 }
 
 impl Default for TypeResolver {
@@ -584,6 +595,7 @@ impl TypeResolver {
             warnings: Vec::new(),
             node_var_map: HashMap::new(),
             compute_stack: Vec::new(),
+            query_depth: 0,
             actions: Vec::new(),
             terms: Vec::new(),
             next_id: 0,
@@ -604,6 +616,47 @@ impl TypeResolver {
             int_op,
             preferred_vars: Vec::new(),
             var_alias_map: HashMap::new(),
+            field_errors: Rc::new(RefCell::new(Vec::new())),
+            field_selectors: Vec::new(),
+        }
+    }
+
+    /// Formats a record/tuple type name for error messages.
+    fn type_name(
+        op_defs: &[OpDef],
+        sequence: &Sequence,
+        field_list: &[String],
+    ) -> String {
+        let is_tuple = field_list.len() >= 2
+            && field_list
+                .iter()
+                .enumerate()
+                .all(|(i, l)| l == &(i + 1).to_string());
+        if is_tuple {
+            let type_names: Vec<String> = sequence
+                .terms
+                .iter()
+                .map(|t| match t {
+                    Term::Sequence(s) => op_defs[s.op.0 as usize].name.clone(),
+                    Term::Variable(_) => "'a".to_string(),
+                })
+                .collect();
+            type_names.join(" * ")
+        } else {
+            let parts: Vec<String> = field_list
+                .iter()
+                .zip(sequence.terms.iter())
+                .map(|(label, term)| {
+                    let type_name = match term {
+                        Term::Sequence(s) => {
+                            op_defs[s.op.0 as usize].name.clone()
+                        }
+                        Term::Variable(_) => "'a".to_string(),
+                    };
+                    format!("{}:{}", label, type_name)
+                })
+                .collect();
+            format!("{{{}}}", parts.join(", "))
         }
     }
 
@@ -651,14 +704,18 @@ impl TypeResolver {
                 x
             }
             Err(x) => {
-                let string = self.terms_to_string();
-                panic!(
-                    "Unification failed: {}\n\
-                        term pairs: {}\n",
-                    x, string
-                )
+                return Err(Error::Compile(
+                    format!("Cannot deduce type: {}", x.reason()),
+                    decl.span.clone(),
+                ));
             }
         };
+
+        // Check for field-not-found errors from record selectors
+        // (populated during unification by ActionImpl::accept).
+        if let Some((msg, span)) = self.field_errors.borrow().first() {
+            return Err(Error::Compile(msg.clone(), span.clone()));
+        }
 
         // Create a map with the results of unification.
         let mut type_map =
@@ -1480,7 +1537,13 @@ impl TypeResolver {
                         self.equiv(&term, v);
                     }
                     None => {
-                        todo!("identifier '{}' not found", name);
+                        return Err(Error::Compile(
+                            format!(
+                                "unbound variable or constructor: {}",
+                                name
+                            ),
+                            expr.span.clone(),
+                        ));
                     }
                 }
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
@@ -1609,7 +1672,13 @@ impl TypeResolver {
                         self.equiv(&term, v);
                     }
                     None => {
-                        todo!("identifier '{}' not found", op_name);
+                        return Err(Error::Compile(
+                            format!(
+                                "unbound variable or constructor: {}",
+                                op_name
+                            ),
+                            expr.span.clone(),
+                        ));
                     }
                 }
                 // Numeric operators (+, -, *, ~) prefer `int` when
@@ -1646,6 +1715,12 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Ordinal => {
+                if self.query_depth == 0 {
+                    return Err(Error::Compile(
+                        "'ordinal' is only valid in a query".to_string(),
+                        expr.span.clone(),
+                    ));
+                }
                 // 'ordinal' is a row counter with type int.
                 self.primitive_term(&PrimitiveType::Int, v);
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
@@ -1795,6 +1870,12 @@ impl TypeResolver {
             let p_next =
                 self.deduce_step_type(&step, &p, &mut field_vars, &mut steps2)?;
             p = p_next;
+            if i == 0 {
+                self.query_depth += 1;
+            }
+        }
+        if !steps.is_empty() {
+            self.query_depth -= 1;
         }
 
         // "forall" query must have "require" as the last step.
@@ -2856,6 +2937,9 @@ impl TypeResolver {
             field_name: String,
             v_field: Var,
             op_defs: Rc<Vec<OpDef>>,
+            errors: Rc<RefCell<Vec<(String, Span)>>>,
+            span: Span,
+            found: RefCell<bool>,
         }
         impl Action for ActionImpl {
             fn accept(
@@ -2869,17 +2953,40 @@ impl TypeResolver {
                 // So now we can deduce the type of the field (v_field).
                 // If, say, v_rec is "{a: int, b: real}" and field_name = "b"
                 // (selector is "#b") we can deduce that v_field is "real".
-                if let Term::Sequence(sequence) = term
-                    && let Some(field_list) =
+                if let Term::Sequence(sequence) = term {
+                    if let Some(field_list) =
                         TypeResolver::field_list(&self.op_defs, sequence)
-                    && let Some(i) =
-                        field_list.iter().position(|f| *f == self.field_name)
-                {
-                    let result2 = substitution
-                        .resolve_term(&Term::Variable(self.v_field));
-                    let term = sequence.terms.get(i).unwrap();
-                    let term2 = substitution.resolve_term(term);
-                    term_pairs.push((result2, term2));
+                    {
+                        if let Some(i) = field_list
+                            .iter()
+                            .position(|f| *f == self.field_name)
+                        {
+                            let result2 = substitution
+                                .resolve_term(&Term::Variable(self.v_field));
+                            let term = sequence.terms.get(i).unwrap();
+                            let term2 = substitution.resolve_term(term);
+                            term_pairs.push((result2, term2));
+                            *self.found.borrow_mut() = true;
+                            // Clear any previous error — a successful
+                            // lookup supersedes earlier failures.
+                            self.errors
+                                .borrow_mut()
+                                .retain(|(_, s)| s != &self.span);
+                        } else if !*self.found.borrow() {
+                            self.errors.borrow_mut().push((
+                                format!(
+                                    "no field '{}' in type '{}'",
+                                    self.field_name,
+                                    TypeResolver::type_name(
+                                        &self.op_defs,
+                                        sequence,
+                                        &field_list,
+                                    )
+                                ),
+                                self.span.clone(),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -2889,7 +2996,17 @@ impl TypeResolver {
                 field_name: field_name.to_string(),
                 v_field: *v_field,
                 op_defs: self.unifier.op_defs.clone(),
+                errors: self.field_errors.clone(),
+                span: span.clone(),
+                found: RefCell::new(false),
             }),
+        ));
+
+        // Record for post-unification validation.
+        self.field_selectors.push((
+            *v_rec,
+            field_name.to_string(),
+            span.clone(),
         ));
 
         // Create a record selector expression
@@ -2922,6 +3039,12 @@ impl TypeResolver {
                 let ordinal = label_expr_map.len() + 1;
                 Label::Ordinal(ordinal)
             };
+            if label_expr_map.contains_key(&label) {
+                return Err(Error::Compile(
+                    format!("duplicate field '{}' in record", label),
+                    labeled_expr.expr.span.clone(),
+                ));
+            }
             label_expr_map.insert(label, labeled_expr.clone());
         }
 

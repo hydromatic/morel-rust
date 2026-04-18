@@ -548,24 +548,27 @@ impl Shell {
             return Ok(expected_output.unwrap().to_string());
         }
 
+        let base_line = leading_comment_lines(&actual_code);
+
         if type_only {
             // We are running in type-only mode (via :t prefix).
             // Deduce the type without evaluating.
             let output = self.deduce_type(&statement);
             return match &output {
                 Ok(s) => Ok(prefix_lines(">", s.as_str())),
-                Err(Error::Compile(msg, _span)) => {
-                    Ok(format!("> error: {}\n", msg))
+                Err(Error::Compile(msg, span)) => {
+                    let pest_span = span.to_pest_span();
+                    let span2 = Span::from_pest_span(&pest_span, base_line);
+                    Ok(format!(
+                        "> {} Error: {}\n>   raised at: {}\n",
+                        span2, msg, span2
+                    ))
                 }
                 Err(_) => output,
             };
         }
 
         // Successfully parsed, now validate.
-        // Compute the base line offset (number of leading comment/blank lines)
-        // so that span line numbers are reported relative to the first code
-        // token, matching the behavior of morel-java's parser.zero() call.
-        let base_line = leading_comment_lines(&actual_code);
         let resolved =
             match self.session.borrow_mut().deduce_type_inner(&statement) {
                 Ok(resolved) => resolved,
@@ -640,7 +643,13 @@ impl Shell {
 
     /// Evaluates a parsed AST node.
     fn evaluate_node(&mut self, resolved: &Resolved) -> ShellResult<String> {
-        let decl = resolver::resolve(resolved);
+        let (decl, resolve_errors) = resolver::resolve(resolved);
+        if let Some((msg, span)) = resolve_errors.first() {
+            return Ok(format!(
+                "{} Error: {}\n  raised at: {}\n",
+                span, msg, span
+            ));
+        }
 
         let env = Env::empty();
         let mut map: BTreeMap<&str, (Type, Option<Val>)> = BTreeMap::new();

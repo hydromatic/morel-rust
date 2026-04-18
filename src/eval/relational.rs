@@ -15,9 +15,12 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library::BuiltInExn;
+use crate::eval::code::Span;
 use crate::eval::comparator::{Comparator, NaturalComparator};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
+use crate::shell::main::MorelError;
 
 /// Support for the `Relational` structure.
 pub struct Relational;
@@ -31,35 +34,40 @@ impl Relational {
     }
 
     /// Fallback max using `NaturalComparator`.
-    pub(crate) fn max(list: &[Val]) -> Val {
-        use crate::eval::comparator::NaturalComparator;
+    /// Returns the greatest element of the list.
+    /// Throws Empty exception if the list is empty.
+    pub(crate) fn max(list: &[Val], span: &Span) -> Result<Val, MorelError> {
         if list.is_empty() {
-            panic!("Empty");
+            return Err(MorelError::Runtime(BuiltInExn::Empty, span.clone()));
         }
-        list.iter()
+        Ok(list
+            .iter()
             .max_by(|a, b| NaturalComparator.compare(a, b))
             .unwrap()
-            .clone()
+            .clone())
     }
 
     /// Fallback min using `NaturalComparator`.
-    pub(crate) fn min(list: &[Val]) -> Val {
-        use crate::eval::comparator::NaturalComparator;
+    /// Returns the least element of the list.
+    /// Throws Empty exception if the list is empty.
+    pub(crate) fn min(list: &[Val], span: &Span) -> Result<Val, MorelError> {
         if list.is_empty() {
-            panic!("Empty");
+            return Err(MorelError::Runtime(BuiltInExn::Empty, span.clone()));
         }
-        list.iter()
+        Ok(list
+            .iter()
             .min_by(|a, b| NaturalComparator.compare(a, b))
             .unwrap()
-            .clone()
+            .clone())
     }
 
     /// Returns the sole element of the list.
-    /// Throws Empty exception if the list does not have exactly one element.
-    pub(crate) fn only(list: &[Val]) -> Val {
-        if list.len() != 1 {
-            panic!("Empty");
+    /// Throws Size if more than one element, Empty if empty.
+    pub(crate) fn only(list: &[Val], span: &Span) -> Result<Val, MorelError> {
+        match list.len() {
+            0 => Err(MorelError::Runtime(BuiltInExn::Empty, span.clone())),
+            1 => Ok(list[0].clone()),
+            _ => Err(MorelError::Runtime(BuiltInExn::Size, span.clone())),
         }
-        list[0].clone()
     }
 }

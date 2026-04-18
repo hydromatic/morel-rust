@@ -499,6 +499,13 @@ pub struct UnificationFailure {
     reason: String,
 }
 
+impl UnificationFailure {
+    /// Returns the reason for the unification failure.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
 impl fmt::Display for UnificationFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Unification failed: {}", self.reason)
@@ -1212,7 +1219,7 @@ impl Unifier {
                 {
                     tracer.on_conflict(&left, &right);
                     let reason = format!(
-                        "conflict: {} != {}",
+                        "conflict: {} vs {}",
                         self.sequence_string(&left),
                         self.sequence_string(&right)
                     );
