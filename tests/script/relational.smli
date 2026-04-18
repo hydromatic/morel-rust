@@ -998,18 +998,15 @@ from i in [1, 2, 3]
   group i compute {l = length elements};
 > val it = [{i=1,l=1},{i=2,l=1},{i=3,l=1}] : {i:int, l:int} list
 
-(* TODO: group/compute/elements followed by order panics
 from i in [1, 2, 3]
   group i compute elements order i;
 > val it = [{elements=[1],i=1},{elements=[2],i=2},{elements=[3],i=3}]
 >   : {elements:int list, i:int} list
-*)
 
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   group {i} compute {c = length elements} order i;
 > val it = [{c=2,i="a"},{c=1,i="b"}] : {c:int, i:string} list
 
-(* TODO: from r in elements with nested compute not yet supported
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   group {i} compute {s = from r in elements compute sum over r.j} order i;
 > val it = [{i="a",s=4},{i="b",s=4}] : {i:string, s:int} list
@@ -1031,7 +1028,6 @@ from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
 > val it =
 >   [{elements=[{i="a",j=1},{i="a",j=3}],i="a"},{elements=[{i="b",j=4}],i="b"}]
 >   : {elements:{i:string, j:int} list, i:string} list
-*)
 
 (*) "elements" invalid in "group"
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
@@ -1046,6 +1042,13 @@ from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
 >   raised at: stdIn:2.16-2.24
 
 (*) "elements" is invalid at top-level
+elements;
+> stdIn:1.1-1.9 Error: 'elements' is only valid in a 'compute' clause
+>   raised at: stdIn:1.1-1.9
+
+(*) ... even after a user binding of that name
+val `elements` = 1;
+> val elements = 1 : int
 elements;
 > stdIn:1.1-1.9 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.1-1.9

@@ -16,7 +16,6 @@
 // License.
 
 use crate::compile::core::{Decl, Expr, Match, Pat, PatField, Step, StepKind};
-use crate::compile::from_builder::agg_implicit_label;
 use crate::compile::type_env::Binding;
 use crate::compile::types::{Label, Type};
 use crate::eval::frame::FrameDef;
@@ -309,34 +308,25 @@ impl Step {
                 }
             }
             StepKind::Group(_, Some(aggregate_expr)) => {
-                // Add aggregate output field names as frame slot defs.
-                // These are the named fields produced by the aggregate
-                // expression (e.g., "three" for `compute {three = 1+2}`).
-                if let Type::Record(_, fields) = aggregate_expr.type_().as_ref()
-                {
-                    for label in fields.keys() {
-                        if let Label::String(name) = label
-                            && name != "elements"
-                        {
-                            collector.add_def(Binding::of_name(name));
-                        }
+                // Add all output binding names (key + aggregate)
+                // as frame slot defs. The step env bindings were
+                // set up by FromBuilder with the correct names.
+                for binding in &self.env.bindings {
+                    if !collector
+                        .defs
+                        .iter()
+                        .any(|b| b.id.name == binding.id.name)
+                    {
+                        collector.add_def(Binding::of_name(&binding.id.name));
                     }
-                } else {
-                    // Scalar aggregate: add the implicit label (e.g. "count"
-                    // for `count over e`) as a frame slot def. This slot
-                    // receives the aggregate result. It must come BEFORE
-                    // "elements" so that agg_output_slots[0] = key_slot_count.
-                    let label = agg_implicit_label(aggregate_expr)
-                        .unwrap_or_else(|| "agg".to_string());
-                    collector.add_def(Binding::of_name(&label));
                 }
 
                 // Traverse aggregate expression for variable refs.
                 aggregate_expr.collect_vars(collector);
 
-                // If "elements" was referenced but not already defined as
-                // an aggregate field, add it as a temporary frame slot for
-                // aggregate evaluation.
+                // If "elements" was referenced but not already
+                // defined as an output field, add it as a frame
+                // slot for the rows variable.
                 let has_elements_def =
                     collector.defs.iter().any(|b| b.id.name == "elements");
                 let has_elements_ref =

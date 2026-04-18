@@ -1466,7 +1466,16 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Elements => {
-                self.check_in_compute(env, &expr.span)?;
+                if self.compute_stack.is_empty() {
+                    return Err(Error::Compile(
+                        format!(
+                            "'{}' is only valid in a '{}' clause",
+                            ExprKind::Elements.clause(),
+                            StepKind::Compute(Expr::empty()).clause()
+                        ),
+                        expr.span.clone(),
+                    ));
+                }
                 let step_env = self.compute_stack.last().unwrap();
                 self.equiv(&Term::Variable(step_env.clone().c.unwrap()), v);
                 self.reg_expr(&expr.kind, &expr.span, expr.id, &v)
@@ -2179,6 +2188,11 @@ impl TypeResolver {
                 }
             }
         } else {
+            // Non-record yield (tuple, scalar): the previous row
+            // bindings are no longer in scope. Build the new
+            // environment from the root (outer) env, not the
+            // current step env.
+            envs = p.root_env.builder();
             let label = expr
                 .implicit_label_opt()
                 .unwrap_or_else(|| ExprKind::Current.clause().to_string());
@@ -2485,10 +2499,18 @@ impl TypeResolver {
             let result = if let ExprKind::Record(_with, labeled_exprs) =
                 &compute.kind
             {
-                // Multiple compute fields.
+                // Multiple compute fields. Sort into BTreeMap order
+                // (alphabetical by label) so that evaluation order
+                // matches the record type's field order.
+                let mut sorted_exprs: Vec<_> = labeled_exprs.iter().collect();
+                sorted_exprs.sort_by_key(|le| {
+                    le.get_label()
+                        .or_else(|| le.expr.implicit_label_opt())
+                        .unwrap_or_default()
+                });
                 let mut labeled_exprs2 = Vec::new();
                 let start = field_vars.len();
-                for labeled_expr in labeled_exprs {
+                for labeled_expr in &sorted_exprs {
                     let v_field = self.variable();
                     let expr2 = self.deduce_expr_type(
                         &*group_env,
@@ -2585,8 +2607,11 @@ impl TypeResolver {
     ) -> Result<Triple, Error> {
         field_vars.clear();
 
-        // Bind 'elements' to the current collection
-        let mut compute_env_builder = p.root_env.builder();
+        // Bind 'elements' to the current collection.
+        // Use p.env so that scan variables from preceding steps
+        // (e.g. `r` in `from r in elements`) are visible in the
+        // 'over' expression.
+        let mut compute_env_builder = p.env.builder();
         compute_env_builder.push(
             ExprKind::Elements.clause().to_string(),
             Term::Variable(p.c.unwrap()),
