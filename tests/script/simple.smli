@@ -1169,4 +1169,12 @@ f ~1;
 > uncaught exception Subscript [subscript out of bounds]
 >   raised at: stdIn:1.11-1.43
 
+(*) Name shadowing: local bindings shadow built-in function names.
+(fn bag => bag) 5;
+> val it = 5 : int
+let val bag = 5 in bag end;
+> val it = 5 : int
+let val bag = 5 in bag + 1 end;
+> val it = 6 : int
+
 (*) End simple.smli

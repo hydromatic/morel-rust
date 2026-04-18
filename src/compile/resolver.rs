@@ -452,22 +452,35 @@ impl<'a> Resolver<'a> {
                 // Check if this identifier refers to a global built-in
                 // function. Global constructors like DESC need to be
                 // resolved to literals so they can be compiled properly.
-                if let Some(built_in) = library::lookup(name) {
+                // However, if the identifier is locally bound (e.g.
+                // as a function parameter or let binding), the local
+                // binding shadows the built-in.
+                let is_shadowed =
+                    if let Some(local_type) = expr.get_type(self.type_map) {
+                        // If the local type differs from the built-in's
+                        // type, the identifier is shadowed by a local
+                        // binding. A simple heuristic: if the built-in
+                        // is a function type but the local type is not,
+                        // it's shadowed.
+                        !matches!(local_type.as_ref(), Type::Fn(_, _))
+                            && library::lookup(name).is_some()
+                    } else {
+                        false
+                    };
+                if !is_shadowed && let Some(built_in) = library::lookup(name) {
                     match built_in {
                         BuiltIn::Fn(f) => {
-                            // Convert the global function/constructor to
-                            // a literal.
-                            CoreExpr::Literal(t, Val::Fn(f))
+                            // Convert the global function/constructor
+                            // to a literal.
+                            return CoreExpr::Literal(t, Val::Fn(f));
                         }
                         BuiltIn::Record(_) => {
                             // Records stay as identifiers.
-                            CoreExpr::Identifier(t, name.clone())
                         }
                     }
-                } else {
-                    // This is a regular identifier (local variable).
-                    CoreExpr::Identifier(t, name.clone())
                 }
+                // Local variable or shadowed built-in.
+                CoreExpr::Identifier(t, name.clone())
             }
             ExprKind::If(cond, then_expr, else_expr) => {
                 // Convert 'if cond then e1 else e2'
