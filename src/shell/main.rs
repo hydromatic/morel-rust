@@ -751,6 +751,11 @@ impl Shell {
             }
         }
 
+        // Commit type bindings AFTER evaluation, so that Sys.env()
+        // during evaluation does not see the current statement's own
+        // bindings (e.g. the implicit `it`).
+        self.session.borrow_mut().commit_bindings(resolved);
+
         Ok(result)
     }
 
