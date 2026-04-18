@@ -496,11 +496,11 @@ impl FromBuilder {
                     has_key_bindings = true;
                 }
                 _ => {
-                    // Record/tuple key (e.g. `group {i}` or `group {e = x}`):
-                    // add a binding for each field name.
                     if let Type::Record(_, key_fields) =
                         key_expr.type_().as_ref()
                     {
+                        // Record/tuple key (e.g. `group {i}`):
+                        // add a binding for each field name.
                         for (label, t) in key_fields {
                             if let Label::String(name) = label {
                                 new_bindings.push(Binding::new(
@@ -510,6 +510,16 @@ impl FromBuilder {
                                 has_key_bindings = true;
                                 has_record_key = true;
                             }
+                        }
+                    } else if aggregate_expr.is_some() {
+                        // Scalar key via field access (e.g.
+                        // `group e.deptno`): derive binding name.
+                        if let Some(name) = key_expr.implicit_label() {
+                            new_bindings.push(Binding::new(
+                                Id::new(&name, 0),
+                                key_expr.type_().clone(),
+                            ));
+                            has_key_bindings = true;
                         }
                     }
                 }

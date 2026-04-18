@@ -229,12 +229,12 @@ pub enum Code {
     /// the time the recursive function is being compiled, there is not yet
     /// code to refer to. `name` is for debugging.
     Link(usize, String),
-    /// `MapElements(elements_code, over_code)` reads a list from
-    /// `elements_code`, and for each element restores scan variable
-    /// slots from the element value, evaluates `over_code`, and
-    /// collects the results into a new list. Used by `f over e`
-    /// aggregates when `e` is not a trivial identity.
-    MapElements(Box<Code>, Box<Code>),
+    /// `MapElements(elements_code, over_code, scan_slots)` reads a
+    /// list from `elements_code`, and for each element writes
+    /// values to the given scan slots, evaluates `over_code`, and
+    /// collects the results. The `scan_slots` specify which frame
+    /// slots receive the element values.
+    MapElements(Box<Code>, Box<Code>, Vec<usize>),
     /// `Max(comparator, list_code)` evaluates the list and returns
     /// its maximum element using the type-directed comparator.
     Max(CmpRef, Box<Code>),
@@ -588,7 +588,7 @@ impl Code {
             Code::GetLocal(_, _) => *mode == EvalMode::EagerF0,
             Code::Let(_, _) => *mode == EvalMode::Eager0,
             Code::Link(_, _) => todo!("{:?}", self),
-            Code::MapElements(_, _) => *mode == EvalMode::EagerF0,
+            Code::MapElements(_, _, _) => *mode == EvalMode::EagerF0,
             Code::Max(_, _) => *mode == EvalMode::EagerF0,
             Code::Min(_, _) => *mode == EvalMode::EagerF0,
             Code::Native0(_) => *mode == EvalMode::Eager0,
@@ -754,33 +754,34 @@ impl Code {
                 }
                 result_code.eval_f0(r, f)
             }
-            Code::MapElements(elements_code, over_code) => {
+            Code::MapElements(elements_code, over_code, scan_slots) => {
                 let elements = elements_code.eval_f0(r, f)?;
                 let rows = elements.expect_list();
                 let mut mapped = Vec::with_capacity(rows.len());
-                // Determine how many scan slots each element occupies
-                // and save those slots so we can restore after mapping.
-                let slot_count = match rows.first() {
-                    Some(Val::List(fields)) => fields.len(),
-                    _ => 1,
-                };
-                let saved: Vec<Val> = f.vals[..slot_count].to_vec();
+                // Save scan slots so we can restore after mapping.
+                let saved: Vec<Val> =
+                    scan_slots.iter().map(|&s| f.vals[s].clone()).collect();
                 for row in rows {
-                    match row {
-                        Val::List(fields) => {
-                            for (i, v) in fields.iter().enumerate() {
-                                f.vals[i] = v.clone();
+                    if scan_slots.len() == 1 {
+                        // Single scan variable: store the whole
+                        // element (which may be a record/tuple).
+                        f.vals[scan_slots[0]] = row.clone();
+                    } else if let Val::List(fields) = row {
+                        // Multiple scan variables: destructure.
+                        for (i, v) in fields.iter().enumerate() {
+                            if i < scan_slots.len() {
+                                f.vals[scan_slots[i]] = v.clone();
                             }
                         }
-                        _ => {
-                            f.vals[0] = row.clone();
-                        }
+                    } else if !scan_slots.is_empty() {
+                        f.vals[scan_slots[0]] = row.clone();
                     }
                     mapped.push(over_code.eval_f0(r, f)?);
                 }
-                // Restore scan slots so subsequent code (e.g. yield
-                // after group+compute) sees the correct key values.
-                f.vals[..slot_count].clone_from_slice(&saved);
+                // Restore scan slots.
+                for (i, &s) in scan_slots.iter().enumerate() {
+                    f.vals[s] = saved[i].clone();
+                }
                 Ok(Val::List(mapped))
             }
             Code::Max(cmp, list_code) => {

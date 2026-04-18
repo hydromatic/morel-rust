@@ -85,6 +85,24 @@ impl Expr {
         Expr::Tuple(Box::new(arg_type), args.to_vec())
     }
 
+    /// Returns the implicit label for this expression, if any.
+    pub fn implicit_label(&self) -> Option<String> {
+        match self {
+            Expr::Apply(_, fx, _, _) => {
+                if let Expr::RecordSelector(t, slot) = fx.as_ref() {
+                    let (param_type, _) = t.expect_fn();
+                    param_type.field_name(*slot).map(ToString::to_string)
+                } else {
+                    None
+                }
+            }
+            Expr::Aggregate(_, left, _) => left.implicit_label(),
+            Expr::Identifier(_, name) => Some(name.clone()),
+            Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
+            _ => None,
+        }
+    }
+
     /// Returns this expression's type.
     pub fn type_(&self) -> Box<Type> {
         match self {

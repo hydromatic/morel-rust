@@ -109,6 +109,19 @@ impl Type {
         }
     }
 
+    /// Returns the field name at a given slot index.
+    pub fn field_name(&self, slot: usize) -> Option<&str> {
+        match self {
+            Type::Record(_, fields) => {
+                fields.keys().nth(slot).and_then(|l| match l {
+                    Label::String(s) => Some(s.as_str()),
+                    Label::Ordinal(_) => None,
+                })
+            }
+            _ => None,
+        }
+    }
+
     /// Describes a list of types, with given left and right precedence
     /// and given opening, separator, and closing strings.
     fn describe_list(

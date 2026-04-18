@@ -539,12 +539,10 @@ from a in [1], b in [true] yield (b,a) where c;
 > stdIn:1.46 Error: unbound variable or constructor: c
 >   raised at: stdIn:1.46
 
-(* TODO err handling
 :t
 from a in [1], b in [true] yield (b,a) where b;
 > stdIn:1.46 Error: unbound variable or constructor: b
 >   raised at: stdIn:1.46
-*)
 
 :t from a in [1], b in [true] yield {b,a} where b;
 > val it : {a:int, b:bool} list
@@ -1188,12 +1186,10 @@ from a in [1], b in [true] yield (b,a) where c;
 > stdIn:1.46 Error: unbound variable or constructor: c
 >   raised at: stdIn:1.46
 
-(* TODO err handling
 :t
 from a in [1], b in [true] yield (b,a) where b;
 > stdIn:1.46 Error: unbound variable or constructor: b
 >   raised at: stdIn:1.46
-*)
 
 :t from a in [1], b in [true] yield {b,a} where b;
 > val it : {a:int, b:bool} list
