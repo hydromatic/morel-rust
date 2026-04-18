@@ -271,6 +271,21 @@ impl Typed for Pat {
     }
 }
 
+/// The collection kind of an aggregate function's input parameter.
+/// Determines how the TypeResolver constrains the aggregate input.
+enum CollectionKind {
+    /// Function expects list input (e.g. `count: 'a list -> int`).
+    List,
+    /// Function expects bag input.
+    Bag,
+    /// Function is overloaded with both list and bag variants.
+    /// Link to input ordering.
+    MatchInput,
+    /// Function type is unknown (anonymous lambda). Allow either,
+    /// default based on query ordering.
+    Unknown,
+}
+
 #[derive(Clone)]
 struct Triple {
     root_env: Rc<dyn TypeEnv>,
@@ -1508,19 +1523,42 @@ impl TypeResolver {
                 let v_e = self.variable();
                 let e2 = self.deduce_expr_type(&*step_env.env, e, &v_e)?;
                 // f has type: collection(type_of_e) -> v.
-                // The aggregate input may be list or bag. Built-in
-                // aggregates like `count` (typed `'a list -> int`)
-                // will constrain it to list. User-provided functions
-                // like `(fn x => x)` leave it unconstrained; in that
-                // case we default to list or bag based on whether the
-                // query is ordered.
+                // Determine the collection kind from the aggregate
+                // function's declared type (per morel#271, d751e565):
+                //  - list-only (e.g. count: 'a list -> int): list_term
+                //  - bag-only: bag_term
+                //  - overloaded: match input ordering
+                //  - anonymous/unknown: may_be_bag_or_list + default
                 let v_elements = self.variable();
-                self.may_be_bag_or_list(&v_elements, &v_e);
-                self.preferred_collection_vars.push((
-                    v_elements,
-                    v_e,
-                    step_env.ordered,
-                ));
+                let kind = self.aggregate_collection_kind(env, f);
+                match kind {
+                    CollectionKind::List => {
+                        self.list_term(Term::Variable(v_e), &v_elements);
+                    }
+                    CollectionKind::Bag => {
+                        self.bag_term(Term::Variable(v_e), &v_elements);
+                    }
+                    CollectionKind::MatchInput => {
+                        // Link to input ordering via match_collection_kind.
+                        // Avoids the action collision that
+                        // is_list_or_bag_matching_input would cause.
+                        if let Some(c) = step_env.c {
+                            self.match_collection_kind(&c, &v_elements, &v_e);
+                        } else {
+                            self.list_term(Term::Variable(v_e), &v_elements);
+                        }
+                    }
+                    CollectionKind::Unknown => {
+                        // Anonymous function: allow either, default
+                        // based on query ordering.
+                        self.may_be_bag_or_list(&v_elements, &v_e);
+                        self.preferred_collection_vars.push((
+                            v_elements,
+                            v_e,
+                            step_env.ordered,
+                        ));
+                    }
+                }
                 let v_fn = self.variable();
                 self.fn_term(&v_elements, v, &v_fn);
                 let f2 = self.deduce_expr_type(env, f, &v_fn)?;
@@ -2905,9 +2943,29 @@ impl TypeResolver {
         // Deduce the type of the function expression.
         let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
 
-        // The function must have type: current_collection -> result.
-        // Create the function type: c -> v_result.
-        self.fn_term(&p.c.unwrap(), &v_result, &v_fn);
+        // The function must have type: collection -> result.
+        // Use collectionKind to determine whether the function's
+        // parameter should match the input or be independent.
+        // Per morel#271, `into` adapts collection kinds.
+        let c_param = self.variable();
+        let kind = self.aggregate_collection_kind(&*p.env, expr);
+        match kind {
+            CollectionKind::List => {
+                self.list_term(Term::Variable(p.v), &c_param);
+            }
+            CollectionKind::Bag => {
+                self.bag_term(Term::Variable(p.v), &c_param);
+            }
+            CollectionKind::MatchInput => {
+                // Overloaded: link to input collection kind.
+                self.equiv(&Term::Variable(p.c.unwrap()), &c_param);
+            }
+            CollectionKind::Unknown => {
+                // Anonymous: allow either.
+                self.may_be_bag_or_list(&c_param, &p.v);
+            }
+        }
+        self.fn_term(&c_param, &v_result, &v_fn);
 
         let step2 = StepKind::Into(Box::new(expr2));
         steps2.push(step2.spanned(span));
@@ -3592,6 +3650,56 @@ impl TypeResolver {
 
     /// Checks whether a variable's term (in self.terms) is a list.
     /// Returns false if it's a bag or unknown.
+    /// Inspects the aggregate function's declared type to determine
+    /// its collection kind. Per morel#271 (d751e565):
+    /// - Identifier with list param → List
+    /// - Identifier with bag param → Bag
+    /// - Overloaded identifier → MatchInput
+    /// - Anonymous (lambda) → Unknown
+    fn aggregate_collection_kind(
+        &mut self,
+        env: &dyn TypeEnv,
+        f: &Expr,
+    ) -> CollectionKind {
+        if let ExprKind::Identifier(name) = &f.kind {
+            // Check for overloaded name
+            if self.overloads.contains_key(name) {
+                return CollectionKind::MatchInput;
+            }
+            // Look up the function type in the environment
+            if let Some(bind_type) = env.get(name, self) {
+                let term = match bind_type {
+                    BindType::Val(t) | BindType::Constructor(t) => t,
+                };
+                // Chase through the term to find the function's
+                // parameter type. For `fn(param, result)`, check
+                // if param is list or bag.
+                if let Term::Variable(v) = &term {
+                    for (var, t) in self.terms.iter().rev() {
+                        if var == v {
+                            if let Term::Sequence(seq) = t
+                                && seq.terms.len() == 2
+                                && seq.op == self.fn_op
+                            {
+                                // seq.terms[0] is the parameter type
+                                if let Term::Sequence(param) = &seq.terms[0] {
+                                    if param.op == self.list_op {
+                                        return CollectionKind::List;
+                                    }
+                                    if param.op == self.bag_op {
+                                        return CollectionKind::Bag;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        CollectionKind::Unknown
+    }
+
     fn var_is_list(&self, v: &Var) -> bool {
         for (var, term) in self.terms.iter().rev() {
             if var == v {

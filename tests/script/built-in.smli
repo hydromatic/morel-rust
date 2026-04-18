@@ -4238,9 +4238,9 @@ Relational;
 > val it =
 >   {DESC=fn,compare=fn,count=fn,empty=fn,max=fn,min=fn,nonEmpty=fn,only=fn,
 >    sum=fn}
->   : {DESC:'a -> 'a descending, compare:'b * 'b -> order, count:'c list -> int,
->      empty:'d list -> bool, max:'e list -> 'e, min:'f list -> 'f,
->      nonEmpty:'g list -> bool, only:'h list -> 'h, sum:int list -> int}
+>   : {DESC:'a -> 'a descending, compare:'b * 'b -> order, count:'c bag -> int,
+>      empty:'d bag -> bool, max:'e bag -> 'e, min:'f bag -> 'f,
+>      nonEmpty:'g bag -> bool, only:'h bag -> 'h, sum:int bag -> int}
 
 (* Descending:
      datatype descending = DESC of 'a
@@ -4268,25 +4268,19 @@ Sys.plan ();
 
 set("mode", "evaluate");
 > val it = () : unit
-Relational.nonEmpty [1, 2, 3];
+Relational.nonEmpty (bag [1, 2, 3]);
 > val it = true : bool
-Relational.nonEmpty [];
+Relational.nonEmpty (bag []);
 > val it = false : bool
-Relational.nonEmpty [false];
+Relational.nonEmpty (bag [false]);
 > val it = true : bool
-Sys.plan ();
-> val it = "apply(fnValue Relational.nonEmpty, argCode tuple(constant(false)))"
->   : string
 
-Relational.empty [1, 2, 3];
+Relational.empty (bag [1, 2, 3]);
 > val it = false : bool
-Relational.empty [];
+Relational.empty (bag []);
 > val it = true : bool
-Relational.empty [false];
+Relational.empty (bag [false]);
 > val it = false : bool
-Sys.plan ();
-> val it = "apply(fnValue Relational.empty, argCode tuple(constant(false)))"
->   : string
 
 val emps = [
   {empno=7839, ename="KING", mgr=0},
@@ -4337,65 +4331,41 @@ Sys.plan ();
 
 set("mode", "evaluate");
 > val it = () : unit
-Relational.sum [1, 2, 3];
+Relational.sum (bag [1, 2, 3]);
 > val it = 6 : int
-Sys.plan ();
-> val it =
->   "apply(fnValue Relational.sum, argCode tuple(constant(1), constant(2), constant(3)))"
->   : string
 set("mode", "validate");
 > val it = () : unit
-Relational.sum [1.0, 2.5, 3.5];
+Relational.sum (bag [1.0, 2.5, 3.5]);
 > val it = 7.0 : real
-Sys.plan ();
-> val it =
->   "apply(fnValue Relational.sum$real, argCode tuple(constant(1.0), constant(2.5), constant(3.5)))"
->   : string
 
 set("mode", "evaluate");
 > val it = () : unit
-Relational.max [1, 2, 3];
+Relational.max (bag [1, 2, 3]);
 > val it = 3 : int
-Relational.max [1.0, 2.5, 3.5];
+Relational.max (bag [1.0, 2.5, 3.5]);
 > val it = 3.5 : real
-Relational.max ["a", "bc", "ab"];
+Relational.max (bag ["a", "bc", "ab"]);
 > val it = "bc" : string
-Relational.max [false, true];
+Relational.max (bag [false, true]);
 > val it = true : bool
-set("mode", "validate");
-> val it = () : unit
-Sys.plan ();
-> val it =
->   "apply(fnValue Relational.max, argCode tuple(constant(false), constant(true)))"
->   : string
-set("mode", "evaluate");
-> val it = () : unit
 
-Relational.min [1, 2, 3];
+Relational.min (bag [1, 2, 3]);
 > val it = 1 : int
-Relational.min [1.0, 2.5, 3.5];
+Relational.min (bag [1.0, 2.5, 3.5]);
 > val it = 1.0 : real
-Relational.min ["a", "bc", "ab"];
+Relational.min (bag ["a", "bc", "ab"]);
 > val it = "a" : string
-Relational.min [false, true];
+Relational.min (bag [false, true]);
 > val it = false : bool
-set("mode", "validate");
-> val it = () : unit
-Sys.plan ();
-> val it =
->   "apply(fnValue Relational.min, argCode tuple(constant(false), constant(true)))"
->   : string
-set("mode", "evaluate");
-> val it = () : unit
 
-Relational.only [2];
+Relational.only (bag [2]);
 > val it = 2 : int
-Relational.only [1, 2, 3];
+Relational.only (bag [1, 2, 3]);
 > uncaught exception Size
->   raised at: stdIn:1.1-1.26
-Relational.only [];
+>   raised at: stdIn:1.1-1.32
+Relational.only (bag []);
 > uncaught exception Empty
->   raised at: stdIn:1.1-1.19
+>   raised at: stdIn:1.1-1.25
 set("mode", "validate");
 > val it = () : unit
 Sys.plan ();
@@ -4610,7 +4580,7 @@ Sys.env ();
 >    ("Real",
 >     "{*:real * real -> real, +:real * real -> real, -:real * real -> real, /:real * real -> real, <:real * real -> bool, <=:real * real -> bool, <>:real * real -> bool, =:real * real -> bool, >:real * real -> bool, >=:real * real -> bool, abs:real -> real, ceil:real -> int, checkFloat:real -> real, compare:real * real -> order, copySign:real * real -> real, floor:real -> int, fromInt:int -> real, fromManExp:{exp:int, man:real} -> real, fromString:string -> real option, isFinite:real -> bool, isNan:real -> bool, isNormal:real -> bool, max:real * real -> real, maxFinite:real, min:real * real -> real, minNormalPos:real, minPos:real, negInf:real, posInf:real, precision:int, radix:int, realCeil:real -> real, realFloor:real -> real, realMod:real -> real, realRound:real -> real, realTrunc:real -> real, rem:real * real -> real, round:real -> int, sameSign:real * real -> bool, sign:real -> int, signBit:real -> bool, split:real -> {frac:real, whole:real}, toManExp:real -> {exp:int, man:real}, toString:real -> string, trunc:real -> int, unordered:real * real -> bool, ~:real -> real}"),
 >    ("Relational",
->     "{DESC:forall 'a. 'a -> 'a descending, compare:forall 'a. 'a * 'a -> order, count:forall 'a. 'a list -> int, empty:forall 'a. 'a list -> bool, max:forall 'a. 'a list -> 'a, min:forall 'a. 'a list -> 'a, nonEmpty:forall 'a. 'a list -> bool, only:forall 'a. 'a list -> 'a, sum:int list -> int}"),
+>     "{DESC:forall 'a. 'a -> 'a descending, compare:forall 'a. 'a * 'a -> order, count:forall 'a. 'a bag -> int, empty:forall 'a. 'a bag -> bool, max:forall 'a. 'a bag -> 'a, min:forall 'a. 'a bag -> 'a, nonEmpty:forall 'a. 'a bag -> bool, only:forall 'a. 'a bag -> 'a, sum:int bag -> int}"),
 >    ("SOME","forall 'a. 'a -> 'a option"),
 >    ("String",
 >     "{<:string * string -> bool, <=:string * string -> bool, <>:string * string -> bool, =:string * string -> bool, >:string * string -> bool, >=:string * string -> bool, ^:string * string -> string, collate:(char * char -> order) -> string * string -> order, compare:string * string -> order, concat:string list -> string, concatWith:string -> string list -> string, explode:string -> char list, extract:string * int * int option -> string, fields:(char -> bool) -> string -> string list, implode:char list -> string, isPrefix:string -> string -> bool, isSubstring:string -> string -> bool, isSuffix:string -> string -> bool, map:(char -> char) -> string -> string, maxSize:int, size:string -> int, str:char -> string, sub:string * int -> char, substring:string * int * int -> string, tokens:(char -> bool) -> string -> string list, translate:(char -> string) -> string -> string}"),
@@ -4666,7 +4636,7 @@ env ();
 >    ("Real",
 >     "{*:real * real -> real, +:real * real -> real, -:real * real -> real, /:real * real -> real, <:real * real -> bool, <=:real * real -> bool, <>:real * real -> bool, =:real * real -> bool, >:real * real -> bool, >=:real * real -> bool, abs:real -> real, ceil:real -> int, checkFloat:real -> real, compare:real * real -> order, copySign:real * real -> real, floor:real -> int, fromInt:int -> real, fromManExp:{exp:int, man:real} -> real, fromString:string -> real option, isFinite:real -> bool, isNan:real -> bool, isNormal:real -> bool, max:real * real -> real, maxFinite:real, min:real * real -> real, minNormalPos:real, minPos:real, negInf:real, posInf:real, precision:int, radix:int, realCeil:real -> real, realFloor:real -> real, realMod:real -> real, realRound:real -> real, realTrunc:real -> real, rem:real * real -> real, round:real -> int, sameSign:real * real -> bool, sign:real -> int, signBit:real -> bool, split:real -> {frac:real, whole:real}, toManExp:real -> {exp:int, man:real}, toString:real -> string, trunc:real -> int, unordered:real * real -> bool, ~:real -> real}"),
 >    ("Relational",
->     "{DESC:forall 'a. 'a -> 'a descending, compare:forall 'a. 'a * 'a -> order, count:forall 'a. 'a list -> int, empty:forall 'a. 'a list -> bool, max:forall 'a. 'a list -> 'a, min:forall 'a. 'a list -> 'a, nonEmpty:forall 'a. 'a list -> bool, only:forall 'a. 'a list -> 'a, sum:int list -> int}"),
+>     "{DESC:forall 'a. 'a -> 'a descending, compare:forall 'a. 'a * 'a -> order, count:forall 'a. 'a bag -> int, empty:forall 'a. 'a bag -> bool, max:forall 'a. 'a bag -> 'a, min:forall 'a. 'a bag -> 'a, nonEmpty:forall 'a. 'a bag -> bool, only:forall 'a. 'a bag -> 'a, sum:int bag -> int}"),
 >    ("SOME","forall 'a. 'a -> 'a option"),
 >    ("String",
 >     "{<:string * string -> bool, <=:string * string -> bool, <>:string * string -> bool, =:string * string -> bool, >:string * string -> bool, >=:string * string -> bool, ^:string * string -> string, collate:(char * char -> order) -> string * string -> order, compare:string * string -> order, concat:string list -> string, concatWith:string -> string list -> string, explode:string -> char list, extract:string * int * int option -> string, fields:(char -> bool) -> string -> string list, implode:char list -> string, isPrefix:string -> string -> bool, isSubstring:string -> string -> bool, isSuffix:string -> string -> bool, map:(char -> char) -> string -> string, maxSize:int, size:string -> int, str:char -> string, sub:string * int -> char, substring:string * int * int -> string, tokens:(char -> bool) -> string -> string list, translate:(char -> string) -> string -> string}"),

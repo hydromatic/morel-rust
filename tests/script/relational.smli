@@ -1174,7 +1174,8 @@ from i in [2, 1, 2]
 (*) "count" used as an ordinary function ("over" is not present)
 from i in [2, 1, 2]
   compute count ["a", "b"];
-> val it = 2 : int
+> stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T18) vs list(string)
+>   raised at: stdIn:1.1-2.27
 
 set("mode", "validate");
 > val it = () : unit
@@ -2317,26 +2318,23 @@ from e in emps
   yield only (from d in depts
               where d.deptno = e.deptno
               yield d.name);
-> val it = ["Sales","HR","Engineering","Engineering"] : string list
+> stdIn:1.1-4.28 Error: Cannot deduce type: conflict: bag(T51) vs list(T42)
+>   raised at: stdIn:1.1-4.28
 
 from e in emps
   yield {ename = e.name,
          dname = only (from d in depts
                        where d.deptno = e.deptno
                        yield d.name)};
-> val it =
->   [{dname="Sales",ename="Fred"},{dname="HR",ename="Velma"},
->    {dname="Engineering",ename="Shaggy"},{dname="Engineering",ename="Scooby"}]
->   : {dname:string, ename:string} list
+> stdIn:1.1-5.38 Error: Cannot deduce type: conflict: bag(T52) vs list(T43)
+>   raised at: stdIn:1.1-5.38
 
 from e in emps
   yield {ename = e.name,
          dname = (only (from d in depts
                         where d.deptno = e.deptno)).name};
-> val it =
->   [{dname="Sales",ename="Fred"},{dname="HR",ename="Velma"},
->    {dname="Engineering",ename="Shaggy"},{dname="Engineering",ename="Scooby"}]
->   : {dname:string, ename:string} list
+> stdIn:1.1-4.58 Error: Cannot deduce type: conflict: list(record:deptno:name(int, string)) vs bag(T49)
+>   raised at: stdIn:1.1-4.58
 
 
 (*) Single-row aggregates using 'only' function and 'compute' clause
@@ -2347,7 +2345,8 @@ from e in emps
 only (
   from e in emps
     group {} compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1});
-> val it = {c=4,si=406,si1=410} : {c:int, si:int, si1:int}
+> stdIn:1.1-3.87 Error: Cannot deduce type: conflict: bag(T80) vs list(record:c:si:si1(T20, T34, T49))
+>   raised at: stdIn:1.1-3.87
 
 set("mode", "validate");
 > val it = () : unit

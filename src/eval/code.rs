@@ -629,20 +629,7 @@ impl Code {
             Code::Apply(fn_code, arg_code) => {
                 let fn_ = fn_code.eval_f0(r, f)?;
                 let arg = arg_code.eval_f0(r, f)?;
-                match &fn_ {
-                    Val::Code(c) => c.eval_f1(r, f, &arg),
-                    Val::Closure(frame_def, matches, bound_vals, no_match) => {
-                        Frame::create_bind_and_eval(
-                            frame_def,
-                            matches,
-                            bound_vals,
-                            no_match.as_ref(),
-                            r,
-                            &arg,
-                        )
-                    }
-                    _ => panic!("Expected code, got {:?}", fn_),
-                }
+                fn_.apply_f1(r, f, &arg)
             }
             Code::ApplyClosure(fn_code, arg_code, _bind_codes) => {
                 let arg = arg_code.eval_f0(r, f)?;

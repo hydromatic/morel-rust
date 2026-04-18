@@ -822,25 +822,25 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a * 'a -> `order`"))]
     RelationalCompare,
     #[strum(props(p = "Relational", name = "count", global = true))]
-    #[strum(props(type = "forall 1 'a list -> int"))]
+    #[strum(props(type = "forall 1 'a bag -> int"))]
     RelationalCount,
     #[strum(props(p = "Relational", name = "empty", global = true))]
-    #[strum(props(type = "forall 1 'a list -> bool"))]
+    #[strum(props(type = "forall 1 'a bag -> bool"))]
     RelationalEmpty,
     #[strum(props(p = "Relational", name = "max", global = true))]
-    #[strum(props(type = "forall 1 'a list -> 'a", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
     RelationalMax,
     #[strum(props(p = "Relational", name = "min", global = true))]
-    #[strum(props(type = "forall 1 'a list -> 'a", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
     RelationalMin,
     #[strum(props(p = "Relational", name = "nonEmpty", global = true))]
-    #[strum(props(type = "forall 1 'a list -> bool"))]
+    #[strum(props(type = "forall 1 'a bag -> bool"))]
     RelationalNonEmpty,
     #[strum(props(p = "Relational", name = "only", global = true))]
-    #[strum(props(type = "forall 1 'a list -> 'a", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
     RelationalOnly,
     #[strum(props(p = "Relational", name = "sum", global = true))]
-    #[strum(props(type = "int list -> int"))]
+    #[strum(props(type = "int bag -> int"))]
     RelationalSum,
     #[strum(props(p = "String", name = "^", alias = "op ^"))]
     #[strum(props(type = "string * string -> string"))]

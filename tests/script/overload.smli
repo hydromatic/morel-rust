@@ -313,12 +313,28 @@ scan (bag [1]);
 > val it = [1] : int bag
 
 (* ---------------------------------------------------------------------------
- * The built-in 'Relational.nonEmpty' function works on both lists and bags. *)
-Relational.nonEmpty (bag [1]);
-> val it = true : bool
-set("mode", "evaluate");
-> val it = () : unit
-Relational.nonEmpty [1];
-> val it = true : bool
+ * An overloaded aggregate function is resolved based on whether the input is
+   ordered. *)
+over overAgg;
+> over overAgg
+val inst overAgg = fn bag => if Bag.length bag < 0 then "" else "bag";
+> val overAgg = fn : 'a bag -> string
+val inst overAgg = fn list => if List.length list < 0 then "" else "list";
+> val overAgg = fn : 'a list -> string
+
+from i in [1, 2, 3]
+  compute overAgg over i;
+> val it = "list" : string
+from i in bag [1, 2, 3]
+  compute overAgg over i;
+> val it = "bag" : string
+from i in [1, 2, 3]
+  unorder
+  compute overAgg over i;
+> val it = "bag" : string
+from i in bag [1, 2, 3]
+  order DESC i
+  compute overAgg over i;
+> val it = "list" : string
 
 (*) End overload.smli
