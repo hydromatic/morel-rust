@@ -45,13 +45,9 @@ bag [[1],[2],[3]];
 
 (*) check that we get good error messages when we apply a list function to
 (*) a bag, and vice versa
-set("mode", "validate");
-> val it = () : unit
 String.size 1;
-> 0.0-0.0 Error: Cannot deduce type: conflict: int vs string
->   raised at: 0.0-0.0
-set("mode", "evaluate");
-> val it = () : unit
+> stdIn:1.1-1.14 Error: Cannot deduce type: conflict: int vs string
+>   raised at: stdIn:1.1-1.14
 List.length List.nil;
 > val it = 0 : int
 Bag.length Bag.nil;

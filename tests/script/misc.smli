@@ -151,11 +151,11 @@ op div;
 > val it = fn : int * int -> int
 op /;
 > val it = fn : real * real -> real
-set("mode", "validate");
-> val it = () : unit
 op x;
 > stdIn:1.1-1.5 Error: unbound variable or constructor: op x
 >   raised at: stdIn:1.1-1.5
+set("mode", "validate");
+> val it = () : unit
 (* TODO sml-nj allows "op SOME" and "op NONE"
    but I'm not sure whether Morel should allow them.
 op SOME;

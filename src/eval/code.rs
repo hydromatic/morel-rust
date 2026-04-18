@@ -243,16 +243,28 @@ pub enum Code {
     Min(CmpRef, Box<Code>),
     Native0(Eager0),
     Native1(Eager1, Box<Code>),
-    Native2(Eager2, Box<Code>, Box<Code>),
+    /// `Native2(eager, code0, code1, gather)`: if `gather` is true,
+    /// and `v0` evaluates to a 2-tuple, its elements are unpacked and
+    /// passed as `a0, a1` to `eager.apply` (and `v1` is discarded).
+    /// This handles calls like `RealFromManExp {exp, man}` where a
+    /// single record arg needs to be unpacked into two parameters.
+    Native2(Eager2, Box<Code>, Box<Code>, bool),
     Native3(Eager3, Box<Code>, Box<Code>, Box<Code>),
     /// `NativeCustom(custom, args)` calls a polymorphic built-in whose
     /// implementation dispatches on the runtime types of its arguments.
     NativeCustom(Custom, Vec<Code>),
     NativeF0(EagerF0),
-    NativeF1(EagerF1, Box<Code>),
-    NativeF2(EagerF2, Box<Code>, Box<Code>),
-    NativeF3(EagerF3, Box<Code>, Box<Code>, Box<Code>),
-    NativeF4(EagerF4, Box<Code>, Box<Code>, Box<Code>, Box<Code>),
+    NativeF1(EagerF1, Box<Code>, Option<Span>),
+    NativeF2(EagerF2, Box<Code>, Box<Code>, Option<Span>),
+    NativeF3(EagerF3, Box<Code>, Box<Code>, Box<Code>, Option<Span>),
+    NativeF4(
+        EagerF4,
+        Box<Code>,
+        Box<Code>,
+        Box<Code>,
+        Box<Code>,
+        Option<Span>,
+    ),
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
     Nth(Box<Type>, usize),
@@ -459,11 +471,10 @@ impl Code {
                 assert_eq!(codes.len(), 1);
                 Code::Native1(e1, codes[0].clone())
             }
-            Impl::E2(e2) => Code::Native2(
-                e2,
-                codes[0].clone(),
-                code_or_span(codes, span, 1),
-            ),
+            Impl::E2(e2) => {
+                let (arg1, gather) = code_or_gather(codes, 1);
+                Code::Native2(e2, codes[0].clone(), arg1, gather)
+            }
             Impl::E3(e3) => {
                 assert_eq!(codes.len(), 3);
                 Code::Native3(
@@ -480,30 +491,31 @@ impl Code {
             }
             Impl::EF1(ev1) => {
                 assert_eq!(codes.len(), 1);
-                Code::NativeF1(ev1, codes[0].clone())
+                let sp = ev1.is_throwing().then(|| span.clone());
+                Code::NativeF1(ev1, codes[0].clone(), sp)
             }
             Impl::EF2(ev2) => {
-                // TODO: handle cases like 'let args = (1, 2) in f args
-                // end'; see Gather in Morel-Java
-                Code::NativeF2(
-                    ev2,
+                assert_eq!(codes.len(), 2);
+                let sp = ev2.is_throwing().then(|| span.clone());
+                Code::NativeF2(ev2, codes[0].clone(), codes[1].clone(), sp)
+            }
+            Impl::EF3(ev3) => {
+                assert_eq!(codes.len(), 3);
+                let sp = ev3.is_throwing().then(|| span.clone());
+                Code::NativeF3(
+                    ev3,
                     codes[0].clone(),
-                    code_or_span(codes, span, 1),
+                    codes[1].clone(),
+                    codes[2].clone(),
+                    sp,
                 )
             }
-            Impl::EF3(ev3) => Code::NativeF3(
-                ev3,
-                codes[0].clone(),
-                codes[1].clone(),
-                code_or_span(codes, span, 2),
-            ),
-            Impl::EF4(ev4) => Code::NativeF4(
-                ev4,
-                codes[0].clone(),
-                codes[1].clone(),
-                codes[2].clone(),
-                code_or_span(codes, span, 3),
-            ),
+            Impl::EF4(_) => {
+                // `EagerF4` is empty after the throwing-variant reorg;
+                // retained only so that `Impl::EF4` and `Code::NativeF4`
+                // stay usable if new 4-arg built-ins are added later.
+                unreachable!("EagerF4 has no variants")
+            }
         }
     }
 
@@ -583,7 +595,7 @@ impl Code {
             Code::Native1(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
-            Code::Native2(_, _, _) => {
+            Code::Native2(_, _, _, _) => {
                 *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0
             }
             Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
@@ -592,14 +604,14 @@ impl Code {
                 _ => *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0,
             },
             Code::NativeF0(_) => *mode == EvalMode::EagerF0,
-            Code::NativeF1(_, _) => {
+            Code::NativeF1(_, _, _) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
             }
-            Code::NativeF2(_, _, _) => {
+            Code::NativeF2(_, _, _, _) => {
                 *mode == EvalMode::EagerV2 || *mode == EvalMode::EagerF0
             }
-            Code::NativeF3(_, _, _, _) => *mode == EvalMode::EagerV3,
-            Code::NativeF4(_, _, _, _, _) => *mode == EvalMode::EagerV4,
+            Code::NativeF3(_, _, _, _, _) => *mode == EvalMode::EagerV3,
+            Code::NativeF4(_, _, _, _, _, _) => *mode == EvalMode::EagerV4,
             Code::Nth(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
@@ -806,18 +818,14 @@ impl Code {
                 let v0 = code0.eval_f0(r, f)?;
                 Ok(eager.apply(v0))
             }
-            Code::Native2(eager, code0, code1) => {
+            Code::Native2(eager, code0, code1, gather) => {
                 let v0 = code0.eval_f0(r, f)?;
                 let v1 = code1.eval_f0(r, f)?;
-                // If v1 is a span string (the marker for "no second
-                // argument was supplied at the call site"), then either
-                // v0 is a 2-tuple to unpack into the two parameters, or
-                // this is a partial application that should yield a
-                // closure capturing v0.
-                // If v0 is a list and v1 is a span string, it means we're
-                // applying the function to a single tuple/record argument
-                // that should be unpacked.
-                if let (Val::List(list), Val::String(_)) = (&v0, &v1)
+                // If `gather` is set, no real second arg was supplied
+                // at the call site; `v0` is a 2-tuple to unpack into
+                // the two parameters (`v1` is a unit placeholder).
+                if *gather
+                    && let Val::List(list) = &v0
                     && list.len() == 2
                 {
                     return Ok(eager.apply(list[0].clone(), list[1].clone()));
@@ -847,29 +855,27 @@ impl Code {
                 }
             }
             Code::NativeF0(eager) => Ok(eager.apply(r, f)),
-            Code::NativeF1(eager, code0) => {
+            Code::NativeF1(eager, code0, span) => {
                 let v0 = code0.eval_f0(r, f)?;
-                eager.apply(r, f, v0)
+                eager.apply(r, f, v0, span.as_ref())
             }
-            Code::NativeF2(eager, code0, code1) => {
+            Code::NativeF2(eager, code0, code1, span) => {
                 let v0 = code0.eval_f0(r, f)?;
                 let v1 = code1.eval_f0(r, f)?;
-                // See Code::Native2 for an explanation of the span-string
-                // marker. Same handling: tuple unpack or partial apply.
-                eager.apply(r, f, v0, v1)
+                eager.apply(r, f, v0, v1, span.as_ref())
             }
-            Code::NativeF3(eager, code0, code1, code2) => {
+            Code::NativeF3(eager, code0, code1, code2, span) => {
                 let v0 = code0.eval_f0(r, f)?;
                 let v1 = code1.eval_f0(r, f)?;
                 let v2 = code2.eval_f0(r, f)?;
-                eager.apply(r, f, v0, v1, v2)
+                eager.apply(r, f, v0, v1, v2, span.as_ref())
             }
-            Code::NativeF4(eager, code0, code1, code2, code3) => {
+            Code::NativeF4(eager, code0, code1, code2, code3, span) => {
                 let v0 = code0.eval_f0(r, f)?;
                 let v1 = code1.eval_f0(r, f)?;
                 let v2 = code2.eval_f0(r, f)?;
                 let v3 = code3.eval_f0(r, f)?;
-                eager.apply(r, f, v0, v1, v2, v3)
+                eager.apply(r, f, v0, v1, v2, v3, span.as_ref())
             }
             Code::Tuple(codes) => {
                 let mut values = Vec::with_capacity(codes.capacity());
@@ -1242,15 +1248,28 @@ fn capture_bound_vals(
     Ok(values)
 }
 
-fn code_or_span(codes: &[Box<Code>], span: &Span, n: usize) -> Box<Code> {
+/// Returns the code for the 2nd arg of an `Eager2` call plus a
+/// `gather` flag.
+///
+/// Compile sometimes provides only one code for a 2-arg `Eager2`
+/// built-in — e.g. from `f over e` aggregates, or when a single
+/// record-typed arg must be unpacked into two parameters at runtime
+/// (as in `Real.fromManExp {exp, man}`). In that case, synthesize
+/// a cheap `Val::Unit` placeholder and set `gather = true` so that
+/// `Code::Native2`'s evaluator unpacks `v0`'s tuple elements into
+/// `a0, a1`.
+fn code_or_gather(codes: &[Box<Code>], n: usize) -> (Box<Code>, bool) {
     if codes.len() == n + 1 {
-        codes[n].clone()
+        (codes[n].clone(), false)
     } else {
         assert_eq!(codes.len(), n);
-        Box::new(Code::new_constant(
-            &Type::Primitive(PrimitiveType::String),
-            Val::String(span.0.clone()),
-        ))
+        (
+            Box::new(Code::new_constant(
+                &Type::Primitive(PrimitiveType::Unit),
+                Val::Unit,
+            )),
+            true,
+        )
     }
 }
 
@@ -1325,7 +1344,7 @@ impl Display for Code {
             Self::Native1(eager, code0) => {
                 write!(f, "apply(fnValue {}, argCode {})", eager.plan(), code0)
             }
-            Self::Native2(eager, code0, code1) => {
+            Self::Native2(eager, code0, code1, _gather) => {
                 write!(
                     f,
                     "apply2(fnValue {}, {}, {})",
@@ -1337,29 +1356,66 @@ impl Display for Code {
             Self::NativeF0(eager) => {
                 write!(f, "apply0(fnValue {})", eager.plan(),)
             }
-            Self::NativeF1(eager, code0) => {
-                write!(f, "apply(fnValue {}, {})", eager.plan(), code0,)
+            Self::NativeF1(eager, code0, span) => {
+                if let Some(s) = span {
+                    write!(
+                        f,
+                        "apply2(fnValue {}, {}, constant({}))",
+                        eager.plan(),
+                        code0,
+                        s,
+                    )
+                } else {
+                    write!(f, "apply(fnValue {}, {})", eager.plan(), code0,)
+                }
             }
-            Self::NativeF2(eager, code0, code1) => {
-                write!(
-                    f,
-                    "apply2(fnValue {}, {}, {})",
-                    eager.plan(),
-                    code0,
-                    code1,
-                )
+            Self::NativeF2(eager, code0, code1, span) => {
+                if let Some(s) = span {
+                    write!(
+                        f,
+                        "apply(fnValue {}, argCode tuple(\
+                         {}, {}, constant({})))",
+                        eager.plan(),
+                        code0,
+                        code1,
+                        s,
+                    )
+                } else {
+                    write!(
+                        f,
+                        "apply2(fnValue {}, {}, {})",
+                        eager.plan(),
+                        code0,
+                        code1,
+                    )
+                }
             }
-            Self::NativeF3(eager, code0, code1, code2) => {
-                write!(
-                    f,
-                    "apply(fnValue {}, argCode tuple({}, {}, {}))",
-                    eager.plan(),
-                    code0,
-                    code1,
-                    code2
-                )
+            Self::NativeF3(eager, code0, code1, code2, span) => {
+                if let Some(s) = span {
+                    write!(
+                        f,
+                        "apply(fnValue {}, argCode tuple(\
+                         {}, {}, {}, constant({})))",
+                        eager.plan(),
+                        code0,
+                        code1,
+                        code2,
+                        s,
+                    )
+                } else {
+                    write!(
+                        f,
+                        "apply(fnValue {}, argCode tuple({}, {}, {}))",
+                        eager.plan(),
+                        code0,
+                        code1,
+                        code2
+                    )
+                }
             }
-            Self::NativeF4(eager, code0, code1, code2, code3) => {
+            Self::NativeF4(eager, code0, code1, code2, code3, _span) => {
+                // EagerF4 is empty after the reorg; this arm is kept
+                // only for completeness.
                 write!(
                     f,
                     "apply(fnValue {}, argCode tuple({}, {}, {}, {}))",
@@ -1378,11 +1434,11 @@ impl Display for Code {
 
 /// Code location.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Span(String);
+pub struct Span(Arc<str>);
 
 impl Span {
     pub fn new(s: &str) -> Self {
-        Span(s.to_string())
+        Span(Arc::from(s))
     }
 
     pub fn from_pest_span(span: &pest::Span, base_line: usize) -> Self {
@@ -1401,6 +1457,10 @@ impl Span {
                 start_line, start.1, end_line, end.1
             ))
         }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -1736,8 +1796,26 @@ impl EagerF0 {
 #[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF1 {
     // lint: sort until '#}'
+    BagHd,
+    BagTl,
+    CharChr,
+    CharPred,
+    CharSucc,
     InteractUse,
     InteractUseSilently,
+    ListHd,
+    ListLast,
+    ListTl,
+    OptionValOf,
+    RealCeil,
+    RealCheckFloat,
+    RealFloor,
+    RealRound,
+    RealSign,
+    RealTrunc,
+    RelationalMax,
+    RelationalMin,
+    RelationalOnly,
     SysShow,
     SysUnset,
 }
@@ -1756,6 +1834,23 @@ impl EagerF1 {
         }
     }
 
+    /// Returns true if this function may raise a built-in exception
+    /// whose error message references a source span. Such functions
+    /// need a `Span` attached to their `Code` node so the exception
+    /// path can construct a `MorelError` without allocating on the
+    /// happy path.
+    fn is_throwing(&self) -> bool {
+        #[expect(clippy::enum_glob_use)]
+        use EagerF1::*;
+        match self {
+            BagHd | BagTl | CharChr | CharPred | CharSucc | ListHd
+            | ListLast | ListTl | OptionValOf | RealCeil | RealCheckFloat
+            | RealFloor | RealRound | RealSign | RealTrunc | RelationalMax
+            | RelationalMin | RelationalOnly => true,
+            InteractUse | InteractUseSilently | SysShow | SysUnset => false,
+        }
+    }
+
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn apply(
@@ -1763,12 +1858,18 @@ impl EagerF1 {
         r: &mut EvalEnv,
         _f: &mut Frame,
         a0: Val,
+        span: Option<&Span>,
     ) -> Result<Val, MorelError> {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::EagerF1::*;
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
+            BagHd => List::hd(a0.expect_list(), span.unwrap()),
+            BagTl => List::tl(a0.expect_list(), span.unwrap()),
+            CharChr => Char::chr(a0.expect_int(), span.unwrap()),
+            CharPred => Char::pred(a0.expect_char(), span.unwrap()),
+            CharSucc => Char::succ(a0.expect_char(), span.unwrap()),
             InteractUse => {
                 let path = a0.expect_string();
                 r.emit_effect(Effect::EmitLine(format!("[opening {}]", path)));
@@ -1781,6 +1882,21 @@ impl EagerF1 {
                 r.emit_effect(Effect::UseFile(path, true));
                 Ok(Val::Unit)
             }
+            ListHd => List::hd(a0.expect_list(), span.unwrap()),
+            ListLast => List::last(a0.expect_list(), span.unwrap()),
+            ListTl => List::tl(a0.expect_list(), span.unwrap()),
+            OptionValOf => Opt::val_of(&a0, span.unwrap()),
+            RealCeil => Real::ceil(a0.expect_real(), span.unwrap()),
+            RealCheckFloat => {
+                Real::check_float(a0.expect_real(), span.unwrap())
+            }
+            RealFloor => Real::floor(a0.expect_real(), span.unwrap()),
+            RealRound => Real::round(a0.expect_real(), span.unwrap()),
+            RealSign => Real::sign(a0.expect_real(), span.unwrap()),
+            RealTrunc => Real::trunc(a0.expect_real(), span.unwrap()),
+            RelationalMax => Relational::max(a0.expect_list(), span.unwrap()),
+            RelationalMin => Relational::min(a0.expect_list(), span.unwrap()),
+            RelationalOnly => Relational::only(a0.expect_list(), span.unwrap()),
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
@@ -1907,10 +2023,7 @@ pub enum Eager1 {
     RealToString,
     RelationalCount,
     RelationalEmpty,
-    RelationalMax,
-    RelationalMin,
     RelationalNonEmpty,
-    RelationalOnly,
     RelationalSum,
     StringConcat,
     StringExplode,
@@ -2032,10 +2145,7 @@ impl Eager1 {
             RealToString => Val::String(Real::to_string(a0.expect_real())),
             RelationalCount => Val::Int(a0.expect_list().len() as i32),
             RelationalEmpty => Val::Bool(a0.expect_list().is_empty()),
-            RelationalMax => Relational::max(a0.expect_list()),
-            RelationalMin => Relational::min(a0.expect_list()),
             RelationalNonEmpty => Val::Bool(!a0.expect_list().is_empty()),
-            RelationalOnly => Relational::only(a0.expect_list()),
             RelationalSum => {
                 Val::Int(a0.expect_list().iter().map(Val::expect_int).sum())
             }
@@ -2331,17 +2441,15 @@ pub enum EagerF2 {
     // lint: sort until '#}'
     BagAll,
     BagApp,
+    BagDrop,
     BagExists,
     BagFilter,
     BagFind,
-    BagHd,
     BagMap,
     BagMapPartial,
     BagPartition,
-    BagTl,
-    CharChr,
-    CharPred,
-    CharSucc,
+    BagTabulate,
+    BagTake,
     EitherApp,
     EitherAppLeft,
     EitherAppRight,
@@ -2355,38 +2463,37 @@ pub enum EagerF2 {
     LPAll,
     LPAllEq,
     LPApp,
+    LPAppEq,
     LPExists,
     LPMap,
+    LPMapEq,
+    LPZipEq,
     ListAll,
     ListApp,
     ListCollate,
+    ListDrop,
     ListExists,
     ListFilter,
     ListFind,
-    ListHd,
-    ListLast,
     ListMap,
     ListMapPartial,
     ListMapi,
+    ListNth,
     ListPartition,
-    ListTl,
+    ListTabulate,
+    ListTake,
     OptionApp,
     OptionCompose,
     OptionComposePartial,
     OptionFilter,
     OptionMap,
     OptionMapPartial,
-    OptionValOf,
-    RealCeil,
-    RealCheckFloat,
-    RealFloor,
-    RealRound,
-    RealSign,
-    RealTrunc,
+    RealCompare,
     StringCollate,
     StringConcatWith,
     StringFields,
     StringMap,
+    StringSub,
     StringTokens,
     StringTranslate,
     SysSet,
@@ -2399,6 +2506,8 @@ pub enum EagerF2 {
     VectorFindi,
     VectorMap,
     VectorMapi,
+    VectorSub,
+    VectorTabulate,
 }
 
 impl EagerF2 {
@@ -2412,6 +2521,29 @@ impl EagerF2 {
         }
     }
 
+    /// See [`EagerF1::is_throwing`].
+    fn is_throwing(&self) -> bool {
+        #[expect(clippy::enum_glob_use)]
+        use EagerF2::*;
+        matches!(
+            self,
+            BagDrop
+                | BagTabulate
+                | BagTake
+                | LPAppEq
+                | LPMapEq
+                | LPZipEq
+                | ListDrop
+                | ListNth
+                | ListTabulate
+                | ListTake
+                | RealCompare
+                | StringSub
+                | VectorSub
+                | VectorTabulate
+        )
+    }
+
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(
@@ -2420,6 +2552,7 @@ impl EagerF2 {
         f: &mut Frame,
         a0: Val,
         a1: Val,
+        span: Option<&Span>,
     ) -> Result<Val, MorelError> {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::EagerF2::*;
@@ -2432,19 +2565,23 @@ impl EagerF2 {
                 List::app(r, f, &a0, a1.expect_list())?;
                 Ok(Val::Unit)
             }
+            BagDrop => {
+                List::drop(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
             BagExists => {
                 Ok(Val::Bool(List::exists(r, f, &a0, a1.expect_list())?))
             }
             BagFilter => List::filter(r, f, &a0, a1.expect_list()),
             BagFind => List::find(r, f, &a0, a1.expect_list()),
-            BagHd => List::hd(a0.expect_list(), &a1.expect_span()),
             BagMap => List::map(r, f, &a0, a1.expect_list()),
             BagMapPartial => List::map_partial(r, f, &a0, a1.expect_list()),
             BagPartition => List::partition(r, f, &a0, a1.expect_list()),
-            BagTl => List::tl(a0.expect_list(), &a1.expect_span()),
-            CharChr => Char::chr(a0.expect_int(), &a1.expect_span()),
-            CharPred => Char::pred(a0.expect_char(), &a1.expect_span()),
-            CharSucc => Char::succ(a0.expect_char(), &a1.expect_span()),
+            BagTabulate => {
+                List::tabulate(r, f, a0.expect_int(), &a1, span.unwrap())
+            }
+            BagTake => {
+                List::take(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
             EitherApp => {
                 let tuple = a0.expect_list();
                 Either::app(r, f, &tuple[0], &tuple[1], &a1)?;
@@ -2517,6 +2654,18 @@ impl EagerF2 {
                 )?;
                 Ok(Val::Unit)
             }
+            LPAppEq => {
+                let tuple = a1.expect_list();
+                ListPair::app_eq(
+                    r,
+                    f,
+                    &a0,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    span.unwrap(),
+                )?;
+                Ok(Val::Unit)
+            }
             LPExists => {
                 let tuple = a1.expect_list();
                 let result = ListPair::exists(
@@ -2538,6 +2687,22 @@ impl EagerF2 {
                     tuple[1].expect_list(),
                 )
             }
+            LPMapEq => {
+                let tuple = a1.expect_list();
+                ListPair::map_eq(
+                    r,
+                    f,
+                    &a0,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    span.unwrap(),
+                )
+            }
+            LPZipEq => ListPair::zip_eq(
+                a0.expect_list(),
+                a1.expect_list(),
+                span.unwrap(),
+            ),
             ListAll => Ok(Val::Bool(List::all(r, f, &a0, a1.expect_list())?)),
             ListApp => {
                 List::app(r, f, &a0, a1.expect_list())?;
@@ -2549,18 +2714,27 @@ impl EagerF2 {
                 let list2 = tuple[1].expect_list();
                 Ok(Val::Order(List::collate(r, f, &a0, list1, list2)?))
             }
+            ListDrop => {
+                List::drop(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
             ListExists => {
                 Ok(Val::Bool(List::exists(r, f, &a0, a1.expect_list())?))
             }
             ListFilter => List::filter(r, f, &a0, a1.expect_list()),
             ListFind => List::find(r, f, &a0, a1.expect_list()),
-            ListHd => List::hd(a0.expect_list(), &a1.expect_span()),
-            ListLast => List::last(a0.expect_list(), &a1.expect_span()),
             ListMap => List::map(r, f, &a0, a1.expect_list()),
             ListMapPartial => List::map_partial(r, f, &a0, a1.expect_list()),
             ListMapi => List::mapi(r, f, &a0, a1.expect_list()),
+            ListNth => {
+                List::nth(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
             ListPartition => List::partition(r, f, &a0, a1.expect_list()),
-            ListTl => List::tl(a0.expect_list(), &a1.expect_span()),
+            ListTabulate => {
+                List::tabulate(r, f, a0.expect_int(), &a1, span.unwrap())
+            }
+            ListTake => {
+                List::take(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
             OptionApp => Opt::app(r, f, &a0, &a1),
             OptionCompose => {
                 let tuple = a0.expect_list();
@@ -2573,15 +2747,9 @@ impl EagerF2 {
             OptionFilter => Opt::filter(r, f, &a0, &a1),
             OptionMap => Opt::map(r, f, &a0, &a1),
             OptionMapPartial => Opt::map_partial(r, f, &a0, &a1),
-            OptionValOf => Opt::val_of(&a0, &a1.expect_span()),
-            RealCeil => Real::ceil(a0.expect_real(), &a1.expect_span()),
-            RealCheckFloat => {
-                Real::check_float(a0.expect_real(), &a1.expect_span())
+            RealCompare => {
+                Real::compare(a0.expect_real(), a1.expect_real(), span.unwrap())
             }
-            RealFloor => Real::floor(a0.expect_real(), &a1.expect_span()),
-            RealRound => Real::round(a0.expect_real(), &a1.expect_span()),
-            RealSign => Real::sign(a0.expect_real(), &a1.expect_span()),
-            RealTrunc => Real::trunc(a0.expect_real(), &a1.expect_span()),
             StringCollate => {
                 let tuple = a1.expect_list();
                 if tuple.len() != 2 {
@@ -2603,6 +2771,9 @@ impl EagerF2 {
             StringMap => {
                 let s = a1.expect_string();
                 Str::map(r, f, &a0, &s)
+            }
+            StringSub => {
+                Str::sub(&a0.expect_string(), a1.expect_int(), span.unwrap())
             }
             StringTokens => {
                 let s = a1.expect_string();
@@ -2640,6 +2811,12 @@ impl EagerF2 {
             VectorFindi => Vector::findi(r, f, &a0, a1.expect_list()),
             VectorMap => List::map(r, f, &a0, a1.expect_list()),
             VectorMapi => Vector::mapi(r, f, &a0, a1.expect_list()),
+            VectorSub => {
+                Vector::sub(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
+            VectorTabulate => {
+                List::tabulate(r, f, a0.expect_int(), &a1, span.unwrap())
+            }
         }
     }
 }
@@ -2651,32 +2828,23 @@ impl EagerF2 {
 #[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF3 {
     // lint: sort until '#}'
-    BagDrop,
     BagFold,
-    BagTabulate,
-    BagTake,
     EitherFold,
     FnCurry,
     FnRepeat,
-    LPAppEq,
     LPFoldl,
+    LPFoldlEq,
     LPFoldr,
-    LPMapEq,
-    LPZipEq,
-    ListDrop,
+    LPFoldrEq,
     ListFoldl,
     ListFoldr,
-    ListNth,
-    ListTabulate,
-    ListTake,
-    RealCompare,
-    StringSub,
+    StringExtract,
+    StringSubstring,
     VectorFoldl,
     VectorFoldli,
     VectorFoldr,
     VectorFoldri,
-    VectorSub,
-    VectorTabulate,
+    VectorUpdate,
 }
 
 impl EagerF3 {
@@ -2690,6 +2858,20 @@ impl EagerF3 {
         }
     }
 
+    /// See [`EagerF1::is_throwing`].
+    fn is_throwing(&self) -> bool {
+        #[expect(clippy::enum_glob_use)]
+        use EagerF3::*;
+        matches!(
+            self,
+            LPFoldlEq
+                | LPFoldrEq
+                | StringExtract
+                | StringSubstring
+                | VectorUpdate
+        )
+    }
+
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(
@@ -2699,21 +2881,13 @@ impl EagerF3 {
         a0: Val,
         a1: Val,
         a2: Val,
+        span: Option<&Span>,
     ) -> Result<Val, MorelError> {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::EagerF3::*;
 
         match &self {
-            BagDrop => {
-                List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
-            }
             BagFold => List::foldl(r, f, &a0, &a1, a2.expect_list()),
-            BagTabulate => {
-                List::tabulate(r, f, a0.expect_int(), &a1, &a2.expect_span())
-            }
-            BagTake => {
-                List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
-            }
             EitherFold => {
                 let tuple = a0.expect_list();
                 Either::fold(r, f, &tuple[0], &tuple[1], &a1, &a2)
@@ -2739,32 +2913,8 @@ impl EagerF3 {
                 }
                 Ok(acc)
             }
-            LPAppEq => {
-                let tuple = a1.expect_list();
-                ListPair::app_eq(
-                    r,
-                    f,
-                    &a0,
-                    tuple[0].expect_list(),
-                    tuple[1].expect_list(),
-                    &a2.expect_span(),
-                )?;
-                Ok(Val::Unit)
-            }
-            ListDrop => {
-                List::drop(a0.expect_list(), a1.expect_int(), &a2.expect_span())
-            }
             ListFoldl => List::foldl(r, f, &a0, &a1, a2.expect_list()),
             ListFoldr => List::foldr(r, f, &a0, &a1, a2.expect_list()),
-            ListNth => {
-                List::nth(a0.expect_list(), a1.expect_int(), &a2.expect_span())
-            }
-            ListTabulate => {
-                List::tabulate(r, f, a0.expect_int(), &a1, &a2.expect_span())
-            }
-            ListTake => {
-                List::take(a0.expect_list(), a1.expect_int(), &a2.expect_span())
-            }
             LPFoldl => {
                 let tuple = a2.expect_list();
                 ListPair::foldl(
@@ -2774,6 +2924,18 @@ impl EagerF3 {
                     &a1,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
+                )
+            }
+            LPFoldlEq => {
+                let tuple = a2.expect_list();
+                ListPair::foldl_eq(
+                    r,
+                    f,
+                    &a0,
+                    &a1,
+                    tuple[0].expect_list(),
+                    tuple[1].expect_list(),
+                    span.unwrap(),
                 )
             }
             LPFoldr => {
@@ -2787,44 +2949,44 @@ impl EagerF3 {
                     tuple[1].expect_list(),
                 )
             }
-            LPMapEq => {
-                let tuple = a1.expect_list();
-                ListPair::map_eq(
+            LPFoldrEq => {
+                let tuple = a2.expect_list();
+                ListPair::foldr_eq(
                     r,
                     f,
                     &a0,
+                    &a1,
                     tuple[0].expect_list(),
                     tuple[1].expect_list(),
-                    &a2.expect_span(),
+                    span.unwrap(),
                 )
             }
-            LPZipEq => ListPair::zip_eq(
-                a0.expect_list(),
-                a1.expect_list(),
-                &a2.expect_span(),
-            ),
-            RealCompare => Real::compare(
-                a0.expect_real(),
-                a1.expect_real(),
-                &a2.expect_span(),
-            ),
-            StringSub => Str::sub(
+            StringExtract => {
+                let s = a0.expect_string();
+                let i = a1.expect_int();
+                let j = match a2 {
+                    Val::Unit => None,
+                    Val::Some(v) => Some(v.expect_int()),
+                    _ => panic!("Expected int option"),
+                };
+                Str::extract(&s, i, j, span.unwrap())
+            }
+            StringSubstring => Str::substring(
                 &a0.expect_string(),
                 a1.expect_int(),
-                &a2.expect_span(),
+                a2.expect_int(),
+                span.unwrap(),
             ),
             VectorFoldl => List::foldl(r, f, &a0, &a1, a2.expect_list()),
             VectorFoldli => Vector::foldli(r, f, &a0, &a1, a2.expect_list()),
             VectorFoldr => List::foldr(r, f, &a0, &a1, a2.expect_list()),
             VectorFoldri => Vector::foldri(r, f, &a0, &a1, a2.expect_list()),
-            VectorSub => Vector::sub(
+            VectorUpdate => Vector::update(
                 a0.expect_list(),
                 a1.expect_int(),
-                &a2.expect_span(),
+                a2,
+                span.unwrap(),
             ),
-            VectorTabulate => {
-                List::tabulate(r, f, a0.expect_int(), &a1, &a2.expect_span())
-            }
         }
     }
 }
@@ -2834,11 +2996,6 @@ impl EagerF3 {
 #[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum EagerF4 {
     // lint: sort until '#}'
-    LPFoldlEq,
-    LPFoldrEq,
-    StringExtract,
-    StringSubstring,
-    VectorUpdate,
 }
 
 impl EagerF4 {
@@ -2862,62 +3019,10 @@ impl EagerF4 {
         a1: Val,
         a2: Val,
         a3: Val,
+        span: Option<&Span>,
     ) -> Result<Val, MorelError> {
-        #[expect(clippy::enum_glob_use)]
-        use crate::eval::code::EagerF4::*;
-
-        match &self {
-            LPFoldlEq => {
-                let span = a3.expect_span();
-                let tuple = a2.expect_list();
-                ListPair::foldl_eq(
-                    r,
-                    f,
-                    &a0,
-                    &a1,
-                    tuple[0].expect_list(),
-                    tuple[1].expect_list(),
-                    &span,
-                )
-            }
-            LPFoldrEq => {
-                let span = a3.expect_span();
-                let tuple = a2.expect_list();
-                ListPair::foldr_eq(
-                    r,
-                    f,
-                    &a0,
-                    &a1,
-                    tuple[0].expect_list(),
-                    tuple[1].expect_list(),
-                    &span,
-                )
-            }
-            StringExtract => {
-                let span = a3.expect_span();
-                let s = a0.expect_string();
-                let i = a1.expect_int();
-                let j = match a2 {
-                    Val::Unit => None,
-                    Val::Some(v) => Some(v.expect_int()),
-                    _ => panic!("Expected int option"),
-                };
-                Str::extract(&s, i, j, &span)
-            }
-            StringSubstring => {
-                let span = a3.expect_span();
-                Str::substring(
-                    &a0.expect_string(),
-                    a1.expect_int(),
-                    a2.expect_int(),
-                    &span,
-                )
-            }
-            VectorUpdate => {
-                let span = a3.expect_span();
-                Vector::update(a0.expect_list(), a1.expect_int(), a2, &span)
-            }
-        }
+        let _ = (r, f, a0, a1, a2, a3, span);
+        match *self {}
     }
 }
 
@@ -3096,23 +3201,23 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::BagApp.implements(&mut b, BagApp);
     Eager2::BagAt.implements(&mut b, BagAt);
     Eager1::BagConcat.implements(&mut b, BagConcat);
-    EagerF3::BagDrop.implements(&mut b, BagDrop);
+    EagerF2::BagDrop.implements(&mut b, BagDrop);
     EagerF2::BagExists.implements(&mut b, BagExists);
     EagerF2::BagFilter.implements(&mut b, BagFilter);
     EagerF2::BagFind.implements(&mut b, BagFind);
     EagerF3::BagFold.implements(&mut b, BagFold);
     Eager1::BagFromList.implements(&mut b, BagFromList);
     Eager1::BagGetItem.implements(&mut b, BagGetItem);
-    EagerF2::BagHd.implements(&mut b, BagHd);
+    EagerF1::BagHd.implements(&mut b, BagHd);
     Eager1::BagLength.implements(&mut b, BagLength);
     EagerF2::BagMap.implements(&mut b, BagMap);
     EagerF2::BagMapPartial.implements(&mut b, BagMapPartial);
     Eager0::ListNil.implements(&mut b, BagNil);
     Eager1::BagNull.implements(&mut b, BagNull);
     EagerF2::BagPartition.implements(&mut b, BagPartition);
-    EagerF3::BagTabulate.implements(&mut b, BagTabulate);
-    EagerF3::BagTake.implements(&mut b, BagTake);
-    EagerF2::BagTl.implements(&mut b, BagTl);
+    EagerF2::BagTabulate.implements(&mut b, BagTabulate);
+    EagerF2::BagTake.implements(&mut b, BagTake);
+    EagerF1::BagTl.implements(&mut b, BagTl);
     Eager1::BagToList.implements(&mut b, BagToList);
     Eager2::BoolAndAlso.implements(&mut b, BoolAndAlso);
     Eager2::BoolEq.implements(&mut b, BoolEq);
@@ -3125,7 +3230,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::BoolOrElse.implements(&mut b, BoolOrElse);
     Eager1::BoolToString.implements(&mut b, BoolToString);
     Eager0::BoolTrue.implements(&mut b, BoolTrue);
-    EagerF2::CharChr.implements(&mut b, CharChr);
+    EagerF1::CharChr.implements(&mut b, CharChr);
     Eager2::CharCompare.implements(&mut b, CharCompare);
     Eager2::CharContains.implements(&mut b, CharContains);
     Eager2::CharEq.implements(&mut b, CharEq);
@@ -3155,8 +3260,8 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::CharNe.implements(&mut b, CharNe);
     Eager2::CharNotContains.implements(&mut b, CharNotContains);
     Eager1::CharOrd.implements(&mut b, CharOrd);
-    EagerF2::CharPred.implements(&mut b, CharPred);
-    EagerF2::CharSucc.implements(&mut b, CharSucc);
+    EagerF1::CharPred.implements(&mut b, CharPred);
+    EagerF1::CharSucc.implements(&mut b, CharSucc);
     Eager1::CharToCString.implements(&mut b, CharToCString);
     Eager1::CharToLower.implements(&mut b, CharToLower);
     Eager1::CharToString.implements(&mut b, CharToString);
@@ -3233,24 +3338,24 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::LPAll.implements(&mut b, LPAll);
     EagerF2::LPAllEq.implements(&mut b, LPAllEq);
     EagerF2::LPApp.implements(&mut b, LPApp);
-    EagerF3::LPAppEq.implements(&mut b, LPAppEq);
+    EagerF2::LPAppEq.implements(&mut b, LPAppEq);
     EagerF2::LPExists.implements(&mut b, LPExists);
     EagerF3::LPFoldl.implements(&mut b, LPFoldl);
-    EagerF4::LPFoldlEq.implements(&mut b, LPFoldlEq);
+    EagerF3::LPFoldlEq.implements(&mut b, LPFoldlEq);
     EagerF3::LPFoldr.implements(&mut b, LPFoldr);
-    EagerF4::LPFoldrEq.implements(&mut b, LPFoldrEq);
+    EagerF3::LPFoldrEq.implements(&mut b, LPFoldrEq);
     EagerF2::LPMap.implements(&mut b, LPMap);
-    EagerF3::LPMapEq.implements(&mut b, LPMapEq);
+    EagerF2::LPMapEq.implements(&mut b, LPMapEq);
     Eager1::LPUnzip.implements(&mut b, LPUnzip);
     Eager2::LPZip.implements(&mut b, LPZip);
-    EagerF3::LPZipEq.implements(&mut b, LPZipEq);
+    EagerF2::LPZipEq.implements(&mut b, LPZipEq);
     EagerF2::ListAll.implements(&mut b, ListAll);
     EagerF2::ListApp.implements(&mut b, ListApp);
     Eager2::ListAt.implements(&mut b, ListAt);
     EagerF2::ListCollate.implements(&mut b, ListCollate);
     Eager1::ListConcat.implements(&mut b, ListConcat);
     Eager2::ListCons.implements(&mut b, ListCons);
-    EagerF3::ListDrop.implements(&mut b, ListDrop);
+    EagerF2::ListDrop.implements(&mut b, ListDrop);
     Eager2::ListElem.implements(&mut b, ListElem);
     Eager1::ListExcept.implements(&mut b, ListExcept);
     EagerF2::ListExists.implements(&mut b, ListExists);
@@ -3259,23 +3364,23 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF3::ListFoldl.implements(&mut b, ListFoldl);
     EagerF3::ListFoldr.implements(&mut b, ListFoldr);
     Eager1::ListGetItem.implements(&mut b, ListGetItem);
-    EagerF2::ListHd.implements(&mut b, ListHd);
+    EagerF1::ListHd.implements(&mut b, ListHd);
     Eager1::ListIntersect.implements(&mut b, ListIntersect);
-    EagerF2::ListLast.implements(&mut b, ListLast);
+    EagerF1::ListLast.implements(&mut b, ListLast);
     Eager1::ListLength.implements(&mut b, ListLength);
     EagerF2::ListMap.implements(&mut b, ListMap);
     EagerF2::ListMapPartial.implements(&mut b, ListMapPartial);
     EagerF2::ListMapi.implements(&mut b, ListMapi);
     Eager0::ListNil.implements(&mut b, ListNil);
     Eager2::ListNotElem.implements(&mut b, ListNotElem);
-    EagerF3::ListNth.implements(&mut b, ListNth);
+    EagerF2::ListNth.implements(&mut b, ListNth);
     Eager1::ListNull.implements(&mut b, ListNull);
     EagerF2::ListPartition.implements(&mut b, ListPartition);
     Eager1::ListRev.implements(&mut b, ListRev);
     Eager2::ListRevAppend.implements(&mut b, ListRevAppend);
-    EagerF3::ListTabulate.implements(&mut b, ListTabulate);
-    EagerF3::ListTake.implements(&mut b, ListTake);
-    EagerF2::ListTl.implements(&mut b, ListTl);
+    EagerF2::ListTabulate.implements(&mut b, ListTabulate);
+    EagerF2::ListTake.implements(&mut b, ListTake);
+    EagerF1::ListTl.implements(&mut b, ListTl);
     Eager1::MathAcos.implements(&mut b, MathAcos);
     Eager1::MathAsin.implements(&mut b, MathAsin);
     Eager1::MathAtan.implements(&mut b, MathAtan);
@@ -3304,19 +3409,19 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::OptionMapPartial.implements(&mut b, OptionMapPartial);
     Eager0::OptionNone.implements(&mut b, OptionNone);
     Eager1::OptionSome.implements(&mut b, OptionSome);
-    EagerF2::OptionValOf.implements(&mut b, OptionValOf);
+    EagerF1::OptionValOf.implements(&mut b, OptionValOf);
     Eager0::OrderEqual.implements(&mut b, OrderEqual);
     Eager0::OrderGreater.implements(&mut b, OrderGreater);
     Eager0::OrderLess.implements(&mut b, OrderLess);
     Eager1::RealFromInt.implements(&mut b, Real);
     Eager1::RealAbs.implements(&mut b, RealAbs);
-    EagerF2::RealCeil.implements(&mut b, RealCeil);
-    EagerF2::RealCheckFloat.implements(&mut b, RealCheckFloat);
-    EagerF3::RealCompare.implements(&mut b, RealCompare);
+    EagerF1::RealCeil.implements(&mut b, RealCeil);
+    EagerF1::RealCheckFloat.implements(&mut b, RealCheckFloat);
+    EagerF2::RealCompare.implements(&mut b, RealCompare);
     Eager2::RealCopySign.implements(&mut b, RealCopySign);
     Eager2::RealDivide.implements(&mut b, RealDivide);
     Eager2::RealEq.implements(&mut b, RealEq);
-    EagerF2::RealFloor.implements(&mut b, RealFloor);
+    EagerF1::RealFloor.implements(&mut b, RealFloor);
     Eager1::RealFromInt.implements(&mut b, RealFromInt);
     Eager2::RealFromManExp.implements(&mut b, RealFromManExp);
     Eager1::RealFromString.implements(&mut b, RealFromString);
@@ -3346,23 +3451,23 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::RealRealRound.implements(&mut b, RealRealRound);
     Eager1::RealRealTrunc.implements(&mut b, RealRealTrunc);
     Eager2::RealRem.implements(&mut b, RealRem);
-    EagerF2::RealRound.implements(&mut b, RealRound);
+    EagerF1::RealRound.implements(&mut b, RealRound);
     Eager2::RealSameSign.implements(&mut b, RealSameSign);
-    EagerF2::RealSign.implements(&mut b, RealSign);
+    EagerF1::RealSign.implements(&mut b, RealSign);
     Eager1::RealSignBit.implements(&mut b, RealSignBit);
     Eager1::RealSplit.implements(&mut b, RealSplit);
     Eager2::RealTimes.implements(&mut b, RealTimes);
     Eager1::RealToManExp.implements(&mut b, RealToManExp);
     Eager1::RealToString.implements(&mut b, RealToString);
-    EagerF2::RealTrunc.implements(&mut b, RealTrunc);
+    EagerF1::RealTrunc.implements(&mut b, RealTrunc);
     Eager2::RealUnordered.implements(&mut b, RealUnordered);
     Eager2::RelationalCompare.implements(&mut b, RelationalCompare);
     Eager1::RelationalCount.implements(&mut b, RelationalCount);
     Eager1::RelationalEmpty.implements(&mut b, RelationalEmpty);
-    Eager1::RelationalMax.implements(&mut b, RelationalMax);
-    Eager1::RelationalMin.implements(&mut b, RelationalMin);
+    EagerF1::RelationalMax.implements(&mut b, RelationalMax);
+    EagerF1::RelationalMin.implements(&mut b, RelationalMin);
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
-    Eager1::RelationalOnly.implements(&mut b, RelationalOnly);
+    EagerF1::RelationalOnly.implements(&mut b, RelationalOnly);
     Eager1::RelationalSum.implements(&mut b, RelationalSum);
     Eager2::StringCaret.implements(&mut b, StringCaret);
     EagerF2::StringCollate.implements(&mut b, StringCollate);
@@ -3371,7 +3476,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::StringConcatWith.implements(&mut b, StringConcatWith);
     Eager2::StringEq.implements(&mut b, StringEq);
     Eager1::StringExplode.implements(&mut b, StringExplode);
-    EagerF4::StringExtract.implements(&mut b, StringExtract);
+    EagerF3::StringExtract.implements(&mut b, StringExtract);
     EagerF2::StringFields.implements(&mut b, StringFields);
     Eager2::StringGe.implements(&mut b, StringGe);
     Eager2::StringGt.implements(&mut b, StringGt);
@@ -3386,8 +3491,8 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::StringNe.implements(&mut b, StringNe);
     Eager1::StringSize.implements(&mut b, StringSize);
     Eager1::StringStr.implements(&mut b, StringStr);
-    EagerF3::StringSub.implements(&mut b, StringSub);
-    EagerF4::StringSubstring.implements(&mut b, StringSubstring);
+    EagerF2::StringSub.implements(&mut b, StringSub);
+    EagerF3::StringSubstring.implements(&mut b, StringSubstring);
     EagerF2::StringTokens.implements(&mut b, StringTokens);
     EagerF2::StringTranslate.implements(&mut b, StringTranslate);
     EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
@@ -3415,9 +3520,9 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::VectorMap.implements(&mut b, VectorMap);
     EagerF2::VectorMapi.implements(&mut b, VectorMapi);
     Eager0::VectorMaxLen.implements(&mut b, VectorMaxLen);
-    EagerF3::VectorSub.implements(&mut b, VectorSub);
-    EagerF3::VectorTabulate.implements(&mut b, VectorTabulate);
-    EagerF4::VectorUpdate.implements(&mut b, VectorUpdate);
+    EagerF2::VectorSub.implements(&mut b, VectorSub);
+    EagerF2::VectorTabulate.implements(&mut b, VectorTabulate);
+    EagerF3::VectorUpdate.implements(&mut b, VectorUpdate);
 
     b.build()
 });

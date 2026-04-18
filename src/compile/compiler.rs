@@ -687,6 +687,7 @@ impl<'a> Compiler<'a> {
                                     inner_frame.clone(),
                                     2,
                                 )),
+                                None,
                             ),
                             Impl::E3(e3) => Code::Native3(
                                 e3,
@@ -737,11 +738,13 @@ impl<'a> Compiler<'a> {
                                 e2,
                                 Box::new(Code::GetLocal(frame_def.clone(), 0)),
                                 Box::new(Code::GetLocal(frame_def.clone(), 1)),
+                                false,
                             ),
                             Impl::EF2(ef2) => Code::NativeF2(
                                 ef2,
                                 Box::new(Code::GetLocal(frame_def.clone(), 0)),
                                 Box::new(Code::GetLocal(frame_def.clone(), 1)),
+                                None,
                             ),
                             _ => unreachable!(),
                         };
@@ -893,6 +896,7 @@ impl<'a> Compiler<'a> {
                                 Box::new(Code::GetLocal(frame_def.clone(), 0)),
                                 Box::new(Code::GetLocal(frame_def.clone(), 1)),
                                 Box::new(Code::GetLocal(frame_def.clone(), 2)),
+                                None,
                             ),
                             Impl::E3(e3) => Code::Native3(
                                 e3,

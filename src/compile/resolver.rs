@@ -35,12 +35,14 @@ use crate::syntax::ast::{
 };
 use crate::syntax::parser;
 use crate::unify::unifier::Var;
+use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
-pub fn resolve(resolved: &Resolved) -> CoreDecl {
+pub fn resolve(resolved: &Resolved) -> (CoreDecl, Vec<(String, Span)>) {
     let resolver = Resolver::new(&resolved.type_map, resolved.base_line);
-    resolver.resolve_decl(&resolved.decl)
+    let decl = resolver.resolve_decl(&resolved.decl);
+    (decl, resolver.errors.into_inner())
 }
 
 /// Converts an AST to a Core tree.
@@ -78,6 +80,8 @@ pub fn resolve(resolved: &Resolved) -> CoreDecl {
 pub struct Resolver<'a> {
     type_map: &'a TypeMap,
     base_line: usize,
+    /// Errors detected during resolution (e.g. field-not-found).
+    errors: RefCell<Vec<(String, Span)>>,
 }
 
 /// Helper struct representing a pattern-expression pair with position info.
@@ -193,6 +197,7 @@ impl<'a> Resolver<'a> {
         Self {
             type_map,
             base_line,
+            errors: RefCell::new(Vec::new()),
         }
     }
 
@@ -673,8 +678,24 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::RecordSelector(name) => {
                 let (param_type, _) = t.expect_fn();
-                let slot = param_type.lookup_field(name).unwrap();
-                CoreExpr::RecordSelector(t, slot)
+                if let Some(slot) = param_type.lookup_field(name) {
+                    CoreExpr::RecordSelector(t, slot)
+                } else {
+                    let msg = if matches!(
+                        param_type,
+                        Type::Record(_, _) | Type::Tuple(_)
+                    ) {
+                        format!("no field '{}' in type '{}'", name, param_type)
+                    } else {
+                        format!(
+                            "reference to field {} \
+                             of non-record type {}",
+                            name, param_type
+                        )
+                    };
+                    self.errors.borrow_mut().push((msg, span.clone()));
+                    CoreExpr::RecordSelector(t, 0)
+                }
             }
             ExprKind::Times(a0, a1) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {

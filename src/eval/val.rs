@@ -19,7 +19,7 @@ use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Label;
 use crate::compile::types::Type;
 use crate::eval::code::{
-    Code, EvalEnv, Frame as CodeFrame, Frame, Impl, LIBRARY, Span,
+    Code, EvalEnv, Frame as CodeFrame, Frame, Impl, LIBRARY,
 };
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
@@ -198,13 +198,6 @@ impl Val {
         }
     }
 
-    pub(crate) fn expect_span(&self) -> Span {
-        match self {
-            Val::String(s) => Span::new(s),
-            _ => panic!("Expected span"),
-        }
-    }
-
     pub(crate) fn expect_char(&self) -> char {
         match self {
             Val::Char(c) => *c,
@@ -260,7 +253,9 @@ impl Val {
                     .expect("Function not in library");
                 match impl_ {
                     Impl::E1(eager1) => Ok(eager1.apply(arg.clone())),
-                    Impl::EF1(eagerf1) => eagerf1.apply(r, f, arg.clone()),
+                    Impl::EF1(eagerf1) => {
+                        eagerf1.apply(r, f, arg.clone(), None)
+                    }
                     Impl::E2(eager2) => {
                         // Binary operators take a tuple as a single argument
                         if let Val::List(args) = arg {
