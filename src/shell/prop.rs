@@ -292,8 +292,9 @@ define_props! {
     },
 
     Echo => {
-        doc: "Boolean property 'echo' controls whether the shell \
-                outputs each command.",
+        doc: "Boolean property 'echo' controls whether the shell echoes \
+                each read input line back to the output. Used for \
+                transcript-style output of script files.",
         camel_name: "echo",
         default: Some(PropVal::Bool(false)),
         required: true,

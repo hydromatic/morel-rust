@@ -37,7 +37,7 @@ use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::prop::{Mode, Output, create_banner};
-use crate::shell::utils::prefix_lines;
+use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
 use std::cell::RefCell;
@@ -343,6 +343,8 @@ impl Shell {
                 "--banner" => config.banner = Some(true),
                 "--echo" => config.echo = Some(true),
                 "--idempotent" => config.idempotent = Some(true),
+                "--prompt" => config.prompt = Some(true),
+                "--tty" => config.stdin_is_tty = Some(true),
                 _ if arg.starts_with("--directory=") => {
                     let dir = arg.strip_prefix("--directory=").unwrap();
                     session_config.directory =
@@ -406,24 +408,49 @@ impl Shell {
         let mut statement_buffer = String::new();
         let mut expected_output_buffer = String::new();
 
+        let prompt_enabled = self.config.prompt.unwrap_or(false);
+        let echo_enabled = self.config.echo.unwrap_or(false);
+        let idempotent = self.config.idempotent.unwrap_or(false);
+        let stdin_is_tty = self.config.stdin_is_tty.unwrap_or(false);
+
         loop {
             if line_buffer_ready {
                 line_buffer_ready = false;
             } else {
-                if self.config.echo.unwrap() {
-                    write!(writer, "- ")?;
-                    writer.flush()?;
+                if prompt_enabled {
+                    // Prompt style matches SML-NJ:
+                    //   tty + fresh statement: '- '
+                    //   tty + continuation   : '= '
+                    //   pipe + fresh statement: '- '
+                    //   pipe + continuation  : (nothing; SML-NJ suppresses)
+                    let continuation = !statement_buffer.is_empty()
+                        || comment_depth(&statement_buffer) > 0;
+                    if !continuation {
+                        write!(writer, "- ")?;
+                        writer.flush()?;
+                    } else if stdin_is_tty {
+                        write!(writer, "= ")?;
+                        writer.flush()?;
+                    }
                 }
 
                 line_buffer.clear();
                 let bytes_read = reader.read_line(&mut line_buffer)?;
                 if bytes_read == 0 {
+                    // Terminate the dangling prompt so the caller's output
+                    // (e.g. "Goodbye!") starts on a new line.
+                    if prompt_enabled {
+                        writeln!(writer)?;
+                        writer.flush()?;
+                    }
                     return Ok(()); // EOF reached
                 }
             }
 
-            write!(writer, "{}", line_buffer)?;
-            writer.flush()?;
+            if echo_enabled {
+                write!(writer, "{}", line_buffer)?;
+                writer.flush()?;
+            }
 
             let line = line_buffer.trim_end();
             if line.is_empty() {
@@ -439,7 +466,7 @@ impl Shell {
                 && comment_depth(statement_buffer.as_str()) == 0
             {
                 // In idempotent mode, look ahead for output lines.
-                if self.config.idempotent.unwrap() {
+                if idempotent {
                     // Strip out lines that are not part of the statement
                     expected_output_buffer.clear();
                     loop {
@@ -464,11 +491,18 @@ impl Shell {
 
                 // Remove the semicolon, then parse/execute the statement
                 statement_buffer.pop();
-                let result = self.process_statement(
-                    &statement_buffer,
-                    Some(&expected_output_buffer),
-                );
-                write!(writer, "{}", result.unwrap())?;
+                let raw = self
+                    .process_statement(
+                        &statement_buffer,
+                        Some(&expected_output_buffer),
+                    )
+                    .unwrap();
+                let formatted = if idempotent {
+                    prefix_lines(">", &raw)
+                } else {
+                    raw
+                };
+                write!(writer, "{}", formatted)?;
                 writer.flush()?;
                 statement_buffer.clear();
             } else {
@@ -545,7 +579,9 @@ impl Shell {
             // We are running in idempotent mode,
             // and we cannot yet evaluate expressions.
             // So, just say the expression returned what we expected.
-            return Ok(expected_output.unwrap().to_string());
+            // Strip the "> " prefix; the run loop re-adds it in
+            // idempotent mode.
+            return Ok(strip_prefix("> ", expected_output.unwrap()));
         }
 
         let base_line = leading_comment_lines(&actual_code);
@@ -555,12 +591,12 @@ impl Shell {
             // Deduce the type without evaluating.
             let output = self.deduce_type(&statement);
             return match &output {
-                Ok(s) => Ok(prefix_lines(">", s.as_str())),
+                Ok(s) => Ok(s.clone()),
                 Err(Error::Compile(msg, span)) => {
                     let pest_span = span.to_pest_span();
                     let span2 = Span::from_pest_span(&pest_span, base_line);
                     Ok(format!(
-                        "> {} Error: {}\n>   raised at: {}\n",
+                        "{} Error: {}\n  raised at: {}\n",
                         span2, msg, span2
                     ))
                 }
@@ -581,7 +617,7 @@ impl Shell {
                         message,
                         span2.to_string()
                     );
-                    return Ok(prefix_lines(">", &s));
+                    return Ok(s);
                 }
                 Err(e) => return Err(e),
             };
@@ -601,7 +637,7 @@ impl Shell {
         // Successfully parsed, now evaluate
         let output = self.evaluate_node(&resolved);
         match &output {
-            Ok(s) => Ok(prefix_lines(">", &format!("{}{}", warning_prefix, s))),
+            Ok(s) => Ok(format!("{}{}", warning_prefix, s)),
             Err(_) => output,
         }
     }
@@ -732,15 +768,7 @@ impl Shell {
                     match self.execute_use_file(&file_path, silent) {
                         Ok(output) => {
                             if !silent {
-                                // The nested process_statement calls add
-                                // "> " prefix; strip it since the outer
-                                // process_statement will re-add it.
-                                for line in output.lines() {
-                                    let stripped =
-                                        line.strip_prefix("> ").unwrap_or(line);
-                                    result.push_str(stripped);
-                                    result.push('\n');
-                                }
+                                result.push_str(&output);
                             }
                         }
                         Err(e) => {
@@ -797,15 +825,10 @@ impl Shell {
 
         let result = self.process_statement(command_without_semicolon, None)?;
 
-        // Strip the "> " prefix from each line (process_statement adds it
-        // for interactive mode).
-        let output_str = result
-            .lines()
-            .map(|line| line.strip_prefix("> ").unwrap_or(line))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        writeln!(output, "{}", output_str)?;
+        write!(output, "{}", result)?;
+        if !result.ends_with('\n') {
+            writeln!(output)?;
+        }
         Ok(())
     }
 
@@ -1005,6 +1028,79 @@ mod tests {
         assert!(main.config.echo.unwrap());
     }
 
+    /// Runs a simulated interactive session (no tty) and returns body lines
+    /// (everything after the version banner line).
+    fn run_interactive_piped(input: &str) -> Vec<String> {
+        let args = vec!["--banner".to_string(), "--prompt".to_string()];
+        let mut shell = Shell::new(&args);
+        let mut output = Vec::new();
+        shell
+            .run(Cursor::new(input.as_bytes()), &mut output)
+            .unwrap();
+        let out = String::from_utf8(output).unwrap();
+        let mut lines: Vec<String> =
+            out.split('\n').map(|s| s.to_string()).collect();
+        assert!(
+            lines.first().map(|s| s.starts_with("morel-rust version"))
+                == Some(true),
+            "expected banner line, got: {:?}",
+            lines.first()
+        );
+        lines.remove(0);
+        lines
+    }
+
+    #[test]
+    fn test_interactive_single_stmt() {
+        let body = run_interactive_piped("val x = 1;\n");
+        assert_eq!(body, vec!["- val x = 1 : int", "- ", ""]);
+    }
+
+    #[test]
+    fn test_interactive_multi_stmt() {
+        let body = run_interactive_piped("val x = 1;\nval y = 2;\n");
+        // Each statement gets a '- ' prompt; no input echo; trailing '- '
+        // before EOF.
+        assert_eq!(
+            body,
+            vec!["- val x = 1 : int", "- val y = 2 : int", "- ", ""]
+        );
+    }
+
+    #[test]
+    fn test_interactive_multiline_expr() {
+        // Multi-line expression in piped mode: SML-NJ shows no '= ' prompt
+        // between continuation lines.
+        let body = run_interactive_piped("1 +\n  2;\n");
+        assert_eq!(body, vec!["- val it = 3 : int", "- ", ""]);
+    }
+
+    #[test]
+    fn test_interactive_comment_only() {
+        // Comment-only input is swallowed; only prompts remain.
+        let body = run_interactive_piped("(* hi *)\n");
+        // In piped mode, once statement buffer is non-empty we suppress
+        // the continuation prompt, so we see a single '- ' prefix plus the
+        // EOF-terminating newline.
+        assert_eq!(body, vec!["- ", ""]);
+    }
+
+    #[test]
+    fn test_interactive_no_bare_echo() {
+        // The input line must NOT appear echoed back in the output:
+        // the terminal (in real tty use) echoes, and piped mode matches
+        // SML-NJ by not echoing either. This is the core fix for issue #36.
+        let input = "val x = 42;\n";
+        let body_joined = run_interactive_piped(input).join("\n");
+        assert!(
+            !body_joined.contains("val x = 42;"),
+            "input line should not be echoed back, got: {}",
+            body_joined
+        );
+        // But the evaluated result should still be present.
+        assert!(body_joined.contains("val x = 42 : int"));
+    }
+
     #[test]
     fn test_simple_expression() {
         let args = Vec::new();
@@ -1063,13 +1159,13 @@ mod tests {
 
         let in_1 = "val x = 5\n\
             and y = 6\n";
-        let out_1 = "> val x = 5 : int\n\
-            > val y = 6 : int\n";
+        let out_1 = "val x = 5 : int\n\
+            val y = 6 : int\n";
         result = shell.process_statement(in_1, None).unwrap();
         assert_eq!(result, out_1);
 
         let in_2 = "x + y\n";
-        let out_2 = "> val it = 11 : int\n";
+        let out_2 = "val it = 11 : int\n";
         result = shell.process_statement(in_2, None).unwrap();
         assert_eq!(result, out_2);
     }

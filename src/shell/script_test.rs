@@ -56,11 +56,16 @@ impl ScriptTest {
             fs::create_dir_all(parent)?;
         }
 
-        // Set up configuration
+        // Set up configuration. Both script modes echo input lines (so the
+        // output file contains the full transcript); neither writes '- '
+        // prompts (those are only for interactive use). The difference is
+        // that idempotent mode prefixes result lines with '> '.
         let shell_config = Config {
-            echo: Some(!idempotent),
+            echo: Some(true),
             banner: Some(false),
             idempotent: Some(idempotent),
+            prompt: Some(false),
+            stdin_is_tty: Some(false),
             ..Config::default()
         };
 

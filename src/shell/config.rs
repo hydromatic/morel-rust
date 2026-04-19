@@ -31,6 +31,8 @@ pub struct Config {
     pub output: Option<Output>,
     pub print_depth: Option<i32>,
     pub print_length: Option<i32>,
+    pub prompt: Option<bool>,
+    pub stdin_is_tty: Option<bool>,
     pub string_depth: Option<i32>,
 }
 
@@ -47,6 +49,8 @@ impl Default for Config {
             output: Some(Prop::Output.default_value().as_output()),
             print_depth: Some(Prop::PrintDepth.default_value().as_int()),
             print_length: Some(Prop::PrintLength.default_value().as_int()),
+            prompt: Some(false),
+            stdin_is_tty: Some(false),
             string_depth: Some(Prop::StringDepth.default_value().as_int()),
         }
     }
