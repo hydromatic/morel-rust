@@ -365,6 +365,10 @@ impl Step {
                             collector.add_def(Binding::of_name(name));
                         }
                     }
+                } else if let Some(label) = expr.implicit_label() {
+                    // Scalar yield with implicit label (e.g.
+                    // 'yield e.deptno' creates binding 'deptno').
+                    collector.add_def(Binding::of_name(&label));
                 }
                 expr.collect_vars(collector);
             }

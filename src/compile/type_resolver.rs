@@ -2315,13 +2315,18 @@ impl TypeResolver {
             self.reg_expr(&ExprKind::Identifier(name.clone()), span, None, &v);
             field_vars.push((name.clone(), v));
         }
-        // Bind 'current' to the scanned element type so that 'where' and
-        // other steps after a scan can reference the element via 'current'.
-        env_builder.push("current".to_string(), Term::Variable(v0));
-        let env4 = env_builder.build();
-
         // Output collection type matches the input's list/bag kind.
         let v = self.field_var(field_vars, true);
+
+        // Bind 'current' to the element type. For a single scan
+        // (even if the pattern destructures into multiple fields),
+        // use v0 so that 'current' maps to the frame slot directly.
+        // For joins (multiple scans accumulated in field_vars from
+        // prior steps), use the compound record type.
+        let is_first_scan = term_map.len() == field_vars.len();
+        let v_current = if is_first_scan { v0 } else { v };
+        env_builder.push("current".to_string(), Term::Variable(v_current));
+        let env4 = env_builder.build();
         let c = self.unifier.variable();
         if eq {
             // ScanEq (= expr): output inherits the preceding collection type.
@@ -2439,6 +2444,7 @@ impl TypeResolver {
             field_vars.clear();
             field_vars.push((label, v6));
         }
+        envs.push("current".to_string(), Term::Variable(v6));
         let env = envs.build();
 
         Ok(Triple::new(p.root_env.clone(), env, v6, Some(c6)))
@@ -2861,11 +2867,19 @@ impl TypeResolver {
         self.compute_stack.push(p.with_env(&compute_env));
 
         // Process compute expression
-        let compute_expr2;
+        let mut compute_expr2;
         if let ExprKind::Record(_with, labeled_exprs) = &compute_expr.kind {
-            // Multiple compute fields
+            // Multiple compute fields. Sort into BTreeMap order
+            // (alphabetical by label) so that evaluation order
+            // matches the record type's field order.
+            let mut sorted_exprs: Vec<_> = labeled_exprs.iter().collect();
+            sorted_exprs.sort_by_key(|le| {
+                le.get_label()
+                    .or_else(|| le.expr.implicit_label_opt())
+                    .unwrap_or_default()
+            });
             let mut labeled_exprs2 = Vec::new();
-            for labeled_expr in labeled_exprs {
+            for labeled_expr in &sorted_exprs {
                 let v_field = self.variable();
                 let expr2 = self.deduce_expr_type(
                     &*compute_env,
@@ -2907,6 +2921,13 @@ impl TypeResolver {
         } else {
             self.field_var(field_vars, false)
         };
+
+        // Register the compute expression so the resolver can look up
+        // its type. For record expressions, the individual fields were
+        // registered above but the record wrapper itself was not.
+        let id = compute_expr2.id.unwrap_or_else(|| self.next_id());
+        compute_expr2.id = Some(id);
+        self.node_var_map.insert(id, v_result);
 
         let step2 = StepKind::Compute(Box::new(compute_expr2));
         steps2.push(step2.spanned(span));
@@ -3648,8 +3669,6 @@ impl TypeResolver {
             .push((*c, Rc::new(MayBeBagOrListAction { v, list_op, bag_op })));
     }
 
-    /// Checks whether a variable's term (in self.terms) is a list.
-    /// Returns false if it's a bag or unknown.
     /// Inspects the aggregate function's declared type to determine
     /// its collection kind. Per morel#271 (d751e565):
     /// - Identifier with list param → List
@@ -3711,10 +3730,19 @@ impl TypeResolver {
                 if let Term::Variable(v2) = term {
                     return self.var_is_list(v2);
                 }
-                return true; // assume list if unknown
+                return true; // non-sequence term — assume list
             }
         }
-        true // assume list if not found
+        // Variable not in terms. Check if it was created by
+        // may_be_bag_or_list (which uses an action, not a term).
+        // If so, we don't know the collection kind yet.
+        // For ordinal validation, return false (conservative).
+        for (action_var, _) in &self.actions {
+            if action_var == v {
+                return false; // unknown collection kind
+            }
+        }
+        true // not found, no action — assume list
     }
 
     /// If `c_from` resolves to a bag, forces `c_to` to also be a bag

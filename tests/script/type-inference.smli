@@ -676,12 +676,10 @@ from d in [{a=1,b=true}], i in [2] yield {d} yield a;
 :t from i in [1,2,3,4,5] yield substring("hello", 1, current);
 > val it : string list
 
-(* TODO error handling / bag / ordinal
 :t
 from i in bag [1,2,3,4,5] yield i + ordinal;
 > stdIn:1.37-1.44 Error: cannot use 'ordinal' in unordered query
 >   raised at: stdIn:1.37-1.44
-*)
 
 :t
 from i in [1,2,3,4,5] take current;
@@ -1323,12 +1321,10 @@ from d in [{a=1,b=true}], i in [2] yield {d} yield a;
 :t from i in [1,2,3,4,5] yield substring("hello", 1, current);
 > val it : string list
 
-(* TODO error handling / bag / ordinal
 :t
 from i in bag [1,2,3,4,5] yield i + ordinal;
 > stdIn:1.37-1.44 Error: cannot use 'ordinal' in unordered query
 >   raised at: stdIn:1.37-1.44
-*)
 
 :t
 from i in [1,2,3,4,5] take current;

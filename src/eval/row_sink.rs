@@ -1072,6 +1072,9 @@ pub struct YieldRowSink {
     /// If empty, the yielded value is written to `current_slot` instead.
     field_slots: Vec<usize>,
     current_slot: usize,
+    /// Additional slot for the implicit label (e.g. `deptno` slot for
+    /// `yield e.deptno`). If Some, the yielded value is also written here.
+    label_slot: Option<usize>,
     row_sink: Box<dyn RowSink>,
 }
 
@@ -1086,12 +1089,28 @@ impl YieldRowSink {
             yield_code,
             field_slots: Vec::new(),
             current_slot,
+            label_slot: None,
+            row_sink,
+        }
+    }
+
+    /// Creates a scalar sink that also writes to a named label slot.
+    pub fn new_scalar(
+        yield_code: Code,
+        current_slot: usize,
+        label_slot: Option<usize>,
+        row_sink: Box<dyn RowSink>,
+    ) -> Self {
+        Self {
+            yield_code,
+            field_slots: Vec::new(),
+            current_slot,
+            label_slot,
             row_sink,
         }
     }
 
     /// Creates a sink that unpacks a record's fields into separate frame slots.
-    /// `field_slots[i]` is the frame slot for the i-th field of the record.
     pub fn new_record(
         yield_code: Code,
         field_slots: Vec<usize>,
@@ -1101,6 +1120,7 @@ impl YieldRowSink {
             yield_code,
             field_slots,
             current_slot: 0,
+            label_slot: None,
             row_sink,
         }
     }
@@ -1125,11 +1145,19 @@ impl RowSink for YieldRowSink {
         // higher in the pipeline (e.g. an enclosing join's scan loop) still
         // see the original values after we return.
         if self.field_slots.is_empty() {
-            // Scalar (or whole-record) yield: write to current_slot.
+            // Scalar (or whole-record) yield: write to current_slot
+            // and optionally to the implicit label slot.
             let saved = f.vals[self.current_slot].clone();
-            f.vals[self.current_slot] = val;
+            let saved_label = self.label_slot.map(|s| f.vals[s].clone());
+            f.vals[self.current_slot] = val.clone();
+            if let Some(s) = self.label_slot {
+                f.vals[s] = val;
+            }
             let result = self.row_sink.accept(r, f);
             f.vals[self.current_slot] = saved;
+            if let Some((s, sv)) = self.label_slot.zip(saved_label) {
+                f.vals[s] = sv;
+            }
             result
         } else {
             // Record yield: unpack each field into its own frame slot.

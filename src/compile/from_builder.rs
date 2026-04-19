@@ -496,15 +496,13 @@ impl FromBuilder {
                     // there is no aggregate).
                 }
                 Expr::Identifier(t, name) => {
-                    // Scalar key: push binding when there is an
-                    // aggregate (so the collect step sees the key field).
-                    // For pure group-only (no aggregate), bindings
-                    // carry forward from the scan step unchanged.
-                    if aggregate_expr.is_some() {
-                        new_bindings
-                            .push(Binding::new(Id::new(name, 0), t.clone()));
-                        has_key_bindings = true;
-                    }
+                    // Scalar key: always push binding so that atom
+                    // is correctly set (e.g. `yield {d = e.deptno}
+                    // group d` should produce `int list` not
+                    // `{d:int} list`).
+                    new_bindings
+                        .push(Binding::new(Id::new(name, 0), t.clone()));
+                    has_key_bindings = true;
                 }
                 _ => {
                     if let Type::Record(_, key_fields) =

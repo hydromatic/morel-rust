@@ -537,9 +537,12 @@ impl Pretty {
     }
 
     /// Formats a primitive value for tabular display.
-    /// Strings are unquoted; ints use `~` for negative (morel convention).
+    /// Strings are unquoted; numbers use `~` for negative.
     fn format_tabular(val: &Val) -> String {
         match val {
+            // lint: sort until '#}' where '##Val::'
+            Val::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
+            Val::Char(c) => char_to_string(*c),
             Val::Int(i) => {
                 if *i < 0 {
                     if *i == i32::MIN {
@@ -553,8 +556,6 @@ impl Pretty {
             }
             Val::Real(f) => Real::to_string(*f),
             Val::String(s) => s.to_string(),
-            Val::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
-            Val::Char(c) => format!("#\"{}\"", char_to_string(*c)),
             _ => format!("{:?}", val),
         }
     }

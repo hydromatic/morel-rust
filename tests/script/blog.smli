@@ -1716,6 +1716,8 @@ gcd (36, 120);
 > val it = 12 : int
 
 (*) === Query.md ====================================================
+set("mode", "evaluate");
+> val it = () : unit
 Sys.set ("output", "tabular");
 > val it = () : unit
 Sys.set ("lineWidth", 65);
@@ -1732,6 +1734,8 @@ from e in scott.emps
 >
 > val it : {ename:string, job:string} bag
 
+set("mode", "validate");
+> val it = () : unit
 from e in scott.emps,
     d in scott.depts on e.deptno = d.deptno
   where e.deptno = 10
@@ -1743,6 +1747,8 @@ from e in scott.emps,
 > ACCOUNTING MILLER CLERK
 >
 > val it : {dname:string, ename:string, job:string} bag
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Query over a list of integers. *)
 from i in [1, 2, 3, 4, 5]
@@ -1772,6 +1778,8 @@ from i in [2, 3],
 > val it : {i:int, s:string} list
 
 (* If you want to add a join condition, you can append an on clause: *)
+set("mode", "validate");
+> val it = () : unit
 from e in scott.emps,
     d in scott.depts on e.deptno = d.deptno
   where e.job = "MANAGER"
@@ -1783,6 +1791,8 @@ from e in scott.emps,
 > ACCOUNTING CLARK
 >
 > val it : {dname:string, ename:string} bag
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) If you want scans later in a query, use the join step.
 val clients =
@@ -1799,6 +1809,8 @@ val clients =
 >
 > val clients : {city:string, cname:string, contact:int} list
 
+set("mode", "validate");
+> val it = () : unit
 from c in clients
   where c.city = "BOSTON"
   join e in scott.emps on c.contact = e.empno,
@@ -1812,6 +1824,8 @@ from c in clients
 > IBM    SALES MARTIN
 >
 > val it : {cname:string, dname:string, ename:string} bag
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Define the shipments data set; each shipment has one or
    more nested items. *)
@@ -1886,35 +1900,35 @@ from deptno in [10, 20],
 >   [
 >    {deptno=10,
 >     emp=
->     {comm=0.0,deptno=10,empno=7782,ename="CLARK",
+>     {comm=0,deptno=10,empno=7782,ename="CLARK",
 >      hiredate="1981-06-09",job="MANAGER",mgr=7839,sal=2450.0}},
 >    {deptno=10,
 >     emp=
->     {comm=0.0,deptno=10,empno=7839,ename="KING",
+>     {comm=0,deptno=10,empno=7839,ename="KING",
 >      hiredate="1981-11-17",job="PRESIDENT",mgr=0,sal=5000.0}},
 >    {deptno=10,
 >     emp=
->     {comm=0.0,deptno=10,empno=7934,ename="MILLER",
+>     {comm=0,deptno=10,empno=7934,ename="MILLER",
 >      hiredate="1982-01-23",job="CLERK",mgr=7782,sal=1300.0}},
 >    {deptno=20,
 >     emp=
->     {comm=0.0,deptno=20,empno=7369,ename="SMITH",
+>     {comm=0,deptno=20,empno=7369,ename="SMITH",
 >      hiredate="1980-12-17",job="CLERK",mgr=7902,sal=800.0}},
 >    {deptno=20,
 >     emp=
->     {comm=0.0,deptno=20,empno=7566,ename="JONES",
+>     {comm=0,deptno=20,empno=7566,ename="JONES",
 >      hiredate="1981-02-04",job="MANAGER",mgr=7839,sal=2975.0}},
 >    {deptno=20,
 >     emp=
->     {comm=0.0,deptno=20,empno=7788,ename="SCOTT",
+>     {comm=0,deptno=20,empno=7788,ename="SCOTT",
 >      hiredate="1987-04-19",job="ANALYST",mgr=7566,sal=3000.0}},
 >    {deptno=20,
 >     emp=
->     {comm=0.0,deptno=20,empno=7876,ename="ADAMS",
+>     {comm=0,deptno=20,empno=7876,ename="ADAMS",
 >      hiredate="1987-05-23",job="CLERK",mgr=7788,sal=1100.0}},
 >    {deptno=20,
 >     emp=
->     {comm=0.0,deptno=20,empno=7902,ename="FORD",
+>     {comm=0,deptno=20,empno=7902,ename="FORD",
 >      hiredate="1981-12-03",job="ANALYST",mgr=7566,sal=3000.0}}]
 >   :
 >     {deptno:int,
@@ -2026,6 +2040,8 @@ from e in scott.emps
 
 (* I have two sodas and three candies and give my friend
    one soda and two candies. What do I have left? *)
+set("mode", "validate");
+> val it = () : unit
 from i in ["candy", "soda", "soda", "candy", "candy"]
   except ["soda", "candy"];
 > val it = ["candy","candy","soda"] : string list
@@ -2044,6 +2060,8 @@ from e in scott.emps
 > 6     30     9400.0
 >
 > val it : {count:int, deptno:int, sumSal:real} bag
+set("mode", "evaluate");
+> val it = () : unit
 
 (* One group key and no compute expressions gives an
    atomic result. *)
@@ -2061,6 +2079,8 @@ from e in scott.emps
 
 (* Which job titles exist in department 10 and also in
    departments 20 and 30? *)
+set("mode", "validate");
+> val it = () : unit
 from e in scott.emps
   where e.deptno = 10
   yield e.job
@@ -2104,6 +2124,8 @@ from d in scott.depts
 > SALES      JAMES
 >
 > val it : {dname:string, ename:string} bag
+set("mode", "evaluate");
+> val it = () : unit
 
 (* List employees ordered by salary (descending) then
    name. *)
@@ -2167,8 +2189,6 @@ from i in [1, 2, 3, 4, 5, 6, 7]
   take 3;
 > val it = [1,2,3] : int list
 
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Define a table function that returns the even numbers
    from a collection. *)
@@ -2195,8 +2215,6 @@ from i in [1, 2, 3, 4, 5, 6, 7]
 > val it = [3,6] : int list
 
 (* Which job titles exist in departments 10, 20 and 30? *)
-set("mode", "validate");
-> val it = () : unit
 from e in scott.emps
   where e.deptno = 10
   yield e.job
@@ -2282,6 +2300,8 @@ from e in scott.emps
 >    "ADAMS is a CLERK","FORD is a ANALYST"] : string bag
 
 (* Compute total number of employees and average salary. *)
+set("mode", "validate");
+> val it = () : unit
 from e in scott.emps
   compute {total = count over (),
            sumSal = sum over e.sal,
@@ -2289,6 +2309,8 @@ from e in scott.emps
            maxSal = max over e.sal};
 > val it = {maxSal=5000.0,minSal=800.0,sumSal=29025.0,total=14}
 >   : {maxSal:real, minSal:real, sumSal:real, total:int}
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Compute total number of employees. *)
 from e in scott.emps
@@ -2296,6 +2318,8 @@ from e in scott.emps
 > val it = 14 : int
 
 (* Apply a custom function to the query results. *)
+set("mode", "validate");
+> val it = () : unit
 fun analyzeResults (emps: {deptno: int, sal: real} bag) =
   let
     val {count, sumSal} =
@@ -2320,6 +2344,8 @@ from e in scott.emps
 > val it =
 >   {averageSalary=2916.6667,classification="High",employeeCount=3}
 >   : {averageSalary:real, classification:string, employeeCount:int}
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Check whether all employees earn more than $2000. *)
 forall e in scott.emps

@@ -597,14 +597,15 @@ impl<'a> Compiler<'a> {
 
                 // Compile the `over` expression and determine whether it
                 // needs per-element mapping. If `e` is a trivial read of
-                // slot 0 (single-binding identity), elements already
-                // contain the right values.
+                // the sole scan slot (single-binding identity), elements
+                // already contain the right values.
                 let e_code = self.compile_expr(cx, None, e);
-                let trivial_slot =
-                    cx.compute_scan_slots.first().copied().unwrap_or(0);
-                let mapped_code = if matches!(
-                    &e_code, Code::GetLocal(_, s) if *s == trivial_slot
-                ) {
+                let mapped_code = if cx.compute_scan_slots.len() == 1
+                    && matches!(
+                        &e_code,
+                        Code::GetLocal(_, s)
+                            if *s == cx.compute_scan_slots[0]
+                    ) {
                     elements_code
                 } else {
                     Box::new(Code::MapElements(
@@ -964,11 +965,29 @@ impl<'a> Compiler<'a> {
                 }
                 Code::new_match(&codes, Some(span.clone()))
             }
-            Expr::Current(_) => {
-                // 'current' is the primary element: the first local variable
-                // in the frame (after any bound/captured variables).
-                let slot = cx.frame_def.bound_vars.len();
-                Code::new_get_local(&cx.frame_def, slot)
+            Expr::Current(type_) => {
+                // 'current' is the current row element. With multiple
+                // named bindings in the frame (e.g. join), construct
+                // a record from field slots. Otherwise read the
+                // primary slot (first local var).
+                if let Type::Record(_, fields) = type_.as_ref()
+                    && fields.keys().all(|label| {
+                        cx.frame_def.try_var_index(&label.to_string()).is_some()
+                    })
+                {
+                    let codes: Vec<Code> = fields
+                        .keys()
+                        .map(|label| {
+                            let slot =
+                                cx.frame_def.var_index(&label.to_string());
+                            Code::new_get_local(&cx.frame_def, slot)
+                        })
+                        .collect();
+                    Code::new_tuple(&codes)
+                } else {
+                    let slot = cx.frame_def.bound_vars.len();
+                    Code::new_get_local(&cx.frame_def, slot)
+                }
             }
             Expr::Fn(_, match_list, fn_span) => {
                 let mut collector = VarCollector::new(&cx.env);
@@ -1691,13 +1710,21 @@ impl<'a> Compiler<'a> {
                                 ))
                             })
                         } else {
-                            // Scalar yield: write to the current slot (slot 0
-                            // past any bound vars).
+                            // Scalar yield: write to the current slot
+                            // (slot 0 past bound vars). Also write to
+                            // the named slot if the yield has an implicit
+                            // label (e.g. 'yield e.deptno' also writes
+                            // to 'deptno' slot for 'where deptno > 10').
                             let current_slot = cx.frame_def.bound_vars.len();
+                            let label_slot = expr
+                                .implicit_label()
+                                .and_then(|l| cx.frame_def.try_var_index(&l))
+                                .filter(|s| *s != current_slot);
                             RowSinkFactory::new(move || {
-                                Box::new(YieldRowSink::new(
+                                Box::new(YieldRowSink::new_scalar(
                                     yield_code.clone(),
                                     current_slot,
+                                    label_slot,
                                     next_factory.create(),
                                 ))
                             })

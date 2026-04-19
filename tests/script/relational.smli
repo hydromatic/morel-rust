@@ -556,15 +556,10 @@ from e in emps
 >    {name="Scooby",ordinal=7}] : {name:string, ordinal:int} list
 
 (*) 'ordinal' cannot be used in an unordered query
-set("mode", "validate");
-> val it = () : unit
 from e in emps, i in bag [1]
   yield {ordinal, e.name};
 > stdIn:2.10-2.17 Error: cannot use 'ordinal' in unordered query
 >   raised at: stdIn:2.10-2.17
-
-set("mode", "evaluate");
-> val it = () : unit
 
 from e in emps, i in bag [1]
   order e.deptno
@@ -613,9 +608,6 @@ from i in [3,1,4,5,3,5,8,9,7]
 > val it = [{i=8,ordinal=6},{i=9,ordinal=7},{i=7,ordinal=8}]
 >   : {i:int, ordinal:int} list
 
-set("mode", "validate");
-> val it = () : unit
-
 from e in scott.emps
   yield {e.ename, e.sal, rank = ordinal + 1};
 > stdIn:2.33-2.40 Error: cannot use 'ordinal' in unordered query
@@ -625,8 +617,6 @@ from e in scott.emps
    the join with the unordered `scott.depts` table, but we can
    restore the same order by sorting on `i` (which is assigned
    in a previous step from `ordinal`). *)
-set("mode", "evaluate");
-> val it = () : unit
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -660,8 +650,6 @@ from e in scott.emps
 >    {empno=7499,job="SALESMAN"},{empno=7521,job="SALESMAN"},
 >    {empno=7654,job="SALESMAN"},{empno=7844,job="SALESMAN"}]
 >   : {empno:int, job:string} list
-set("mode", "validate");
-> val it = () : unit
 
 (*) Ordinal in subquery
 from i in [1,2,3,4]
@@ -861,9 +849,6 @@ from e in emps
   where deptno > 10;
 > val it = [20,30,30] : int list
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) similar to previous, but an anonymous atom, so must use 'current'
 from e in emps
   yield 0 + e.deptno
@@ -876,9 +861,6 @@ from e in emps
   where d > 10
   yield {d = d};
 > val it = [{d=20},{d=30},{d=30}] : {d:int} list
-
-set("mode", "validate");
-> val it = () : unit
 
 (*) singleton record 'yield' followed by singleton 'group'
 from e in emps
@@ -908,9 +890,21 @@ from e in emps
   order current;
 > val it = [10,20,30] : int list
 
+(*) atom 'yield' followed by 'distinct' and 'order DESC'
+from e in emps
+  yield e.deptno
+  distinct
+  order DESC current;
+> val it = [30,20,10] : int list
 
-set("mode", "evaluate");
-> val it = () : unit
+(*) record 'yield' followed by 'order DESC current'
+from e in emps
+  yield {e.deptno, e.name}
+  order DESC current;
+> val it =
+>   [{deptno=30,name="Shaggy"},{deptno=30,name="Scooby"},
+>    {deptno=20,name="Velma"},{deptno=10,name="Fred"}]
+>   : {deptno:int, name:string} list
 
 (*) anonymous 'yield' followed by 'distinct'
 from i in [1, 2, 3],
@@ -977,6 +971,10 @@ from i in [1, 2, 3]
   compute elements;
 > val it = [1,2,3] : int list
 
+from i in [1, 2, 3] unorder
+  compute elements;
+> val it = [1,2,3] : int bag
+
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   compute elements;
 > val it = [{i="a",j=1},{i="b",j=4},{i="a",j=3}] : {i:string, j:int} list
@@ -1006,6 +1004,14 @@ from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   group {i} compute {s = from r in elements compute sum over r.j} order i;
 > val it = [{i="a",s=4},{i="b",s=4}] : {i:string, s:int} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {s = from r in elements unorder compute sum over r.j} order i;
+> val it = [{i="a",s=4},{i="b",s=4}] : {i:string, s:int} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {s = from r in elements order r.j take 1 compute sum over r.j} order i;
+> val it = [{i="a",s=1},{i="b",s=4}] : {i:string, s:int} list
 
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   group {i} compute {s = from r in elements where r.j < 2 compute sum over r.j}
@@ -1176,20 +1182,50 @@ from i in [2, 1, 2]
   compute count ["a", "b"];
 > stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T18) vs list(string)
 >   raised at: stdIn:1.1-2.27
-
-set("mode", "validate");
-> val it = () : unit
 from i in [2, 1, 2]
-  group i compute {c = count ["a", "b"]};
-> val it = [{c=2,i=1},{c=2,i=2}] : {c:int, i:int} list
+  group i compute {c = count (bag ["a", "b"])};
+> val it = [{c=2,i=2},{c=2,i=1}] : {c:int, i:int} list
+
+(* ---------------------------------------------------------------------------
+ * List and bag aggregate functions can be applied to list and bag inputs. *)
+
+(*) List aggregate function returns first element, bag returns second.
+fun listAgg list = List.hd list;
+> val listAgg = fn : 'a list -> 'a
+fun bagAgg bag = Bag.hd (Bag.tl bag);
+> val bagAgg = fn : 'a bag -> 'a
+
+from i in [1, 2]
+  compute listAgg over i;
+> val it = 1 : int
+from i in bag [1, 2]
+  compute bagAgg over i;
+> val it = 2 : int
+from i in bag [1, 2]
+  compute listAgg over i;
+> val it = 1 : int
+from i in [1, 2]
+  compute bagAgg over i;
+> val it = 2 : int
+
+(*) Polymorphic agg applied to list, then bag
+from i in [1, 2, 3]
+  compute Fn.id over i;
+> val it = [1,2,3] : int list
+from i in bag [1, 2, 3]
+  compute Fn.id over i;
+> val it = [1,2,3] : int bag
+
+(*) Aggregate function that is a closure that references group key.
+from e in [{a = 1, b = 5}, {a = 0, b = 1}, {a = 1, b = 1}]
+  group e.a compute {rows = (fn x => x) over e};
+> val it = [{a=1,rows=[{a=1,b=5},{a=1,b=1}]},{a=0,rows=[{a=0,b=1}]}]
+>   : {a:int, rows:{a:int, b:int} list} list
 
 (* Theoretically a "group" without a "compute" can be followed by a
  * "compute" step. So, the following is ambiguous. We treat it as a single
  * "group ... compute" step. Under the two-step interpretation, the type
  * would have been "int". *)
-
-set("mode", "evaluate");
-> val it = () : unit
 
 from (i, j) in [(1, 1), (2, 3), (3, 4)]
   group {j = i mod 2}
@@ -1484,14 +1520,12 @@ from e in emps, d in depts
   group {} compute count over ();
 > val it = [16] : int list
 
-
 (*) join group where right variable is not referenced
 from e in emps, d in depts
   group e.deptno compute {count = sum over 1}
   order deptno;
 > val it = [{count=4,deptno=10},{count=4,deptno=20},{count=8,deptno=30}]
 >   : {count:int, deptno:int} list
-
 
 (*) join with intervening 'where'
 (*) we can't write ', d in depts' after 'where'
@@ -1952,6 +1986,9 @@ from (i, j) in [(1, 2), (2, 3), (1, 8), (1, 7)]
   compute {x = (fn list => List.length list + k) over i + j + k};
 > val it = [{k=3,x=6},{k=4,x=5}] : {k:int, x:int} list
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) 'group' with 'nonEmpty' and 'empty' as aggregate functions
 from e in emps
 group e.deptno
@@ -1965,6 +2002,9 @@ order deptno;
 >    {deptno=20,existsId=true,existsStar=true,notExistsId=false,sumId=101},
 >    {deptno=30,existsId=true,existsStar=true,notExistsId=false,sumId=205}]
 >   : {deptno:int, existsId:bool, existsStar:bool, notExistsId:bool, sumId:int} list
+
+set("mode", "validate");
+> val it = () : unit
 
 (*) 'compute' with 'empty' and 'nonEmpty' as an aggregate functions
 from e in emps
@@ -2049,10 +2089,12 @@ from e in emps
 group {} compute {sumId = sum over e.id};
 > val it = [{sumId=406}] : {sumId:int} list
 
-(*) 'group' with aggregate function that references the key
+(*) 'group' with aggregate function that references the key.
+(*) Uses List.length (not sum) because sum is bag-only and anonymous
+(*) functions in list context cannot yet adapt bag-only aggregates.
 from (k, v) in [(1, 5), (1, 6), (2, 7), (2, 10)]
-group k compute {x = (fn vs => k + (sum vs)) over v};
-> val it = [{k=1,x=12},{k=2,x=19}] : {k:int, x:int} list
+group k compute {x = (fn vs => k + List.length vs) over v};
+> val it = [{k=1,x=3},{k=2,x=4}] : {k:int, x:int} list
 
 from (x, y, z) in [("a", "p", "e"), ("m", "a", "n"), ("a", "l", "e"), ("a", "w", "e")]
   group x compute {z = (fn ys => concat (x :: ys)) over y};
@@ -2126,6 +2168,11 @@ set("mode", "evaluate");
 > val it = () : unit
 
 (*) Identity aggregate function (equivalent to SQL's COLLECT)
+(* TODO: Type inference gets confused because it doesn't
+ * know whether 'id' is 'a list' or 'a bag'. When
+ * [MOREL-343] "Allow type variables in type constraints"
+ * is fixed, we will be able to constrain 'x' to 'a list' or 'a bag'.
+ *
 let
   fun id x = x
 in
@@ -2139,15 +2186,12 @@ end;
 >    {deptno=30,
 >     rows=[{deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]}]
 >   : {deptno:int, rows:{deptno:int, id:int, name:string} list} list
+*)
 
-(*) Identity aggregate function, without 'of'
-let
-  fun id x = x
-in
-  from e in emps
-  group e.deptno compute {rows = id over e}
-  order deptno
-end;
+(*) Identity aggregate function, using Fn.id
+from e in emps
+group e.deptno compute {rows = Fn.id over e}
+order deptno;
 > val it =
 >   [{deptno=10,rows=[{deptno=10,id=100,name="Fred"}]},
 >    {deptno=20,rows=[{deptno=20,id=101,name="Velma"}]},
@@ -2313,7 +2357,13 @@ from e in emps,
 > val it = ["Scooby","Shaggy","Velma","Fred"] : string list
 
 
+set("mode", "validate");
+> val it = () : unit
+
 (*) Only (scalar sub-query)
+(*) These use 'only' as a regular function with a list subquery.
+(*) When list-to-bag adaptation for regular function calls is implemented,
+(*) these can move to evaluate mode.
 from e in emps
   yield only (from d in depts
               where d.deptno = e.deptno
@@ -2336,23 +2386,33 @@ from e in emps
 > stdIn:1.1-4.58 Error: Cannot deduce type: conflict: list(record:deptno:name(int, string)) vs bag(T49)
 >   raised at: stdIn:1.1-4.58
 
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Single-row aggregates using 'only' function and 'compute' clause
 from e in emps
   group {} compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1};
 > val it = [{c=4,si=406,si1=410}] : {c:int, si:int, si1:int} list
+
+(*) equivalent to previous, using group-less 'compute' rather than 'only'
+from e in emps
+  compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1};
+> val it = {c=4,si=406,si1=410} : {c:int, si:int, si1:int}
+
 (*) similar to previous, but the 'only' function converts a singleton set to a record
 only (
   from e in emps
     group {} compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1});
-> stdIn:1.1-3.87 Error: Cannot deduce type: conflict: bag(T80) vs list(record:c:si:si1(T20, T34, T49))
+> stdIn:1.1-3.87 Error: Cannot deduce type: conflict: bag(T79) vs list(record:c:si:si1(T19, T33, T48))
 >   raised at: stdIn:1.1-3.87
 
 set("mode", "validate");
 > val it = () : unit
-(*) equivalent to previous, using group-less 'compute' rather than 'only'
-from e in emps
-  compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1};
+
+(*) similar to previous, but the 'only' function converts a singleton set to a record
+only (
+  from e in emps
+    group {} compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1});
 > val it = {c=4,si=406,si1=410} : {c:int, si:int, si1:int}
 
 (*) Primitive 'yield' followed by composite 'compute'
@@ -2366,7 +2426,6 @@ from e in emps
   yield e.deptno
   compute sum over deptno;
 > val it = 90 : int
-
 
 set("mode", "evaluate");
 > val it = () : unit
@@ -2388,17 +2447,10 @@ from e in emps
   compute sum over x;
 > val it = 90 : int
 
-set("mode", "validate");
-> val it = () : unit
-
 from e in emps
   yield {e.id, e.deptno}
   compute sum over deptno;
 > val it = 90 : int
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Primitive 'yield' followed  by 'into'
 from e in emps
@@ -2630,8 +2682,6 @@ fun listHeads2 (lists: 'a list) =
   yield hd + 1 + (length list);
 > val listHeads2 = fn : int list list -> int list
 
-set("mode", "validate");
-> val it = () : unit
 listHeads2 [];
 > val it = [] : int list
 listHeads2 [[1, 2], [3], [4, 5, 6]];
@@ -2647,8 +2697,6 @@ sumPairs2 [(1, 2), (3, 4)];
 > val it = [4,10] : int list
 
 (*) '=' in from
-set("mode", "evaluate");
-> val it = () : unit
 from x = 1;
 > val it = [1] : int list
 from x = 1 yield x + 2;
