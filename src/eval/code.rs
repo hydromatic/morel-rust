@@ -1785,6 +1785,7 @@ impl EagerF0 {
 pub enum EagerF1 {
     // lint: sort until '#}'
     BagHd,
+    BagOnly,
     BagTl,
     CharChr,
     CharPred,
@@ -1793,6 +1794,7 @@ pub enum EagerF1 {
     InteractUseSilently,
     ListHd,
     ListLast,
+    ListOnly,
     ListTl,
     OptionValOf,
     RealCeil,
@@ -1803,7 +1805,6 @@ pub enum EagerF1 {
     RealTrunc,
     RelationalMax,
     RelationalMin,
-    RelationalOnly,
     SysShow,
     SysUnset,
 }
@@ -1831,10 +1832,10 @@ impl EagerF1 {
         #[expect(clippy::enum_glob_use)]
         use EagerF1::*;
         match self {
-            BagHd | BagTl | CharChr | CharPred | CharSucc | ListHd
-            | ListLast | ListTl | OptionValOf | RealCeil | RealCheckFloat
-            | RealFloor | RealRound | RealSign | RealTrunc | RelationalMax
-            | RelationalMin | RelationalOnly => true,
+            BagHd | BagOnly | BagTl | CharChr | CharPred | CharSucc
+            | ListHd | ListLast | ListOnly | ListTl | OptionValOf
+            | RealCeil | RealCheckFloat | RealFloor | RealRound | RealSign
+            | RealTrunc | RelationalMax | RelationalMin => true,
             InteractUse | InteractUseSilently | SysShow | SysUnset => false,
         }
     }
@@ -1854,6 +1855,9 @@ impl EagerF1 {
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             BagHd => List::hd(a0.expect_list(), span.unwrap()),
+            BagOnly | ListOnly => {
+                Relational::only(a0.expect_list(), span.unwrap())
+            }
             BagTl => List::tl(a0.expect_list(), span.unwrap()),
             CharChr => Char::chr(a0.expect_int(), span.unwrap()),
             CharPred => Char::pred(a0.expect_char(), span.unwrap()),
@@ -1884,7 +1888,6 @@ impl EagerF1 {
             RealTrunc => Real::trunc(a0.expect_real(), span.unwrap()),
             RelationalMax => Relational::max(a0.expect_list(), span.unwrap()),
             RelationalMin => Relational::min(a0.expect_list(), span.unwrap()),
-            RelationalOnly => Relational::only(a0.expect_list(), span.unwrap()),
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
@@ -3202,6 +3205,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::BagMapPartial.implements(&mut b, BagMapPartial);
     Eager0::ListNil.implements(&mut b, BagNil);
     Eager1::BagNull.implements(&mut b, BagNull);
+    EagerF1::BagOnly.implements(&mut b, BagOnly);
     EagerF2::BagPartition.implements(&mut b, BagPartition);
     EagerF2::BagTabulate.implements(&mut b, BagTabulate);
     EagerF2::BagTake.implements(&mut b, BagTake);
@@ -3363,6 +3367,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::ListNotElem.implements(&mut b, ListNotElem);
     EagerF2::ListNth.implements(&mut b, ListNth);
     Eager1::ListNull.implements(&mut b, ListNull);
+    EagerF1::ListOnly.implements(&mut b, ListOnly);
     EagerF2::ListPartition.implements(&mut b, ListPartition);
     Eager1::ListRev.implements(&mut b, ListRev);
     Eager2::ListRevAppend.implements(&mut b, ListRevAppend);
@@ -3455,7 +3460,6 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF1::RelationalMax.implements(&mut b, RelationalMax);
     EagerF1::RelationalMin.implements(&mut b, RelationalMin);
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
-    EagerF1::RelationalOnly.implements(&mut b, RelationalOnly);
     Eager1::RelationalSum.implements(&mut b, RelationalSum);
     Eager2::StringCaret.implements(&mut b, StringCaret);
     EagerF2::StringCollate.implements(&mut b, StringCollate);

@@ -119,6 +119,14 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bag", name = "null"))]
     #[strum(props(type = "forall 1 'a bag -> bool"))]
     BagNull,
+    #[strum(props(
+        p = "Bag",
+        name = "only",
+        global = "only",
+        throws = "Empty"
+    ))]
+    #[strum(props(type = "forall 1 'a bag -> 'a"))]
+    BagOnly,
     #[strum(props(p = "Bag", name = "partition"))]
     #[strum(props(
         type = "forall 1 ('a -> bool) -> 'a bag -> 'a bag * 'a bag"
@@ -600,6 +608,14 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "null", global = true))]
     #[strum(props(type = "forall 1 'a list -> bool"))]
     ListNull,
+    #[strum(props(
+        p = "List",
+        name = "only",
+        global = "only",
+        throws = "Empty"
+    ))]
+    #[strum(props(type = "forall 1 'a list -> 'a"))]
+    ListOnly,
     #[strum(props(p = "List", name = "partition"))]
     #[strum(props(
         type = "forall 1 ('a -> bool) -> 'a list -> 'a list * 'a list"
@@ -836,9 +852,6 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Relational", name = "nonEmpty", global = true))]
     #[strum(props(type = "forall 1 'a bag -> bool"))]
     RelationalNonEmpty,
-    #[strum(props(p = "Relational", name = "only", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
-    RelationalOnly,
     #[strum(props(p = "Relational", name = "sum", global = true))]
     #[strum(props(type = "int bag -> int"))]
     RelationalSum,
@@ -1047,7 +1060,15 @@ impl BuiltInFunction {
     }
 
     pub(crate) fn is_global(&self) -> bool {
-        self.get_bool("global").is_some_and(|b| b) || self.alias().is_some()
+        self.get_bool("global").is_some_and(|b| b)
+            || self.alias().is_some()
+            || self.get_str("global").is_some()
+    }
+
+    /// Returns the overloaded global name (e.g. `"only"` for
+    /// `BagOnly` and `ListOnly`).
+    pub(crate) fn overloaded_name(&self) -> Option<&'static str> {
+        self.get_str("global")
     }
 
     pub(crate) fn alias(&self) -> Option<&'static str> {

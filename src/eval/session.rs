@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library::BuiltInFunction;
 use crate::compile::type_env::{
     BindType, EmptyTypeEnv, FunTypeEnv, SimpleTypeEnv, TypeEnv, TypeEnvBuilder,
 };
@@ -83,6 +84,16 @@ impl Session {
         let type_env = FunTypeEnv {
             parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
         };
+        // Seed built-in overloads for functions with both list and
+        // bag forms (e.g. List.only / Bag.only, both global as "only").
+        let mut overloads: HashMap<String, Vec<Type>> = HashMap::new();
+        for f in &[BuiltInFunction::ListOnly, BuiltInFunction::BagOnly] {
+            let name = f.overloaded_name().unwrap_or_else(|| f.name());
+            overloads
+                .entry(name.to_string())
+                .or_default()
+                .push(*f.get_type());
+        }
         Session {
             config: Config::default(),
             code: None,
@@ -92,7 +103,7 @@ impl Session {
             type_aliases: HashMap::new(),
             datatype_constructors: HashMap::new(),
             constructor_arg_types: HashMap::new(),
-            overloads: HashMap::new(),
+            overloads,
         }
     }
 

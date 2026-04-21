@@ -1180,7 +1180,7 @@ from i in [2, 1, 2]
 (*) "count" used as an ordinary function ("over" is not present)
 from i in [2, 1, 2]
   compute count ["a", "b"];
-> stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T18) vs list(string)
+> stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T28) vs list(string)
 >   raised at: stdIn:1.1-2.27
 from i in [2, 1, 2]
   group i compute {c = count (bag ["a", "b"])};
@@ -2403,8 +2403,7 @@ from e in emps
 only (
   from e in emps
     group {} compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1});
-> stdIn:1.1-3.87 Error: Cannot deduce type: conflict: bag(T79) vs list(record:c:si:si1(T19, T33, T48))
->   raised at: stdIn:1.1-3.87
+> val it = {c=4,si=406,si1=410} : {c:int, si:int, si1:int}
 
 set("mode", "validate");
 > val it = () : unit
