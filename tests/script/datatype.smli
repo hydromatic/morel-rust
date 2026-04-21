@@ -53,19 +53,19 @@ Sys.set ("printDepth", ~1);
 
 (*) Basic operations on 'real'
 2.0 + 3.0;
-> val it = 5.0 : real
+> val it = 5 : real
 2.0 - 3.0;
-> val it = ~1.0 : real
+> val it = ~1 : real
 2.0 * 3.0;
-> val it = 6.0 : real
+> val it = 6 : real
 2.0 / 3.0;
 > val it = 0.6666667 : real
 3.0 / 2.0;
 > val it = 1.5 : real
 ~2.0 * 3.0;
-> val it = ~6.0 : real
+> val it = ~6 : real
 ~(2.0 + 3.0);
-> val it = ~5.0 : real
+> val it = ~5 : real
 2.0 < 3.0;
 > val it = true : bool
 2.0 <= 3.0;
@@ -98,7 +98,7 @@ greater_int (2, 3);
 fun greater_real (x, y) = if x < y then y + 0.0 else x;
 > val greater_real = fn : real * real -> real
 greater_real (2.0, 3.0);
-> val it = 3.0 : real
+> val it = 3 : real
 
 (*) Tuple type with a polymorphic member
 let

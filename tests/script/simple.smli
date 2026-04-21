@@ -1122,7 +1122,7 @@ val t2 = (({x = (100, 200)}, "a"), "b");
 
 (*) 3.2e1 is scientific notation (32.0)
 3.2e1;
-> val it = 32.0 : real
+> val it = 32 : real
 
 (*) To access field of literal tuple, use parentheses
 (3, "three").1;

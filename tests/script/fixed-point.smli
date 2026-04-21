@@ -280,13 +280,13 @@ fun fixp f a =
   end;
 > val fixp = fn : ('a -> 'a) -> 'a -> 'a
 fixp as100 100.0;
-> val it = 10.0 : real
+> val it = 10 : real
 fixp as100 1.0;
-> val it = 10.0 : real
+> val it = 10 : real
 fixp as100 0.0;
 > val it = inf : real
 fixp as100 ~1.0;
-> val it = ~10.0 : real
+> val it = ~10 : real
 
 set("mode", "validate");
 > val it = () : unit

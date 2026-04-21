@@ -438,6 +438,10 @@ impl Real {
     /// Converts a `real` into a `string`.
     /// Returns a string suitable for parsing back as a real number.
     /// Uses `~` for negative numbers but `-` for negative exponents.
+    ///
+    /// Matches Standard ML's `Real.toString`, which drops a trailing
+    /// ".0" from whole-number reals (so `1.0` prints as "1" and
+    /// `1.0e10` prints as "1E10").
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_string(r: f32) -> String {
         if r.is_nan() {
@@ -459,12 +463,13 @@ impl Real {
             let abs = r.abs();
             let s = if !(1e-3..1e7).contains(&abs) {
                 // Format in scientific notation with uppercase E.
-                // Rust's default precision for '{:E}' prints only
-                // significant digits.
+                // Rust's default precision for '{:E}' already strips
+                // trailing zeros ("1E10" rather than "1.0E10").
                 format!("{:E}", r).replace("-", "~")
             } else if r.fract() == 0.0 && abs < i64::MAX as f32 {
-                // Whole numbers display with a .0 suffix (SML requires it).
-                format!("{}.0", r.trunc() as i64).replace("-", "~")
+                // Whole numbers display without any fractional part,
+                // matching SML's Real.toString ("1" rather than "1.0").
+                format!("{}", r.trunc() as i64).replace("-", "~")
             } else {
                 // For non-whole numbers, use default formatting.
                 format!("{}", r).replace('-', "~")

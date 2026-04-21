@@ -1838,7 +1838,7 @@ val shipments =
 >    {id=1,
 >     items=
 >     [{product="soda",quantity=12},{product="beer",quantity=3}],
->     shipping=10.0},
+>     shipping=10},
 >    {id=2,items=[{product="cider",quantity=4}],shipping=7.5}]
 >   :
 >     {id:int, items:{product:string, quantity:int} list,
@@ -1901,35 +1901,35 @@ from deptno in [10, 20],
 >    {deptno=10,
 >     emp=
 >     {comm=0,deptno=10,empno=7782,ename="CLARK",
->      hiredate="1981-06-09",job="MANAGER",mgr=7839,sal=2450.0}},
+>      hiredate="1981-06-09",job="MANAGER",mgr=7839,sal=2450}},
 >    {deptno=10,
 >     emp=
 >     {comm=0,deptno=10,empno=7839,ename="KING",
->      hiredate="1981-11-17",job="PRESIDENT",mgr=0,sal=5000.0}},
+>      hiredate="1981-11-17",job="PRESIDENT",mgr=0,sal=5000}},
 >    {deptno=10,
 >     emp=
 >     {comm=0,deptno=10,empno=7934,ename="MILLER",
->      hiredate="1982-01-23",job="CLERK",mgr=7782,sal=1300.0}},
+>      hiredate="1982-01-23",job="CLERK",mgr=7782,sal=1300}},
 >    {deptno=20,
 >     emp=
 >     {comm=0,deptno=20,empno=7369,ename="SMITH",
->      hiredate="1980-12-17",job="CLERK",mgr=7902,sal=800.0}},
+>      hiredate="1980-12-17",job="CLERK",mgr=7902,sal=800}},
 >    {deptno=20,
 >     emp=
 >     {comm=0,deptno=20,empno=7566,ename="JONES",
->      hiredate="1981-02-04",job="MANAGER",mgr=7839,sal=2975.0}},
+>      hiredate="1981-02-04",job="MANAGER",mgr=7839,sal=2975}},
 >    {deptno=20,
 >     emp=
 >     {comm=0,deptno=20,empno=7788,ename="SCOTT",
->      hiredate="1987-04-19",job="ANALYST",mgr=7566,sal=3000.0}},
+>      hiredate="1987-04-19",job="ANALYST",mgr=7566,sal=3000}},
 >    {deptno=20,
 >     emp=
 >     {comm=0,deptno=20,empno=7876,ename="ADAMS",
->      hiredate="1987-05-23",job="CLERK",mgr=7788,sal=1100.0}},
+>      hiredate="1987-05-23",job="CLERK",mgr=7788,sal=1100}},
 >    {deptno=20,
 >     emp=
 >     {comm=0,deptno=20,empno=7902,ename="FORD",
->      hiredate="1981-12-03",job="ANALYST",mgr=7566,sal=3000.0}}]
+>      hiredate="1981-12-03",job="ANALYST",mgr=7566,sal=3000}}]
 >   :
 >     {deptno:int,
 >      emp:{comm:real, deptno:int, empno:int, ename:string,
@@ -2003,12 +2003,12 @@ from e in scott.emps
   take 5
   yield {e.ename, e.sal, rank = ordinal + 1};
 > ename rank sal
-> ----- ---- ------
-> KING  1    5000.0
-> SCOTT 2    3000.0
-> FORD  3    3000.0
-> JONES 4    2975.0
-> BLAKE 5    2850.0
+> ----- ---- ----
+> KING  1    5000
+> SCOTT 2    3000
+> FORD  3    3000
+> JONES 4    2975
+> BLAKE 5    2850
 >
 > val it : {ename:string, rank:int, sal:real} list
 
@@ -2075,7 +2075,7 @@ from e in scott.emps
    atomic result. *)
 from e in scott.emps
   group {} compute min over e.sal + e.comm;
-> val it = [800.0] : real bag
+> val it = [800] : real bag
 
 (* Which job titles exist in department 10 and also in
    departments 20 and 30? *)
@@ -2133,21 +2133,21 @@ from e in scott.emps
   order (DESC e.sal, e.ename)
   yield {e.ename, e.job, e.sal};
 > ename  job       sal
-> ------ --------- ------
-> KING   PRESIDENT 5000.0
-> FORD   ANALYST   3000.0
-> SCOTT  ANALYST   3000.0
-> JONES  MANAGER   2975.0
-> BLAKE  MANAGER   2850.0
-> CLARK  MANAGER   2450.0
-> ALLEN  SALESMAN  1600.0
-> TURNER SALESMAN  1500.0
-> MILLER CLERK     1300.0
-> MARTIN SALESMAN  1250.0
-> WARD   SALESMAN  1250.0
-> ADAMS  CLERK     1100.0
-> JAMES  CLERK     950.0
-> SMITH  CLERK     800.0
+> ------ --------- ----
+> KING   PRESIDENT 5000
+> FORD   ANALYST   3000
+> SCOTT  ANALYST   3000
+> JONES  MANAGER   2975
+> BLAKE  MANAGER   2850
+> CLARK  MANAGER   2450
+> ALLEN  SALESMAN  1600
+> TURNER SALESMAN  1500
+> MILLER CLERK     1300
+> MARTIN SALESMAN  1250
+> WARD   SALESMAN  1250
+> ADAMS  CLERK     1100
+> JAMES  CLERK     950
+> SMITH  CLERK     800
 >
 > val it : {ename:string, job:string, sal:real} list
 
@@ -2161,21 +2161,21 @@ from e in scott.emps
 > stdIn:2.9-2.23 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
 >   raised at: stdIn:2.9-2.23
 > ename  job       sal
-> ------ --------- ------
-> SCOTT  ANALYST   3000.0
-> FORD   ANALYST   3000.0
-> SMITH  CLERK     800.0
-> JAMES  CLERK     950.0
-> ADAMS  CLERK     1100.0
-> MILLER CLERK     1300.0
-> CLARK  MANAGER   2450.0
-> BLAKE  MANAGER   2850.0
-> JONES  MANAGER   2975.0
-> KING   PRESIDENT 5000.0
-> WARD   SALESMAN  1250.0
-> MARTIN SALESMAN  1250.0
-> TURNER SALESMAN  1500.0
-> ALLEN  SALESMAN  1600.0
+> ------ --------- ----
+> SCOTT  ANALYST   3000
+> FORD   ANALYST   3000
+> SMITH  CLERK     800
+> JAMES  CLERK     950
+> ADAMS  CLERK     1100
+> MILLER CLERK     1300
+> CLARK  MANAGER   2450
+> BLAKE  MANAGER   2850
+> JONES  MANAGER   2975
+> KING   PRESIDENT 5000
+> WARD   SALESMAN  1250
+> MARTIN SALESMAN  1250
+> TURNER SALESMAN  1500
+> ALLEN  SALESMAN  1600
 >
 > val it : {ename:string, job:string, sal:real} list
 
@@ -2244,10 +2244,10 @@ from e in scott.emps
   unorder
   yield {e.ename, e.job, e.sal};
 > ename job       sal
-> ----- --------- ------
-> KING  PRESIDENT 5000.0
-> SCOTT ANALYST   3000.0
-> FORD  ANALYST   3000.0
+> ----- --------- ----
+> KING  PRESIDENT 5000
+> SCOTT ANALYST   3000
+> FORD  ANALYST   3000
 >
 > val it : {ename:string, job:string, sal:real} bag
 
@@ -2273,20 +2273,20 @@ from e in scott.emps
       annualSalary = e.sal * 12.0};
 > annualSalary name   position
 > ------------ ------ ---------
-> 9600.0       SMITH  clerk
-> 19200.0      ALLEN  salesman
-> 15000.0      WARD   salesman
-> 35700.0      JONES  manager
-> 15000.0      MARTIN salesman
-> 34200.0      BLAKE  manager
-> 29400.0      CLARK  manager
-> 36000.0      SCOTT  analyst
-> 60000.0      KING   president
-> 18000.0      TURNER salesman
-> 13200.0      ADAMS  clerk
-> 11400.0      JAMES  clerk
-> 36000.0      FORD   analyst
-> 15600.0      MILLER clerk
+> 9600         SMITH  clerk
+> 19200        ALLEN  salesman
+> 15000        WARD   salesman
+> 35700        JONES  manager
+> 15000        MARTIN salesman
+> 34200        BLAKE  manager
+> 29400        CLARK  manager
+> 36000        SCOTT  analyst
+> 60000        KING   president
+> 18000        TURNER salesman
+> 13200        ADAMS  clerk
+> 11400        JAMES  clerk
+> 36000        FORD   analyst
+> 15600        MILLER clerk
 >
 > val it : {annualSalary:real, name:string, position:string} bag
 
