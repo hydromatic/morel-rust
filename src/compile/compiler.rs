@@ -21,12 +21,13 @@ use crate::compile::core::{
 };
 use crate::compile::library::{BuiltInExn, BuiltInFunction};
 use crate::compile::pretty::Pretty;
+use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
 use crate::eval::code::{
-    self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep, Span,
+    self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep,
 };
 use crate::eval::comparator::{self, comparator_for};
 use crate::eval::frame::FrameDef;

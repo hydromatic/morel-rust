@@ -24,11 +24,12 @@
 use crate::compile::inliner::Env;
 use crate::compile::library::BuiltInExn;
 use crate::compile::resolver;
+use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, EmptyTypeEnv, FunTypeEnv, TypeEnv};
 use crate::compile::type_resolver::Resolved;
 use crate::compile::types::{PrimitiveType, Type};
 use crate::compile::{compiler, inliner, library};
-use crate::eval::code::{Effect, Span};
+use crate::eval::code::Effect;
 use crate::eval::link_table::LinkTable;
 use crate::eval::session::Config as SessionConfig;
 use crate::eval::session::Session;
@@ -492,12 +493,13 @@ impl Shell {
 
                 // Remove the semicolon, then parse/execute the statement
                 statement_buffer.pop();
-                let raw = self
-                    .process_statement(
-                        &statement_buffer,
-                        Some(&expected_output_buffer),
-                    )
-                    .unwrap();
+                let raw = match self.process_statement(
+                    &statement_buffer,
+                    Some(&expected_output_buffer),
+                ) {
+                    Ok(s) => s,
+                    Err(e) => format!("{}\n", e),
+                };
                 // In idempotent mode, if the actual output is
                 // semantically equivalent to the expected output
                 // (modulo whitespace and bag reordering), emit the
@@ -575,12 +577,11 @@ impl Shell {
         // Try to parse the statement
         let statement = match parser::parse_statement(&actual_code) {
             Err(e) => {
-                let string = e.to_string();
-                println!("Failed to parse: {}, err {}", &actual_code, string);
-                return Err(Error::Parse(format!(
-                    "Failed to parse: {}, err {}",
-                    &actual_code, string,
-                )));
+                let span = Span::from_line_col(&e.line_col);
+                return Ok(format!(
+                    "{} Error: syntax error\n  raised at: {}\n",
+                    span, span
+                ));
             }
             Ok(statement) => statement,
         };

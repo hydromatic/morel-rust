@@ -16,7 +16,8 @@
 // License.
 
 use crate::compile::library::BuiltInExn;
-use crate::eval::code::{EvalEnv, Frame, Span};
+use crate::compile::span::Span;
+use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 

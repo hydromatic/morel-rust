@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInExn;
-use crate::eval::code::Span;
+use crate::compile::span::Span;
 use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;

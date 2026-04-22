@@ -18,6 +18,7 @@
 use crate::compile::library::{
     BuiltIn, BuiltInExn, BuiltInFunction, BuiltInRecord,
 };
+use crate::compile::span::Span;
 use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
 use crate::compile::types::{Label, PrimitiveType, Type};
@@ -1417,44 +1418,6 @@ impl Display for Code {
             Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
             _ => todo!("fmt: {:?}", self),
         }
-    }
-}
-
-/// Code location.
-#[derive(Clone, PartialEq, Debug)]
-pub struct Span(Arc<str>);
-
-impl Span {
-    pub fn new(s: &str) -> Self {
-        Span(Arc::from(s))
-    }
-
-    pub fn from_pest_span(span: &pest::Span, base_line: usize) -> Self {
-        let start_pos = span.start_pos();
-        let end_pos = span.end_pos();
-        let start = start_pos.line_col();
-        let end = end_pos.line_col();
-        let start_line = start.0.saturating_sub(base_line);
-        let end_line = end.0.saturating_sub(base_line);
-        if start_line == end_line && end.1 == start.1 + 1 {
-            // Single-character span: just print the start position.
-            Self::new(&format!("stdIn:{}.{}", start_line, start.1))
-        } else {
-            Self::new(&format!(
-                "stdIn:{}.{}-{}.{}",
-                start_line, start.1, end_line, end.1
-            ))
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Display for Span {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{}", self.0)
     }
 }
 

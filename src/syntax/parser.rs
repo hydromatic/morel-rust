@@ -473,7 +473,7 @@ impl MorelParser {
                 Label::new(i.as_str(), &input_to_span(&input))
             },
             [unquoted_identifier(i)] => Label::new(i, &input_to_span(&input)),
-            [non_negative_integer(i)] => Label::new(i, &input_to_span(&input)),
+            [natural(i)] => Label::new(i, &input_to_span(&input)),
         ))
     }
 
@@ -1476,6 +1476,10 @@ impl MorelParser {
     }
 
     fn non_negative_integer(input: ParseInput<'_>) -> ParseResult<&str> {
+        Ok(input.as_str())
+    }
+
+    fn natural(input: ParseInput<'_>) -> ParseResult<&str> {
         Ok(input.as_str())
     }
 

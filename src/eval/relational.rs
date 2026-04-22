@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInExn;
-use crate::eval::code::Span;
+use crate::compile::span::Span;
 use crate::eval::comparator::{Comparator, NaturalComparator};
 use crate::eval::order::Order;
 use crate::eval::val::Val;

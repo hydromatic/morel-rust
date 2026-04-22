@@ -538,10 +538,14 @@ ty_var = @{ "'" ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "'")* }
 // that are not expressions or patterns.
 
 label = {
-    non_negative_integer
+    natural
   | quoted_identifier
   | unquoted_identifier
 }
 non_negative_integer = @{ ASCII_DIGIT+ }
+// A natural literal: positive, and not starting with '0'. Used as a
+// record label or tuple index (e.g. `{1 = x}` or `t.1`), so that
+// `{0 = 0}` and `t.0` are rejected (consistent with Standard ML).
+natural = @{ '1'..'9' ~ ASCII_DIGIT* }
 
 // End morel.pest

@@ -26,6 +26,7 @@ mod pretty;
 pub mod resolver;
 pub mod sat;
 pub mod signature_validator;
+pub mod span;
 pub mod type_env;
 pub mod type_parser;
 pub mod type_resolver;

@@ -3356,16 +3356,18 @@ impl TypeResolver {
         for labeled_expr in labeled_expr_list {
             let label = if let Some(name) = labeled_expr.get_label() {
                 Label::from(name)
-            } else if let Some(label_name) =
-                labeled_expr.expr.implicit_label_opt()
-            {
-                Label::from(&label_name)
             } else {
-                // Field has no label, so generate a temporary name.
-                // FIXME The temporary name might overlap with later
-                // explicit labels.
-                let ordinal = label_expr_map.len() + 1;
-                Label::Ordinal(ordinal)
+                // No explicit label, and no label derivable from the
+                // expression (e.g. `{0 = 0}` — `0` is rejected as a
+                // label token, so the whole field becomes the
+                // expression `0 = 0`, which has no implicit label).
+                return Err(Error::Compile(
+                    format!(
+                        "cannot derive label for expression {}",
+                        labeled_expr.expr.span.code()
+                    ),
+                    labeled_expr.expr.span.clone(),
+                ));
             };
             if label_expr_map.contains_key(&label) {
                 return Err(Error::Compile(

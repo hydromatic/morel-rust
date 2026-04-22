@@ -25,9 +25,9 @@ use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
 use crate::compile::library;
 use crate::compile::library::{BuiltIn, BuiltInFunction};
+use crate::compile::span::Span;
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
-use crate::eval::code::Span;
 use crate::eval::val::Val;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match,

@@ -16,9 +16,9 @@
 // License.
 
 use crate::compile::inliner::Env;
+use crate::compile::span::Span;
 use crate::compile::type_env::Id;
 use crate::compile::types::{Label, Type};
-use crate::eval::code::Span;
 use crate::eval::val::Val;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
