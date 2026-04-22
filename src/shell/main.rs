@@ -36,6 +36,7 @@ use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
+use crate::shell::output_matcher;
 use crate::shell::prop::{Mode, Output, create_banner};
 use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast::Statement;
@@ -497,12 +498,36 @@ impl Shell {
                         Some(&expected_output_buffer),
                     )
                     .unwrap();
-                let formatted = if idempotent {
+                // In idempotent mode, if the actual output is
+                // semantically equivalent to the expected output
+                // (modulo whitespace and bag reordering), emit the
+                // expected output verbatim so the .smli file stays
+                // idempotent across runs where bag iteration order
+                // or pretty-printer wrapping may differ.
+                let to_write = if idempotent
+                    && !expected_output_buffer.is_empty()
+                    && !raw.is_empty()
+                {
+                    let expected_stripped =
+                        strip_prefix("> ", &expected_output_buffer);
+                    // The output line is "val ... : TYPE" but we
+                    // have the actual result from process_statement
+                    // already stripped of "> ". Compare as whole
+                    // output lines.
+                    let actual_line = raw.trim_end_matches('\n');
+                    let expected_line =
+                        expected_stripped.trim_end_matches('\n');
+                    if output_matcher::equivalent(actual_line, expected_line) {
+                        prefix_lines(">", &expected_stripped)
+                    } else {
+                        prefix_lines(">", &raw)
+                    }
+                } else if idempotent {
                     prefix_lines(">", &raw)
                 } else {
                     raw
                 };
-                write!(writer, "{}", formatted)?;
+                write!(writer, "{}", to_write)?;
                 writer.flush()?;
                 statement_buffer.clear();
             } else {

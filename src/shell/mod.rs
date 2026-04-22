@@ -19,6 +19,7 @@
 pub mod config;
 pub mod error;
 pub mod main;
+pub mod output_matcher;
 pub mod prop;
 pub mod script_test;
 
