@@ -1717,6 +1717,7 @@ impl TypeResolver {
             ExprKind::GreaterThan(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op >", left, right, v)?;
+                self.prefer_left_int(&left2);
                 let x =
                     ExprKind::GreaterThan(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -1724,6 +1725,7 @@ impl TypeResolver {
             ExprKind::GreaterThanOrEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op >=", left, right, v)?;
+                self.prefer_left_int(&left2);
                 let x = ExprKind::GreaterThanOrEqual(
                     Box::new(left2),
                     Box::new(right2),
@@ -1766,6 +1768,19 @@ impl TypeResolver {
                         ));
                     }
                 }
+                // `abs` is overloaded for `int` and `real`; prefer `int`
+                // when unconstrained, matching the default-to-int behavior
+                // of `op ~`.
+                if name == "abs" {
+                    let v_elem = self.variable();
+                    let fn_seq = self.unifier.apply2(
+                        self.fn_op,
+                        Term::Variable(v_elem),
+                        Term::Variable(v_elem),
+                    );
+                    self.equiv(&Term::Sequence(fn_seq), v);
+                    self.preferred_vars.push(v_elem);
+                }
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
             ExprKind::If(a0, a1, a2) => {
@@ -1784,12 +1799,14 @@ impl TypeResolver {
             ExprKind::LessThan(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <", left, right, v)?;
+                self.prefer_left_int(&left2);
                 let x = ExprKind::LessThan(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::LessThanOrEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <=", left, right, v)?;
+                self.prefer_left_int(&left2);
                 let x = ExprKind::LessThanOrEqual(
                     Box::new(left2),
                     Box::new(right2),
@@ -1913,12 +1930,15 @@ impl TypeResolver {
                         ));
                     }
                 }
-                // Numeric operators (+, -, *, ~) prefer `int` when
+                // Overloaded numeric operators prefer `int` when
                 // unconstrained (Standard ML semantics). Add a fresh
                 // element-type variable and record it in `preferred_vars`
                 // so that, if still free after unification, it defaults
-                // to `int`.
-                if matches!(name.as_str(), "+" | "-" | "*" | "~") {
+                // to `int`. Arithmetic ops (+, -, *, ~) return the element
+                // type; comparison ops (<, <=, >, >=) return `bool`.
+                let arith = matches!(name.as_str(), "+" | "-" | "*" | "~");
+                let compare = matches!(name.as_str(), "<" | "<=" | ">" | ">=");
+                if arith || compare {
                     let v_elem = self.variable();
                     let v_arg = if name == "~" {
                         Term::Variable(v_elem)
@@ -1930,11 +1950,15 @@ impl TypeResolver {
                         );
                         Term::Sequence(seq)
                     };
-                    let fn_seq = self.unifier.apply2(
-                        self.fn_op,
-                        v_arg,
-                        Term::Variable(v_elem),
-                    );
+                    let result_term = if compare {
+                        let v_bool = self.variable();
+                        self.primitive_term(&PrimitiveType::Bool, &v_bool);
+                        Term::Variable(v_bool)
+                    } else {
+                        Term::Variable(v_elem)
+                    };
+                    let fn_seq =
+                        self.unifier.apply2(self.fn_op, v_arg, result_term);
                     self.equiv(&Term::Sequence(fn_seq), v);
                     self.preferred_vars.push(v_elem);
                 }
@@ -3381,6 +3405,18 @@ impl TypeResolver {
         let fun = ExprKind::Identifier(op.to_string()).spanned(&span);
         let (_fun, arg2) = self.deduce_apply_type(env, &fun, &arg, &v)?;
         Ok(arg2)
+    }
+
+    /// Marks the type variable of the given expression as preferring `int`
+    /// when unconstrained. Used by overloaded comparison operators whose
+    /// result type is `bool` (so the expression's own variable is not the
+    /// element type).
+    fn prefer_left_int(&mut self, left: &Expr) {
+        if let Some(id) = left.id
+            && let Some(&v_elem) = self.node_var_map.get(&id)
+        {
+            self.preferred_vars.push(v_elem);
+        }
     }
 
     fn deduce_call2_type(

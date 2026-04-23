@@ -346,6 +346,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Fn", name = "uncurry"))]
     #[strum(props(type = "forall 3 ('a -> 'b -> 'c) -> 'a * 'b -> 'c"))]
     FnUncurry,
+    #[strum(props(name = "abs", global = true))]
+    #[strum(props(type = "forall 1 'a -> 'a"))]
+    GAbs,
     #[strum(props(name = "=", alias = "op ="))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GEq,

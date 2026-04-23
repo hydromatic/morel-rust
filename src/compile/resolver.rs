@@ -344,12 +344,46 @@ impl<'a> Resolver<'a> {
             ExprKind::Append(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListAt, &span, a0, a1)
             }
-            ExprKind::Apply(func, arg) => CoreExpr::Apply(
-                t,
-                Box::new(self.resolve_expr(func)),
-                Box::new(self.resolve_expr(arg)),
-                Span::from_pest_span(&expr.span.to_pest_span(), self.base_line),
-            ),
+            ExprKind::Apply(func, arg) => {
+                // Dispatch `abs x` to Int.abs or Real.abs when the
+                // argument type is known. This matches `~ x` (ExprKind::
+                // Negate) and lets Int.abs raise Overflow on minInt.
+                if let ExprKind::Identifier(name) = &func.kind
+                    && name == "abs"
+                {
+                    let arg_type = arg.get_type(self.type_map);
+                    if let Some(ty) = arg_type {
+                        match ty.as_ref() {
+                            Type::Primitive(PrimitiveType::Int) => {
+                                return self.call1(
+                                    t,
+                                    BuiltInFunction::IntAbs,
+                                    arg,
+                                    &span,
+                                );
+                            }
+                            Type::Primitive(PrimitiveType::Real) => {
+                                return self.call1(
+                                    t,
+                                    BuiltInFunction::RealAbs,
+                                    arg,
+                                    &span,
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                CoreExpr::Apply(
+                    t,
+                    Box::new(self.resolve_expr(func)),
+                    Box::new(self.resolve_expr(arg)),
+                    Span::from_pest_span(
+                        &expr.span.to_pest_span(),
+                        self.base_line,
+                    ),
+                )
+            }
             ExprKind::Caret(a0, a1) => {
                 self.call2(t, BuiltInFunction::StringCaret, &span, a0, a1)
             }
