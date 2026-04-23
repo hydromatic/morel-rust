@@ -23,8 +23,12 @@ use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::bool::Bool;
+use crate::eval::bound::{
+    complement, enumerate_ranges, from_ranges, set_contains,
+};
 use crate::eval::char::Char;
-use crate::eval::comparator::Comparator;
+use crate::eval::comparator::{Comparator, NaturalComparator};
+use crate::eval::discrete::Discrete;
 use crate::eval::either::Either;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
@@ -44,6 +48,7 @@ use crate::shell::main::{MorelError, Shell};
 use crate::shell::prop::{Configurable, Prop};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::iter::{repeat_n, zip};
 use std::ops::Deref;
@@ -116,6 +121,27 @@ impl PartialEq for CmpRef {
 impl Debug for CmpRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "Comparator(...)")
+    }
+}
+
+/// Wrapper around `Arc<dyn Discrete>` mirroring [`CmpRef`].
+pub struct DiscreteRef(pub Arc<dyn Discrete>);
+
+impl Clone for DiscreteRef {
+    fn clone(&self) -> Self {
+        DiscreteRef(Arc::clone(&self.0))
+    }
+}
+
+impl PartialEq for DiscreteRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Debug for DiscreteRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Discrete(...)")
     }
 }
 
@@ -269,6 +295,41 @@ pub enum Code {
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
     Nth(Box<Type>, usize),
+    /// `RaiseIllegalArgument(msg, span)` raises
+    /// `MorelError::IllegalArgument` when evaluated. Baked into the
+    /// `Code` tree by compile-time interceptors that detect invalid
+    /// arguments whose error would otherwise need a separate runtime
+    /// type check (e.g. `Range.discreteSetOf` on a non-discrete
+    /// element type).
+    RaiseIllegalArgument(String, Span),
+    /// `RangeContains(cmp, range_code, value_code)` evaluates the range
+    /// and the candidate value, then tests membership in the range using
+    /// the pre-built, type-directed comparator. This exists so that
+    /// `Range.contains` handles element types whose order differs from
+    /// the natural ordering (e.g. `descending`).
+    RangeContains(CmpRef, Box<Code>, Box<Code>),
+    /// `RangeCsOf(cmp, ranges_code)` evaluates the input
+    /// list of ranges and returns a normalized `continuous_set` — a
+    /// `Val::Constructor(CONTINUOUS_SET_ORDINAL, ...)` wrapping the
+    /// merged range list. The pre-built type-directed comparator
+    /// handles element types with non-natural ordering.
+    RangeCsOf(CmpRef, Box<Code>),
+    /// `RangeDsComplement(discrete, set_code)` evaluates a
+    /// `discrete_set` and returns its complement as a `discrete_set`,
+    /// using the pre-built `Discrete` stepper to step across discrete
+    /// boundaries.
+    RangeDsComplement(DiscreteRef, Box<Code>),
+    /// `RangeDsOf(cmp, discrete, ranges_code)` mirrors
+    /// `RangeCsOf` but additionally uses a pre-built
+    /// `Discrete` stepper to merge ranges that are adjacent in the
+    /// discrete domain (e.g. `[1,3] ∪ [4,7] → [1,7]` for `int`).
+    RangeDsOf(CmpRef, DiscreteRef, Box<Code>),
+    /// `RangeEnumerate(cmp, discrete, set_code)` evaluates a
+    /// `discrete_set` and returns the `Val::List` of values it
+    /// covers, in ascending order. Used to implement both
+    /// `Range.toList` and `Range.toBag` (bags share the `Val::List`
+    /// representation).
+    RangeEnumerate(CmpRef, DiscreteRef, Box<Code>),
     Tuple(Vec<Code>),
 }
 
@@ -332,13 +393,19 @@ impl Code {
         }
         if let Some(t) = t {
             Code::BindConstructor(name.to_string(), Box::new(t.clone()))
-        } else if let Type::Data(type_name, _) = type_
-            && type_name == "option"
-        {
-            // Option value NONE is represented by Unit
-            Self::new_bind_literal(&Val::Unit)
         } else {
-            Self::new_bind_literal(&Val::String(name.to_string()))
+            // Nullary built-in constructor: emit a literal pattern that
+            // tests equality against the constructor's runtime Val.
+            let val = match name {
+                "NONE" => Val::Unit,
+                "LESS" => Val::Order(Order(Ordering::Less)),
+                "EQUAL" => Val::Order(Order(Ordering::Equal)),
+                "GREATER" => Val::Order(Order(Ordering::Greater)),
+                _ => {
+                    panic!("unsupported nullary built-in constructor {}", name)
+                }
+            };
+            Self::new_bind_literal(&val)
         }
     }
 
@@ -616,6 +683,12 @@ impl Code {
             Code::Nth(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
+            Code::RaiseIllegalArgument(_, _) => *mode == EvalMode::EagerF0,
+            Code::RangeContains(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::RangeCsOf(_, _) => *mode == EvalMode::EagerF0,
+            Code::RangeDsComplement(_, _) => *mode == EvalMode::EagerF0,
+            Code::RangeDsOf(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::RangeEnumerate(_, _, _) => *mode == EvalMode::EagerF0,
             Code::Tuple(_) => *mode == EvalMode::EagerF0,
         }
     }
@@ -866,6 +939,65 @@ impl Code {
                 let v3 = code3.eval_f0(r, f)?;
                 eager.apply(r, f, v0, v1, v2, v3, span.as_ref())
             }
+            Code::RaiseIllegalArgument(msg, span) => {
+                Err(MorelError::IllegalArgument(msg.clone(), span.clone()))
+            }
+            Code::RangeContains(cmp, range_code, value_code) => {
+                let range = range_code.eval_f0(r, f)?;
+                let value = value_code.eval_f0(r, f)?;
+                Ok(Val::Bool(range_contains(&*cmp.0, &range, &value)))
+            }
+            Code::RangeCsOf(cmp, ranges_code) => {
+                let ranges = ranges_code.eval_f0(r, f)?;
+                let merged = from_ranges(ranges.expect_list(), &*cmp.0, None);
+                Ok(Val::Constructor(
+                    val::CONTINUOUS_SET_ORDINAL,
+                    Box::new(Val::List(merged)),
+                ))
+            }
+            Code::RangeDsComplement(discrete, set_code) => {
+                let set = set_code.eval_f0(r, f)?;
+                let ranges = match &set {
+                    Val::Constructor(val::DISCRETE_SET_ORDINAL, inner) => {
+                        inner.expect_list()
+                    }
+                    other => panic!(
+                        "Range.complement: expected discrete_set, got {:?}",
+                        other
+                    ),
+                };
+                let complemented = complement(ranges, Some(&*discrete.0));
+                Ok(Val::Constructor(
+                    val::DISCRETE_SET_ORDINAL,
+                    Box::new(Val::List(complemented)),
+                ))
+            }
+            Code::RangeDsOf(cmp, discrete, ranges_code) => {
+                let ranges = ranges_code.eval_f0(r, f)?;
+                let merged = from_ranges(
+                    ranges.expect_list(),
+                    &*cmp.0,
+                    Some(&*discrete.0),
+                );
+                Ok(Val::Constructor(
+                    val::DISCRETE_SET_ORDINAL,
+                    Box::new(Val::List(merged)),
+                ))
+            }
+            Code::RangeEnumerate(cmp, discrete, set_code) => {
+                let set = set_code.eval_f0(r, f)?;
+                let ranges = match &set {
+                    Val::Constructor(val::DISCRETE_SET_ORDINAL, inner) => {
+                        inner.expect_list()
+                    }
+                    other => panic!(
+                        "Range.toList/toBag: expected discrete_set, got {:?}",
+                        other
+                    ),
+                };
+                let out = enumerate_ranges(ranges, &*discrete.0, &*cmp.0);
+                Ok(Val::List(out))
+            }
             Code::Tuple(codes) => {
                 let mut values = Vec::with_capacity(codes.capacity());
                 for code in codes {
@@ -940,10 +1072,13 @@ impl Code {
                 let tail_result = tail_code.eval_f1(r, f, &tail)?;
                 Ok(tail_result)
             }
-            Code::BindConstructor(_name, pat_code) => {
-                // Constructor call delegation to pattern
-                match a0 {
-                    Val::Some(a) => pat_code.eval_f1(r, f, a),
+            Code::BindConstructor(name, pat_code) => {
+                // Built-in value-carrying constructor: dispatch by name to
+                // the matching Val variant.
+                match (name.as_str(), a0) {
+                    ("SOME", Val::Some(a)) => pat_code.eval_f1(r, f, a),
+                    ("INL", Val::Inl(a)) => pat_code.eval_f1(r, f, a),
+                    ("INR", Val::Inr(a)) => pat_code.eval_f1(r, f, a),
                     _ => Ok(Val::Bool(false)),
                 }
             }
@@ -1247,6 +1382,55 @@ fn capture_bound_vals(
 /// a cheap `Val::Unit` placeholder and set `gather = true` so that
 /// `Code::Native2`'s evaluator unpacks `v0`'s tuple elements into
 /// `a0, a1`.
+/// Implements `Range.contains r x` for the given range value `r` and
+/// element `x`, using `cmp` to compare `x` against the range's bounds.
+pub(crate) fn range_contains(
+    cmp: &dyn Comparator,
+    range: &Val,
+    value: &Val,
+) -> bool {
+    let (ord, inner) = match range {
+        Val::Constructor(ord, inner) => (*ord, inner.as_ref()),
+        _ => panic!("Range.contains: not a range value: {:?}", range),
+    };
+    match ord {
+        val::RANGE_ALL_ORDINAL => true,
+        val::RANGE_POINT_ORDINAL => cmp.compare(value, inner).is_eq(),
+        val::RANGE_AT_LEAST_ORDINAL => cmp.compare(value, inner).is_ge(),
+        val::RANGE_GREATER_THAN_ORDINAL => cmp.compare(value, inner).is_gt(),
+        val::RANGE_AT_MOST_ORDINAL => cmp.compare(value, inner).is_le(),
+        val::RANGE_LESS_THAN_ORDINAL => cmp.compare(value, inner).is_lt(),
+        val::RANGE_CLOSED_ORDINAL => {
+            let pair = inner.expect_list();
+            cmp.compare(value, &pair[0]).is_ge()
+                && cmp.compare(value, &pair[1]).is_le()
+        }
+        val::RANGE_OPEN_ORDINAL => {
+            let pair = inner.expect_list();
+            cmp.compare(value, &pair[0]).is_gt()
+                && cmp.compare(value, &pair[1]).is_lt()
+        }
+        val::RANGE_CLOSED_OPEN_ORDINAL => {
+            let pair = inner.expect_list();
+            cmp.compare(value, &pair[0]).is_ge()
+                && cmp.compare(value, &pair[1]).is_lt()
+        }
+        val::RANGE_OPEN_CLOSED_ORDINAL => {
+            let pair = inner.expect_list();
+            cmp.compare(value, &pair[0]).is_gt()
+                && cmp.compare(value, &pair[1]).is_le()
+        }
+        val::CONTINUOUS_SET_ORDINAL | val::DISCRETE_SET_ORDINAL => {
+            // The wrapper carries a normalized `Val::List` of ranges;
+            // binary-search it.
+            set_contains(inner.expect_list(), value, cmp)
+        }
+        _ => {
+            panic!("Range.contains: unknown range constructor ordinal {}", ord)
+        }
+    }
+}
+
 fn code_or_gather(codes: &[Box<Code>], n: usize) -> (Box<Code>, bool) {
     if codes.len() == n + 1 {
         (codes[n].clone(), false)
@@ -1569,6 +1753,7 @@ pub enum Eager0 {
     OrderEqual,
     OrderGreater,
     OrderLess,
+    RangeAll,
     RealMaxFinite,
     RealMinNormalPos,
     RealMinPos,
@@ -1602,6 +1787,9 @@ impl Eager0 {
             OrderEqual => Val::Order(Order(Ordering::Equal)),
             OrderGreater => Val::Order(Order(Ordering::Greater)),
             OrderLess => Val::Order(Order(Ordering::Less)),
+            RangeAll => {
+                Val::Constructor(val::RANGE_ALL_ORDINAL, Box::new(Val::Unit))
+            }
             RealMaxFinite => Val::Real(f32::MAX),
             RealMinNormalPos => Val::Real(f32::MIN_POSITIVE),
             // Smallest denormalized positive (2^-149)
@@ -1970,6 +2158,23 @@ pub enum Eager1 {
     OptionIsSome,
     OptionJoin,
     OptionSome,
+    RangeAtLeast,
+    RangeAtMost,
+    RangeClosed,
+    RangeClosedOpen,
+    RangeCsComplement,
+    RangeCsOf,
+    RangeCsRanges,
+    RangeDsComplement,
+    RangeDsOf,
+    RangeDsRanges,
+    RangeGreaterThan,
+    RangeLessThan,
+    RangeOpen,
+    RangeOpenClosed,
+    RangePoint,
+    RangeToBag,
+    RangeToList,
     RealAbs,
     RealFromInt,
     RealFromString,
@@ -2091,6 +2296,118 @@ impl Eager1 {
             OptionIsSome => Val::Bool(Opt::is_some(&a0)),
             OptionJoin => Opt::join(&a0),
             OptionSome => Val::Some(Box::new(a0)),
+            RangeAtLeast => {
+                Val::Constructor(val::RANGE_AT_LEAST_ORDINAL, Box::new(a0))
+            }
+            RangeAtMost => {
+                Val::Constructor(val::RANGE_AT_MOST_ORDINAL, Box::new(a0))
+            }
+            RangeClosed => {
+                Val::Constructor(val::RANGE_CLOSED_ORDINAL, Box::new(a0))
+            }
+            RangeClosedOpen => {
+                Val::Constructor(val::RANGE_CLOSED_OPEN_ORDINAL, Box::new(a0))
+            }
+            RangeCsComplement => {
+                // Continuous complement: no Discrete needed, so the
+                // Eager1 fallback handles every call directly.
+                let inner = match a0 {
+                    Val::Constructor(val::CONTINUOUS_SET_ORDINAL, inner) => {
+                        inner.expect_list().to_vec()
+                    }
+                    other => panic!(
+                        "Range.complement: expected continuous_set, got {:?}",
+                        other
+                    ),
+                };
+                let complemented = complement(&inner, None);
+                Val::Constructor(
+                    val::CONTINUOUS_SET_ORDINAL,
+                    Box::new(Val::List(complemented)),
+                )
+            }
+            RangeCsOf => {
+                // Fallback when the compiler did not intercept the
+                // call (e.g. partial application). Uses
+                // `NaturalComparator`, which is correct for primitive
+                // element types but wrong for `descending` and other
+                // non-natural orderings.
+                let merged =
+                    from_ranges(a0.expect_list(), &NaturalComparator, None);
+                Val::Constructor(
+                    val::CONTINUOUS_SET_ORDINAL,
+                    Box::new(Val::List(merged)),
+                )
+            }
+            RangeCsRanges => {
+                // `ranges : 'a continuous_set -> 'a range list`. The
+                // wrapper stores a Val::List of ranges; just unwrap it.
+                match a0 {
+                    Val::Constructor(val::CONTINUOUS_SET_ORDINAL, inner) => {
+                        *inner
+                    }
+                    other => panic!(
+                        "Range.ranges: expected continuous_set, got {:?}",
+                        other
+                    ),
+                }
+            }
+            RangeDsComplement => {
+                // Fallback for partial application. Direct calls go
+                // through Code::RangeDsComplement which carries
+                // a `Discrete`; without type information we cannot build
+                // one here, so panic clearly.
+                panic!(
+                    "Range.complement on discrete_set: partial application is \
+                     not supported; invoke with a concrete discrete_set \
+                     argument"
+                )
+            }
+            RangeDsOf => {
+                // Fallback when the compiler did not intercept the
+                // call. Without type information we cannot validate
+                // discreteness or merge step-adjacent ranges; wrap the
+                // input as-is. The compile intercept is the correct
+                // path for all direct calls.
+                Val::Constructor(val::DISCRETE_SET_ORDINAL, Box::new(a0))
+            }
+            RangeDsRanges => {
+                // `ranges : 'a discrete_set -> 'a range list`. The
+                // wrapper stores a Val::List of ranges; just unwrap it.
+                match a0 {
+                    Val::Constructor(val::DISCRETE_SET_ORDINAL, inner) => {
+                        *inner
+                    }
+                    other => panic!(
+                        "Range.ranges: expected discrete_set, got {:?}",
+                        other
+                    ),
+                }
+            }
+            RangeGreaterThan => {
+                Val::Constructor(val::RANGE_GREATER_THAN_ORDINAL, Box::new(a0))
+            }
+            RangeLessThan => {
+                Val::Constructor(val::RANGE_LESS_THAN_ORDINAL, Box::new(a0))
+            }
+            RangeOpen => {
+                Val::Constructor(val::RANGE_OPEN_ORDINAL, Box::new(a0))
+            }
+            RangeOpenClosed => {
+                Val::Constructor(val::RANGE_OPEN_CLOSED_ORDINAL, Box::new(a0))
+            }
+            RangePoint => {
+                Val::Constructor(val::RANGE_POINT_ORDINAL, Box::new(a0))
+            }
+            RangeToBag | RangeToList => {
+                // Fallback for partial application. Without type info
+                // we cannot build a `Discrete`; panic clearly. The
+                // compile intercept covers every direct call.
+                panic!(
+                    "Range.toList/toBag: partial application is not supported; \
+                     invoke with a concrete discrete_set argument"
+                )
+            }
             RealAbs => Val::Real(Real::abs(a0.expect_real())),
             RealFromInt => Val::Real(Real::from_int(a0.expect_int())),
             RealFromString => Real::from_string(&a0.expect_string()),
@@ -2199,6 +2516,7 @@ pub enum Eager2 {
     MathAtan2,
     MathPow,
     OptionGetOpt,
+    RangeContains,
     RealCopySign,
     RealDivide,
     RealEq,
@@ -2328,6 +2646,9 @@ impl Eager2 {
                 Val::Real(Math::pow(x, y))
             }
             OptionGetOpt => Opt::get_opt(&a0, &a1),
+            RangeContains => {
+                Val::Bool(range_contains(&NaturalComparator, &a0, &a1))
+            }
             RealCopySign => {
                 Val::Real(Real::copy_sign(a0.expect_real(), a1.expect_real()))
             }
@@ -3386,6 +3707,27 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager0::OrderEqual.implements(&mut b, OrderEqual);
     Eager0::OrderGreater.implements(&mut b, OrderGreater);
     Eager0::OrderLess.implements(&mut b, OrderLess);
+    Eager0::RangeAll.implements(&mut b, RangeAll);
+    Eager1::RangeAtLeast.implements(&mut b, RangeAtLeast);
+    Eager1::RangeAtMost.implements(&mut b, RangeAtMost);
+    Eager1::RangeClosed.implements(&mut b, RangeClosed);
+    Eager1::RangeClosedOpen.implements(&mut b, RangeClosedOpen);
+    Eager2::RangeContains.implements(&mut b, RangeContains);
+    Eager1::RangeCsComplement.implements(&mut b, RangeCsComplement);
+    Eager2::RangeContains.implements(&mut b, RangeCsContains);
+    Eager1::RangeCsOf.implements(&mut b, RangeCsOf);
+    Eager1::RangeCsRanges.implements(&mut b, RangeCsRanges);
+    Eager1::RangeDsComplement.implements(&mut b, RangeDsComplement);
+    Eager2::RangeContains.implements(&mut b, RangeDsContains);
+    Eager1::RangeDsOf.implements(&mut b, RangeDsOf);
+    Eager1::RangeDsRanges.implements(&mut b, RangeDsRanges);
+    Eager1::RangeGreaterThan.implements(&mut b, RangeGreaterThan);
+    Eager1::RangeLessThan.implements(&mut b, RangeLessThan);
+    Eager1::RangeOpen.implements(&mut b, RangeOpen);
+    Eager1::RangeOpenClosed.implements(&mut b, RangeOpenClosed);
+    Eager1::RangePoint.implements(&mut b, RangePoint);
+    Eager1::RangeToBag.implements(&mut b, RangeToBag);
+    Eager1::RangeToList.implements(&mut b, RangeToList);
     Eager1::RealFromInt.implements(&mut b, Real);
     Eager1::RealAbs.implements(&mut b, RealAbs);
     EagerF1::RealCeil.implements(&mut b, RealCeil);
@@ -3499,6 +3841,16 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     b.build()
 });
 
+/// Returns true for functions that are ML-style datatype constructors
+/// (e.g. `DESC`, `POINT`, `NONE`, `SOME`) and should be omitted from the
+/// parent structure's record value. Excludes the conventional
+/// lowercase-named values `nil` and similar, which morel-java includes
+/// in `List;` / `Bag;` as empty-collection values.
+fn is_datatype_constructor(f: BuiltInFunction, name: &str) -> bool {
+    f.is_constructor()
+        && name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
 impl LibBuilder {
     fn build(&mut self) -> Lib {
         // Populate a table of functions and structures that are in the global
@@ -3532,7 +3884,16 @@ impl LibBuilder {
 
             if let Some((parent, name)) = BuiltIn::Fn(f).heritage()
                 && let Ok(r) = BuiltInRecord::from_str(parent)
+                && !is_datatype_constructor(f, name)
             {
+                // ML-style datatype constructors (e.g. DESC, POINT,
+                // CLOSED, NONE, SOME) have a parent structure for
+                // namespacing and are accessible as globals, but they
+                // are not members of the structure's record value.
+                // Morel-java's `Relational;`, `Range;`, `Option;` show
+                // only functions, not constructors. But `List.nil` /
+                // `Bag.nil` are conventional values (empty list/bag)
+                // and DO appear in their parent structure.
                 structure_names_fns
                     .entry(r)
                     .or_default()

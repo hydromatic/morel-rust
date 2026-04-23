@@ -120,22 +120,6 @@ impl<'a> CoverageChecker<'a> {
         match &pat.kind {
             PatKind::Wildcard => Formula::True,
 
-            // "true" and "false" parse as identifiers (id_pat fires before
-            // literal_pat in the grammar), but for coverage checking we treat
-            // them as constructors of the bool$ type, like morel-java does.
-            PatKind::Identifier(name)
-                if (name == "true" || name == "false")
-                    && matches!(
-                        type_,
-                        Type::Primitive(PrimitiveType::Bool)
-                    ) =>
-            {
-                match self.get_constructor_var(path, type_, name) {
-                    Some(v) => Formula::Var(v),
-                    None => Formula::True,
-                }
-            }
-
             PatKind::Identifier(_) => Formula::True,
 
             PatKind::As(_, sub) => self.pat_formula_typed(sub, path, type_),
@@ -413,6 +397,9 @@ fn closed_constructors(
         ]),
         Type::Data(name, _) if name == "option" => {
             Some(vec!["NONE".to_string(), "SOME".to_string()])
+        }
+        Type::Data(name, _) if name == "either" => {
+            Some(vec!["INL".to_string(), "INR".to_string()])
         }
         Type::Data(name, _) => {
             // Look up user-defined datatype constructors.

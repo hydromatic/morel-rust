@@ -113,6 +113,11 @@ fn pretty() {
 }
 
 #[test]
+fn range() {
+    run_script("tests/script/range.smli");
+}
+
+#[test]
 fn regex_example() {
     run_script("tests/script/regex-example.smli");
 }

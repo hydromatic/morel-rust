@@ -30,12 +30,13 @@ use crate::eval::code::{
     self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep,
 };
 use crate::eval::comparator::{self, comparator_for};
+use crate::eval::discrete::discrete_for_with;
 use crate::eval::frame::FrameDef;
 use crate::eval::link_table::LinkTable;
 use crate::eval::order::Order;
 use crate::eval::row_sink::{RowSink, RowSinkFactory};
 use crate::eval::session::Session;
-use crate::eval::val::Val;
+use crate::eval::val::{RANGE_ALL_ORDINAL, Val};
 use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::{Environment, MorelError};
@@ -654,6 +655,119 @@ impl<'a> Compiler<'a> {
                                 Code::Min(cmp, Box::new(arg))
                             };
                         }
+                        // Intercept Range.toList / Range.toBag to build
+                        // type-directed helpers from the element type
+                        // inside `'a discrete_set`.
+                        if *f == BuiltInFunction::RangeToList
+                            || *f == BuiltInFunction::RangeToBag
+                        {
+                            let elem_type = match a.type_().as_ref() {
+                                Type::Data(name, args)
+                                    if name == "discrete_set"
+                                        && !args.is_empty() =>
+                                {
+                                    args[0].clone()
+                                }
+                                _ => *a.type_(),
+                            };
+                            let cmp = CmpRef(comparator::comparator_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ));
+                            if let Ok(discrete) = discrete_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ) {
+                                let arg = self.compile_arg(cx, a);
+                                return Code::RangeEnumerate(
+                                    cmp,
+                                    code::DiscreteRef(discrete),
+                                    Box::new(arg),
+                                );
+                            }
+                            // Element type is not discrete: fall
+                            // through. The Eager1 fallback will panic
+                            // — this path is unreachable when the
+                            // input came from `Range.discreteSetOf`,
+                            // which itself would have rejected a
+                            // non-discrete type.
+                        }
+                        // Intercept Range.complement on a discrete_set:
+                        // use the Discrete-aware complement. The
+                        // continuous-set variant is handled by the
+                        // Eager1 fallback for RangeCsComplement.
+                        if *f == BuiltInFunction::RangeDsComplement
+                            && let Type::Data(name, args) = a.type_().as_ref()
+                            && name == "discrete_set"
+                            && !args.is_empty()
+                        {
+                            let elem_type = args[0].clone();
+                            if let Ok(discrete) = discrete_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ) {
+                                let arg = self.compile_arg(cx, a);
+                                return Code::RangeDsComplement(
+                                    code::DiscreteRef(discrete),
+                                    Box::new(arg),
+                                );
+                            }
+                        }
+                        // Intercept Range.continuousSetOf /
+                        // Range.discreteSetOf to build type-directed
+                        // helpers from the element type inside `'a
+                        // range list`.
+                        if *f == BuiltInFunction::RangeCsOf
+                            || *f == BuiltInFunction::RangeDsOf
+                        {
+                            let elem_type = match a.type_().as_ref() {
+                                Type::List(r) => match r.as_ref() {
+                                    Type::Data(name, args)
+                                        if name == "range"
+                                            && !args.is_empty() =>
+                                    {
+                                        args[0].clone()
+                                    }
+                                    _ => *a.type_(),
+                                },
+                                _ => *a.type_(),
+                            };
+                            let cmp = CmpRef(comparator::comparator_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ));
+                            let arg = self.compile_arg(cx, a);
+                            if *f == BuiltInFunction::RangeCsOf {
+                                return Code::RangeCsOf(cmp, Box::new(arg));
+                            }
+                            // discreteSetOf: also build a Discrete.
+                            // If the element type is not discrete,
+                            // bake a runtime `IllegalArgument` error
+                            // carrying the message morel-java raises.
+                            match discrete_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ) {
+                                Ok(discrete) => {
+                                    return Code::RangeDsOf(
+                                        cmp,
+                                        code::DiscreteRef(discrete),
+                                        Box::new(arg),
+                                    );
+                                }
+                                Err(msg) => {
+                                    return Code::RaiseIllegalArgument(
+                                        msg,
+                                        span.clone(),
+                                    );
+                                }
+                            }
+                        }
                         let arg = self.compile_arg(cx, a);
                         let codes: Vec<Box<Code>> = vec![Box::new(arg)];
                         return Code::new_native(impl_, &codes, span);
@@ -867,6 +981,32 @@ impl<'a> Compiler<'a> {
                             func.get_impl(),
                             &[arg1_code, arg2_code],
                             span,
+                        );
+                    }
+
+                    // Intercept `Range.contains r x` (or its set-typed
+                    // variants `$csContains` / `$dsContains`) to build a
+                    // type-directed comparator from the element type.
+                    if let Expr::Literal(_, Val::Fn(f)) = middle_f.as_ref()
+                        && matches!(
+                            f,
+                            BuiltInFunction::RangeContains
+                                | BuiltInFunction::RangeCsContains
+                                | BuiltInFunction::RangeDsContains
+                        )
+                    {
+                        let elem_type = *a.type_();
+                        let cmp = CmpRef(comparator::comparator_for_with(
+                            &elem_type,
+                            &self.type_map.datatype_constructors,
+                            &self.type_map.constructor_arg_types,
+                        ));
+                        let range_code = self.compile_arg(cx, second_arg);
+                        let value_code = self.compile_arg(cx, a);
+                        return Code::RangeContains(
+                            cmp,
+                            Box::new(range_code),
+                            Box::new(value_code),
                         );
                     }
 
@@ -1119,6 +1259,9 @@ impl<'a> Compiler<'a> {
                     }
                     Val::Fn(BuiltInFunction::OrderGreater) => {
                         Val::Order(Order(Ordering::Greater))
+                    }
+                    Val::Fn(BuiltInFunction::RangeAll) => {
+                        Val::Constructor(RANGE_ALL_ORDINAL, Box::new(Val::Unit))
                     }
                     _ => val.clone(),
                 };

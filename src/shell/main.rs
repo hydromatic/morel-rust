@@ -1017,6 +1017,11 @@ fn comment_depth(code: &str) -> i32 {
 pub enum MorelError {
     Runtime(BuiltInExn, Span),
 
+    /// Surfaces a caller error with a custom message (e.g. "not a
+    /// discrete type: real" raised by `Range.discreteSetOf`).
+    /// Analogous to Java's `IllegalArgumentException`.
+    IllegalArgument(String, Span),
+
     /// Advisory signal that a row sink has completed early and does not
     /// need more rows. Producers may honor this for performance or safely
     /// ignore it. Sinks returning EarlyReturn must be idempotent.
@@ -1033,6 +1038,10 @@ impl Display for MorelError {
                 if let Some(explanation) = exn.explain() {
                     write!(f, " [{}]", explanation)?;
                 }
+                write!(f, "\n  raised at: {}", loc)
+            }
+            MorelError::IllegalArgument(msg, loc) => {
+                write!(f, "java.lang.IllegalArgumentException: {}", msg)?;
                 write!(f, "\n  raised at: {}", loc)
             }
             MorelError::EarlyReturn => {

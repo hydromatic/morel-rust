@@ -393,7 +393,8 @@ impl<'a> TermToTypeConverter<'a> {
                         let type_ = self.term_type(&sequence.terms[0]);
                         Box::new(Type::List(type_))
                     }
-                    "option" | "descending" => {
+                    "option" | "descending" | "range" | "continuous_set"
+                    | "discrete_set" => {
                         assert_eq!(sequence.terms.len(), 1);
                         let args = vec![*self.term_type(&sequence.terms[0])];
                         Box::new(Type::Data(op_name.to_string(), args))
@@ -3500,6 +3501,14 @@ impl TypeResolver {
                     vec![Type::Primitive(PrimitiveType::Unit)],
                 )))
             }
+            "range" | "continuous_set" | "discrete_set" => {
+                // postfix_dispatch only keys on the data-type name;
+                // the element-type slot is filled with a placeholder.
+                Some(Box::new(Type::Data(
+                    op_name.clone(),
+                    vec![Type::Primitive(PrimitiveType::Unit)],
+                )))
+            }
             _ => None,
         }
     }
@@ -4670,11 +4679,13 @@ impl TypeResolver {
             }
             PatKind::Identifier(name) => {
                 // "true"/"false" parse as identifiers (id_pat fires before
-                // literal_pat).  Treat them as bool$ constructors internally,
-                // like morel-java, so that the type is inferred as `bool`.
+                // literal_pat).  Rewrite to a bool literal pattern so that
+                // pattern matching at runtime distinguishes the two values.
                 if name == "true" || name == "false" {
-                    self.primitive_term(&PrimitiveType::Bool, v);
-                    return self.reg_pat(&pat.kind, &pat.span, pat.id, v);
+                    let lit_kind = LiteralKind::Bool(name == "true");
+                    let kind = PatKind::Literal(lit_kind.spanned(&pat.span()));
+                    let pat2 = Box::new(kind.spanned(&pat.span()));
+                    return self.deduce_pat_type(env, &pat2, term_map, v);
                 }
                 if let Some(BindType::Constructor(_)) = env.get(name, self) {
                     // The identifier is a constructor, such as `SOME` or `nil`.

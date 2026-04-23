@@ -52,12 +52,14 @@ pub fn postfix_dispatch(
         CharSucc, CharToLower, CharToString, CharToUpper, IntAbs, IntCompare,
         IntMax, IntMin, IntRem, IntSameSign, IntSign, IntToString, ListDrop,
         ListHd, ListLength, ListNth, ListNull, ListOnly, ListTake, ListTl,
-        OptionGetOpt, OptionIsSome, OptionValOf, RealAbs, RealCeil,
-        RealCompare, RealFloor, RealMax, RealMin, RealRem, RealSign,
+        OptionGetOpt, OptionIsSome, OptionValOf, RangeContains,
+        RangeCsComplement, RangeCsContains, RangeCsRanges, RangeDsComplement,
+        RangeDsContains, RangeDsRanges, RangeToBag, RangeToList, RealAbs,
+        RealCeil, RealCompare, RealFloor, RealMax, RealMin, RealRem, RealSign,
         RealToString, RealTrunc, StringExplode, StringSize, StringSub,
         StringSubstring,
     };
-    use PostfixKind::{Tupled2, Tupled3, Unary};
+    use PostfixKind::{Curried2, Tupled2, Tupled3, Unary};
     let ty = peel_type(recv_type);
     match (method, ty) {
         // String
@@ -175,6 +177,34 @@ pub fn postfix_dispatch(
         ("valOf", Type::Data(n, _)) if n == "option" => {
             Some((OptionValOf, Unary))
         }
+        // Range
+        ("contains", Type::Data(n, _)) if n == "range" => {
+            Some((RangeContains, Curried2))
+        }
+        ("contains", Type::Data(n, _)) if n == "continuous_set" => {
+            Some((RangeCsContains, Curried2))
+        }
+        ("contains", Type::Data(n, _)) if n == "discrete_set" => {
+            Some((RangeDsContains, Curried2))
+        }
+        ("ranges", Type::Data(n, _)) if n == "continuous_set" => {
+            Some((RangeCsRanges, Unary))
+        }
+        ("ranges", Type::Data(n, _)) if n == "discrete_set" => {
+            Some((RangeDsRanges, Unary))
+        }
+        ("complement", Type::Data(n, _)) if n == "continuous_set" => {
+            Some((RangeCsComplement, Unary))
+        }
+        ("complement", Type::Data(n, _)) if n == "discrete_set" => {
+            Some((RangeDsComplement, Unary))
+        }
+        ("toList", Type::Data(n, _)) if n == "discrete_set" => {
+            Some((RangeToList, Unary))
+        }
+        ("toBag", Type::Data(n, _)) if n == "discrete_set" => {
+            Some((RangeToBag, Unary))
+        }
         _ => None,
     }
 }
@@ -198,6 +228,8 @@ pub fn is_overloaded_name(method: &str) -> bool {
         method,
         "abs"
             | "compare"
+            | "complement"
+            | "contains"
             | "drop"
             | "getItem"
             | "hd"
@@ -207,6 +239,7 @@ pub fn is_overloaded_name(method: &str) -> bool {
             | "nth"
             | "null"
             | "only"
+            | "ranges"
             | "rem"
             | "sign"
             | "sub"

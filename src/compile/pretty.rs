@@ -18,6 +18,7 @@
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
 use crate::eval::real::Real;
+use crate::eval::val;
 use crate::eval::val::Val;
 use crate::shell::prop::Output as PropOutput;
 use crate::syntax::parser::{
@@ -710,6 +711,63 @@ impl Pretty {
                     buf, indent, line_end, depth, &args[0], inner, 0, 0,
                 );
             }
+        }
+        if (name == "continuous_set" || name == "discrete_set")
+            && let Val::Constructor(ordinal, inner) = value
+            && (*ordinal == val::CONTINUOUS_SET_ORDINAL
+                || *ordinal == val::DISCRETE_SET_ORDINAL)
+        {
+            let label = if name == "continuous_set" {
+                "CONTINUOUS_SET "
+            } else {
+                "DISCRETE_SET "
+            };
+            self.pretty_raw(buf, indent, line_end, depth, label)?;
+            let range_type =
+                Type::Data("range".to_string(), vec![args[0].clone()]);
+            let list_type = Type::List(Box::new(range_type));
+            return self.pretty1(
+                buf, indent, line_end, depth, &list_type, inner, 0, 0,
+            );
+        }
+        if name == "range"
+            && let Val::Constructor(ordinal, inner) = value
+        {
+            let (ctor_name, pair_arg) = match *ordinal {
+                val::RANGE_ALL_ORDINAL => ("ALL", false),
+                val::RANGE_AT_LEAST_ORDINAL => ("AT_LEAST", false),
+                val::RANGE_AT_MOST_ORDINAL => ("AT_MOST", false),
+                val::RANGE_CLOSED_ORDINAL => ("CLOSED", true),
+                val::RANGE_CLOSED_OPEN_ORDINAL => ("CLOSED_OPEN", true),
+                val::RANGE_GREATER_THAN_ORDINAL => ("GREATER_THAN", false),
+                val::RANGE_LESS_THAN_ORDINAL => ("LESS_THAN", false),
+                val::RANGE_OPEN_ORDINAL => ("OPEN", true),
+                val::RANGE_OPEN_CLOSED_ORDINAL => ("OPEN_CLOSED", true),
+                val::RANGE_POINT_ORDINAL => ("POINT", false),
+                _ => {
+                    return Err(fmt::Error);
+                }
+            };
+            self.pretty_raw(buf, indent, line_end, depth, ctor_name)?;
+            if **inner == Val::Unit {
+                return Ok(());
+            }
+            buf.push(' ');
+            let inner_type = if pair_arg {
+                Type::Tuple(vec![args[0].clone(), args[0].clone()])
+            } else {
+                args[0].clone()
+            };
+            return self.pretty1(
+                buf,
+                indent,
+                line_end,
+                depth,
+                &inner_type,
+                inner,
+                0,
+                0,
+            );
         }
         let list = match &value {
             Val::Fn(f) => {

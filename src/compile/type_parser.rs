@@ -67,6 +67,9 @@ impl TypeBuilder {
                         || name == "either" && args.len() == 2
                         || name == "descending" && args.len() == 1
                         || name == "order" && args.is_empty()
+                        || name == "range" && args.len() == 1
+                        || name == "continuous_set" && args.len() == 1
+                        || name == "discrete_set" && args.len() == 1
                     {
                         Type::Data(name.clone(), arg_types)
                     } else {

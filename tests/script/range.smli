@@ -1,0 +1,418 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * Tests for the Range structure.
+ *)
+
+(* Range structure *)
+(* NOTE: morel-rust's `Range` structure exposes only the field that
+   does not need type-directed dispatch — `Range.contains` for the
+   plain `range` type, plus `continuousSetOf`, `discreteSetOf`, `toBag`,
+   `toList`. The set-typed variants of `contains`, `complement`, and
+   `ranges` (which morel-java aliases as `$csContains`, `$dsContains`,
+   etc.) are reachable only via postfix syntax (e.g. `s.contains x`)
+   in morel-rust. *)
+Range;
+> val it = {contains=fn,continuousSetOf=fn,discreteSetOf=fn,toBag=fn,toList=fn}
+>   : {contains:'a range -> 'a -> bool,
+>      continuousSetOf:'b range list -> 'b continuous_set,
+>      discreteSetOf:'c range list -> 'c discrete_set,
+>      toBag:'d discrete_set -> 'd bag, toList:'e discrete_set -> 'e list}
+
+(*) Constructors.
+POINT 5 : int range;
+> val it = POINT 5 : int range
+
+AT_LEAST 3 : int range;
+> val it = AT_LEAST 3 : int range
+
+GREATER_THAN 3 : int range;
+> val it = GREATER_THAN 3 : int range
+
+AT_MOST 10 : int range;
+> val it = AT_MOST 10 : int range
+
+LESS_THAN 10 : int range;
+> val it = LESS_THAN 10 : int range
+
+CLOSED (3, 7) : int range;
+> val it = CLOSED (3,7) : int range
+
+OPEN (3, 7) : int range;
+> val it = OPEN (3,7) : int range
+
+CLOSED_OPEN (3, 7) : int range;
+> val it = CLOSED_OPEN (3,7) : int range
+
+OPEN_CLOSED (3, 7) : int range;
+> val it = OPEN_CLOSED (3,7) : int range
+
+ALL : int range;
+> val it = ALL : int range
+
+(*) contains on int ranges: interior, boundary, exterior.
+Range.contains (CLOSED (3, 7)) 5;
+> val it = true : bool
+
+Range.contains (CLOSED (3, 7)) 3;
+> val it = true : bool
+
+Range.contains (CLOSED (3, 7)) 2;
+> val it = false : bool
+
+(*) contains with open bounds.
+Range.contains (OPEN (3, 7)) 5;
+> val it = true : bool
+
+Range.contains (OPEN (3, 7)) 3;
+> val it = false : bool
+
+(*) contains with POINT.
+Range.contains (POINT 5) 5;
+> val it = true : bool
+
+Range.contains (POINT 5) 4;
+> val it = false : bool
+
+(*) contains with ALL.
+Range.contains ALL 5;
+> val it = true : bool
+
+Range.contains ALL ~999;
+> val it = true : bool
+
+(*) contains with unbounded ranges.
+Range.contains (AT_LEAST 3) 5;
+> val it = true : bool
+
+Range.contains (AT_LEAST 3) 2;
+> val it = false : bool
+
+Range.contains (AT_MOST 7) 5;
+> val it = true : bool
+
+Range.contains (AT_MOST 7) 8;
+> val it = false : bool
+
+Range.contains (GREATER_THAN 3) 4;
+> val it = true : bool
+
+Range.contains (GREATER_THAN 3) 3;
+> val it = false : bool
+
+Range.contains (LESS_THAN 7) 6;
+> val it = true : bool
+
+Range.contains (LESS_THAN 7) 7;
+> val it = false : bool
+
+(*) Postfix (method) syntax, with explicit outer parens.
+(CLOSED (3, 7)).contains 5;
+> val it = true : bool
+
+(*) Postfix syntax without outer parens: "CTOR arg.method" parses as
+(*) "(CTOR arg).method", not "CTOR (arg.method)".
+CLOSED (3, 7).contains 5;
+> val it = true : bool
+
+(*) contains on char ranges.
+Range.contains (CLOSED (#"a", #"z")) #"e";
+> val it = true : bool
+
+Range.contains (CLOSED (#"a", #"z")) #"E";
+> val it = false : bool
+
+(*) contains on bool * DESC int ranges (exotic element type).
+Range.contains (CLOSED ((false, DESC 5), (false, DESC 3))) (false, DESC 4);
+> val it = true : bool
+
+Range.contains (CLOSED ((false, DESC 5), (false, DESC 3))) (false, DESC 6);
+> val it = false : bool
+
+(*) ALL subsumes all other ranges.
+Range.continuousSetOf [ALL, CLOSED (1, 3)];
+> val it = CONTINUOUS_SET [ALL] : int continuous_set
+
+(*) ALL as the only range.
+Range.continuousSetOf [ALL : int range];
+> val it = CONTINUOUS_SET [ALL] : int continuous_set
+
+(*) continuousSetOf normalizes a list of ranges into a continuous_set.
+Range.continuousSetOf [CLOSED (5, 10), CLOSED (1, 3), CLOSED (3, 6)];
+> val it = CONTINUOUS_SET [CLOSED (1,10)] : int continuous_set
+
+(*) Non-overlapping ranges are kept separate.
+Range.continuousSetOf [CLOSED (1, 3), CLOSED (7, 9)];
+> val it = CONTINUOUS_SET [CLOSED (1,3),CLOSED (7,9)] : int continuous_set
+
+(*) Touching ranges where upper is inclusive, lower is exclusive: (1,3] and (3,6] merge to (1,6].
+Range.continuousSetOf [OPEN_CLOSED (1, 3), OPEN_CLOSED (3, 6)];
+> val it = CONTINUOUS_SET [OPEN_CLOSED (1,6)] : int continuous_set
+
+(*) Touching ranges where both are exclusive: (1,3) and (3,6] do not merge (gap at 3).
+Range.continuousSetOf [OPEN (1, 3), OPEN_CLOSED (3, 6)];
+> val it = CONTINUOUS_SET [OPEN (1,3),OPEN_CLOSED (3,6)] : int continuous_set
+
+(*) Chain merge: three ranges [1,4], [4,7], [6,9] merge into [1,9], and 8 is subsumed.
+Range.continuousSetOf [CLOSED (1, 4), POINT 0, CLOSED (6, 9), POINT 8, POINT 10, CLOSED (4, 7)];
+> val it = CONTINUOUS_SET [POINT 0,CLOSED (1,9),POINT 10] : int continuous_set
+
+(*) Ranges do not merge because the domain is discrete.
+Range.continuousSetOf [CLOSED (1, 3), POINT 0, POINT 8, CLOSED (4, 7)];
+> val it = CONTINUOUS_SET [POINT 0,CLOSED (1,3),CLOSED (4,7),POINT 8]
+>   : int continuous_set
+
+(*) Three ranges where the first two merge, third stays separate.
+Range.continuousSetOf [CLOSED (1, 4), CLOSED (3, 7), CLOSED (20, 25)];
+> val it = CONTINUOUS_SET [CLOSED (1,7),CLOSED (20,25)] : int continuous_set
+
+(*) Three ranges where first stays separate, last two merge.
+Range.continuousSetOf [CLOSED (1, 3), CLOSED (6, 8), CLOSED (7, 10)];
+> val it = CONTINUOUS_SET [CLOSED (1,3),CLOSED (6,10)] : int continuous_set
+
+(*) Three ranges producing two separate groups.
+Range.continuousSetOf [CLOSED (1, 3), CLOSED (2, 5), CLOSED (8, 10)];
+> val it = CONTINUOUS_SET [CLOSED (1,5),CLOSED (8,10)] : int continuous_set
+
+(*) ALL subsumes all other ranges in a discrete_set.
+Range.discreteSetOf [ALL, CLOSED (1, 3)];
+> val it = DISCRETE_SET [ALL] : int discrete_set
+
+(*) discreteSetOf normalizes a list of ranges into a discrete_set.
+Range.discreteSetOf [CLOSED (5, 10), CLOSED (1, 3), CLOSED (3, 6)];
+> val it = DISCRETE_SET [CLOSED (1,10)] : int discrete_set
+
+(*) Adjacent discrete ranges are merged: [1,3] and [4,7] become [1,7].
+Range.discreteSetOf [CLOSED (1, 3), CLOSED (4, 7)];
+> val it = DISCRETE_SET [CLOSED (1,7)] : int discrete_set
+
+(*) Three discrete ranges producing two groups.
+Range.discreteSetOf [CLOSED (1, 3), CLOSED (4, 6), CLOSED (10, 12)];
+> val it = DISCRETE_SET [CLOSED (1,6),CLOSED (10,12)] : int discrete_set
+
+(*) Chain merge: three ranges each extending the boundary merge into [0,8].
+Range.discreteSetOf [CLOSED (1, 3), POINT 0, CLOSED (7, 8), POINT 10, CLOSED (4, 7)];
+> val it = DISCRETE_SET [CLOSED (0,8),POINT 10] : int discrete_set
+
+(*) discreteSetOf requires a discrete element type; string is not discrete.
+Range.discreteSetOf [CLOSED ("a", "z")];
+> java.lang.IllegalArgumentException: not a discrete type: string
+>   raised at: stdIn:1.1-1.40
+
+(*) real is not discrete.
+Range.discreteSetOf [CLOSED (1.0, 3.0)];
+> java.lang.IllegalArgumentException: not a discrete type: real
+>   raised at: stdIn:1.1-1.40
+
+(*) A tuple containing a non-discrete component is not discrete.
+Range.discreteSetOf [CLOSED ((false, "a"), (true, "z"))];
+> java.lang.IllegalArgumentException: not a discrete type: string
+>   raised at: stdIn:1.1-1.57
+
+(*) contains on continuous_set (postfix syntax).
+val cs = Range.continuousSetOf [CLOSED (1, 3), CLOSED (7, 9)];
+> val cs = CONTINUOUS_SET [CLOSED (1,3),CLOSED (7,9)] : int continuous_set
+
+cs.contains 2;
+> val it = true : bool
+
+cs.contains 5;
+> val it = false : bool
+
+(*) Boundary and corner cases for set contains (exercises binary search).
+(*) Before first range.
+cs.contains 0;
+> val it = false : bool
+
+(*) Inclusive lower boundary.
+cs.contains 1;
+> val it = true : bool
+
+(*) Inclusive upper boundary.
+cs.contains 3;
+> val it = true : bool
+
+(*) In gap between ranges.
+cs.contains 5;
+> val it = false : bool
+
+(*) Inclusive lower boundary of second range.
+cs.contains 7;
+> val it = true : bool
+
+(*) After last range.
+cs.contains 10;
+> val it = false : bool
+
+(*) Empty continuous_set contains nothing.
+(Range.continuousSetOf []).contains 5;
+> val it = false : bool
+
+(*) Exclusive boundary (OPEN range): endpoint is not a member.
+val csOpen = Range.continuousSetOf [OPEN (1, 5), OPEN (7, 9)];
+> val csOpen = CONTINUOUS_SET [OPEN (1,5),OPEN (7,9)] : int continuous_set
+
+csOpen.contains 1;
+> val it = false : bool
+
+csOpen.contains 2;
+> val it = true : bool
+
+csOpen.contains 5;
+> val it = false : bool
+
+(*) Unbounded lower (AT_MOST): values below bound are members.
+(Range.continuousSetOf [AT_MOST 3, AT_LEAST 7]).contains 2;
+> val it = true : bool
+
+(Range.continuousSetOf [AT_MOST 3, AT_LEAST 7]).contains 5;
+> val it = false : bool
+
+(Range.continuousSetOf [AT_MOST 3, AT_LEAST 7]).contains 8;
+> val it = true : bool
+
+(*) contains on discrete_set (postfix syntax).
+val ds = Range.discreteSetOf [CLOSED (1, 3), CLOSED (7, 9)];
+> val ds = DISCRETE_SET [CLOSED (1,3),CLOSED (7,9)] : int discrete_set
+
+ds.contains 2;
+> val it = true : bool
+
+ds.contains 5;
+> val it = false : bool
+
+(*) ranges returns the list of ranges in a continuous_set.
+cs.ranges ();
+> val it = [CLOSED (1,3),CLOSED (7,9)] : int range list
+
+(*) toList enumerates values of a discrete_set in ascending order.
+(Range.discreteSetOf [CLOSED (5, 10)]).toList ();
+> val it = [5,6,7,8,9,10] : int list
+
+(Range.discreteSetOf [OPEN (5, 10)]).toList ();
+> val it = [6,7,8,9] : int list
+
+(Range.discreteSetOf [POINT 5]).toList ();
+> val it = [5] : int list
+
+(Range.discreteSetOf [CLOSED (1, 3), CLOSED (7, 9)]).toList ();
+> val it = [1,2,3,7,8,9] : int list
+
+(*) toList on char ranges.
+(Range.discreteSetOf [CLOSED (#"a", #"e")]).toList ();
+> val it = [#"a",#"b",#"c",#"d",#"e"] : char list
+
+(*) toList on bool * bool (exotic element type).
+(Range.discreteSetOf [CLOSED ((false, false), (true, true))]).toList ();
+> val it = [(false,false),(false,true),(true,false),(true,true)] : (bool * bool) list
+
+(*) toList on bool * DESC int.
+(Range.discreteSetOf [CLOSED ((false, DESC 3), (false, DESC 1))]).toList ();
+> val it = [(false,DESC 3),(false,DESC 2),(false,DESC 1)]
+>   : (bool * int descending) list
+
+(*) toBag enumerates values as a bag.
+(Range.discreteSetOf [CLOSED (1, 3)]).toBag ();
+> val it = [1,2,3] : int bag
+
+(*) complement of a continuous_set.
+(Range.continuousSetOf [CLOSED (1.0, 3.0), CLOSED (7.0, 9.0)]).complement ();
+> val it = CONTINUOUS_SET [LESS_THAN 1,OPEN (3,7),GREATER_THAN 9]
+>   : real continuous_set
+
+(*) complement of a continuous_set with open bounds.
+val cs = Range.continuousSetOf [OPEN (1.0, 3.0), AT_LEAST 7.0];
+> val cs = CONTINUOUS_SET [OPEN (1,3),AT_LEAST 7] : real continuous_set
+
+cs.contains 2.0;
+> val it = true : bool
+
+cs.contains 1.0;
+> val it = false : bool
+
+cs.contains 8.5;
+> val it = true : bool
+
+cs.complement ();
+> val it = CONTINUOUS_SET [AT_MOST 1,CLOSED_OPEN (3,7)] : real continuous_set
+
+(*) complement of ALL is empty; complement of empty is ALL.
+(Range.continuousSetOf [ALL : real range]).complement ();
+> val it = CONTINUOUS_SET [] : real continuous_set
+
+(Range.continuousSetOf [] : real continuous_set).complement ();
+> val it = CONTINUOUS_SET [ALL] : real continuous_set
+
+(*) double complement.
+cs.complement ().complement ();
+> val it = CONTINUOUS_SET [OPEN (1,3),AT_LEAST 7] : real continuous_set
+
+(*) complement of a discrete_set.
+(Range.discreteSetOf [CLOSED (1, 3), CLOSED (7, 9)]).complement ();
+> val it = DISCRETE_SET [AT_MOST 0,CLOSED (4,6),AT_LEAST 10] : int discrete_set
+
+(*) complement of discrete_set with OPEN bounds.
+(Range.discreteSetOf [OPEN (3, 7)]).complement ();
+> val it = DISCRETE_SET [AT_MOST 3,AT_LEAST 7] : int discrete_set
+
+(*) discrete double complement is identity.
+val ds = Range.discreteSetOf [CLOSED (1, 3), CLOSED (7, 9)];
+> val ds = DISCRETE_SET [CLOSED (1,3),CLOSED (7,9)] : int discrete_set
+
+ds.complement ().complement ();
+> val it = DISCRETE_SET [CLOSED (1,3),CLOSED (7,9)] : int discrete_set
+
+(*) discrete_set from 3 ranges, then toList.
+val evens = Range.discreteSetOf [CLOSED (0, 2), CLOSED (4, 6), CLOSED (8, 10)];
+> val evens = DISCRETE_SET [CLOSED (0,2),CLOSED (4,6),CLOSED (8,10)]
+>   : int discrete_set
+
+evens.toList ();
+> val it = [0,1,2,4,5,6,8,9,10] : int list
+
+(*) toList on (order, bool) either enumerates all 5 values.
+val eitherSet = Range.discreteSetOf [CLOSED (INL LESS, INR true)];
+> val eitherSet = DISCRETE_SET [CLOSED (INL LESS,INR true)]
+>   : (order,bool) either discrete_set
+
+eitherSet.toList ();
+> val it = [INL LESS,INL EQUAL,INL GREATER,INR false,INR true]
+>   : (order,bool) either list
+
+(*) Apply f to each value in the set.
+fun f (INL LESS) = 1 | f (INR true) = 1 | f _ = 0;
+> val f = fn : (order,bool) either -> int
+
+List.map f (eitherSet.toList ());
+> val it = [1,0,0,0,1] : int list
+
+(*) toList on a user-defined parametric datatype: `('a, 'b) myEither`
+(*) instantiated with `(bool, order)` has 2 + 3 = 5 values. (Constructor
+(*) names LFT/RGT used to avoid clashing with the built-in either's INL/INR.)
+datatype ('a, 'b) myEither = LFT of 'a | RGT of 'b;
+> datatype ('a,'b) myEither = LFT of 'a | RGT of 'b
+
+val ms = Range.discreteSetOf [CLOSED (LFT false, RGT GREATER)];
+> val ms = DISCRETE_SET [CLOSED (LFT false,RGT GREATER)]
+>   : (bool,order) myEither discrete_set
+
+ms.toList ();
+> val it = [LFT false,LFT true,RGT LESS,RGT EQUAL,RGT GREATER]
+>   : (bool,order) myEither list
+
+(*) End range.smli
