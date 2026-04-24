@@ -1031,7 +1031,10 @@ impl Pretty {
         left: u8,
         right: u8,
     ) -> Result<(), std::fmt::Error> {
-        if left > Op::LIST.left || right > Op::LIST.right {
+        // Use APPLY precedence for type printing (collection types have the
+        // same precedence as named type applications like "int list").
+        const OP: Op = Op::APPLY;
+        if left > OP.left || right > OP.right {
             self.pretty_raw(buf, indent2, line_end, depth, "(")?;
             self.pretty_collection_type(
                 buf,
@@ -1055,7 +1058,7 @@ impl Pretty {
             type_,
             &Val::new_type("", element_type),
             left,
-            Op::LIST.left,
+            OP.left,
         )?;
         buf.push(' ');
         buf.push_str(type_name);

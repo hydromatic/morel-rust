@@ -16,6 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInFunction;
+use crate::compile::types::Op;
 use crate::eval::val::Val;
 use crate::syntax::ast;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
@@ -218,7 +219,11 @@ impl Display for Expr {
 }
 
 /// Kind of expression.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, strum_macros::EnumDiscriminants)]
+#[strum_discriminants(
+    name(ExprKindTag),
+    derive(Hash, strum_macros::Display, strum_macros::EnumIter)
+)]
 pub enum ExprKind<SubExpr> {
     Literal(Literal),
     Identifier(String),
@@ -332,22 +337,88 @@ impl ExprKind<Expr> {
         }
         self.spanned(&span)
     }
-}
 
-impl Display for ExprKind<Expr> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match &self {
+    /// Returns the precedence operator for this expression kind, used when
+    /// unparsing to decide whether the node needs surrounding parentheses.
+    /// Atomic nodes (literals, identifiers, tuples, records, lists, and
+    /// bracketed control structures) return [`Op::ATOM`].
+    pub fn prec_op(&self) -> Op {
+        match self {
+            // lint: sort until '#}' where '##ExprKind::'
+            ExprKind::Aggregate(..) => Op::OVER_OP,
+            ExprKind::AndAlso(..) => Op::ANDALSO,
+            ExprKind::Annotated(..) => Op::ANNOTATED_EXP,
+            ExprKind::Append(..) => Op::APPEND,
+            ExprKind::Apply(..) => Op::APPLY,
+            ExprKind::Caret(..) => Op::CARET,
+            ExprKind::Case(..) => Op::LOW_EXPR,
+            ExprKind::Compose(..) => Op::COMPOSE,
+            ExprKind::Cons(..) => Op::CONS,
+            ExprKind::Current => Op::ATOM,
+            ExprKind::Div(..) => Op::DIV_OP,
+            ExprKind::Divide(..) => Op::DIVIDE,
+            ExprKind::Elem(..) => Op::ELEM_OP,
+            ExprKind::Elements => Op::ATOM,
+            ExprKind::Equal(..) => Op::EQ_OP,
+            ExprKind::Exists(..) => Op::LOW_EXPR,
+            ExprKind::Fn(..) => Op::LOW_EXPR,
+            ExprKind::Forall(..) => Op::LOW_EXPR,
+            ExprKind::From(..) => Op::LOW_EXPR,
+            ExprKind::GreaterThan(..) => Op::GT_OP,
+            ExprKind::GreaterThanOrEqual(..) => Op::GE_OP,
+            ExprKind::Identifier(..) => Op::ATOM,
+            ExprKind::If(..) => Op::LOW_EXPR,
+            ExprKind::Implies(..) => Op::IMPLIES,
+            ExprKind::LessThan(..) => Op::LT_OP,
+            ExprKind::LessThanOrEqual(..) => Op::LE_OP,
+            ExprKind::Let(..) => Op::LOW_EXPR,
+            ExprKind::List(..) => Op::ATOM,
+            ExprKind::Literal(..) => Op::ATOM,
+            ExprKind::Minus(..) => Op::MINUS,
+            ExprKind::Mod(..) => Op::MOD_OP,
+            ExprKind::Negate(..) => Op::ATOM,
+            ExprKind::NotElem(..) => Op::NOT_ELEM_OP,
+            ExprKind::NotEqual(..) => Op::NE_OP,
+            ExprKind::OpSection(..) => Op::ATOM,
+            ExprKind::OrElse(..) => Op::ORELSE,
+            ExprKind::Ordinal => Op::ATOM,
+            ExprKind::Plus(..) => Op::PLUS,
+            ExprKind::Record(..) => Op::ATOM,
+            ExprKind::RecordSelector(..) => Op::ATOM,
+            ExprKind::Times(..) => Op::TIMES_OP,
+            ExprKind::Tuple(..) => Op::ATOM,
+        }
+    }
+
+    /// Unparses this expression to `f`, wrapping sub-expressions in parens
+    /// only where required by the surrounding precedence `left` / `right`.
+    pub fn unparse(
+        &self,
+        f: &mut Formatter<'_>,
+        left: u8,
+        right: u8,
+    ) -> FmtResult {
+        match self {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Aggregate(a0, a1) => {
-                write!(f, "({} over {})", a0, a1)
+                infix(f, a0, Op::OVER_OP, a1, left, right)
             }
             ExprKind::AndAlso(a0, a1) => {
-                write!(f, "({} andalso {})", a0, a1)
+                infix(f, a0, Op::ANDALSO, a1, left, right)
             }
-            ExprKind::Annotated(e, typ) => write!(f, "{}: {}", e, typ),
-            ExprKind::Append(a0, a1) => write!(f, "({} @ {})", a0, a1),
-            ExprKind::Apply(fx, arg) => write!(f, "{} {}", fx, arg),
-            ExprKind::Caret(a0, a1) => write!(f, "({} ^ {})", a0, a1),
+            ExprKind::Annotated(e, typ) => {
+                let op = Op::ANNOTATED_EXP;
+                write_sub(f, e, left, op.left)?;
+                f.write_str(op.sep)?;
+                write!(f, "{}", typ)
+            }
+            ExprKind::Append(a0, a1) => {
+                infix(f, a0, Op::APPEND, a1, left, right)
+            }
+            ExprKind::Apply(fx, arg) => {
+                infix(f, fx, Op::APPLY, arg, left, right)
+            }
+            ExprKind::Caret(a0, a1) => infix(f, a0, Op::CARET, a1, left, right),
             ExprKind::Case(e, arms) => {
                 write!(f, "case {} of ", e)?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -358,15 +429,21 @@ impl Display for ExprKind<Expr> {
                 }
                 Ok(())
             }
-            ExprKind::Compose(a0, a1) => write!(f, "({} o {})", a0, a1),
-            ExprKind::Cons(a0, a1) => write!(f, "({} :: {})", a0, a1),
-            ExprKind::Current => write!(f, "current"),
-            ExprKind::Div(a0, a1) => write!(f, "({} div {})", a0, a1),
-            ExprKind::Divide(a0, a1) => write!(f, "({} / {})", a0, a1),
-            ExprKind::Elem(a0, a1) => write!(f, "({} elem {})", a0, a1),
-            ExprKind::Elements => write!(f, "elements"),
-            ExprKind::Equal(a0, a1) => write!(f, "({} = {})", a0, a1),
-            ExprKind::Exists(steps) => write!(f, "exists {:?}", steps),
+            ExprKind::Compose(a0, a1) => {
+                infix(f, a0, Op::COMPOSE, a1, left, right)
+            }
+            ExprKind::Cons(a0, a1) => infix(f, a0, Op::CONS, a1, left, right),
+            ExprKind::Current => f.write_str("current"),
+            ExprKind::Div(a0, a1) => infix(f, a0, Op::DIV_OP, a1, left, right),
+            ExprKind::Divide(a0, a1) => {
+                infix(f, a0, Op::DIVIDE, a1, left, right)
+            }
+            ExprKind::Elem(a0, a1) => {
+                infix(f, a0, Op::ELEM_OP, a1, left, right)
+            }
+            ExprKind::Elements => f.write_str("elements"),
+            ExprKind::Equal(a0, a1) => infix(f, a0, Op::EQ_OP, a1, left, right),
+            ExprKind::Exists(steps) => write_query(f, "exists", steps),
             ExprKind::Fn(arms) => {
                 write!(f, "fn ")?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -377,73 +454,142 @@ impl Display for ExprKind<Expr> {
                 }
                 Ok(())
             }
-            ExprKind::Forall(steps) => write!(f, "forall {:?}", steps),
-            ExprKind::From(steps) => write!(f, "from {:?}", steps),
-            ExprKind::GreaterThan(a0, a1) => write!(f, "({} > {})", a0, a1),
-            ExprKind::GreaterThanOrEqual(a0, a1) => {
-                write!(f, "({} >= {})", a0, a1)
+            ExprKind::Forall(steps) => write_query(f, "forall", steps),
+            ExprKind::From(steps) => write_query(f, "from", steps),
+            ExprKind::GreaterThan(a0, a1) => {
+                infix(f, a0, Op::GT_OP, a1, left, right)
             }
-            ExprKind::Identifier(name) => write!(f, "{}", name),
+            ExprKind::GreaterThanOrEqual(a0, a1) => {
+                infix(f, a0, Op::GE_OP, a1, left, right)
+            }
+            ExprKind::Identifier(name) => f.write_str(name),
             ExprKind::If(cond, then_, else_) => {
                 write!(f, "if {} then {} else {}", cond, then_, else_)
             }
             ExprKind::Implies(a0, a1) => {
-                write!(f, "({} implies {})", a0, a1)
+                infix(f, a0, Op::IMPLIES, a1, left, right)
             }
-            ExprKind::LessThan(a0, a1) => write!(f, "({} < {})", a0, a1),
+            ExprKind::LessThan(a0, a1) => {
+                infix(f, a0, Op::LT_OP, a1, left, right)
+            }
             ExprKind::LessThanOrEqual(a0, a1) => {
-                write!(f, "({} <= {})", a0, a1)
+                infix(f, a0, Op::LE_OP, a1, left, right)
             }
             ExprKind::Let(decls, body) => {
                 write!(f, "let ")?;
-                for decl in decls {
-                    write!(f, "{}; ", decl)?;
+                for (i, decl) in decls.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "{}", decl)?;
                 }
-                write!(f, "in {}", body)
+                write!(f, " in {} end", body)
             }
             ExprKind::List(elems) => {
-                let elems_str = elems
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "[{}]", elems_str)
+                f.write_str("[")?;
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write_sub(f, e, 0, 0)?;
+                }
+                f.write_str("]")
             }
             ExprKind::Literal(lit) => write!(f, "{}", lit),
-            ExprKind::Minus(a0, a1) => write!(f, "({} - {})", a0, a1),
-            ExprKind::Mod(a0, a1) => write!(f, "({} mod {})", a0, a1),
-            ExprKind::Negate(e) => write!(f, "-{}", e),
+            ExprKind::Minus(a0, a1) => infix(f, a0, Op::MINUS, a1, left, right),
+            ExprKind::Mod(a0, a1) => infix(f, a0, Op::MOD_OP, a1, left, right),
+            ExprKind::Negate(e) => write!(f, "~{}", e),
             ExprKind::NotElem(a0, a1) => {
-                write!(f, "({} notelem {})", a0, a1)
+                infix(f, a0, Op::NOT_ELEM_OP, a1, left, right)
             }
-            ExprKind::NotEqual(a0, a1) => write!(f, "({} <> {})", a0, a1),
+            ExprKind::NotEqual(a0, a1) => {
+                infix(f, a0, Op::NE_OP, a1, left, right)
+            }
             ExprKind::OpSection(name) => write!(f, "op {}", name),
-            ExprKind::OrElse(a0, a1) => write!(f, "({} orelse {})", a0, a1),
-            ExprKind::Ordinal => write!(f, "ordinal"),
-            ExprKind::Plus(a0, a1) => write!(f, "({} + {})", a0, a1),
+            ExprKind::OrElse(a0, a1) => {
+                infix(f, a0, Op::ORELSE, a1, left, right)
+            }
+            ExprKind::Ordinal => f.write_str("ordinal"),
+            ExprKind::Plus(a0, a1) => infix(f, a0, Op::PLUS, a1, left, right),
             ExprKind::Record(base, fields) => {
-                let mut s = String::new();
+                f.write_str("{")?;
                 if let Some(b) = base {
-                    s.push_str(&format!("{} with ", b));
+                    write!(f, "{} with ", b)?;
                 }
-                let fields_str = fields
-                    .iter()
-                    .map(|f| format!("{}", f.expr))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{{{}}}", s + &fields_str)
+                for (i, lf) in fields.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    match &lf.label {
+                        Some(lbl) => write!(f, "{} = {}", lbl.name, lf.expr)?,
+                        None => write!(f, "{}", lf.expr)?,
+                    }
+                }
+                f.write_str("}")
             }
             ExprKind::RecordSelector(name) => write!(f, "#{}", name),
-            ExprKind::Times(a0, a1) => write!(f, "({} * {})", a0, a1),
+            ExprKind::Times(a0, a1) => {
+                infix(f, a0, Op::TIMES_OP, a1, left, right)
+            }
             ExprKind::Tuple(elems) => {
-                let elems_str = elems
-                    .iter()
-                    .map(|e| format!("{}", e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", elems_str)
+                f.write_str("(")?;
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write_sub(f, e, 0, 0)?;
+                }
+                f.write_str(")")
             }
         }
+    }
+}
+
+/// Writes a sub-expression `e` to `f`, wrapping in parens iff the surrounding
+/// precedence `left` / `right` exceeds the expression's own precedence.
+fn write_sub(
+    f: &mut Formatter<'_>,
+    e: &Expr,
+    left: u8,
+    right: u8,
+) -> FmtResult {
+    let op = e.kind.prec_op();
+    if left > op.left || op.right < right {
+        f.write_str("(")?;
+        e.kind.unparse(f, 0, 0)?;
+        f.write_str(")")
+    } else {
+        e.kind.unparse(f, left, right)
+    }
+}
+
+/// Writes an infix binary expression `a0 op a1`, wrapping sub-expressions
+/// as required by `op`'s precedence.
+fn infix(
+    f: &mut Formatter<'_>,
+    a0: &Expr,
+    op: Op,
+    a1: &Expr,
+    left: u8,
+    right: u8,
+) -> FmtResult {
+    let paren = left > op.left || op.right < right;
+    if paren {
+        f.write_str("(")?;
+    }
+    let (outer_left, outer_right) = if paren { (0, 0) } else { (left, right) };
+    write_sub(f, a0, outer_left, op.left)?;
+    f.write_str(op.sep)?;
+    write_sub(f, a1, op.right, outer_right)?;
+    if paren {
+        f.write_str(")")?;
+    }
+    Ok(())
+}
+
+impl Display for ExprKind<Expr> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        self.unparse(f, 0, 0)
     }
 }
 
@@ -619,6 +765,118 @@ impl StepKind {
             span: span.clone(),
         }
     }
+
+    /// Returns whether this is a scan-like step (first-class source in a
+    /// query): a `from p in e`, `join p in e on cond`, `join p = e`, or
+    /// `join p` step.
+    pub fn is_scan(&self) -> bool {
+        matches!(
+            self,
+            StepKind::Scan(..)
+                | StepKind::ScanEq(..)
+                | StepKind::ScanExtent(..)
+        )
+    }
+}
+
+impl Display for Step {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        std::fmt::Display::fmt(&self.kind, f)
+    }
+}
+
+impl Display for StepKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            // lint: sort until '#}' where '##StepKind::'
+            StepKind::Compute(e) => write!(f, "compute {}", e),
+            StepKind::Distinct => f.write_str("distinct"),
+            StepKind::Except(distinct, args) => {
+                write_set_step(f, "except", *distinct, args)
+            }
+            StepKind::Group(key, None) => write!(f, "group {}", key),
+            StepKind::Group(key, Some(agg)) => {
+                write!(f, "group {} compute {}", key, agg)
+            }
+            StepKind::Intersect(distinct, args) => {
+                write_set_step(f, "intersect", *distinct, args)
+            }
+            StepKind::Into(e) => write!(f, "into {}", e),
+            StepKind::Order(e) => write!(f, "order {}", e),
+            StepKind::Require(e) => write!(f, "require {}", e),
+            StepKind::Scan(pat, exp, None) => {
+                write!(f, "{} in ", pat)?;
+                write_sub(f, exp, Op::EQ_OP.right, 0)
+            }
+            StepKind::Scan(pat, exp, Some(cond)) => {
+                write!(f, "{} in ", pat)?;
+                write_sub(f, exp, Op::EQ_OP.right, 0)?;
+                write!(f, " on {}", cond)
+            }
+            StepKind::ScanEq(pat, exp) => {
+                write!(f, "{} = ", pat)?;
+                write_sub(f, exp, Op::EQ_OP.right, 0)
+            }
+            StepKind::ScanExtent(pat) => write!(f, "{}", pat),
+            StepKind::Skip(e) => write!(f, "skip {}", e),
+            StepKind::Take(e) => write!(f, "take {}", e),
+            StepKind::Through(pat, exp) => {
+                write!(f, "through {} in {}", pat, exp)
+            }
+            StepKind::Union(distinct, args) => {
+                write_set_step(f, "union", *distinct, args)
+            }
+            StepKind::Unorder => f.write_str("unorder"),
+            StepKind::Where(e) => write!(f, "where {}", e),
+            StepKind::Yield(e) => write!(f, "yield {}", e),
+        }
+    }
+}
+
+/// Writes a set-operation step (`union`, `intersect`, `except`).
+fn write_set_step(
+    f: &mut Formatter<'_>,
+    keyword: &str,
+    distinct: bool,
+    args: &[Expr],
+) -> FmtResult {
+    f.write_str(keyword)?;
+    for (i, arg) in args.iter().enumerate() {
+        f.write_str(if i == 0 { " " } else { ", " })?;
+        if distinct {
+            f.write_str("distinct ")?;
+        }
+        write!(f, "{}", arg)?;
+    }
+    Ok(())
+}
+
+/// Writes the steps of a query (`from`, `exists`, `forall`), inserting the
+/// appropriate separator between consecutive steps: `,` between consecutive
+/// scans, `join` before a scan that follows a non-scan step, otherwise a
+/// single space.
+fn write_query(
+    f: &mut Formatter<'_>,
+    keyword: &str,
+    steps: &[Step],
+) -> FmtResult {
+    f.write_str(keyword)?;
+    let mut prev_scan = false;
+    for (i, step) in steps.iter().enumerate() {
+        let this_scan = step.kind.is_scan();
+        if i == 0 {
+            f.write_str(" ")?;
+        } else if this_scan && prev_scan {
+            f.write_str(", ")?;
+        } else if this_scan {
+            f.write_str(" join ")?;
+        } else {
+            f.write_str(" ")?;
+        }
+        write!(f, "{}", step)?;
+        prev_scan = this_scan;
+    }
+    Ok(())
 }
 
 /// Abstract syntax tree (AST) of a pattern.
@@ -741,36 +999,60 @@ impl Display for PatKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
             // lint: sort until '#}' where '##PatKind::'
-            PatKind::Annotated(pat, typ) => write!(f, "{}: {}", pat, typ),
-            PatKind::Identifier(name) => write!(f, "{}", name),
-            PatKind::Literal(lit) => write!(f, "{:?}", lit),
-            PatKind::Record(fields, ellipsis) => {
-                let fields_str = fields
-                    .iter()
-                    .map(|field| match field {
-                        PatField::Labeled(_, name, pat) => {
-                            format!("{} = {}", name, pat)
-                        }
-                        PatField::Anonymous(_, pat) => format!("{}", pat),
-                        PatField::Ellipsis(_) => "...".to_string(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if *ellipsis {
-                    write!(f, "{{{}, ...}}", fields_str)
-                } else {
-                    write!(f, "{{{}}}", fields_str)
+            PatKind::Annotated(pat, typ) => write!(f, "{} : {}", pat, typ),
+            PatKind::As(name, pat) => write!(f, "{} as {}", name, pat),
+            PatKind::Cons(head, tail) => write!(f, "{} :: {}", head, tail),
+            PatKind::Constructor(name, None) => f.write_str(name),
+            PatKind::Constructor(name, Some(pat)) => {
+                write!(f, "{} {}", name, pat)
+            }
+            PatKind::Identifier(name) => f.write_str(name),
+            PatKind::List(pats) => {
+                f.write_str("[")?;
+                for (i, p) in pats.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{}", p)?;
                 }
+                f.write_str("]")
+            }
+            PatKind::Literal(lit) => write!(f, "{}", lit),
+            PatKind::Record(fields, ellipsis) => {
+                f.write_str("{")?;
+                let mut first = true;
+                for field in fields {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    first = false;
+                    match field {
+                        PatField::Labeled(_, name, pat) => {
+                            write!(f, "{} = {}", name, pat)?
+                        }
+                        PatField::Anonymous(_, pat) => write!(f, "{}", pat)?,
+                        PatField::Ellipsis(_) => f.write_str("...")?,
+                    }
+                }
+                if *ellipsis {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str("...")?;
+                }
+                f.write_str("}")
             }
             PatKind::Tuple(pats) => {
-                let pats_str = pats
-                    .iter()
-                    .map(|p| format!("{}", p))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", pats_str)
+                f.write_str("(")?;
+                for (i, p) in pats.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                f.write_str(")")
             }
-            _ => write!(f, "<unknown pat>"),
+            PatKind::Wildcard => f.write_str("_"),
         }
     }
 }

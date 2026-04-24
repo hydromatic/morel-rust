@@ -417,6 +417,7 @@ impl Display for Label {
 
 /// Operator definition. Includes left and right precedence, and the opening,
 /// closing, and separator strings to use when printing a list.
+#[derive(Copy, Clone)]
 pub struct Op {
     pub left: u8,
     pub right: u8,
@@ -427,7 +428,9 @@ pub struct Op {
 }
 
 impl Op {
-    /// Creates an operator definition.
+    /// Creates an operator definition. Most callers should prefer one of the
+    /// higher-level constructors: [`Op::left_assoc`], [`Op::right_assoc`],
+    /// [`Op::bracketed`], or the [`Op::ATOM`] / [`Op::LOW_EXPR`] constants.
     const fn new(
         left: u8,
         right: u8,
@@ -446,9 +449,35 @@ impl Op {
         }
     }
 
+    /// Left-associative infix operator at virtual precedence `prec` (so
+    /// `left = prec*2`, `right = prec*2+1`). Higher `prec` binds tighter. No
+    /// open/close brackets.
+    pub const fn left_assoc(prec: u8, sep: &'static str) -> Self {
+        Self::new(prec * 2, prec * 2 + 1, "", sep, "", false)
+    }
+
+    /// Right-associative infix operator at virtual precedence `prec` (so
+    /// `left = prec*2+1`, `right = prec*2`). No open/close brackets.
+    pub const fn right_assoc(prec: u8, sep: &'static str) -> Self {
+        Self::new(prec * 2 + 1, prec * 2, "", sep, "", false)
+    }
+
+    /// Bracketed left-associative operator used by list-like printers such as
+    /// tuples or type-parameter lists — precedence as for [`Op::left_assoc`],
+    /// with `open`/`close` surrounding the elements.
+    pub const fn bracketed(
+        prec: u8,
+        open: &'static str,
+        sep: &'static str,
+        close: &'static str,
+        always_surround: bool,
+    ) -> Self {
+        Self::new(prec * 2, prec * 2 + 1, open, sep, close, always_surround)
+    }
+
     /// The list operator has a low precedence. An example is `(int, string)`
     /// that appears before the type application `(int, string) tree`.
-    pub const LIST: Op = Op::new(16, 17, "(", ",", ")", true);
+    pub const LIST: Op = Op::bracketed(8, "(", ",", ")", true);
 
     /// The function arrow "->" is right-associative and has a lower precedence
     /// than the tuple constructor "*".
@@ -465,7 +494,75 @@ impl Op {
     /// [SOME 0];
     /// val it = [SOME 0] : int option list
     /// ```
-    pub const APPLY: Op = Op::new(16, 17, "", " ", "", false);
+    pub const APPLY: Op = Op::left_assoc(8, " ");
+
+    // --- AST expression operators ---
+
+    /// Atomic nodes: literals, identifiers, tuples, records, lists.
+    pub const ATOM: Op = Op::new(198, 199, "", "", "", true);
+
+    /// Low-precedence expression wrapper for constructs that span arbitrary
+    /// sub-expressions and whose boundaries are unambiguous only because they
+    /// include syntactic sentinels (`let ... end`, `case ... of`, `if ... else
+    /// ...`, `fn`, `from`/`exists`/`forall`). At precedence (0, 0) they wrap
+    /// when used as a tighter operator's operand.
+    pub const LOW_EXPR: Op = Op::new(0, 0, "", "", "", false);
+
+    /// Type-annotated expression `e : t`. Precedence 0, left-associative.
+    pub const ANNOTATED_EXP: Op = Op::left_assoc(0, " : ");
+
+    /// `implies`. Precedence 0, left-associative.
+    pub const IMPLIES: Op = Op::left_assoc(0, " implies ");
+
+    /// `orelse`. Precedence 1, left-associative.
+    pub const ORELSE: Op = Op::left_assoc(1, " orelse ");
+
+    /// `andalso`. Precedence 2, left-associative.
+    pub const ANDALSO: Op = Op::left_assoc(2, " andalso ");
+
+    /// Function composition `o`. Precedence 3, left-associative.
+    pub const COMPOSE: Op = Op::left_assoc(3, " o ");
+
+    /// Comparison `=`. Precedence 4, left-associative.
+    pub const EQ_OP: Op = Op::left_assoc(4, " = ");
+    /// `<>`. Precedence 4.
+    pub const NE_OP: Op = Op::left_assoc(4, " <> ");
+    /// `<`. Precedence 4.
+    pub const LT_OP: Op = Op::left_assoc(4, " < ");
+    /// `<=`. Precedence 4.
+    pub const LE_OP: Op = Op::left_assoc(4, " <= ");
+    /// `>`. Precedence 4.
+    pub const GT_OP: Op = Op::left_assoc(4, " > ");
+    /// `>=`. Precedence 4.
+    pub const GE_OP: Op = Op::left_assoc(4, " >= ");
+    /// `elem`. Precedence 4.
+    pub const ELEM_OP: Op = Op::left_assoc(4, " elem ");
+    /// `notelem`. Precedence 4.
+    pub const NOT_ELEM_OP: Op = Op::left_assoc(4, " notelem ");
+
+    /// List cons `::`. Precedence 5, right-associative.
+    pub const CONS: Op = Op::right_assoc(5, " :: ");
+    /// List append `@`. Precedence 5, right-associative.
+    pub const APPEND: Op = Op::right_assoc(5, " @ ");
+
+    /// Addition `+`. Precedence 6, left-associative.
+    pub const PLUS: Op = Op::left_assoc(6, " + ");
+    /// Subtraction `-`. Precedence 6.
+    pub const MINUS: Op = Op::left_assoc(6, " - ");
+    /// String concat `^`. Precedence 6.
+    pub const CARET: Op = Op::left_assoc(6, " ^ ");
+
+    /// Multiplication `*`. Precedence 7, left-associative.
+    pub const TIMES_OP: Op = Op::left_assoc(7, " * ");
+    /// Division `/`. Precedence 7.
+    pub const DIVIDE: Op = Op::left_assoc(7, " / ");
+    /// Integer division `div`. Precedence 7.
+    pub const DIV_OP: Op = Op::left_assoc(7, " div ");
+    /// Modulo `mod`. Precedence 7.
+    pub const MOD_OP: Op = Op::left_assoc(7, " mod ");
+
+    /// `over` (aggregate). Uses APPLY precedence to bind tightly.
+    pub const OVER_OP: Op = Op::left_assoc(8, " over ");
 }
 
 #[cfg(test)]
