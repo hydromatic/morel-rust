@@ -373,9 +373,78 @@ impl MorelParser {
     }
 
     fn expr_application(input: ParseInput) -> ParseResult<Expr> {
+        // Collect a leading expr_unary, any expr_unary_arg children,
+        // and any trailing_method_call children. Pest's
+        // `match_nodes!` only supports one variable-length pattern
+        // per arm, so we walk children manually.
+        let mut exprs: Vec<Expr> = Vec::new();
+        let mut tails: Vec<(Label, Vec<Expr>, Span)> = Vec::new();
+        for child in input.into_children() {
+            match child.as_rule() {
+                Rule::expr_unary => exprs.push(MorelParser::expr_unary(child)?),
+                Rule::expr_unary_arg => {
+                    exprs.push(MorelParser::expr_unary_arg(child)?);
+                }
+                Rule::trailing_method_call => {
+                    tails.push(MorelParser::trailing_method_call(child)?);
+                }
+                _ => unreachable!(),
+            }
+        }
+        let folded = fold(&exprs, ExprKind::Apply);
+        Ok(tails
+            .into_iter()
+            .fold(folded, |acc, (label, args, args_span)| {
+                let selector = ExprKind::RecordSelector(label.name.to_string())
+                    .spanned(&label.span);
+                let sel_span = acc.span.union(&label.span);
+                let sel_apply =
+                    ExprKind::Apply(Box::new(selector), Box::new(acc))
+                        .spanned(&sel_span);
+                let arg_expr = match args.len() {
+                    0 => {
+                        let unit = LiteralKind::Unit.spanned(&args_span);
+                        ExprKind::Literal(unit).spanned(&args_span)
+                    }
+                    1 => args.into_iter().next().unwrap(),
+                    _ => ExprKind::Tuple(args).spanned(&args_span),
+                };
+                let full_span = sel_span.union(&args_span);
+                ExprKind::Apply(Box::new(sel_apply), Box::new(arg_expr))
+                    .spanned(&full_span)
+            }))
+    }
+
+    fn expr_unary_arg(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [expr_unary(exprs)..] => {
-                fold(&exprs.collect(), |x, y| { ExprKind::Apply(x, y) })
+            [expr_unary_op(o).., expr_postfix_arg(e)] => {
+                let ops = o.collect::<Vec<Span>>();
+                ops.iter().fold(e.clone(), |acc, op| {
+                    let span = op.union(&acc.span);
+                    ExprKind::Negate(Box::new(acc)).spanned(&span)
+                })
+            },
+        ))
+    }
+
+    fn expr_postfix_arg(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [id_postfix_chain(e)] => e,
+            [atom(e)] => e,
+        ))
+    }
+
+    fn id_postfix_chain(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [identifier_expr(e), postfix_tail(labels)..] => {
+                labels.fold(e, |acc, label| {
+                    let selector =
+                        ExprKind::RecordSelector(label.name.to_string())
+                            .spanned(&label.span);
+                    let sel_span = acc.span.union(&label.span);
+                    ExprKind::Apply(Box::new(selector), Box::new(acc))
+                        .spanned(&sel_span)
+                })
             },
         ))
     }
@@ -398,16 +467,54 @@ impl MorelParser {
 
     fn expr_postfix(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [atom(e), label(l)..] => {
-                l.collect::<Vec<_>>().iter().fold(e.clone(), |acc, label| {
+            [atom(e), postfix_tail(labels)..] => {
+                labels.fold(e, |acc, label| {
                     let selector =
                         ExprKind::RecordSelector(label.name.to_string())
                             .spanned(&label.span);
-                    let span = acc.span.union(&label.span);
+                    let sel_span = acc.span.union(&label.span);
                     ExprKind::Apply(Box::new(selector), Box::new(acc))
-                        .spanned(&span)
+                        .spanned(&sel_span)
                 })
             },
+        ))
+    }
+
+    fn postfix_tail(input: ParseInput) -> ParseResult<Label> {
+        Ok(match_nodes!(input.children();
+            [label(l)] => l,
+        ))
+    }
+
+    fn trailing_method_call(
+        input: ParseInput,
+    ) -> ParseResult<(Label, Vec<Expr>, Span)> {
+        Ok(match_nodes!(input.children();
+            [label(l), trailing_method_arg(a)] => (l, a.0, a.1),
+        ))
+    }
+
+    fn trailing_method_arg(
+        input: ParseInput,
+    ) -> ParseResult<(Vec<Expr>, Span)> {
+        let span = input_to_span(&input);
+        Ok(match_nodes!(input.children();
+            [postfix_args(a)] => a,
+            [atom(e)] => (vec![e], span),
+        ))
+    }
+
+    fn postfix_args(input: ParseInput) -> ParseResult<(Vec<Expr>, Span)> {
+        let span = input_to_span(&input);
+        Ok(match_nodes!(input.children();
+            [] => (Vec::<Expr>::new(), span.clone()),
+            [postfix_arg_list(args)] => (args, span.clone()),
+        ))
+    }
+
+    fn postfix_arg_list(input: ParseInput) -> ParseResult<Vec<Expr>> {
+        Ok(match_nodes!(input.children();
+            [expr(es)..] => es.collect(),
         ))
     }
 

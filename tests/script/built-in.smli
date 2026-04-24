@@ -555,6 +555,8 @@ Sys.plan ();
 (*) val only : 'a bag -> 'a
 Bag.only (bag [2]);
 > val it = 2 : int
+(bag [2]).only ();
+> val it = 2 : int
 Bag.only (bag [1, 2, 3]);
 > uncaught exception Size
 >   raised at: stdIn:1.1-1.25
@@ -1551,6 +1553,8 @@ Sys.plan ();
 
 (*) val only : 'a list -> 'a
 List.only [2];
+> val it = 2 : int
+[2].only ();
 > val it = 2 : int
 List.only [1, 2, 3];
 > uncaught exception Size

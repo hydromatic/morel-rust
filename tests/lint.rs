@@ -539,9 +539,16 @@ fn test_smli_coverage() {
     let smile_rs = fs::read_to_string("tests/smile.rs")
         .expect("Failed to read tests/smile.rs");
 
-    // Parse test functions and map them to expected .smli file names
-    let test_fn_regex =
-        Regex::new(r"(?m)^#\[test\]\s+fn ([a-z0-9_]+)\(\)").unwrap();
+    // Parse test functions and map them to expected .smli file names.
+    // Matches `#[test]` optionally followed by other attributes (e.g.
+    // `#[ignore]` or `#[ignore = "reason"]`) before the `fn name()`
+    // line.
+    let attr_pat = r#"#\[[a-zA-Z_]+(?:\s*=\s*"[^"]*")?\]"#;
+    let pat = format!(
+        r"(?m)^#\[test\](?:\s+{attr})*\s+fn ([a-z0-9_]+)\(\)",
+        attr = attr_pat,
+    );
+    let test_fn_regex = Regex::new(&pat).unwrap();
     let test_functions: HashMap<String, String> = test_fn_regex
         .captures_iter(&smile_rs)
         .filter_map(|cap| {

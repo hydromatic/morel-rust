@@ -23,19 +23,20 @@ use crate::compile::pat_coverage::check_coverage;
 use crate::compile::type_env::{
     BindType, EmptyTypeEnv, TypeEnv, TypeSchemeResolver,
 };
-use crate::compile::types;
 use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
+use crate::compile::{postfix, types};
 use crate::shell::error::Error;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, LabeledExpr,
-    LiteralKind, Match, MorelNode, Pat, PatField, PatKind, Span, Statement,
-    StatementKind, Step, StepKind, Type as AstType, TypeField, TypeKind,
-    TypeScheme, ValBind,
+    Literal, LiteralKind, Match, MorelNode, Pat, PatField, PatKind, Span,
+    Statement, StatementKind, Step, StepKind, Type as AstType, TypeField,
+    TypeKind, TypeScheme, ValBind,
 };
 use crate::unify::unifier::{
     Action, NullTracer, Op, OpDef, Sequence, Substitution, Term, Unifier, Var,
 };
+use postfix::PostfixKind;
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
@@ -1872,9 +1873,21 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Literal(lit) => {
-                let resolved_type = Self::literal_type(&lit.kind);
-                self.primitive_term(&resolved_type, v);
-                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                if let LiteralKind::Fn(builtin) = &lit.kind {
+                    // Built-in function literal (inserted by the
+                    // postfix-call rewrite, hydromatic/morel#346).
+                    // Its type is the built-in's declared type;
+                    // instantiate fresh unification variables for any
+                    // Forall-quantified type variables.
+                    let builtin_type = builtin.get_type();
+                    let v_builtin = self.type_to_term(&builtin_type);
+                    self.equiv(&Term::Variable(v_builtin), v);
+                    self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                } else {
+                    let resolved_type = Self::literal_type(&lit.kind);
+                    self.primitive_term(&resolved_type, v);
+                    self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                }
             }
             ExprKind::Minus(left, right) => {
                 let (left2, right2) =
@@ -3184,6 +3197,27 @@ impl TypeResolver {
         arg: &Expr,
         v_result: &Var,
     ) -> Result<(Expr, Expr), Error> {
+        // Postfix method-call pattern (hydromatic/morel#346):
+        //   Apply(Apply(RecordSelector(name), recv), arg)
+        // If the receiver's type resolves to a non-record for which a
+        // postfix method `name` is defined, rewrite the call into a
+        // direct application of the built-in and let normal Apply
+        // type inference handle it. Receivers that *are* records with
+        // a field `name` fall through to the existing RecordSelector
+        // handling below.
+        if let ExprKind::Apply(inner_fn, recv) = &fun.kind
+            && let ExprKind::RecordSelector(method_name) = &inner_fn.kind
+            && let Some(result) = self.try_postfix_rewrite(
+                env,
+                method_name.as_str(),
+                recv,
+                arg,
+                v_result,
+            )?
+        {
+            return Ok(result);
+        }
+
         let v_fn = self.variable();
         let v_arg = self.variable();
         self.fn_term(&v_arg, v_result, &v_fn);
@@ -3247,6 +3281,231 @@ impl TypeResolver {
         _v: &Var,
     ) -> Result<Expr, Error> {
         self.deduce_expr_type(env, fun, v_fun)
+    }
+
+    /// Attempts the postfix method-call rewrite (hydromatic/morel#346).
+    /// Called from `deduce_apply_type` when the outer Apply has a
+    /// `RecordSelector` in its inner-function slot.
+    ///
+    /// Deduces the receiver eagerly, reads its resolved constructor
+    /// shape from `self.terms`, and if a postfix built-in is defined
+    /// for that shape, rewrites the call to `Apply(Literal(Fn), arg')`
+    /// and re-runs `deduce_apply_type` on the rewritten form. Returns
+    /// `Ok(None)` if the receiver is a genuine record (so the caller
+    /// should fall through to ordinary field-projection handling) or
+    /// if the shape can't be determined yet.
+    fn try_postfix_rewrite(
+        &mut self,
+        env: &dyn TypeEnv,
+        method_name: &str,
+        recv: &Expr,
+        arg: &Expr,
+        v_result: &Var,
+    ) -> Result<Option<(Expr, Expr)>, Error> {
+        use crate::compile::postfix::postfix_dispatch;
+
+        // Deduce the receiver (eagerly — this may recurse if recv is
+        // itself a postfix call).
+        let v_recv = self.variable();
+        let recv2 = self.deduce_expr_type(env, recv, &v_recv)?;
+
+        // Follow `self.terms` to find the constructor shape, if any.
+        let recv_term = self.resolve_during_deduce(&v_recv);
+        let recv_type_opt = self.shape_to_type(&recv_term);
+
+        // If the receiver is a record with a field of this name,
+        // leave the tree alone — it's ordinary field projection.
+        if let Some(t) = &recv_type_opt
+            && let Type::Record(_, fields) = postfix::peel_type(t)
+            && fields.keys().any(|k| k.to_string() == method_name)
+        {
+            return Ok(None);
+        }
+
+        // Look up postfix dispatch.
+        let Some(recv_type) = recv_type_opt else {
+            // Receiver type not yet determinable: fall through.
+            return Ok(None);
+        };
+        let Some((builtin, kind)) = postfix_dispatch(method_name, &recv_type)
+        else {
+            return Ok(None);
+        };
+
+        // Build `Literal(Fn(builtin))` as the new function.
+        let span = recv.span.clone();
+        let fn_literal = Literal {
+            kind: LiteralKind::Fn(builtin),
+            span: span.clone(),
+            id: None,
+        };
+        let new_fun = Expr {
+            kind: ExprKind::Literal(fn_literal),
+            span: span.clone(),
+            id: None,
+        };
+
+        // Curried2 nests two Applies: `Apply(Apply(fn, recv), arg)`.
+        // Other kinds collapse to a single Apply with a built argument.
+        if let PostfixKind::Curried2 = kind {
+            let v_inner = self.variable();
+            let (fun_inner, arg_inner) =
+                self.deduce_apply_type(env, &new_fun, &recv2, &v_inner)?;
+            let inner_apply = Expr {
+                kind: ExprKind::Apply(Box::new(fun_inner), Box::new(arg_inner)),
+                span,
+                id: None,
+            };
+            let (fun2, arg2) =
+                self.deduce_apply_type(env, &inner_apply, arg, v_result)?;
+            return Ok(Some((fun2, arg2)));
+        }
+
+        // Build the rewritten argument expression.
+        let new_arg = self.build_postfix_arg(kind, &recv2, arg)?;
+
+        // Recursively deduce the rewritten Apply. The result must
+        // share `v_result` with the outer call so the surrounding
+        // context sees the correct type.
+        let (fun2, arg2) =
+            self.deduce_apply_type(env, &new_fun, &new_arg, v_result)?;
+        Ok(Some((fun2, arg2)))
+    }
+
+    /// Builds the argument expression for a rewritten postfix call.
+    /// Unary methods discard the supplied argument (which should be
+    /// `()`); tupled methods splice the receiver in as the first
+    /// tuple element.
+    fn build_postfix_arg(
+        &mut self,
+        kind: PostfixKind,
+        recv: &Expr,
+        arg: &Expr,
+    ) -> Result<Expr, Error> {
+        use crate::compile::postfix::PostfixKind;
+        let span = recv.span.union(&arg.span);
+        Ok(match kind {
+            PostfixKind::Unary => recv.clone(),
+            PostfixKind::Tupled2 => Expr {
+                kind: ExprKind::Tuple(vec![recv.clone(), arg.clone()]),
+                span,
+                id: None,
+            },
+            PostfixKind::Tupled3 => {
+                // If the user wrote `r.m (a, b)`, `arg` is already a
+                // tuple `(a, b)`; splice recv in. Otherwise treat as
+                // a two-element tuple.
+                let mut parts = vec![recv.clone()];
+                if let ExprKind::Tuple(elts) = &arg.kind {
+                    parts.extend(elts.iter().cloned());
+                } else {
+                    parts.push(arg.clone());
+                }
+                Expr {
+                    kind: ExprKind::Tuple(parts),
+                    span,
+                    id: None,
+                }
+            }
+            PostfixKind::Curried2 => {
+                // Curried2 is rewritten as nested Applies in the
+                // caller, not via this helper, so this branch is
+                // unreachable in practice.
+                unreachable!("Curried2 handled before build_postfix_arg")
+            }
+        })
+    }
+
+    /// Chases variable chains in `self.terms` (the partial equations
+    /// accumulated during deduction) to find a concrete `Sequence`
+    /// term for `v`, or returns `None` if the variable is still
+    /// unbound or forms a cycle.
+    ///
+    /// First tries direct chasing through `self.terms`. If that
+    /// fails, falls back to running a partial unification on the
+    /// accumulated equations so that variables nested inside
+    /// Sequences (e.g. the result var of a function-application
+    /// equation) can still be resolved.
+    fn resolve_during_deduce(&self, v: &Var) -> Option<Term> {
+        let mut current = Term::Variable(*v);
+        let mut visited: HashSet<i32> = HashSet::new();
+        loop {
+            match &current {
+                Term::Variable(var) => {
+                    if !visited.insert(var.id) {
+                        break;
+                    }
+                    let found = self
+                        .terms
+                        .iter()
+                        .rev()
+                        .find(|(v0, _)| v0 == var)
+                        .map(|(_, t)| t.clone());
+                    match found {
+                        Some(t) => current = t,
+                        None => break,
+                    }
+                }
+                Term::Sequence(_) => return Some(current.clone()),
+            }
+        }
+        // Fallback: run partial unification to resolve variables that
+        // only appear inside Sequence terms in self.terms (e.g. the
+        // result var of `v_fn = v_arg -> v_result` is bound only via
+        // structural unification, not as a direct entry).
+        let term_pairs: Vec<(Term, Term)> = self
+            .terms
+            .iter()
+            .map(|(var, term)| (term.clone(), Term::Variable(*var)))
+            .collect();
+        let subst = self
+            .unifier
+            .unify(&term_pairs, &NullTracer, self.actions.as_ref())
+            .ok()?;
+        let resolved = subst.resolve_term(&Term::Variable(*v));
+        match resolved {
+            Term::Sequence(_) => Some(resolved),
+            _ => None,
+        }
+    }
+
+    /// Converts a resolved `Term::Sequence` to a `Type` shape
+    /// suitable for postfix dispatch. Only needs to handle the
+    /// primitive and container constructors that postfix_dispatch
+    /// keys on; other shapes return `None` (no dispatch).
+    fn shape_to_type(&self, term: &Option<Term>) -> Option<Box<Type>> {
+        let term = term.as_ref()?;
+        let Term::Sequence(seq) = term else {
+            return None;
+        };
+        let op_name = self.unifier.op_defs[seq.op.0 as usize].name.clone();
+        match op_name.as_str() {
+            "int" => Some(Box::new(Type::Primitive(PrimitiveType::Int))),
+            "real" => Some(Box::new(Type::Primitive(PrimitiveType::Real))),
+            "char" => Some(Box::new(Type::Primitive(PrimitiveType::Char))),
+            "bool" => Some(Box::new(Type::Primitive(PrimitiveType::Bool))),
+            "string" => Some(Box::new(Type::Primitive(PrimitiveType::String))),
+            "unit" => Some(Box::new(Type::Primitive(PrimitiveType::Unit))),
+            "list" => {
+                // 'a list; element type is unresolved here but
+                // postfix_dispatch only keys on the list constructor.
+                Some(Box::new(Type::List(Box::new(Type::Primitive(
+                    PrimitiveType::Unit,
+                )))))
+            }
+            "bag" => Some(Box::new(Type::Bag(Box::new(Type::Primitive(
+                PrimitiveType::Unit,
+            ))))),
+            "option" => {
+                // Option of any element type; dispatch keys on the
+                // "option" Data name.
+                Some(Box::new(Type::Data(
+                    "option".to_string(),
+                    vec![Type::Primitive(PrimitiveType::Unit)],
+                )))
+            }
+            _ => None,
+        }
     }
 
     fn deduce_record_selector_type(

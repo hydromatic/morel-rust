@@ -25,6 +25,7 @@ use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
 use crate::compile::library;
 use crate::compile::library::{BuiltIn, BuiltInFunction};
+use crate::compile::postfix::{PostfixKind, postfix_dispatch};
 use crate::compile::span::Span;
 use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
 use crate::compile::types::{PrimitiveType, Type};
@@ -83,6 +84,11 @@ pub struct Resolver<'a> {
     base_line: usize,
     /// Errors detected during resolution (e.g. field-not-found).
     errors: RefCell<Vec<(String, Span)>>,
+    /// Names of user-defined functions whose first parameter is
+    /// (or contains) `self`, so the postfix dispatcher can rewrite
+    /// `x.name arg` into a direct application to `name`. See
+    /// hydromatic/morel#346.
+    self_fns: RefCell<HashSet<String>>,
 }
 
 /// Helper struct representing a pattern-expression pair with position info.
@@ -199,6 +205,41 @@ impl<'a> Resolver<'a> {
             type_map,
             base_line,
             errors: RefCell::new(Vec::new()),
+            self_fns: RefCell::new(HashSet::new()),
+        }
+    }
+
+    /// Records function names whose first parameter is `self`, so
+    /// postfix calls against receivers of matching types can be
+    /// rewritten into direct applications. Called from `resolve_decl`
+    /// on each `DeclKind::Fun` and from `ExprKind::Let` before
+    /// resolving the body.
+    fn register_self_fns(&self, decls: &[Decl]) {
+        for decl in decls {
+            match &decl.kind {
+                DeclKind::Fun(funs) => {
+                    for fb in funs {
+                        if fb.matches.iter().any(match_has_self_first_param) {
+                            self.self_fns.borrow_mut().insert(fb.name.clone());
+                        }
+                    }
+                }
+                DeclKind::Val(_, _, val_binds) => {
+                    // `fun name self = …` desugars to
+                    // `val rec name = fn self => …`. Detect that
+                    // shape: identifier pattern bound to a function
+                    // expression whose first clause has `self` as its
+                    // first pattern.
+                    for vb in val_binds {
+                        if let PatKind::Identifier(fn_name) = &vb.pat.kind
+                            && fn_expr_has_self_first_param(&vb.expr)
+                        {
+                            self.self_fns.borrow_mut().insert(fn_name.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -272,6 +313,12 @@ impl<'a> Resolver<'a> {
                     // `intBag`).
                     let expr_type = pe.expr.type_();
                     let pat_type = pe.pat.type_();
+                    // If type inference left the pattern type as an
+                    // unresolved variable (e.g., the bound expression
+                    // is a postfix method call that the inference pass
+                    // couldn't recognize) but the resolved expression
+                    // has a concrete type, prefer the expression type.
+                    // See hydromatic/morel#346.
                     let t = match (expr_type.as_ref(), pat_type.as_ref()) {
                         (Type::Bag(_), Type::List(_)) => {
                             expr_type.as_ref().clone()
@@ -290,6 +337,7 @@ impl<'a> Resolver<'a> {
                         {
                             expr_type.as_ref().clone()
                         }
+                        (_, Type::Variable(_)) => expr_type.as_ref().clone(),
                         _ => *pat_type,
                     };
                     CoreValBind {
@@ -327,7 +375,10 @@ impl<'a> Resolver<'a> {
 
     /// Resolves an AST expression to a core expression.
     pub fn resolve_expr(&self, expr: &Expr) -> CoreExpr {
-        let t = expr.get_type(self.type_map).unwrap();
+        let t = self
+            .effective_type(expr)
+            .or_else(|| expr.get_type(self.type_map))
+            .unwrap();
         let span =
             Span::from_pest_span(&expr.span.to_pest_span(), self.base_line);
         match &expr.kind {
@@ -373,6 +424,14 @@ impl<'a> Resolver<'a> {
                             _ => {}
                         }
                     }
+                }
+                // Try postfix method-call rewriting
+                // (hydromatic/morel#346). Pattern: outer Apply wraps an
+                // inner `Apply(RecordSelector(name), recv)` that
+                // couldn't be a field projection on `recv`.
+                if let Some(core) = self.try_postfix_call(&t, func, arg, &span)
+                {
+                    return core;
                 }
                 CoreExpr::Apply(
                     t,
@@ -615,6 +674,10 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::Let(decls, body) => {
+                // Register any user-defined `fun name self …` before
+                // resolving the body, so postfix calls in the body can
+                // dispatch to them.
+                self.register_self_fns(decls);
                 let resolved_decls =
                     decls.iter().map(|d| self.resolve_decl(d)).collect();
                 CoreExpr::Let(
@@ -827,6 +890,246 @@ impl<'a> Resolver<'a> {
         let c1 = self.resolve_expr(a1);
         let arg = CoreExpr::new_tuple(&[c0, c1]);
         CoreExpr::Apply(t, Box::new(fn_literal), Box::new(arg), span.clone())
+    }
+
+    /// Detects the postfix method-call pattern
+    /// `Apply(Apply(RecordSelector(name), recv), arg)` and, if the
+    /// receiver isn't a record with that field, rewrites it to a call
+    /// to the appropriate built-in. See hydromatic/morel#346.
+    fn try_postfix_call(
+        &self,
+        t: &Type,
+        func: &Expr,
+        arg: &Expr,
+        span: &Span,
+    ) -> Option<CoreExpr> {
+        let (method_name, recv) = match &func.kind {
+            ExprKind::Apply(inner_fn, inner_arg) => match &inner_fn.kind {
+                ExprKind::RecordSelector(name) => {
+                    (name.clone(), inner_arg.as_ref())
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let recv_type = self.effective_type(recv)?;
+        // If the receiver is a record with this field, leave the tree
+        // alone — that's an ordinary field projection applied to `arg`.
+        if let Type::Record(_, fields) = recv_type.as_ref()
+            && fields.keys().any(|k| k.to_string() == method_name)
+        {
+            return None;
+        }
+        if let Some((builtin, kind)) =
+            postfix_dispatch(&method_name, recv_type.as_ref())
+        {
+            // Compute the return type from the built-in's signature —
+            // type inference left the outer Apply's slot as an
+            // unresolved variable because it couldn't unify the
+            // receiver against a record. For methods whose parameter
+            // list shares a type variable with the element type of
+            // the receiver (notably Option.getOpt), use the argument's
+            // concrete type as a fallback when the receiver is still
+            // polymorphic.
+            let arg_type = self.effective_type(arg);
+            let return_t = postfix_return_type(
+                builtin,
+                kind,
+                recv_type.as_ref(),
+                arg_type.as_deref(),
+            );
+            return Some(
+                self.build_postfix_call(
+                    return_t, builtin, kind, recv, arg, span,
+                ),
+            );
+        }
+        // Not a built-in postfix. Try a user-defined function whose
+        // first parameter is `self` (hydromatic/morel#346). The
+        // function must be in scope, which we track via self_fns
+        // populated from enclosing `let fun name self = …` decls.
+        if self.self_fns.borrow().contains(&method_name) {
+            return Some(self.build_user_postfix_call(
+                &method_name,
+                t,
+                recv,
+                arg,
+                span,
+            ));
+        }
+        None
+    }
+
+    /// Builds a direct call to a user-defined postfix function.
+    /// `name` is the function identifier. Calling convention:
+    ///
+    /// * `arg` is `()` → `name recv` (unary `fun name self = …`).
+    /// * `arg` is a tuple `(a, b, …)` → `name (recv, a, b, …)` —
+    ///   recv is spliced as the first tuple element.
+    /// * Otherwise → `name (recv, arg)`.
+    fn build_user_postfix_call(
+        &self,
+        name: &str,
+        t: &Type,
+        recv: &Expr,
+        arg: &Expr,
+        span: &Span,
+    ) -> CoreExpr {
+        let c_recv = self.resolve_expr(recv);
+        let c_arg = self.resolve_expr(arg);
+        let t_box = Box::new(t.clone());
+        let name_expr = CoreExpr::Identifier(t_box.clone(), name.to_string());
+        let is_unit = matches!(
+            &arg.kind,
+            ExprKind::Literal(l) if matches!(l.kind, LiteralKind::Unit)
+        );
+        if is_unit {
+            return CoreExpr::Apply(
+                t_box,
+                Box::new(name_expr),
+                Box::new(c_recv),
+                span.clone(),
+            );
+        }
+        let mut parts = vec![c_recv];
+        if let CoreExpr::Tuple(_, elems) = &c_arg {
+            parts.extend(elems.iter().cloned());
+        } else {
+            parts.push(c_arg);
+        }
+        let tuple = CoreExpr::new_tuple(&parts);
+        CoreExpr::Apply(
+            t_box,
+            Box::new(name_expr),
+            Box::new(tuple),
+            span.clone(),
+        )
+    }
+
+    /// Recursively computes the "effective" type of an expression.
+    /// Uses the type_map entry when resolved, but falls back to
+    /// re-deriving the type through the postfix dispatcher for
+    /// expressions whose type inference was left unresolved because
+    /// the expression is itself a postfix call that the type
+    /// resolver couldn't recognize as such.
+    fn effective_type(&self, expr: &Expr) -> Option<Box<Type>> {
+        if let Some(t) = expr.get_type(self.type_map)
+            && !is_unresolved_type(&t)
+        {
+            return Some(t);
+        }
+        // Apply: is this a postfix method call? If so compute the
+        // result type from the built-in signature and receiver.
+        if let ExprKind::Apply(f, a) = &expr.kind
+            && let ExprKind::Apply(inner_fn, inner_arg) = &f.kind
+            && let ExprKind::RecordSelector(name) = &inner_fn.kind
+        {
+            let recv_type = self.effective_type(inner_arg)?;
+            if let Some((builtin, kind)) =
+                postfix_dispatch(name, recv_type.as_ref())
+            {
+                let arg_type = self.effective_type(a);
+                return Some(postfix_return_type(
+                    builtin,
+                    kind,
+                    recv_type.as_ref(),
+                    arg_type.as_deref(),
+                ));
+            }
+        }
+        // Let: the let's effective type is the body's effective type.
+        if let ExprKind::Let(_, body) = &expr.kind {
+            return self.effective_type(body);
+        }
+        // Case: take the first branch's right-hand side type.
+        if let ExprKind::Case(_, matches) = &expr.kind
+            && let Some(m) = matches.first()
+        {
+            return self.effective_type(&m.expr);
+        }
+        // If: take the then-branch's type.
+        if let ExprKind::If(_, then_expr, _) = &expr.kind {
+            return self.effective_type(then_expr);
+        }
+        expr.get_type(self.type_map)
+    }
+
+    /// Builds the Core tree for a postfix call, given the dispatched
+    /// built-in and its calling convention.
+    fn build_postfix_call(
+        &self,
+        t: Box<Type>,
+        f: BuiltInFunction,
+        kind: PostfixKind,
+        recv: &Expr,
+        arg: &Expr,
+        span: &Span,
+    ) -> CoreExpr {
+        let fn_type = f.get_type();
+        let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
+        let c_recv = self.resolve_expr(recv);
+        match kind {
+            PostfixKind::Unary => {
+                // `recv.m ()` — ignore the unit arg and apply the
+                // method to the receiver.
+                CoreExpr::Apply(
+                    t,
+                    Box::new(fn_literal),
+                    Box::new(c_recv),
+                    span.clone(),
+                )
+            }
+            PostfixKind::Tupled2 => {
+                // `recv.m a` — build the tuple (recv, a) and apply.
+                let c_arg = self.resolve_expr(arg);
+                let tuple = CoreExpr::new_tuple(&[c_recv, c_arg]);
+                CoreExpr::Apply(
+                    t,
+                    Box::new(fn_literal),
+                    Box::new(tuple),
+                    span.clone(),
+                )
+            }
+            PostfixKind::Tupled3 => {
+                // `recv.m (a, b)` — splice recv in as first tuple
+                // element, producing (recv, a, b).
+                let c_arg = self.resolve_expr(arg);
+                let mut parts = vec![c_recv];
+                if let CoreExpr::Tuple(_, elems) = c_arg {
+                    parts.extend(elems);
+                } else {
+                    parts.push(c_arg);
+                }
+                let tuple = CoreExpr::new_tuple(&parts);
+                CoreExpr::Apply(
+                    t,
+                    Box::new(fn_literal),
+                    Box::new(tuple),
+                    span.clone(),
+                )
+            }
+            PostfixKind::Curried2 => {
+                // `recv.m a` — build the curried call `m recv a`,
+                // i.e. `Apply(Apply(m, recv), a)`. The intermediate
+                // type after the first apply is `arg_t -> result_t`.
+                let c_arg = self.resolve_expr(arg);
+                let arg_t = c_arg.type_();
+                let intermediate_t =
+                    Box::new(Type::Fn(arg_t.clone(), t.clone()));
+                let inner = CoreExpr::Apply(
+                    intermediate_t,
+                    Box::new(fn_literal),
+                    Box::new(c_recv),
+                    span.clone(),
+                );
+                CoreExpr::Apply(
+                    t,
+                    Box::new(inner),
+                    Box::new(c_arg),
+                    span.clone(),
+                )
+            }
+        }
     }
 
     /// Resolves an AST literal to a core value.
@@ -1650,5 +1953,181 @@ impl ReferenceFinder {
         ReferenceFinder {
             ref_set: HashSet::new(),
         }
+    }
+}
+
+/// Peels type aliases and Forall wrappers for the purpose of
+/// postfix-method dispatch.
+fn peel_type(t: &Type) -> &Type {
+    match t {
+        Type::Alias(_, inner, _) => peel_type(inner),
+        Type::Forall(inner, _) => peel_type(inner),
+        _ => t,
+    }
+}
+
+/// Returns the result type of a postfix call, given the dispatched
+/// built-in and the *concrete* receiver type. We need this because
+/// type inference leaves the outer Apply's type variable unresolved
+/// (the record-selector action only fires when the receiver is a
+/// true record, not a built-in type).
+fn postfix_return_type(
+    builtin: BuiltInFunction,
+    _kind: PostfixKind,
+    recv_type: &Type,
+    arg_type: Option<&Type>,
+) -> Box<Type> {
+    use BuiltInFunction::{
+        BagDrop, BagHd, BagLength, BagNull, BagOnly, BagTake, BagTl, BoolNot,
+        BoolToString, CharCompare, CharIsAlpha, CharIsDigit, CharOrd, CharPred,
+        CharSucc, CharToLower, CharToString, CharToUpper, IntAbs, IntCompare,
+        IntMax, IntMin, IntRem, IntSameSign, IntSign, IntToString, ListDrop,
+        ListHd, ListLength, ListNth, ListNull, ListOnly, ListTake, ListTl,
+        OptionGetOpt, OptionIsSome, OptionValOf, RealAbs, RealCeil,
+        RealCompare, RealFloor, RealMax, RealMin, RealRem, RealSign,
+        RealToString, RealTrunc, StringExplode, StringSize, StringSub,
+        StringSubstring,
+    };
+    fn prim(p: PrimitiveType) -> Box<Type> {
+        Box::new(Type::Primitive(p))
+    }
+    fn clone_box(t: &Type) -> Box<Type> {
+        Box::new(t.clone())
+    }
+    /// Extracts the element type from a `T list` or `T bag`.
+    fn elem_of(t: &Type) -> Box<Type> {
+        match peel_type(t) {
+            Type::List(e) | Type::Bag(e) => e.clone(),
+            _ => Box::new(t.clone()),
+        }
+    }
+    /// Builds an `order` type (the `order` datatype).
+    fn order_ty() -> Box<Type> {
+        Box::new(Type::Data("order".to_string(), vec![]))
+    }
+    match builtin {
+        // Length-like: always int
+        ListLength | BagLength | StringSize | CharOrd => {
+            prim(PrimitiveType::Int)
+        }
+        // bool results
+        ListNull | BagNull | BoolNot | CharIsAlpha | CharIsDigit => {
+            prim(PrimitiveType::Bool)
+        }
+        // hd / only return element type
+        ListHd | BagHd | ListOnly | BagOnly => elem_of(recv_type),
+        // tl / drop / take return collection type
+        ListTl | BagTl | ListDrop | ListTake | BagDrop | BagTake => {
+            clone_box(recv_type)
+        }
+        // nth: (T list * int) -> T
+        ListNth => elem_of(recv_type),
+        // String
+        StringSub => prim(PrimitiveType::Char),
+        StringSubstring => prim(PrimitiveType::String),
+        StringExplode => Box::new(Type::List(prim(PrimitiveType::Char))),
+        // Int ops returning int
+        IntAbs | IntMax | IntMin | IntRem | IntSign => prim(PrimitiveType::Int),
+        IntSameSign => prim(PrimitiveType::Bool),
+        IntToString | BoolToString | CharToString | RealToString => {
+            prim(PrimitiveType::String)
+        }
+        // Int/Real compare return order
+        IntCompare | RealCompare | CharCompare => order_ty(),
+        // Real ops returning real
+        RealAbs | RealMax | RealMin | RealRem | RealTrunc => {
+            prim(PrimitiveType::Real)
+        }
+        // Real ops returning int
+        RealCeil | RealFloor | RealSign => prim(PrimitiveType::Int),
+        // Char transforms
+        CharPred | CharSucc | CharToLower | CharToUpper => {
+            prim(PrimitiveType::Char)
+        }
+        // Option methods
+        OptionIsSome => prim(PrimitiveType::Bool),
+        OptionValOf => {
+            // option T → T
+            match peel_type(recv_type) {
+                Type::Data(_, args) if args.len() == 1 => {
+                    Box::new(args[0].clone())
+                }
+                _ => clone_box(recv_type),
+            }
+        }
+        OptionGetOpt => {
+            // option T * T → T. If the receiver is still polymorphic
+            // (e.g. `NONE.getOpt(0)`), fall back to the argument's
+            // concrete type — the second argument and the result share
+            // the element type variable.
+            match peel_type(recv_type) {
+                Type::Data(_, args)
+                    if args.len() == 1 && !is_unresolved_type(&args[0]) =>
+                {
+                    return Box::new(args[0].clone());
+                }
+                _ => {}
+            }
+            if let Some(t) = arg_type
+                && !is_unresolved_type(t)
+            {
+                return Box::new(t.clone());
+            }
+            // Fallback: peel whatever we have, even if it's a
+            // variable.
+            match peel_type(recv_type) {
+                Type::Data(_, args) if args.len() == 1 => {
+                    Box::new(args[0].clone())
+                }
+                _ => clone_box(recv_type),
+            }
+        }
+        // Fallback: use the receiver's type (conservative).
+        _ => clone_box(recv_type),
+    }
+}
+
+/// Returns true if a type is still an unresolved unification variable
+/// (i.e., type inference left it unconstrained).
+fn is_unresolved_type(t: &Type) -> bool {
+    matches!(t, Type::Variable(_))
+}
+
+/// Returns true if a `FunMatch`'s first parameter pattern is
+/// named `self`, either directly (`fun f self = ...`) or as a
+/// field of a record/tuple pattern
+/// (`fun f (self, x, y) = ...`).
+fn match_has_self_first_param(m: &crate::syntax::ast::FunMatch) -> bool {
+    match m.pats.first() {
+        Some(pat) => pat_has_self(pat),
+        None => false,
+    }
+}
+
+/// Returns true if a pattern is `self`, `self : T`, or a record /
+/// tuple pattern containing a field named `self`.
+fn pat_has_self(pat: &crate::syntax::ast::Pat) -> bool {
+    use crate::syntax::ast::PatKind;
+    match &pat.kind {
+        PatKind::Identifier(name) => name == "self",
+        PatKind::Annotated(inner, _) => pat_has_self(inner),
+        PatKind::Record(fields, _) => fields.iter().any(|f| match f {
+            PatField::Labeled(_, name, _) => name == "self",
+            PatField::Anonymous(_, _) | PatField::Ellipsis(_) => false,
+        }),
+        PatKind::Tuple(elts) => elts.iter().any(pat_has_self),
+        _ => false,
+    }
+}
+
+/// Returns true if an expression is a function (`fn …`) whose first
+/// clause has `self` as its first parameter pattern.  Also follows
+/// through a single nested `fn` for curried functions.  Used to
+/// recognise `fun name self = …` after it has been desugared to
+/// `val rec name = fn self => …`.
+fn fn_expr_has_self_first_param(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Fn(matches) => matches.iter().any(|m| pat_has_self(&m.pat)),
+        _ => false,
     }
 }

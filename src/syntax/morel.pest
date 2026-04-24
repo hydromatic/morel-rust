@@ -213,15 +213,50 @@ expr_multiplicative_op = { "*" | "/" | _div | _mod }
 
 expr_over = { expr_application ~ (_over ~ expr)* } // 7.5
 
-// Precedence 8: function application
-expr_application = { expr_unary+ }
+// Precedence 8: function application. The first expr_unary keeps
+// full postfix support (any atom + `.label*`). Subsequent argument
+// positions use a restricted expr_unary_arg that only allows
+// `.label` chains on identifier-shaped atoms, mirroring morel-java's
+// `inArg && !isId(e)` lookahead in #346. This lets:
+//   - `cs.complement ()` parse as one Apply (cs.complement, ())
+//   - `cs.complement ().complement ()` parse with the trailing
+//     `.complement ()` becoming a trailing_method_call
+//   - `f x.y (z)` keep its `Apply(Apply(f, x.y), (z))` shape
+expr_application = {
+    expr_unary ~ expr_unary_arg* ~ trailing_method_call*
+}
+expr_unary_arg = { expr_unary_op* ~ expr_postfix_arg }
+// In argument position, only identifier atoms may carry a postfix
+// tail. Other atoms (parens, literals, list/tuple, etc.) match
+// without a tail; any trailing `.label(args)` becomes a
+// trailing_method_call on the whole application.
+expr_postfix_arg = { id_postfix_chain | atom }
+id_postfix_chain = { identifier_expr ~ postfix_tail+ }
+// Trailing-method args may be a parenthesized list (`.drop(2)`) or
+// a single atom (`.drop 1`). Mirrors morel-java's `arg = atom()` in
+// the trailing-DOT loop of expression8.
+trailing_method_call = { "." ~ label ~ trailing_method_arg }
+trailing_method_arg = { postfix_args | atom }
 
 // Precedence 8.5: unary ~
 expr_unary = { expr_unary_op* ~ expr_postfix }
 expr_unary_op = { !literal ~ "~" }
 
-// Precedence 9: postfix .field
-expr_postfix = { atom ~ ("." ~ label)* }
+// Precedence 9: postfix '.field' (record projection) and '.method(args)'
+// (postfix method call, hydromatic/morel#346). `.method` without a
+// parenthesized argument list stays a plain '.field' dereference,
+// which may combine with function application in the enclosing rule.
+// The '(args)' form must be adjacent to the label (no whitespace
+// between 'method' and '('), so expressions like 'f g (x, y)' — two
+// consecutive arguments to 'f' — are not mis-parsed as a postfix
+// call on 'g'. Using '${...}' (compound atomic) suppresses implicit
+// whitespace at the boundaries of the postfix_tail's own tokens, but
+// sub-rules such as 'postfix_args' remain non-atomic internally so
+// whitespace inside the argument list is still allowed.
+expr_postfix = { atom ~ postfix_tail* }
+postfix_tail = ${ "." ~ WHITESPACE* ~ label }
+postfix_args = !{ "(" ~ postfix_arg_list? ~ ")" }
+postfix_arg_list = !{ expr ~ ("," ~ expr)* }
 
 atom = {
     literal
