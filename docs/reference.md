@@ -68,6 +68,7 @@ In Morel-Rust but not Standard ML:
   <code>#<i>lab</i> <i>record</i></code>
 * identifiers and type names may be quoted
   (for example, <code>\`an identifier\`</code>)
+* `(*)` line comments (syntax as SML/NJ and MLton)
 
 In Standard ML but not in Morel:
 * `word` constant
