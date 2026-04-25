@@ -56,6 +56,10 @@ pub struct Resolved {
     pub bindings: Vec<TypeBinding>,
     pub base_line: usize,
     pub warnings: Vec<Warning>,
+    /// Compile-time errors detected during resolution (e.g. "match
+    /// redundant"). The caller should report these as errors, but may
+    /// still use the resolved declaration for `Sys.planEx`.
+    pub errors: Vec<(String, Span)>,
 }
 
 /// Maps AST nodes to their resolved types.
@@ -951,10 +955,17 @@ impl TypeResolver {
         }
 
         // Check pattern coverage (exhaustiveness and redundancy), unless
-        // disabled by the matchCoverageEnabled property.
+        // disabled by the matchCoverageEnabled property. Coverage errors
+        // (e.g. "match redundant") are collected into `errors` rather than
+        // propagated via `Result` so that the caller can still record the
+        // resolved declaration for `Sys.planEx`.
+        let mut errors: Vec<(String, Span)> = Vec::new();
         if self.match_coverage_enabled {
-            let coverage_warnings = check_coverage(&decl2, &type_map)?;
-            self.warnings.extend(coverage_warnings);
+            match check_coverage(&decl2, &type_map) {
+                Ok(ws) => self.warnings.extend(ws),
+                Err(Error::Compile(msg, span)) => errors.push((msg, span)),
+                Err(e) => return Err(e),
+            }
         }
 
         Ok(Resolved {
@@ -963,6 +974,7 @@ impl TypeResolver {
             bindings,
             base_line,
             warnings: self.warnings.clone(),
+            errors,
         })
     }
 

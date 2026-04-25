@@ -318,6 +318,7 @@ impl Display for Val {
             Val::Char(c) => {
                 write!(f, "#\"{}\"", parser::string_to_string(&c.to_string()))
             }
+            Val::Closure(..) | Val::Code(_) => write!(f, "fn"),
             Val::Constructor(ordinal, v) => {
                 if **v == Val::Unit {
                     write!(f, "#{}", ordinal)
@@ -325,7 +326,34 @@ impl Display for Val {
                     write!(f, "#{} {}", ordinal, v)
                 }
             }
-            Val::Fn(func) => write!(f, "{:?}", func),
+            Val::Fn(func) => {
+                let name = func.name();
+                // Symbolic operator names (e.g. `^`, `+`, `=`) are shown
+                // as `op name`. Constructor names (e.g. `SOME`, `INL`,
+                // `LESS`) are shown unqualified — they're parsed and
+                // resolved without their structure name. Other
+                // alphabetic names use the record-selector form
+                // `#name Package` (e.g. `#size String`, `#set Sys`)
+                // when they have a structure prefix; otherwise they
+                // are shown bare. Mirrors morel-java's unparser, which
+                // keeps the record-selector form because in core a
+                // call like `String.size x` is `#size String x`.
+                if name.is_empty()
+                    || name
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '.' || c == '_')
+                {
+                    if func.is_constructor() {
+                        write!(f, "{}", name)
+                    } else if let Some(p) = func.package() {
+                        write!(f, "#{} {}", name, p)
+                    } else {
+                        write!(f, "{}", name)
+                    }
+                } else {
+                    write!(f, "op {}", name)
+                }
+            }
             Val::Inl(v) => write!(f, "INL {}", v),
             Val::Inr(v) => write!(f, "INR {}", v),
             Val::Int(i) => {
@@ -358,7 +386,7 @@ impl Display for Val {
             Val::Some(v) => write!(f, "SOME {}", v),
             Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),
             Val::Unit => write!(f, "()"),
-            _ => todo!("{:?}", self),
+            _ => write!(f, "{:?}", self),
         }
     }
 }

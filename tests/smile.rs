@@ -97,6 +97,11 @@ fn misc() {
 }
 
 #[test]
+fn optimize() {
+    run_script("tests/script/optimize.smli");
+}
+
+#[test]
 fn overload() {
     run_script("tests/script/overload.smli");
 }

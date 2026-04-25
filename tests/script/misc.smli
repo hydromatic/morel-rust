@@ -27,7 +27,7 @@
 
 (*) Initial environment (built-ins only; `it` is not yet bound).
 val eLen = List.length (Sys.env());
-> val eLen = 55 : int
+> val eLen = 57 : int
 
 (*) Now we have one more (due to "eLen").
 List.length (Sys.env()) - eLen;
@@ -62,7 +62,7 @@ Sys.clearEnv();
 > val it = () : unit
 (*) Back down to the original built-in count plus one (for "it").
 List.length (Sys.env());
-> val it = 56 : int
+> val it = 58 : int
 List.last (Sys.env());
 > val it = ("true","bool") : string * string
 

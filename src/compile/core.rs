@@ -141,7 +141,26 @@ impl Display for Expr {
             Expr::Aggregate(_, a0, a1) => {
                 write!(f, "({} over {})", a0, a1)
             }
-            Expr::Apply(_, fx, arg, _) => write!(f, "{} {}", fx, arg),
+            Expr::Apply(_, fx, arg, _) => {
+                // Render `Apply(Lit(Val::Fn(op)), Tuple([a, b]))` as
+                // `a op b` when `op` has a symbolic name (e.g. `+`,
+                // `^`, `=`). Mirrors morel-java's unparser for
+                // operator applications.
+                if let Expr::Literal(_, Val::Fn(func)) = fx.as_ref()
+                    && let Expr::Tuple(_, args) = arg.as_ref()
+                    && args.len() == 2
+                {
+                    let name = func.name();
+                    if !name.is_empty()
+                        && name
+                            .chars()
+                            .all(|c| !c.is_alphanumeric() && c != '_')
+                    {
+                        return write!(f, "{} {} {}", args[0], name, args[1]);
+                    }
+                }
+                write!(f, "{} {}", fx, arg)
+            }
             Expr::Case(_, e, arms, _) => {
                 write!(f, "case {} of ", e)?;
                 for (i, match_) in arms.iter().enumerate() {
@@ -169,10 +188,16 @@ impl Display for Expr {
             Expr::Identifier(_, name) => write!(f, "{}", name),
             Expr::Let(_, decls, body) => {
                 write!(f, "let ")?;
+                let mut first = true;
                 for decl in decls {
-                    write!(f, "{}; ", decl)?;
+                    if first {
+                        first = false;
+                    } else {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "{}", decl)?;
                 }
-                write!(f, "in {}", body)
+                write!(f, " in {} end", body)
             }
             Expr::List(_, elems) => {
                 let elems_str = elems
@@ -184,8 +209,21 @@ impl Display for Expr {
             }
             Expr::Literal(_, lit) => write!(f, "{}", lit),
             Expr::Ordinal(_) => write!(f, "ordinal"),
-            Expr::RecordSelector(_, name) => write!(f, "#{}", name),
-            Expr::Tuple(_, elems) => {
+            Expr::RecordSelector(_, slot) => write!(f, "#{}", slot),
+            Expr::Tuple(t, elems) => {
+                if let Type::Record(_, type_fields) = t.as_ref() {
+                    write!(f, "{{")?;
+                    let mut first = true;
+                    for (label, e) in type_fields.keys().zip(elems.iter()) {
+                        if first {
+                            first = false;
+                        } else {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{} = {}", label, e)?;
+                    }
+                    return write!(f, "}}");
+                }
                 let elems_str = elems
                     .iter()
                     .map(|e| format!("{}", e))
@@ -474,16 +512,52 @@ impl Pat {
                 }
             }
             Pat::Constructor(_, name, inner) => {
-                // Constructor pattern. The expected variant depends on
-                // 'name': SOME / INL / INR for the built-in option/either
-                // types; NONE matches Val::Unit; user-defined constructors
-                // are not yet supported here.
-                let matched_inner = match (name.as_str(), val) {
-                    ("SOME", Val::Some(v)) => Some(v.as_ref()),
-                    ("INL", Val::Inl(v)) => Some(v.as_ref()),
-                    ("INR", Val::Inr(v)) => Some(v.as_ref()),
-                    ("NONE", Val::Unit) => None,
-                    _ => return false,
+                // Constructor pattern. Supports the built-in `option`,
+                // `either`, and `order` types and user-defined datatypes
+                // (whose values are `Val::Constructor(ordinal, ...)`,
+                // matched by name via the type's constructor list).
+                use std::cmp::Ordering;
+                let matched_inner: Option<Option<&Val>> =
+                    match (name.as_str(), val) {
+                        ("SOME", Val::Some(v)) => Some(Some(v.as_ref())),
+                        ("INL", Val::Inl(v)) => Some(Some(v.as_ref())),
+                        ("INR", Val::Inr(v)) => Some(Some(v.as_ref())),
+                        ("NONE", Val::Unit) => Some(None),
+                        ("LESS", Val::Order(o)) if o.0 == Ordering::Less => {
+                            Some(None)
+                        }
+                        ("EQUAL", Val::Order(o)) if o.0 == Ordering::Equal => {
+                            Some(None)
+                        }
+                        ("GREATER", Val::Order(o))
+                            if o.0 == Ordering::Greater =>
+                        {
+                            Some(None)
+                        }
+                        // Built-in constructor name with a non-matching
+                        // value of one of those special types: not a match.
+                        ("SOME", _)
+                        | ("INL", _)
+                        | ("INR", _)
+                        | ("NONE", _)
+                        | ("LESS", _)
+                        | ("EQUAL", _)
+                        | ("GREATER", _) => None,
+                        // User-defined datatype constructor:
+                        // `Val::Constructor(ordinal, payload)`. We don't
+                        // know the ordinal here (no datatype context), so
+                        // a nullary pattern matches a nullary constructor
+                        // value carrying `Val::Unit`, and a non-nullary
+                        // pattern matches a non-unit payload. The compiler
+                        // emits Code::BindConstructor2 for these at
+                        // runtime; this branch is only reached at compile
+                        // time during the inliner's case-on-constant
+                        // rewrite, where we conservatively return false to
+                        // avoid an unsound rewrite.
+                        _ => return false,
+                    };
+                let Some(matched_inner) = matched_inner else {
+                    return false;
                 };
                 match (inner, matched_inner) {
                     (Some(p), Some(v)) => p.bind_recurse(v, consumer),
@@ -626,7 +700,12 @@ impl Display for Pat {
             Pat::Cons(_, head, tail) => write!(f, "{} :: {}", head, tail),
             Pat::Constructor(_, name, None) => write!(f, "{}", name),
             Pat::Constructor(_, name, Some(pat)) => {
-                write!(f, "{} {}", name, pat)
+                // Wrap the constructor argument in parens to match
+                // morel-java's unparser (e.g. `SOME(s)`, `INL(x)`).
+                match pat.as_ref() {
+                    Pat::Tuple(_, _) => write!(f, "{} {}", name, pat),
+                    _ => write!(f, "{}({})", name, pat),
+                }
             }
             Pat::Identifier(_, name) => write!(f, "{}", name),
             Pat::List(_, pats) => {
@@ -638,7 +717,49 @@ impl Display for Pat {
                 write!(f, "[{}]", pats_str)
             }
             Pat::Literal(_, val) => write!(f, "{}", val),
-            Pat::Record(_, fields, ellipsis) => {
+            Pat::Record(t, fields, ellipsis) => {
+                // Expand `{a = ..., ...}` to `{a = ..., b = _, ...}`
+                // listing every field of the record type (with `_` for
+                // any field not bound by the pattern), so that the
+                // unparser output matches morel-java.
+                let labels: Vec<&Label> = match t.as_ref() {
+                    Type::Record(_, fs) => fs.keys().collect(),
+                    _ => Vec::new(),
+                };
+                if !labels.is_empty() && *ellipsis {
+                    use std::collections::BTreeMap;
+                    let mut explicit: BTreeMap<String, String> =
+                        BTreeMap::new();
+                    for field in fields {
+                        match field {
+                            PatField::Labeled(name, pat) => {
+                                explicit
+                                    .insert(name.clone(), format!("{}", pat));
+                            }
+                            PatField::Anonymous(pat) => {
+                                if let Some(name) = pat.name() {
+                                    explicit.insert(name, format!("{}", pat));
+                                }
+                            }
+                            PatField::Ellipsis => {}
+                        }
+                    }
+                    let parts: Vec<String> = labels
+                        .iter()
+                        .filter_map(|l| match l {
+                            Label::String(s) => Some(s.as_str()),
+                            _ => None,
+                        })
+                        .map(|name| {
+                            let body = explicit
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_else(|| "_".to_string());
+                            format!("{} = {}", name, body)
+                        })
+                        .collect();
+                    return write!(f, "{{{}}}", parts.join(", "));
+                }
                 let fields_str = fields
                     .iter()
                     .map(|field| match field {

@@ -619,7 +619,9 @@ impl Code {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
             Code::ApplyClosure(_, _, _) => *mode == EvalMode::Eager0,
-            Code::ApplyConstant(_, _) => *mode == EvalMode::Eager0,
+            Code::ApplyConstant(_, _) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
             Code::Bind(_) => *mode == EvalMode::Eager0,
             Code::BindAnd(_) => *mode == EvalMode::EagerV1,
             Code::BindCons(_, _) => {
@@ -1602,6 +1604,9 @@ impl Display for Code {
             Self::BindAnd(codes) => {
                 Self::write_codes(f, "bindAnd(", codes, ")")
             }
+            Self::BindConstructor(name, inner) => {
+                write!(f, "bindCon({}, {})", name, inner)
+            }
             Self::BindConstructor2(ordinal, _) => {
                 write!(f, "bindCon2(#{})", ordinal)
             }
@@ -2106,6 +2111,7 @@ pub enum EagerF1 {
     RealTrunc,
     RelationalMax,
     RelationalMin,
+    SysPlanEx,
     SysShow,
     SysUnset,
 }
@@ -2137,7 +2143,8 @@ impl EagerF1 {
             | IntAbs | ListHd | ListLast | ListOnly | ListTl | OptionValOf
             | RealCeil | RealCheckFloat | RealFloor | RealRound | RealSign
             | RealTrunc | RelationalMax | RelationalMin => true,
-            InteractUse | InteractUseSilently | SysShow | SysUnset => false,
+            InteractUse | InteractUseSilently | SysPlanEx | SysShow
+            | SysUnset => false,
         }
     }
 
@@ -2200,6 +2207,38 @@ impl EagerF1 {
             RealTrunc => Real::trunc(a0.expect_real(), span.unwrap()),
             RelationalMax => Relational::max(a0.expect_list(), span.unwrap()),
             RelationalMin => Relational::min(a0.expect_list(), span.unwrap()),
+            SysPlanEx => {
+                // Re-plan the most recently executed expression at the
+                // requested optimizer phase. The phase string is parsed
+                // as an integer: a negative value (e.g. "~1") returns the
+                // declaration before any inlining; a non-negative value
+                // returns the declaration after all inlining passes have
+                // run. Intermediate-pass replanning is not yet supported,
+                // so any non-negative value yields the post-inline form.
+                let phase = a0.expect_string();
+                let target_pass = phase.replace('~', "-").parse::<i32>();
+                let s = match target_pass {
+                    Ok(p) if p < 0 => r
+                        .session
+                        .pre_inline_decl
+                        .as_ref()
+                        .map(|d| format!("{}", d))
+                        .unwrap_or_default(),
+                    Ok(_) => r
+                        .session
+                        .post_inline_decl
+                        .as_ref()
+                        .map(|d| format!("{}", d))
+                        .unwrap_or_default(),
+                    Err(_) => r
+                        .session
+                        .pre_inline_decl
+                        .as_ref()
+                        .map(|d| format!("{}", d))
+                        .unwrap_or_default(),
+                };
+                Ok(Val::String(s))
+            }
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
@@ -4004,6 +4043,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
     EagerF0::SysEnv.implements(&mut b, SysEnv);
     EagerF0::SysPlan.implements(&mut b, SysPlan);
+    EagerF1::SysPlanEx.implements(&mut b, SysPlanEx);
     EagerF2::SysSet.implements(&mut b, SysSet);
     EagerF1::SysShow.implements(&mut b, SysShow);
     EagerF0::SysShowAll.implements(&mut b, SysShowAll);

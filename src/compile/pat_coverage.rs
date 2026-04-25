@@ -25,11 +25,11 @@
 
 use crate::compile::sat::{Formula, Sat};
 use crate::compile::type_resolver::{TypeMap, Warning};
-use crate::compile::types::{PrimitiveType, Type};
+use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::shell::error::Error;
 use crate::syntax::ast::{
-    Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match, Pat, PatKind,
-    Span,
+    Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match, Pat, PatField,
+    PatKind, Span,
 };
 use std::collections::HashMap;
 
@@ -228,9 +228,58 @@ impl<'a> CoverageChecker<'a> {
                 }
             }
 
-            PatKind::Record(_, _) => {
-                // Records are product types; treat as exhaustive for now.
-                Formula::True
+            PatKind::Record(fields, _ellipsis) => {
+                // Records are product types: each labelled field
+                // contributes its own conjunct, indexed by the field's
+                // position in the record type's alphabetical ordering.
+                // Anonymous fields and ellipses don't constrain the value
+                // beyond the others. Unknown record types are treated as
+                // exhaustive (Formula::True).
+                let labels: Vec<&Label> = match type_ {
+                    Type::Record(_, fs) => fs.keys().collect(),
+                    _ => return Formula::True,
+                };
+                let field_types: Vec<Type> = match type_ {
+                    Type::Record(_, fs) => fs.values().cloned().collect(),
+                    _ => return Formula::True,
+                };
+                let mut conjuncts: Vec<Formula> = Vec::new();
+                for field in fields {
+                    let (name_opt, sub_pat) = match field {
+                        PatField::Labeled(_, n, p) => (Some(n.clone()), p),
+                        PatField::Anonymous(_, p) => {
+                            // An anonymous identifier pattern carries its
+                            // name as an identifier; treat it like
+                            // Labeled with that name.
+                            let name = match &p.kind {
+                                PatKind::Identifier(n) => Some(n.clone()),
+                                _ => None,
+                            };
+                            (name, p)
+                        }
+                        PatField::Ellipsis(_) => continue,
+                    };
+                    let Some(name) = name_opt else { continue };
+                    let Some(idx) = labels.iter().position(
+                        |l| matches!(l, Label::String(s) if s == &name),
+                    ) else {
+                        continue;
+                    };
+                    let elem_type = &field_types[idx];
+                    path.push(idx);
+                    let f = self.pat_formula_typed(sub_pat, path, elem_type);
+                    path.pop();
+                    if !matches!(f, Formula::True) {
+                        conjuncts.push(f);
+                    }
+                }
+                if conjuncts.is_empty() {
+                    Formula::True
+                } else if conjuncts.len() == 1 {
+                    conjuncts.remove(0)
+                } else {
+                    Formula::And(conjuncts)
+                }
             }
         }
     }
@@ -381,7 +430,10 @@ impl<'a> CoverageChecker<'a> {
 // ---------------------------------------------------------------------------
 
 /// Returns the constructor names for a closed (finite) type, or `None` for
-/// open (infinite) types like `int` and `string`.
+/// open (infinite) types like `int` and `string`. `datatypes` is the
+/// per-session `datatype_constructors` table, pre-seeded with the
+/// built-in datatypes (`bool`, `either`, `list`, `option`, `order`) and
+/// extended with each user-declared datatype as it is resolved.
 fn closed_constructors(
     type_: &Type,
     user_datatypes: &HashMap<String, Vec<String>>,

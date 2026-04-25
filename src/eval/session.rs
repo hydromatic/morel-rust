@@ -15,7 +15,10 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::library::BuiltInFunction;
+use crate::compile::core::Decl;
+use crate::compile::library::{
+    BuiltInFunction, built_in_datatype_constructors,
+};
 use crate::compile::type_env::{
     BindType, EmptyTypeEnv, FunTypeEnv, SimpleTypeEnv, TypeEnv, TypeEnvBuilder,
 };
@@ -40,6 +43,12 @@ pub struct Session {
     pub config: Config,
     /// The plan of the previous command.
     pub code: Option<Arc<Code>>,
+    /// Core declaration of the previous command, before inlining. Used by
+    /// `Sys.planEx` to show the plan at the start of the optimizer.
+    pub pre_inline_decl: Option<Decl>,
+    /// Core declaration of the previous command, after inlining. Used by
+    /// `Sys.planEx` to show the plan after all optimization passes.
+    pub post_inline_decl: Option<Decl>,
     /// The output lines of the previous command.
     pub out: Option<Vec<String>>,
     /// The accumulated type environment (bindings from previous statements).
@@ -94,14 +103,21 @@ impl Session {
                 .or_default()
                 .push(*f.get_type());
         }
+        // Seed the datatype constructor map with the built-in datatypes
+        // (`bool`, `either`, `list`, `option`, `order`, ...); user-
+        // declared datatypes are added incrementally as their
+        // declarations are resolved.
+        let datatype_constructors = built_in_datatype_constructors();
         Session {
             config: Config::default(),
             code: None,
+            pre_inline_decl: None,
+            post_inline_decl: None,
             out: None,
             type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
             type_bindings: HashMap::new(),
             type_aliases: HashMap::new(),
-            datatype_constructors: HashMap::new(),
+            datatype_constructors,
             constructor_arg_types: HashMap::new(),
             overloads,
         }

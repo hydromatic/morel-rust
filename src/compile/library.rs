@@ -18,7 +18,7 @@
 use crate::compile::types::Type;
 use crate::eval::code::{Impl, LIBRARY};
 use crate::eval::val::Val;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 use strum::{EnumCount, EnumProperty, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter, EnumProperty, EnumString};
@@ -114,7 +114,8 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 2 ('a -> 'b option) -> 'a bag -> 'b bag"))]
     BagMapPartial,
     #[strum(props(p = "Bag", name = "nil", global = true))]
-    #[strum(props(type = "forall 1 'a bag", constructor = true))]
+    #[strum(props(type = "forall 1 'a bag"))]
+    #[strum(props(constructor = true, datatype = "bag"))]
     BagNil,
     #[strum(props(p = "Bag", name = "null"))]
     #[strum(props(type = "forall 1 'a bag -> bool"))]
@@ -151,6 +152,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "bool * bool -> bool"))]
     BoolEq,
     #[strum(props(name = "false", type = "bool"))]
+    #[strum(props(constructor = true, datatype = "bool"))]
     BoolFalse,
     #[strum(props(p = "Bool", name = "fromString"))]
     #[strum(props(type = "string -> bool option"))]
@@ -172,7 +174,8 @@ pub enum BuiltInFunction {
     BoolOrElse,
     #[strum(props(p = "Bool", name = "toString", type = "bool -> string"))]
     BoolToString,
-    #[strum(props(name = "true", type = "bool", constructor = true))]
+    #[strum(props(name = "true", type = "bool"))]
+    #[strum(props(constructor = true, datatype = "bool"))]
     BoolTrue,
     #[strum(props(p = "Char", name = "chr", global = true))]
     #[strum(props(type = "int -> char", throws = "Chr"))]
@@ -257,7 +260,8 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Char", name = "toUpper", type = "char -> char"))]
     CharToUpper,
     #[strum(props(p = "Relational", name = "DESC", global = true))]
-    #[strum(props(type = "forall 1 'a -> 'a descending", constructor = true))]
+    #[strum(props(type = "forall 1 'a -> 'a descending"))]
+    #[strum(props(constructor = true, datatype = "descending"))]
     DescendingDesc,
     #[strum(props(p = "Either", name = "app"))]
     #[strum(props(
@@ -283,10 +287,12 @@ pub enum BuiltInFunction {
     ))]
     EitherFold,
     #[strum(props(name = "INL", global = true))]
-    #[strum(props(type = "forall 2 'a -> ('a,'b) either", constructor = true))]
+    #[strum(props(type = "forall 2 'a -> ('a,'b) either"))]
+    #[strum(props(constructor = true, datatype = "either"))]
     EitherInl,
     #[strum(props(name = "INR", global = true))]
-    #[strum(props(type = "forall 2 'b -> ('a,'b) either", constructor = true))]
+    #[strum(props(type = "forall 2 'b -> ('a,'b) either"))]
+    #[strum(props(constructor = true, datatype = "either"))]
     EitherInr,
     #[strum(props(p = "Either", name = "isLeft"))]
     #[strum(props(type = "forall 2 ('a,'b) either -> bool"))]
@@ -550,6 +556,7 @@ pub enum BuiltInFunction {
     ListConcat,
     #[strum(props(p = "List", name = "::", alias = "op ::"))]
     #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
+    #[strum(props(constructor = true, datatype = "list"))]
     ListCons,
     #[strum(props(p = "List", name = "drop", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
@@ -600,7 +607,8 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 2 (int * 'a -> 'b) -> 'a list -> 'b list"))]
     ListMapi,
     #[strum(props(p = "List", name = "nil", global = true))]
-    #[strum(props(type = "forall 1 'a list", constructor = true))]
+    #[strum(props(type = "forall 1 'a list"))]
+    #[strum(props(constructor = true, datatype = "list"))]
     ListNil,
     #[strum(props(name = "notElem", global = true))]
     #[strum(props(type = "forall 1 'a * 'a list -> bool"))]
@@ -708,22 +716,27 @@ pub enum BuiltInFunction {
     ))]
     OptionMapPartial,
     #[strum(props(p = "Option", name = "NONE", global = true))]
-    #[strum(props(type = "forall 1 'a option", constructor = true))]
+    #[strum(props(type = "forall 1 'a option"))]
+    #[strum(props(constructor = true, datatype = "option"))]
     OptionNone,
     #[strum(props(p = "Option", name = "SOME", global = true))]
-    #[strum(props(type = "forall 1 'a -> 'a option", constructor = true))]
+    #[strum(props(type = "forall 1 'a -> 'a option"))]
+    #[strum(props(constructor = true, datatype = "option"))]
     OptionSome,
     #[strum(props(p = "Option", name = "valOf", global = true))]
     #[strum(props(type = "forall 1 'a option -> 'a", throws = "Option"))]
     OptionValOf,
     #[strum(props(p = "Order", name = "EQUAL", global = true))]
-    #[strum(props(type = "`order`", constructor = true))]
+    #[strum(props(type = "`order`"))]
+    #[strum(props(constructor = true, datatype = "order"))]
     OrderEqual,
     #[strum(props(p = "Order", name = "GREATER", global = true))]
-    #[strum(props(type = "`order`", constructor = true))]
+    #[strum(props(type = "`order`"))]
+    #[strum(props(constructor = true, datatype = "order"))]
     OrderGreater,
     #[strum(props(p = "Order", name = "LESS", global = true))]
-    #[strum(props(type = "`order`", constructor = true))]
+    #[strum(props(type = "`order`"))]
+    #[strum(props(constructor = true, datatype = "order"))]
     OrderLess,
     #[strum(props(p = "Range", name = "ALL", global = true))]
     #[strum(props(type = "forall 1 'a range", constructor = true))]
@@ -1010,6 +1023,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "plan", global = true))]
     #[strum(props(type = "unit -> string"))]
     SysPlan,
+    #[strum(props(p = "Sys", name = "planEx", global = true))]
+    #[strum(props(type = "string -> string"))]
+    SysPlanEx,
     #[strum(props(p = "Sys", name = "set", global = true))]
     #[strum(props(type = "forall 1 string * 'a -> unit"))]
     SysSet,
@@ -1196,8 +1212,22 @@ impl BuiltInFunction {
         }
     }
 
+    /// Returns the structure (package) this function belongs to, e.g.
+    /// `"String"` for `String.size`. Returns `None` for top-level
+    /// functions like `bag` or `vector`.
+    pub(crate) fn package(&self) -> Option<&'static str> {
+        self.get_str("p")
+    }
+
     pub(crate) fn is_constructor(&self) -> bool {
         self.get_bool("constructor").is_some_and(|b| b)
+    }
+
+    /// Returns the name of the datatype this constructor belongs to
+    /// (e.g. `"bool"`, `"option"`, `"list"`), or `None` if this function
+    /// is not a constructor.
+    pub(crate) fn datatype(&self) -> Option<&'static str> {
+        self.get_str("datatype")
     }
 
     pub(crate) fn is_global(&self) -> bool {
@@ -1448,6 +1478,25 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
             map.insert(op_name, (t.clone(), Some(Val::Fn(*f))));
         }
     }
+}
+
+/// Returns the constructor names of each built-in datatype. Derived
+/// from the `constructor = true, datatype = "..."` strum metadata on
+/// each built-in function. Used to seed the per-session
+/// `datatype_constructors` map; user-declared datatypes are added on
+/// top.
+pub fn built_in_datatype_constructors() -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for f in BuiltInFunction::iter() {
+        if f.is_constructor()
+            && let Some(dt) = f.datatype()
+        {
+            map.entry(dt.to_string())
+                .or_default()
+                .push(f.name().to_string());
+        }
+    }
+    map
 }
 
 /// Looks up a built-in (function or structure) by name.
