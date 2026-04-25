@@ -327,16 +327,34 @@ impl Pretty {
                     )?;
                 }
                 buf.push(' ');
+                // If the value is a `variant`, the static type is `variant`
+                // but we display the wrapped inner type with a " variant"
+                // suffix, e.g. `42 : int variant`.
+                let (display_type, type_suffix) = match v2 {
+                    Val::Variant(boxed) => {
+                        (boxed.as_ref().0.clone(), " variant")
+                    }
+                    _ => (t2.renumbered(), ""),
+                };
                 self.pretty1(
                     buf,
                     indent + 2,
                     line_end,
                     depth,
                     &BOOL,
-                    &Val::new_type(": ", &t2.renumbered()),
+                    &Val::new_type(": ", &display_type),
                     0,
                     0,
                 )?;
+                if !type_suffix.is_empty() {
+                    self.pretty_raw(
+                        buf,
+                        indent + 2,
+                        line_end,
+                        depth,
+                        type_suffix,
+                    )?;
+                }
                 return Ok(());
             }
             Val::Named(b) => {
@@ -427,6 +445,39 @@ impl Pretty {
                     element_type,
                     value.expect_list(),
                 )?;
+            }
+            Type::Named(_, name) => {
+                // For arbitrary named types (used as a placeholder for
+                // unknown `CONSTANT`/`CONSTRUCT` constructors), `name`
+                // is the constructor name and the value is either:
+                //   - `Val::Unit` for a nullary `CONSTANT`,
+                //   - a `Val::Variant` payload for a unary `CONSTRUCT`,
+                //     printed recursively with its own inner type, so
+                //     nested `CONSTANT`/`CONSTRUCT` round-trip cleanly.
+                self.pretty_raw(buf, indent, line_end, depth, name)?;
+                match value {
+                    Val::Unit => {}
+                    Val::Variant(boxed) => {
+                        buf.push(' ');
+                        let need_parens =
+                            !matches!(boxed.0, Type::Primitive(_));
+                        if need_parens {
+                            buf.push('(');
+                        }
+                        let (inner_type, inner_val) = boxed.as_ref();
+                        self.pretty1(
+                            buf, indent, line_end, depth, inner_type,
+                            inner_val, 0, 0,
+                        )?;
+                        if need_parens {
+                            buf.push(')');
+                        }
+                    }
+                    _ => {
+                        buf.push(' ');
+                        write!(buf, "{}", value)?;
+                    }
+                }
             }
             Type::Primitive(prim_type) => {
                 self.pretty_primitive(buf, prim_type, value)?;
@@ -838,6 +889,15 @@ impl Pretty {
                     write!(buf, "{}", value)?;
                 }
                 return Ok(());
+            }
+            Val::Variant(boxed) => {
+                // For a variant, recursively print the wrapped value with
+                // its inner type. The " variant" suffix on the type itself
+                // is added by the caller (see Pretty::pretty2).
+                let (inner_type, inner_val) = boxed.as_ref();
+                return self.pretty1(
+                    buf, indent, line_end, depth, inner_type, inner_val, 0, 0,
+                );
             }
             _ => panic!("Expected list"),
         };

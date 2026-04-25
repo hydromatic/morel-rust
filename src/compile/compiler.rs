@@ -37,6 +37,7 @@ use crate::eval::order::Order;
 use crate::eval::row_sink::{RowSink, RowSinkFactory};
 use crate::eval::session::Session;
 use crate::eval::val::{RANGE_ALL_ORDINAL, Val};
+use crate::eval::variant::{none as variant_none, unit as variant_unit};
 use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::{Environment, MorelError};
@@ -1263,6 +1264,8 @@ impl<'a> Compiler<'a> {
                     Val::Fn(BuiltInFunction::RangeAll) => {
                         Val::Constructor(RANGE_ALL_ORDINAL, Box::new(Val::Unit))
                     }
+                    Val::Fn(BuiltInFunction::VariantNone) => variant_none(),
+                    Val::Fn(BuiltInFunction::VariantUnit) => variant_unit(),
                     _ => val.clone(),
                 };
                 Code::new_constant(type_, val2.clone())

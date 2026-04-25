@@ -399,7 +399,7 @@ impl<'a> TermToTypeConverter<'a> {
                         let args = vec![*self.term_type(&sequence.terms[0])];
                         Box::new(Type::Data(op_name.to_string(), args))
                     }
-                    "order" => {
+                    "order" | "variant" => {
                         assert_eq!(sequence.terms.len(), 0);
                         Box::new(Type::Data(op_name.to_string(), vec![]))
                     }
@@ -5094,7 +5094,7 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
         TypeKind::Id(name) => PrimitiveType::parse_name(name)
             .map(Type::Primitive)
             .or_else(|| match name.as_str() {
-                "order" | "option" | "list" | "bag" | "vector" => {
+                "order" | "option" | "list" | "bag" | "vector" | "variant" => {
                     Some(Type::Data(name.clone(), vec![]))
                 }
                 _ => None,

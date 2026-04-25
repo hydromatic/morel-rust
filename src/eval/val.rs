@@ -86,6 +86,12 @@ pub enum Val {
     /// `Inr(v)` represents the `Either` value `INR v`.
     Inr(Box<Val>),
 
+    /// `Variant(type, value)` represents an instance of the built-in
+    /// `variant` datatype: a value of any Morel type, tagged at runtime
+    /// with its inner type. Constructed by the `Variant.UNIT`, `INT`,
+    /// `STRING`, `LIST`, etc. functions.
+    Variant(Box<(Type, Val)>),
+
     /// `Constructor(ordinal, v)` represents a user-defined datatype
     /// constructor application. `ordinal` is the 0-based position of the
     /// constructor in the datatype declaration (used for comparison
@@ -410,6 +416,11 @@ impl Hash for Val {
             Val::Inr(v) => {
                 12.hash(state);
                 v.hash(state);
+            }
+            Val::Variant(boxed) => {
+                21.hash(state);
+                // Hash only the value; the inner type is derivable from it.
+                boxed.as_ref().1.hash(state);
             }
             Val::Constructor(ordinal, v) => {
                 20.hash(state);

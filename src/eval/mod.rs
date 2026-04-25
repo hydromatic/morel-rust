@@ -37,4 +37,5 @@ pub mod row_sink;
 pub mod session;
 pub mod string;
 pub mod val;
+pub mod variant;
 pub mod vector;

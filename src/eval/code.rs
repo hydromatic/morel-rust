@@ -43,6 +43,7 @@ use crate::eval::row_sink::RowSinkFactory;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::val::{self, Val};
+use crate::eval::variant;
 use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
 use crate::shell::prop::{Configurable, Prop};
@@ -380,7 +381,7 @@ impl Code {
         let is_builtin = match type_ {
             Type::Data(n, _) => matches!(
                 n.as_str(),
-                "option" | "either" | "order" | "descending"
+                "option" | "either" | "order" | "descending" | "variant"
             ),
             _ => true,
         };
@@ -401,6 +402,8 @@ impl Code {
                 "LESS" => Val::Order(Order(Ordering::Less)),
                 "EQUAL" => Val::Order(Order(Ordering::Equal)),
                 "GREATER" => Val::Order(Order(Ordering::Greater)),
+                "UNIT" => variant::unit(),
+                "VARIANT_NONE" => variant::none(),
                 _ => {
                     panic!("unsupported nullary built-in constructor {}", name)
                 }
@@ -1079,6 +1082,76 @@ impl Code {
                     ("SOME", Val::Some(a)) => pat_code.eval_f1(r, f, a),
                     ("INL", Val::Inl(a)) => pat_code.eval_f1(r, f, a),
                     ("INR", Val::Inr(a)) => pat_code.eval_f1(r, f, a),
+                    // `variant` constructors: each matches a `Val::Variant`
+                    // whose inner type is consistent with the constructor.
+                    (
+                        "BOOL" | "INT" | "REAL" | "CHAR" | "STRING",
+                        Val::Variant(boxed),
+                    ) if matches!(
+                        (name.as_str(), &boxed.0),
+                        ("BOOL", Type::Primitive(PrimitiveType::Bool))
+                            | ("INT", Type::Primitive(PrimitiveType::Int))
+                            | ("REAL", Type::Primitive(PrimitiveType::Real))
+                            | ("CHAR", Type::Primitive(PrimitiveType::Char))
+                            | (
+                                "STRING",
+                                Type::Primitive(PrimitiveType::String)
+                            )
+                    ) =>
+                    {
+                        pat_code.eval_f1(r, f, &boxed.1)
+                    }
+                    ("LIST", Val::Variant(boxed)) => {
+                        let elem_type = match &boxed.0 {
+                            Type::List(t) => t.as_ref(),
+                            _ => return Ok(Val::Bool(false)),
+                        };
+                        let rewrapped =
+                            wrap_collection_elements(elem_type, &boxed.1);
+                        pat_code.eval_f1(r, f, &rewrapped)
+                    }
+                    ("BAG", Val::Variant(boxed)) => {
+                        let elem_type = match &boxed.0 {
+                            Type::Bag(t) => t.as_ref(),
+                            _ => return Ok(Val::Bool(false)),
+                        };
+                        let rewrapped =
+                            wrap_collection_elements(elem_type, &boxed.1);
+                        pat_code.eval_f1(r, f, &rewrapped)
+                    }
+                    ("VECTOR", Val::Variant(boxed)) => {
+                        let elem_type = match &boxed.0 {
+                            Type::Data(n, args)
+                                if n == "vector" && !args.is_empty() =>
+                            {
+                                &args[0]
+                            }
+                            _ => return Ok(Val::Bool(false)),
+                        };
+                        let rewrapped =
+                            wrap_collection_elements(elem_type, &boxed.1);
+                        pat_code.eval_f1(r, f, &rewrapped)
+                    }
+                    ("VARIANT_SOME", Val::Variant(boxed))
+                        if matches!(
+                            (&boxed.0, &boxed.1),
+                            (Type::Data(n, _), Val::Some(_)) if n == "option"
+                        ) =>
+                    {
+                        if let Val::Some(inner) = &boxed.1 {
+                            pat_code.eval_f1(r, f, inner)
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    ("RECORD", Val::Variant(boxed)) => {
+                        let rewrapped =
+                            match wrap_record_pairs(&boxed.0, &boxed.1) {
+                                Some(v) => v,
+                                None => return Ok(Val::Bool(false)),
+                            };
+                        pat_code.eval_f1(r, f, &rewrapped)
+                    }
                     _ => Ok(Val::Bool(false)),
                 }
             }
@@ -1354,6 +1427,78 @@ impl Code {
 /// recursive let-bound closures (like the `fact4` helper inside
 /// `baz4` in `closure.smli`) work without rebuilding their
 /// captured environment from a now-vanished outer frame.
+/// Re-wraps the elements of a homogeneous LIST/BAG/VECTOR variant value
+/// as `Val::Variant((elem_type, elem))` so that a constructor pattern
+/// (e.g. `LIST (v::vs)`) hands the inner pattern a list of variants
+/// rather than raw element values. If the elements are already variants
+/// (the heterogeneous case where `elem_type` is `variant`), they are
+/// passed through unchanged. Returns the rewritten `Val::List`.
+fn wrap_collection_elements(elem_type: &Type, value: &Val) -> Val {
+    let items = match value {
+        Val::List(items) => items,
+        _ => return value.clone(),
+    };
+    let already_variant = matches!(
+        elem_type,
+        Type::Data(name, _) if name == "variant"
+    );
+    if already_variant {
+        return value.clone();
+    }
+    let wrapped: Vec<Val> = items
+        .iter()
+        .map(|v| match v {
+            Val::Variant(_) => v.clone(),
+            _ => Val::Variant(Box::new((elem_type.clone(), v.clone()))),
+        })
+        .collect();
+    Val::List(wrapped)
+}
+
+/// Re-wraps the fields of a RECORD variant value as the list of
+/// `(label, variant)` pairs that the constructor takes. Returns
+/// `None` if the variant's inner type isn't a record/tuple, signalling
+/// the pattern doesn't match.
+fn wrap_record_pairs(inner_type: &Type, value: &Val) -> Option<Val> {
+    let values = match value {
+        Val::List(items) => items,
+        Val::Unit => &Vec::new(),
+        _ => return None,
+    };
+    let pairs: Vec<Val> = match inner_type {
+        Type::Record(_, fields) => fields
+            .iter()
+            .zip(values.iter())
+            .map(|((label, field_type), v)| {
+                let inner = match v {
+                    Val::Variant(_) => v.clone(),
+                    _ => {
+                        Val::Variant(Box::new((field_type.clone(), v.clone())))
+                    }
+                };
+                Val::List(vec![Val::String(label.to_string()), inner])
+            })
+            .collect(),
+        Type::Tuple(types) => types
+            .iter()
+            .zip(values.iter())
+            .enumerate()
+            .map(|(i, (field_type, v))| {
+                let inner = match v {
+                    Val::Variant(_) => v.clone(),
+                    _ => {
+                        Val::Variant(Box::new((field_type.clone(), v.clone())))
+                    }
+                };
+                Val::List(vec![Val::String((i + 1).to_string()), inner])
+            })
+            .collect(),
+        Type::Primitive(PrimitiveType::Unit) => Vec::new(),
+        _ => return None,
+    };
+    Some(Val::List(pairs))
+}
+
 fn capture_bound_vals(
     frame_def: &Arc<FrameDef>,
     bind_codes: &[Code],
@@ -1762,6 +1907,8 @@ pub enum Eager0 {
     RealPrecision,
     RealRadix,
     StringMaxSize,
+    VariantNone,
+    VariantUnit,
     VectorMaxLen,
 }
 
@@ -1799,6 +1946,8 @@ impl Eager0 {
             RealPrecision => Val::Int(24), // IEEE 754 single precision
             RealRadix => Val::Int(2),
             StringMaxSize => Val::Int(i32::MAX),
+            VariantNone => variant::none(),
+            VariantUnit => variant::unit(),
             VectorMaxLen => Val::Int(Vector::max_len()),
         }
     }
@@ -2200,6 +2349,20 @@ pub enum Eager1 {
     StringImplode,
     StringSize,
     StringStr,
+    VariantBag,
+    VariantBool,
+    VariantChar,
+    VariantConstant,
+    VariantConstruct,
+    VariantInt,
+    VariantList,
+    VariantParse,
+    VariantPrint,
+    VariantReal,
+    VariantRecord,
+    VariantSome,
+    VariantString,
+    VariantVector,
     Vector,
     VectorConcat,
     VectorFromList,
@@ -2447,6 +2610,35 @@ impl Eager1 {
                 let c = a0.expect_char();
                 Val::String(c.to_string())
             }
+            VariantBag => variant::bag(a0),
+            VariantBool => Val::Variant(Box::new((
+                Type::Primitive(PrimitiveType::Bool),
+                a0,
+            ))),
+            VariantChar => Val::Variant(Box::new((
+                Type::Primitive(PrimitiveType::Char),
+                a0,
+            ))),
+            VariantConstant => variant::constant(a0),
+            VariantConstruct => variant::construct(a0),
+            VariantInt => Val::Variant(Box::new((
+                Type::Primitive(PrimitiveType::Int),
+                a0,
+            ))),
+            VariantList => variant::list(a0),
+            VariantParse => variant::parse(a0),
+            VariantPrint => variant::print(a0),
+            VariantReal => Val::Variant(Box::new((
+                Type::Primitive(PrimitiveType::Real),
+                a0,
+            ))),
+            VariantRecord => variant::record(a0),
+            VariantSome => variant::some(a0),
+            VariantString => Val::Variant(Box::new((
+                Type::Primitive(PrimitiveType::String),
+                a0,
+            ))),
+            VariantVector => variant::vector(a0),
             Vector => a0, // as VectorFromList
             VectorConcat => {
                 use crate::eval::vector::Vector as VectorOps;
@@ -3816,6 +4008,22 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF1::SysShow.implements(&mut b, SysShow);
     EagerF0::SysShowAll.implements(&mut b, SysShowAll);
     EagerF1::SysUnset.implements(&mut b, SysUnset);
+    Eager1::VariantBag.implements(&mut b, VariantBag);
+    Eager1::VariantBool.implements(&mut b, VariantBool);
+    Eager1::VariantChar.implements(&mut b, VariantChar);
+    Eager1::VariantConstant.implements(&mut b, VariantConstant);
+    Eager1::VariantConstruct.implements(&mut b, VariantConstruct);
+    Eager1::VariantInt.implements(&mut b, VariantInt);
+    Eager1::VariantList.implements(&mut b, VariantList);
+    Eager0::VariantNone.implements(&mut b, VariantNone);
+    Eager1::VariantParse.implements(&mut b, VariantParse);
+    Eager1::VariantPrint.implements(&mut b, VariantPrint);
+    Eager1::VariantReal.implements(&mut b, VariantReal);
+    Eager1::VariantRecord.implements(&mut b, VariantRecord);
+    Eager1::VariantSome.implements(&mut b, VariantSome);
+    Eager1::VariantString.implements(&mut b, VariantString);
+    Eager0::VariantUnit.implements(&mut b, VariantUnit);
+    Eager1::VariantVector.implements(&mut b, VariantVector);
     Eager1::Vector.implements(&mut b, Vector);
     EagerF2::VectorAll.implements(&mut b, VectorAll);
     EagerF2::VectorApp.implements(&mut b, VectorApp);

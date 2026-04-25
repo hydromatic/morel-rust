@@ -1022,6 +1022,81 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "unset", global = true))]
     #[strum(props(type = "string -> unit"))]
     SysUnset,
+    /// `Variant.BAG`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "BAG", global = true))]
+    #[strum(props(type = "variant list -> variant", constructor = true))]
+    VariantBag,
+    /// `Variant.BOOL`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "BOOL", global = true))]
+    #[strum(props(type = "bool -> variant", constructor = true))]
+    VariantBool,
+    /// `Variant.CHAR`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "CHAR", global = true))]
+    #[strum(props(type = "char -> variant", constructor = true))]
+    VariantChar,
+    /// `Variant.CONSTANT`: a constructor of the `variant` datatype that
+    /// represents a nullary constructor of any datatype, given by name.
+    #[strum(props(p = "Variant", name = "CONSTANT", global = true))]
+    #[strum(props(type = "string -> variant", constructor = true))]
+    VariantConstant,
+    /// `Variant.CONSTRUCT`: a constructor of the `variant` datatype that
+    /// represents a unary constructor of any datatype, given by name and
+    /// payload.
+    #[strum(props(p = "Variant", name = "CONSTRUCT", global = true))]
+    #[strum(props(type = "string * variant -> variant", constructor = true))]
+    VariantConstruct,
+    /// `Variant.INT`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "INT", global = true))]
+    #[strum(props(type = "int -> variant", constructor = true))]
+    VariantInt,
+    /// `Variant.LIST`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "LIST", global = true))]
+    #[strum(props(type = "variant list -> variant", constructor = true))]
+    VariantList,
+    /// `Variant.VARIANT_NONE`: a nullary constructor representing `NONE`
+    /// of any option type.
+    #[strum(props(p = "Variant", name = "VARIANT_NONE", global = true))]
+    #[strum(props(type = "variant", constructor = true))]
+    VariantNone,
+    /// `Variant.parse s`: the inverse of `Variant.print`; parses a
+    /// construction-expression string into the corresponding variant.
+    #[strum(props(p = "Variant", name = "parse"))]
+    #[strum(props(type = "string -> variant"))]
+    VariantParse,
+    /// `Variant.print v`: serialises a variant to the construction
+    /// expression that would build it.
+    #[strum(props(p = "Variant", name = "print"))]
+    #[strum(props(type = "variant -> string"))]
+    VariantPrint,
+    /// `Variant.REAL`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "REAL", global = true))]
+    #[strum(props(type = "real -> variant", constructor = true))]
+    VariantReal,
+    /// `Variant.RECORD`: a constructor of the `variant` datatype that
+    /// wraps a list of `(label, variant)` pairs as a record value.
+    #[strum(props(p = "Variant", name = "RECORD", global = true))]
+    #[strum(props(
+        type = "(string * variant) list -> variant",
+        constructor = true
+    ))]
+    VariantRecord,
+    /// `Variant.VARIANT_SOME`: a unary constructor representing `SOME v`
+    /// where `v` is itself a variant.
+    #[strum(props(p = "Variant", name = "VARIANT_SOME", global = true))]
+    #[strum(props(type = "variant -> variant", constructor = true))]
+    VariantSome,
+    /// `Variant.STRING`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "STRING", global = true))]
+    #[strum(props(type = "string -> variant", constructor = true))]
+    VariantString,
+    /// `Variant.UNIT`: a nullary constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "UNIT", global = true))]
+    #[strum(props(type = "variant", constructor = true))]
+    VariantUnit,
+    /// `Variant.VECTOR`: a constructor of the `variant` datatype.
+    #[strum(props(p = "Variant", name = "VECTOR", global = true))]
+    #[strum(props(type = "variant list -> variant", constructor = true))]
+    VariantVector,
     /// `vector` is a synonym for `Vector.fromList`
     #[strum(props(name = "vector", global = true, throws = "Size"))]
     #[strum(props(type = "forall 1 'a list -> 'a vector"))]
@@ -1187,6 +1262,8 @@ pub enum BuiltInRecord {
     String,
     #[strum(props(name = "Sys"))]
     Sys,
+    #[strum(props(name = "Variant"))]
+    Variant,
     #[strum(props(name = "Vector"))]
     Vector,
 }
