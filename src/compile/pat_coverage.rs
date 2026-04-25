@@ -29,6 +29,7 @@ use crate::compile::types::{PrimitiveType, Type};
 use crate::shell::error::Error;
 use crate::syntax::ast::{
     Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match, Pat, PatKind,
+    Span,
 };
 use std::collections::HashMap;
 
@@ -590,7 +591,7 @@ fn visit_expr(
 /// Checks coverage of a match arm list and accumulates results.
 fn check_matches(
     matches: &[Match],
-    expr_span: &crate::syntax::ast::Span,
+    expr_span: &Span,
     type_map: &TypeMap,
     warnings: &mut Vec<Warning>,
 ) -> Result<(), Error> {

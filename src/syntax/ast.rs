@@ -214,7 +214,7 @@ impl Expr {
 
 impl Display for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        std::fmt::Display::fmt(&self.kind, f)
+        Display::fmt(&self.kind, f)
     }
 }
 
@@ -606,7 +606,7 @@ pub struct Literal {
 
 impl Display for Literal {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        std::fmt::Display::fmt(&self.kind, f)
+        Display::fmt(&self.kind, f)
     }
 }
 
@@ -781,7 +781,7 @@ impl StepKind {
 
 impl Display for Step {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        std::fmt::Display::fmt(&self.kind, f)
+        Display::fmt(&self.kind, f)
     }
 }
 
@@ -955,7 +955,7 @@ impl Pat {
 
 impl Display for Pat {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        std::fmt::Display::fmt(&self.kind, f)
+        Display::fmt(&self.kind, f)
     }
 }
 
@@ -1101,7 +1101,7 @@ impl Decl {
 
 impl Display for Decl {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        std::fmt::Display::fmt(&self.kind, f)
+        Display::fmt(&self.kind, f)
     }
 }
 
@@ -1327,7 +1327,7 @@ pub struct Spec {
 
 impl Display for Spec {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        std::fmt::Display::fmt(&self.kind, f)
+        Display::fmt(&self.kind, f)
     }
 }
 
@@ -1492,7 +1492,7 @@ pub struct Type {
 }
 
 impl Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self.kind {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, t) => {

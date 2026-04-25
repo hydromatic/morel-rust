@@ -26,7 +26,7 @@
 use crate::unify;
 use im::{HashMap as ImHashMap, HashSet};
 use std::cell::RefCell;
-use std::cmp::{PartialEq, max};
+use std::cmp::{Ordering, PartialEq, max};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::iter::zip;
@@ -164,14 +164,14 @@ pub struct Var {
 }
 
 impl Ord for Var {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         // Compare by ID only, where -1 comes before -2.
         other.id.cmp(&self.id)
     }
 }
 
 impl PartialOrd for Var {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -455,14 +455,11 @@ impl Substitution {
     }
 
     fn has_cycles(&self) -> bool {
-        let mut active = std::collections::HashMap::new();
+        let mut active = HashMap::new();
         self.check_cycles(&mut active).is_err()
     }
 
-    fn check_cycles(
-        &self,
-        active: &mut std::collections::HashMap<i32, bool>,
-    ) -> Result<(), ()> {
+    fn check_cycles(&self, active: &mut HashMap<i32, bool>) -> Result<(), ()> {
         for term in self.substitutions.values() {
             self.check_cycle_in_term(term, active)?;
         }
@@ -472,7 +469,7 @@ impl Substitution {
     fn check_cycle_in_term(
         &self,
         term: &Term,
-        active: &mut std::collections::HashMap<i32, bool>,
+        active: &mut HashMap<i32, bool>,
     ) -> Result<(), ()> {
         match term {
             Term::Variable(var) => {

@@ -15,6 +15,8 @@
 // language governing permissions and limitations under the
 // License.
 
+use std::f32::consts;
+
 /// Support for the `Math` structure.
 pub struct Math;
 
@@ -22,10 +24,10 @@ impl Math {
     // lint: sort until '#}' where '##pub'
 
     /// The constant e (base of natural logarithm).
-    pub(crate) const E: f32 = std::f32::consts::E;
+    pub(crate) const E: f32 = consts::E;
 
     /// The constant pi.
-    pub(crate) const PI: f32 = std::f32::consts::PI;
+    pub(crate) const PI: f32 = consts::PI;
 
     /// Computes the arc cosine of x.
     pub(crate) fn acos(x: f32) -> f32 {

@@ -24,7 +24,7 @@ use crate::eval::val::Val;
 use crate::syntax::ast::{Expr, Pat, PatKind, TypeScheme};
 use crate::unify::unifier::{Term, Var};
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 use strum::EnumProperty;
 
@@ -318,7 +318,7 @@ impl Binding {
 }
 
 impl Display for Binding {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if let Some(ref v) = self.value {
             write!(f, "{}: {}", self.id.name, v)
         } else {

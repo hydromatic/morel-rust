@@ -25,15 +25,18 @@ use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
 use crate::compile::library;
 use crate::compile::library::{BuiltIn, BuiltInFunction};
-use crate::compile::postfix::{PostfixKind, postfix_dispatch};
+use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::span::Span;
-use crate::compile::type_resolver::{Resolved, TypeMap, Typed};
+use crate::compile::type_resolver::{
+    Resolved, TypeMap, Typed, ast_type_to_core_type,
+    ast_type_to_core_type_with_vars,
+};
 use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::syntax::ast::{
-    DatatypeBind, Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match,
-    Pat, PatField, PatKind, Step as AstStep, StepKind as AstStepKind,
-    Type as AstType, TypeBind, TypeKind, ValBind,
+    DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunMatch, Literal,
+    LiteralKind, Match, Pat, PatField, PatKind, Step as AstStep,
+    StepKind as AstStepKind, Type as AstType, TypeBind, TypeKind, ValBind,
 };
 use crate::syntax::parser;
 use crate::unify::unifier::Var;
@@ -1328,10 +1331,8 @@ impl<'a> Resolver<'a> {
     /// the same simple-shape recogniser used by the type-resolver.
     /// Unsupported shapes fall back to `unit`.
     fn resolve_type_bind(&self, type_bind: &TypeBind) -> CoreTypeBind {
-        let core_type = crate::compile::type_resolver::ast_type_to_core_type(
-            &type_bind.type_,
-        )
-        .unwrap_or(Type::Primitive(PrimitiveType::Unit));
+        let core_type = ast_type_to_core_type(&type_bind.type_)
+            .unwrap_or(Type::Primitive(PrimitiveType::Unit));
         CoreTypeBind {
             type_vars: type_bind.type_vars.clone(),
             name: type_bind.name.clone(),
@@ -1352,12 +1353,10 @@ impl<'a> Resolver<'a> {
                 .iter()
                 .map(|con| {
                     let tvs = &datatype_bind.type_vars;
-                    let core_type = con.type_.as_ref().and_then(|t| {
-                        crate::compile::type_resolver
-                            ::ast_type_to_core_type_with_vars(
-                                t, tvs,
-                            )
-                    });
+                    let core_type = con
+                        .type_
+                        .as_ref()
+                        .and_then(|t| ast_type_to_core_type_with_vars(t, tvs));
                     CoreConBind {
                         name: con.name.clone(),
                         type_: core_type,
@@ -1956,16 +1955,6 @@ impl ReferenceFinder {
     }
 }
 
-/// Peels type aliases and Forall wrappers for the purpose of
-/// postfix-method dispatch.
-fn peel_type(t: &Type) -> &Type {
-    match t {
-        Type::Alias(_, inner, _) => peel_type(inner),
-        Type::Forall(inner, _) => peel_type(inner),
-        _ => t,
-    }
-}
-
 /// Returns the result type of a postfix call, given the dispatched
 /// built-in and the *concrete* receiver type. We need this because
 /// type inference leaves the outer Apply's type variable unresolved
@@ -2097,7 +2086,7 @@ fn is_unresolved_type(t: &Type) -> bool {
 /// named `self`, either directly (`fun f self = ...`) or as a
 /// field of a record/tuple pattern
 /// (`fun f (self, x, y) = ...`).
-fn match_has_self_first_param(m: &crate::syntax::ast::FunMatch) -> bool {
+fn match_has_self_first_param(m: &FunMatch) -> bool {
     match m.pats.first() {
         Some(pat) => pat_has_self(pat),
         None => false,
@@ -2106,8 +2095,7 @@ fn match_has_self_first_param(m: &crate::syntax::ast::FunMatch) -> bool {
 
 /// Returns true if a pattern is `self`, `self : T`, or a record /
 /// tuple pattern containing a field named `self`.
-fn pat_has_self(pat: &crate::syntax::ast::Pat) -> bool {
-    use crate::syntax::ast::PatKind;
+fn pat_has_self(pat: &Pat) -> bool {
     match &pat.kind {
         PatKind::Identifier(name) => name == "self",
         PatKind::Annotated(inner, _) => pat_has_self(inner),

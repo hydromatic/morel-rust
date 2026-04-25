@@ -18,12 +18,13 @@
 use phf::{Map, Set, phf_map, phf_set};
 use regex::Regex;
 use std::collections::HashMap;
+use std::process::Command;
 use std::{fs, iter};
 
 #[test]
 fn lint() {
     //
-    let mut cmd = std::process::Command::new("git");
+    let mut cmd = Command::new("git");
     cmd.arg("ls-files");
 
     let output = cmd.output().expect("Failed to run 'git ls-files' command");
@@ -135,6 +136,22 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     let impl_regex = Regex::new("^ *impl ").unwrap();
     let derive_regex = Regex::new(r"#\[derive\(([^)]+)\)\]").unwrap();
     let set_mode_re = Regex::new(r#"^set\s*\(\s*"mode""#).unwrap();
+    // For .rs files: flag fully-qualified paths starting with
+    // `crate::` or `std::` outside `use` / `pub use` and outside
+    // line/doc comments. Use imports instead so call sites stay short.
+    //
+    // Allowlist: a small set of `std::` paths whose names collide
+    // with very common method/identifier names — leaving them
+    // qualified is the Rust style guide's recommendation.
+    let is_rust = file_name.ends_with(".rs");
+    let qualified_path_re = Regex::new(r"\b(crate|std)::").unwrap();
+    let qualified_path_allowed: &[&str] = &[
+        "std::mem::take",
+        "std::mem::swap",
+        "std::mem::replace",
+        "std::ptr::addr_of",
+        "std::ptr::addr_of_mut",
+    ];
     if file_type.header.is_some() {
         let contents = fs::read_to_string(file_name).unwrap();
         if !contents.starts_with(file_type.header.unwrap().as_str()) {
@@ -235,6 +252,31 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                         "{}:{}: Use `vec![]` rather than {} or {}",
                         file_name, line, vec_space, vec_paren
                     ));
+                }
+                // Flag fully-qualified paths outside `use` statements
+                // (and outside line/doc comments). Convert to a `use`
+                // import instead, so call sites stay short.
+                if is_rust && qualified_path_re.is_match(l) {
+                    let trimmed = l.trim_start();
+                    let in_comment = trimmed.starts_with("//");
+                    let in_use = trimmed.starts_with("use ")
+                        || trimmed.starts_with("pub use ");
+                    // Strip allowlisted occurrences before re-checking.
+                    let mut stripped = l.to_string();
+                    for allowed in qualified_path_allowed {
+                        stripped = stripped.replace(allowed, "");
+                    }
+                    let still_matches = qualified_path_re.is_match(&stripped);
+                    if !in_comment && !in_use && !in_raw_string && still_matches
+                    {
+                        warnings.push(format!(
+                            "{}:{}: Use a `use` import instead of \
+                             a fully-qualified path: {}",
+                            file_name,
+                            line,
+                            l.trim()
+                        ));
+                    }
                 }
                 if impl_regex.is_match(l)
                     && let Some(previous_line) =

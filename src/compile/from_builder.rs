@@ -737,6 +737,7 @@ impl fmt::Display for FromBuilder {
 mod tests {
     use super::*;
     use crate::compile::types::PrimitiveType;
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_new_builder() {
@@ -885,7 +886,7 @@ mod tests {
         let int_type = Type::Primitive(PrimitiveType::Int);
         let record_type = Type::Record(
             false,
-            std::collections::BTreeMap::from([
+            BTreeMap::from([
                 (Label::String("x".to_string()), int_type.clone()),
                 (Label::String("y".to_string()), int_type.clone()),
             ]),

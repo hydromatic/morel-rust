@@ -19,7 +19,7 @@ use crate::compile::core::{
     DatatypeBind, Decl, Expr, Match, Pat, PatField, Step, StepEnv, StepKind,
     TypeBind, ValBind,
 };
-use crate::compile::library::{BuiltInExn, BuiltInFunction};
+use crate::compile::library::{BuiltInExn, BuiltInFunction, name_to_rec};
 use crate::compile::pretty::Pretty;
 use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, Id};
@@ -1072,9 +1072,7 @@ impl<'a> Compiler<'a> {
                     Code::new_get_local(&cx.frame_def, slot)
                 } else if let Some(val) = cx.env.get(name) {
                     Code::new_constant(type_, val.clone())
-                } else if let Some(rec) =
-                    crate::compile::library::name_to_rec(name)
-                {
+                } else if let Some(rec) = name_to_rec(name) {
                     let (_, val) = code::LIBRARY
                         .structure_map
                         .get(&rec)

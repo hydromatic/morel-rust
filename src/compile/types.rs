@@ -17,7 +17,7 @@
 
 use crate::unify::unifier::Term;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 
 /// Represents a resolved type in the system.
 #[derive(Clone, PartialEq, Debug)]
@@ -135,7 +135,7 @@ impl Type {
         op: &Op,
         mut left: u8,
         mut right: u8,
-    ) -> std::fmt::Result {
+    ) -> fmt::Result {
         let surround =
             if op.always_surround || left > op.left || right > op.right {
                 left = 0;
@@ -169,7 +169,7 @@ impl Type {
         f: &mut Formatter<'_>,
         left: u8,
         right: u8,
-    ) -> std::fmt::Result {
+    ) -> fmt::Result {
         match self {
             // lint: sort until '#}' where '##Type::'
             Type::Alias(_name, ty, _args) => {
@@ -269,7 +269,7 @@ impl Type {
 }
 
 impl Display for Type {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.describe(f, 0, 0)
     }
 }
@@ -407,7 +407,7 @@ impl<T: AsRef<str> + Into<String>> From<T> for Label {
 }
 
 impl Display for Label {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Label::String(s) => write!(f, "{}", s),
             Label::Ordinal(i) => write!(f, "{}", i),
@@ -595,10 +595,8 @@ mod tests {
     #[test]
     fn test_are_contiguous_integers() {
         fn check(strings: &[&str]) -> bool {
-            let owned: Vec<String> = strings
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect();
+            let owned: Vec<String> =
+                strings.iter().map(ToString::to_string).collect();
             let refs: Vec<&String> = owned.iter().collect();
             types::are_contiguous_integers(&refs)
         }
@@ -682,7 +680,7 @@ impl Subst {
 }
 
 impl Display for Subst {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut map = HashMap::new(); // TODO: deterministic order
         let mut current = self;
 

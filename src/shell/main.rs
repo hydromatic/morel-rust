@@ -44,7 +44,8 @@ use crate::syntax::ast::Statement;
 use crate::syntax::parser;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Debug, Display, Formatter};
+use std::env::current_dir;
+use std::fmt::{self, Debug, Display, Formatter};
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -359,7 +360,7 @@ impl Shell {
         // Set default directory to current working directory
         if session_config.directory.is_none() {
             session_config.directory =
-                Some(Rc::new(std::env::current_dir().ok().unwrap()));
+                Some(Rc::new(current_dir().ok().unwrap()));
         }
 
         Self::with_config(config)
@@ -1025,7 +1026,7 @@ pub enum MorelError {
 }
 
 impl Display for MorelError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             MorelError::Runtime(exn, loc) => {
                 write!(f, "uncaught exception {}", exn)?;

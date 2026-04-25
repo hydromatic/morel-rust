@@ -17,7 +17,8 @@
 
 extern crate core;
 use crate::shell::{ScriptTest, Shell as ShellMain};
-use std::io::{Read, Write, stdin, stdout};
+use std::env;
+use std::io::{IsTerminal, Read, Write, stdin, stdout};
 use std::process::exit;
 
 mod compile;
@@ -217,7 +218,7 @@ fn print_help() {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     match parse_args(&args[1..]) {
         CliAction::Help => {
             print_help();
@@ -279,7 +280,7 @@ fn main() {
 
 fn run_interactive(directory: Option<&str>) {
     let mut shell_args = vec!["--prompt".to_string(), "--banner".to_string()];
-    if std::io::IsTerminal::is_terminal(&stdin()) {
+    if IsTerminal::is_terminal(&stdin()) {
         shell_args.push("--tty".to_string());
     }
     if let Some(dir) = directory {
@@ -302,6 +303,8 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::{Cursor, empty};
+    use std::path::PathBuf;
+    use std::process::id;
 
     fn s(x: &str) -> String {
         x.to_string()
@@ -458,9 +461,9 @@ mod tests {
     // run_scripts_with tests — these actually execute morel code.
 
     /// Builds a uniquely-named temp file path for a test.
-    fn temp_path(test_name: &str, ext: &str) -> std::path::PathBuf {
-        let pid = std::process::id();
-        std::env::temp_dir()
+    fn temp_path(test_name: &str, ext: &str) -> PathBuf {
+        let pid = id();
+        env::temp_dir()
             .join(format!("morel_main_{}_{}.{}", test_name, pid, ext))
     }
 

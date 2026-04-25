@@ -32,6 +32,8 @@
 use crate::compile::type_parser;
 use crate::compile::types::{Label, Type};
 use std::collections::{BTreeMap, HashMap};
+use std::panic::catch_unwind;
+use std::str::from_utf8;
 
 /// Compares two output strings modulo whitespace and bag reordering.
 ///
@@ -44,11 +46,10 @@ pub fn equivalent(actual: &str, expected: &str) -> bool {
         Some(s) => s,
         None => return false,
     };
-    let parsed_type =
-        match std::panic::catch_unwind(|| type_parser::string_to_type(&t)) {
-            Ok(t) => *t,
-            Err(_) => return false,
-        };
+    let parsed_type = match catch_unwind(|| type_parser::string_to_type(&t)) {
+        Ok(t) => *t,
+        Err(_) => return false,
+    };
     equivalent_with_type(&parsed_type, actual, expected)
 }
 
@@ -620,7 +621,7 @@ impl<'a> Scanner<'a> {
         if self.pos == start {
             return None;
         }
-        std::str::from_utf8(&self.s[start..self.pos])
+        from_utf8(&self.s[start..self.pos])
             .ok()
             .map(ToString::to_string)
     }
@@ -635,7 +636,7 @@ impl<'a> Scanner<'a> {
         while let Some(&b) = self.s.get(self.pos) {
             if b == b'"' {
                 self.pos += 1;
-                return std::str::from_utf8(&self.s[start..self.pos])
+                return from_utf8(&self.s[start..self.pos])
                     .ok()
                     .map(ToString::to_string);
             }
@@ -678,7 +679,7 @@ impl<'a> Scanner<'a> {
         if self.pos == start {
             return None;
         }
-        std::str::from_utf8(&self.s[start..self.pos])
+        from_utf8(&self.s[start..self.pos])
             .ok()
             .map(ToString::to_string)
     }

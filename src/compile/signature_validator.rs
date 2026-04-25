@@ -23,7 +23,10 @@
 //!
 //! This is the Rust equivalent of Java's `SignatureChecker` class.
 
+use std::error;
+use std::fmt;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 /// Validates signature files against built-in definitions.
@@ -95,7 +98,7 @@ impl SignatureValidator {
             .map_err(|e| {
                 ValidationError::DirectoryReadError(self.lib_dir.clone(), e)
             })?
-            .filter_map(std::result::Result::ok)
+            .filter_map(Result::ok)
             .filter(|e| {
                 e.path()
                     .extension()
@@ -143,13 +146,13 @@ pub enum ValidationError {
     /// No signature files were found in the directory.
     NoSignatureFiles(PathBuf),
     /// Failed to read the directory.
-    DirectoryReadError(PathBuf, std::io::Error),
+    DirectoryReadError(PathBuf, io::Error),
     /// Failed to read a signature file.
-    FileReadError(PathBuf, std::io::Error),
+    FileReadError(PathBuf, io::Error),
 }
 
-impl std::fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ValidationError::DirectoryNotFound(path) => {
                 write!(f, "Library directory not found: {}", path.display())
@@ -180,8 +183,8 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
-impl std::error::Error for ValidationError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl error::Error for ValidationError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             ValidationError::DirectoryReadError(_, err)
             | ValidationError::FileReadError(_, err) => Some(err),

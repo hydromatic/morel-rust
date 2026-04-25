@@ -20,12 +20,13 @@
 #![allow(clippy::collapsible_if)]
 
 use crate::compile::pat_coverage::check_coverage;
+use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::type_env::{
     BindType, EmptyTypeEnv, TypeEnv, TypeSchemeResolver,
 };
+use crate::compile::types;
 use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
-use crate::compile::{postfix, types};
 use crate::shell::error::Error;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, LabeledExpr,
@@ -34,12 +35,12 @@ use crate::syntax::ast::{
     TypeKind, TypeScheme, ValBind,
 };
 use crate::unify::unifier::{
-    Action, NullTracer, Op, OpDef, Sequence, Substitution, Term, Unifier, Var,
+    Action, Constraint, NullTracer, Op, OpDef, Sequence, Substitution, Term,
+    Unifier, Var,
 };
-use postfix::PostfixKind;
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::iter::zip;
 use std::rc::Rc;
 use types::ordinal_names;
@@ -523,7 +524,7 @@ impl<'a> TermToTypeConverter<'a> {
 }
 
 impl Display for TypeMap {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "node-vars {:?} var-terms {:?}",
@@ -652,7 +653,7 @@ pub struct TypeResolver {
     pub seed_overloads: HashMap<String, Vec<Type>>,
 
     /// Constraints to pass to the unifier for overload resolution.
-    overload_constraints: Vec<crate::unify::unifier::Constraint>,
+    overload_constraints: Vec<Constraint>,
 }
 
 impl Default for TypeResolver {
@@ -1737,12 +1738,10 @@ impl TypeResolver {
                 // If the name is overloaded, add a constraint
                 // that v must match one of the candidate types.
                 if let Some(candidates) = self.overloads.get(name).cloned() {
-                    self.overload_constraints.push(
-                        crate::unify::unifier::Constraint {
-                            var: *v,
-                            candidates,
-                        },
-                    );
+                    self.overload_constraints.push(Constraint {
+                        var: *v,
+                        candidates,
+                    });
                     return Ok(
                         self.reg_expr(&expr.kind, &expr.span, expr.id, v)
                     );
@@ -3302,8 +3301,6 @@ impl TypeResolver {
         arg: &Expr,
         v_result: &Var,
     ) -> Result<Option<(Expr, Expr)>, Error> {
-        use crate::compile::postfix::postfix_dispatch;
-
         // Deduce the receiver (eagerly — this may recurse if recv is
         // itself a postfix call).
         let v_recv = self.variable();
@@ -3316,7 +3313,7 @@ impl TypeResolver {
         // If the receiver is a record with a field of this name,
         // leave the tree alone — it's ordinary field projection.
         if let Some(t) = &recv_type_opt
-            && let Type::Record(_, fields) = postfix::peel_type(t)
+            && let Type::Record(_, fields) = peel_type(t)
             && fields.keys().any(|k| k.to_string() == method_name)
         {
             return Ok(None);
@@ -3382,7 +3379,6 @@ impl TypeResolver {
         recv: &Expr,
         arg: &Expr,
     ) -> Result<Expr, Error> {
-        use crate::compile::postfix::PostfixKind;
         let span = recv.span.union(&arg.span);
         Ok(match kind {
             PostfixKind::Unary => recv.clone(),

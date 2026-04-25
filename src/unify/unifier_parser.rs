@@ -23,6 +23,7 @@ use crate::unify::unifier::{
 };
 use pest::Span;
 use pest_consume::{Parser, match_nodes};
+use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
 type ParseInput<'input> = pest_consume::Node<'input, Rule, Rc<str>>;
@@ -47,14 +48,14 @@ pub struct Pair<'input> {
     pub right: Term<'input>,
 }
 
-impl<'input> std::fmt::Display for Pair<'input> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'input> Display for Pair<'input> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{} = {}", self.left, self.right)
     }
 }
 
-impl<'input> std::fmt::Display for Term<'input> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'input> Display for Term<'input> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Term::Var(_span, name) => write!(f, "{}", name),
             Term::Atom(_span, name) => write!(f, "{}", name),

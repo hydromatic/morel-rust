@@ -45,7 +45,7 @@ use crate::shell::prop::{Configurable, Prop};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
-use std::iter::zip;
+use std::iter::{repeat_n, zip};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
@@ -113,8 +113,8 @@ impl PartialEq for CmpRef {
     }
 }
 
-impl std::fmt::Debug for CmpRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for CmpRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "Comparator(...)")
     }
 }
@@ -1464,7 +1464,7 @@ impl<'a> Frame<'a> {
         let mut val_vec: Vec<Val> = bound_vals
             .iter()
             .cloned()
-            .chain(std::iter::repeat_n(Val::Unit, frame_def.local_vars.len()))
+            .chain(repeat_n(Val::Unit, frame_def.local_vars.len()))
             .collect();
         Self::eval(&mut val_vec, matches, no_match, r, arg)
     }

@@ -24,8 +24,9 @@ use crate::syntax::parser::{
     append_id, char_to_string, string_to_string_append,
 };
 use std::collections::HashMap;
-use std::fmt::Write;
+use std::fmt::{self, Write};
 use std::iter::zip;
+use std::ptr;
 
 /// Prints values prettily.
 pub struct Pretty {
@@ -103,7 +104,7 @@ impl Type {
         }
 
         // If no forall was stripped, return the original
-        if std::ptr::eq(current_type, self) {
+        if ptr::eq(current_type, self) {
             return self.clone();
         }
 
@@ -172,7 +173,7 @@ impl Pretty {
         buf: &mut String,
         type_: &Type,
         value: &Val,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         let line_end = if self.line_width < 0 {
             -1
         } else {
@@ -220,7 +221,7 @@ impl Pretty {
         line_end: &mut [i32],
         depth: i32,
         value: &str,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         self.pretty1(
             buf,
             indent,
@@ -245,7 +246,7 @@ impl Pretty {
         value: &Val,
         left: u8,
         right: u8,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         let start = buf.len();
         let end = line_end[0];
 
@@ -294,7 +295,7 @@ impl Pretty {
         value: &Val,
         left: u8,
         right: u8,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         // Strip any alias
         let mut current_type = type_ref;
         while let Type::Alias(_, inner, _) = current_type {
@@ -496,7 +497,7 @@ impl Pretty {
         _depth: i32,
         type_ref: &Type,
         value: &Val,
-    ) -> Result<bool, std::fmt::Error> {
+    ) -> Result<bool, fmt::Error> {
         if !matches!(self.output, PropOutput::Classic)
             && self.can_print_tabular(type_ref)
             && let Val::List(records) = value
@@ -613,7 +614,7 @@ impl Pretty {
         buf: &mut String,
         prim_type: &PrimitiveType,
         value: &Val,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         match prim_type {
             // lint: sort until '#}' where '##PrimitiveType::'
             PrimitiveType::Char => {
@@ -671,7 +672,7 @@ impl Pretty {
         &self,
         buf: &mut String,
         val: &Val,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         match val {
             Val::Constructor(_, _) => write!(buf, "{}", val),
             Val::List(items) if items.len() != 1 => {
@@ -699,7 +700,7 @@ impl Pretty {
         name: &str,
         args: &[Type],
         value: &Val,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         if name == "descending" {
             // Datatype "descending" has one constructor, "DESC".
             // The value is Val::Constructor("DESC", inner).
@@ -830,7 +831,7 @@ impl Pretty {
         type_ref: &Type,
         left: u8,
         right: u8,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         if match type_ref {
             Type::Fn(_, _) => left > Op::FN.left || right > Op::FN.right,
             Type::Tuple(_) => left > Op::TUPLE.left || right > Op::TUPLE.right,
@@ -992,7 +993,7 @@ impl Pretty {
         depth: i32,
         element_type: &Type,
         list: &[Val],
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         buf.push('[');
         let start = buf.len();
         for (i, value) in list.iter().enumerate() {
@@ -1030,7 +1031,7 @@ impl Pretty {
         element_type: &Type,
         left: u8,
         right: u8,
-    ) -> Result<(), std::fmt::Error> {
+    ) -> Result<(), fmt::Error> {
         // Use APPLY precedence for type printing (collection types have the
         // same precedence as named type applications like "int list").
         const OP: Op = Op::APPLY;

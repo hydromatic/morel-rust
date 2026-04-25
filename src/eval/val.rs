@@ -26,7 +26,7 @@ use crate::eval::order::Order;
 use crate::eval::real::Real;
 use crate::shell::main::MorelError;
 use crate::syntax::parser;
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -114,7 +114,7 @@ pub enum Val {
         Arc<FrameDef>,
         Vec<(Code, Code)>,
         Vec<Val>,
-        Option<crate::shell::main::MorelError>,
+        Option<MorelError>,
     ),
 }
 
@@ -286,7 +286,7 @@ impl Val {
 }
 
 impl Display for Val {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self {
             // lint: sort until '#}' where '##Val::'
             Val::Bool(b) => write!(f, "{}", b),

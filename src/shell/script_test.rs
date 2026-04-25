@@ -19,6 +19,7 @@ use crate::eval::session::Config as SessionConfig;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::{Shell, ShellResult, utils};
+use std::env::temp_dir;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -133,8 +134,8 @@ impl ScriptTest {
 
         if path_str == "-" {
             // Special case for stdin
-            let in_file = std::env::temp_dir().join("morel-stdin.smli");
-            let out_file = std::env::temp_dir().join("morel-stdin.smli.out");
+            let in_file = temp_dir().join("morel-stdin.smli");
+            let out_file = temp_dir().join("morel-stdin.smli.out");
             return Ok((in_file, out_file));
         }
 
