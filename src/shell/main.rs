@@ -23,7 +23,9 @@
 
 use crate::compile::core::{Decl, Expr};
 use crate::compile::inliner::Env;
-use crate::compile::library::{BuiltInExn, BuiltInFunction};
+use crate::compile::library::{
+    BuiltInExn, BuiltInFunction, name_to_fn, name_to_rec,
+};
 use crate::compile::resolver;
 use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, EmptyTypeEnv, FunTypeEnv, TypeEnv};
@@ -78,6 +80,234 @@ fn is_plan_or_plan_ex_call(decl: &Decl) -> bool {
     } else {
         fn_is_plan(&vb.expr)
     }
+}
+
+/// Records safe-to-inline expressions from this statement's decls so
+/// that the inliner can substitute them in subsequent compile units.
+/// Mirrors morel-java's logic in `Inliner.visit(Core.Id)`'s
+/// cross-compile-unit branch (issue hydromatic/morel#223): atomic
+/// expressions are always safe; a `fn` body is safe only if it is
+/// non-recursive, monomorphic, and references no free variables that
+/// the inliner won't see in later statements.
+fn record_cross_unit_exprs(decl: &Decl, env: &mut Environment) {
+    match decl {
+        Decl::NonRecVal(vb) => {
+            if let Some(name) = vb.pat.name()
+                && is_safe_for_cross_unit(&name, &vb.expr, env)
+            {
+                env.bind_expr(name, vb.expr.clone());
+            }
+        }
+        Decl::RecVal(vbs) => {
+            // Recursive bindings are not eligible for cross-unit
+            // inlining: the function references itself.
+            for vb in vbs {
+                if let Some(name) = vb.pat.name() {
+                    // Drop any earlier safe binding of the same name.
+                    env.exprs.remove(&name);
+                    let _ = vb;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Returns true if `expr` is safe to inline at every reference in a
+/// later statement.
+fn is_safe_for_cross_unit(name: &str, expr: &Expr, env: &Environment) -> bool {
+    if matches!(expr, Expr::Literal(_, _) | Expr::Identifier(_, _)) {
+        return true;
+    }
+    let Expr::Fn(_, _, _) = expr else {
+        return false;
+    };
+    if expr_contains_reference(expr, name) {
+        return false; // recursive
+    }
+    if type_contains_var(expr.type_().as_ref()) {
+        return false; // polymorphic
+    }
+    if expr_contains_recursive_decl(expr) {
+        return false;
+    }
+    if fn_has_free_variables(expr, env) {
+        return false;
+    }
+    true
+}
+
+fn expr_contains_reference(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Identifier(_, n) => n == name,
+        Expr::Literal(_, _)
+        | Expr::Current(_)
+        | Expr::Ordinal(_)
+        | Expr::RecordSelector(_, _) => false,
+        Expr::Aggregate(_, a, b) => {
+            expr_contains_reference(a, name) || expr_contains_reference(b, name)
+        }
+        Expr::Apply(_, f, a, _) => {
+            expr_contains_reference(f, name) || expr_contains_reference(a, name)
+        }
+        Expr::Tuple(_, args) | Expr::List(_, args) => {
+            args.iter().any(|e| expr_contains_reference(e, name))
+        }
+        Expr::Let(_, _, body) => expr_contains_reference(body, name),
+        Expr::Case(_, scrutinee, matches, _) => {
+            expr_contains_reference(scrutinee, name)
+                || matches
+                    .iter()
+                    .any(|m| expr_contains_reference(&m.expr, name))
+        }
+        Expr::Fn(_, matches, _) => matches
+            .iter()
+            .any(|m| expr_contains_reference(&m.expr, name)),
+        Expr::From(_, _) | Expr::Exists(_, _) | Expr::Forall(_, _) => false,
+    }
+}
+
+fn type_contains_var(t: &Type) -> bool {
+    match t {
+        Type::Variable(_) => true,
+        Type::Forall(_, _) => true,
+        Type::Primitive(_) => false,
+        Type::Fn(p, r) => type_contains_var(p) || type_contains_var(r),
+        Type::Record(_, fs) => fs.values().any(type_contains_var),
+        Type::Tuple(ts) => ts.iter().any(type_contains_var),
+        Type::List(t) | Type::Bag(t) => type_contains_var(t),
+        Type::Named(args, _) | Type::Data(_, args) => {
+            args.iter().any(type_contains_var)
+        }
+        Type::Alias(_, t, args) => {
+            type_contains_var(t) || args.iter().any(type_contains_var)
+        }
+        Type::Multi(ts) => ts.iter().any(type_contains_var),
+    }
+}
+
+fn expr_contains_recursive_decl(expr: &Expr) -> bool {
+    match expr {
+        Expr::Let(_, decls, body) => {
+            decls.iter().any(|d| matches!(d, Decl::RecVal(_)))
+                || decls.iter().any(|d| match d {
+                    Decl::NonRecVal(vb) => {
+                        expr_contains_recursive_decl(&vb.expr)
+                    }
+                    Decl::RecVal(vbs) => vbs
+                        .iter()
+                        .any(|vb| expr_contains_recursive_decl(&vb.expr)),
+                    _ => false,
+                })
+                || expr_contains_recursive_decl(body)
+        }
+        Expr::Fn(_, matches, _) | Expr::Case(_, _, matches, _) => matches
+            .iter()
+            .any(|m| expr_contains_recursive_decl(&m.expr)),
+        Expr::Apply(_, f, a, _) => {
+            expr_contains_recursive_decl(f) || expr_contains_recursive_decl(a)
+        }
+        Expr::Aggregate(_, a, b) => {
+            expr_contains_recursive_decl(a) || expr_contains_recursive_decl(b)
+        }
+        Expr::Tuple(_, args) | Expr::List(_, args) => {
+            args.iter().any(expr_contains_recursive_decl)
+        }
+        _ => false,
+    }
+}
+
+/// Returns true if a `Fn` body refers to identifiers that are neither
+/// the function's parameter nor available in `env`. Mirrors
+/// morel-java's `hasFreeVariables`.
+fn fn_has_free_variables(expr: &Expr, env: &Environment) -> bool {
+    let Expr::Fn(_, matches, _) = expr else {
+        return false;
+    };
+    fn check(expr: &Expr, bound: &mut Vec<String>, env: &Environment) -> bool {
+        match expr {
+            Expr::Identifier(_, name) => {
+                if bound.iter().any(|n| n == name) {
+                    return false;
+                }
+                if env.bindings.contains_key(name) {
+                    return false;
+                }
+                if name_to_fn(name).is_some() {
+                    return false;
+                }
+                if name_to_rec(name).is_some() {
+                    return false;
+                }
+                true
+            }
+            Expr::Apply(_, f, a, _) => {
+                check(f, bound, env) || check(a, bound, env)
+            }
+            Expr::Aggregate(_, a, b) => {
+                check(a, bound, env) || check(b, bound, env)
+            }
+            Expr::Tuple(_, args) | Expr::List(_, args) => {
+                args.iter().any(|e| check(e, bound, env))
+            }
+            Expr::Let(_, decls, body) => {
+                let mut frees = false;
+                for d in decls {
+                    match d {
+                        Decl::NonRecVal(vb) => {
+                            if check(&vb.expr, bound, env) {
+                                frees = true;
+                            }
+                            vb.pat.for_each_id_pat(&mut |(_, n)| {
+                                bound.push(n.to_string())
+                            });
+                        }
+                        Decl::RecVal(vbs) => {
+                            for vb in vbs {
+                                vb.pat.for_each_id_pat(&mut |(_, n)| {
+                                    bound.push(n.to_string())
+                                });
+                            }
+                            for vb in vbs {
+                                if check(&vb.expr, bound, env) {
+                                    frees = true;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                frees || check(body, bound, env)
+            }
+            Expr::Case(_, scrutinee, matches, _) => {
+                check(scrutinee, bound, env)
+                    || matches.iter().any(|m| {
+                        let n_before = bound.len();
+                        m.pat.for_each_id_pat(&mut |(_, n)| {
+                            bound.push(n.to_string())
+                        });
+                        let res = check(&m.expr, bound, env);
+                        bound.truncate(n_before);
+                        res
+                    })
+            }
+            Expr::Fn(_, matches, _) => matches.iter().any(|m| {
+                let n_before = bound.len();
+                m.pat
+                    .for_each_id_pat(&mut |(_, n)| bound.push(n.to_string()));
+                let res = check(&m.expr, bound, env);
+                bound.truncate(n_before);
+                res
+            }),
+            _ => false,
+        }
+    }
+    matches.iter().any(|m| {
+        let mut bound: Vec<String> = Vec::new();
+        m.pat
+            .for_each_id_pat(&mut |(_, n)| bound.push(n.to_string()));
+        check(&m.expr, &mut bound, env)
+    })
 }
 
 /// * Line comment: `(*) text...` — starts with `(*)`, runs to end of line.
@@ -169,12 +399,19 @@ pub struct Shell {
 #[derive(Clone, Debug)]
 pub struct Environment {
     bindings: HashMap<String, Val>,
+    /// Original expressions of let-bound vals from previous statements,
+    /// kept for cross-compile-unit inlining. Only populated for
+    /// bindings the inliner has determined are safe to substitute
+    /// (atomic literals, plus non-recursive non-polymorphic functions
+    /// without free variables).
+    exprs: HashMap<String, Expr>,
 }
 
 impl Default for Environment {
     fn default() -> Self {
         Self {
             bindings: HashMap::new(),
+            exprs: HashMap::new(),
         }
     }
 }
@@ -185,7 +422,17 @@ impl Environment {
     }
 
     pub fn bind(&mut self, name: String, value: &Val) {
+        // Drop any earlier safe-to-inline expression for this name; if
+        // the new binding is also safe, `record_cross_unit_exprs`
+        // re-populates it.
+        self.exprs.remove(&name);
         self.bindings.insert(name, value.clone());
+    }
+
+    /// Records the original expression of a let-bound name so that the
+    /// inliner can substitute references in subsequent compile units.
+    pub fn bind_expr(&mut self, name: String, expr: Expr) {
+        self.exprs.insert(name, expr);
     }
 
     /// Returns a new environment with the given bindings merged on top
@@ -201,6 +448,10 @@ impl Environment {
         for b in bindings {
             if b.value.is_some() {
                 env.bind(b.id.name.clone(), b.value.as_ref().unwrap());
+                // A new binding shadows any previous expression for the
+                // same name. If `bind_expr` is called separately (with
+                // the original expression), it will re-populate.
+                env.exprs.remove(&b.id.name);
             }
         }
         env
@@ -210,8 +461,13 @@ impl Environment {
         self.bindings.get(name)
     }
 
+    pub fn get_expr(&self, name: &str) -> Option<&Expr> {
+        self.exprs.get(name)
+    }
+
     pub fn clear(&mut self) {
         self.bindings.clear();
+        self.exprs.clear();
     }
 }
 
@@ -788,7 +1044,17 @@ impl Shell {
             );
         });
         library::populate_env(&mut map);
-        let env2 = env.multi(&map);
+        let mut env2 = env.multi(&map);
+        // Bring in expressions from previous compile units so that
+        // identifiers like `inc` (bound to `fn x => x + 1` in an
+        // earlier statement) can be inlined. The inliner's identifier
+        // visit consults `lookup_expr`.
+        for (name, e) in &self.environment.exprs {
+            // Use the expression's own type; the previous statement's
+            // resolver computed it.
+            let t = e.type_();
+            env2 = env2.child_expr(name, &t, e);
+        }
         let decl2 = inliner::inline_decl(&env2, &decl);
 
         // Save the pre- and post-inlining declarations so that
@@ -890,6 +1156,18 @@ impl Shell {
                 self.environment.bind(binding.id.name.clone(), value);
             }
         }
+
+        // Stash safe-to-inline expressions for cross-compile-unit
+        // inlining (morel#223). Mirrors the `binding.exp` field that
+        // morel-java's `Inliner.visit(Core.Id)` consults: a non-recursive,
+        // non-polymorphic, free-variable-free function or atomic
+        // expression can be substituted at use sites in later
+        // statements. We record the *post*-inline form (`decl2`) so
+        // that free variables captured at definition time are baked
+        // in. Without this, `let val n = 1; val f = fn x => x + n;
+        // val n = 2; f 3` would resolve `n` afresh inside `f` at each
+        // call site (giving 5 instead of the expected 4).
+        record_cross_unit_exprs(&decl2, &mut self.environment);
 
         // Commit type bindings AFTER evaluation, so that Sys.env()
         // during evaluation does not see the current statement's own

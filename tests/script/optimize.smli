@@ -275,4 +275,91 @@ String.size greeting;
 Sys.planEx "0";
 > val it = "val it = #size String \"hello\"" : string
 
+(*) An atomic boolean from a previous compile unit is inlined.
+val flag = true;
+> val flag = true : bool
+if flag then 1 else 2;
+> val it = 1 : int
+Sys.planEx "0";
+> val it = "val it = 1" : string
+
+(*) Multiple atomic values from previous compile units are inlined.
+val a = 10;
+> val a = 10 : int
+val b = 20;
+> val b = 20 : int
+a + b;
+> val it = 30 : int
+Sys.planEx "0";
+> val it = "val it = 10 + 20" : string
+
+(* --- Cross-compile-unit function inlining (issue #223) ---------- *)
+
+(*) A simple function from a previous compile unit is inlined.
+val inc = fn x => x + 1;
+> val inc = fn : int -> int
+inc 5;
+> val it = 6 : int
+Sys.planEx "0";
+> val it = "val it = 5 + 1" : string
+
+(*) A function with multiple operations is inlined and beta-reduced.
+val double = fn n => n * 2;
+> val double = fn : int -> int
+double 7;
+> val it = 14 : int
+Sys.planEx "0";
+> val it = "val it = 7 * 2" : string
+
+(*) Composing inlined functions.
+val inc2 = fn x => x + 1;
+> val inc2 = fn : int -> int
+val double2 = fn x => x * 2;
+> val double2 = fn : int -> int
+inc2 (double2 3);
+> val it = 7 : int
+Sys.planEx "0";
+> val it = "val it = 3 * 2 + 1" : string
+
+(*) Recursive functions are NOT inlined (would cause infinite expansion).
+val rec factorial = fn n => if n < 2 then 1 else n * factorial (n - 1);
+> val factorial = fn : int -> int
+factorial 5;
+> val it = 120 : int
+Sys.planEx "0";
+> val it = "val it = fn 5" : string
+
+(*) Polymorphic functions are NOT inlined (require type unification).
+val id = fn x => x;
+> val id = fn : 'a -> 'a
+id 42;
+> val it = 42 : int
+Sys.planEx "0";
+> val it = "val it = fn 42" : string
+
+(*) Functions that reference other inlinable values are also inlined.
+val offset = 100;
+> val offset = 100 : int
+val addOffset = fn x => x + offset;
+> val addOffset = fn : int -> int
+addOffset 5;
+> val it = 105 : int
+Sys.planEx "0";
+> val it = "val it = 5 + 100" : string
+
+(*) Capture: a function captures the value of free variables at the
+(*) time it was defined; rebinding those variables afterwards must
+(*) not change the function's behaviour.
+val n = 1;
+> val n = 1 : int
+val f = fn x => x + n;
+> val f = fn : int -> int
+val n = 2;
+> val n = 2 : int
+(*) Result should be 4 = 3 + 1, because n = 1 when f captured it.
+val i = f 3;
+> val i = 4 : int
+Sys.planEx "0";
+> val it = "val i = 3 + 1" : string
+
 (*) End optimize.smli

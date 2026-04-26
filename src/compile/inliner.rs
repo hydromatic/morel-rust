@@ -514,7 +514,7 @@ fn step_refs(kind: &StepKind, name: &str) -> (bool, bool) {
 pub const INLINE_PASS_COUNT: usize = 5;
 
 /// Runs the analyzer and inliner together, iterating up to
-/// [`INLINE_PASS_COUNT`] times until the declaration's `Display` is
+/// `INLINE_PASS_COUNT` (5) times until the declaration's `Display` is
 /// stable. Mirrors the loop in morel-java's `Compiles.java`.
 pub fn inline_decl(env: &Env, decl: &Decl) -> Decl {
     let mut current = decl.clone();
@@ -675,8 +675,13 @@ impl Transformer for Inliner {
                 // If the name is bound to an expression in the env (a
                 // let-bound `ATOMIC` or `ONCE_SAFE` binding), substitute
                 // by re-visiting the expression so further inlining can
-                // take place.
-                if let Some(e) = env.lookup_expr(id) {
+                // take place. Skip if the bound expression is the same
+                // identifier (e.g. `let val i = i in ...` from
+                // beta-reducing `(fn i => ...) i`); re-visiting such a
+                // binding would loop forever.
+                if let Some(e) = env.lookup_expr(id)
+                    && !matches!(&e, Expr::Identifier(_, n) if n == id)
+                {
                     return self.transform_expr(env, &e);
                 }
                 // Otherwise, if the name is a constant in the environment
@@ -797,7 +802,9 @@ impl Expr {
                 if id == "elements" {
                     return self.clone();
                 }
-                if let Some(e) = env.lookup_expr(id) {
+                if let Some(e) = env.lookup_expr(id)
+                    && !matches!(&e, Expr::Identifier(_, n) if n == id)
+                {
                     return x.transform_expr(env, &e);
                 }
                 if let Some(v) = env.lookup_constant(id) {
