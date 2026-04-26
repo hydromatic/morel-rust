@@ -36,6 +36,7 @@ pub mod relational;
 pub mod row_sink;
 pub mod session;
 pub mod string;
+pub mod time;
 pub mod val;
 pub mod variant;
 pub mod vector;

@@ -763,6 +763,13 @@ impl Pretty {
                 );
             }
         }
+        if name == "time"
+            && let Val::Time(t) = value
+        {
+            // `time` values display as their nanosecond count (an integer),
+            // matching morel-java's opaque-Long form.
+            return write!(buf, "{}", t).map_err(|_| fmt::Error);
+        }
         if (name == "continuous_set" || name == "discrete_set")
             && let Val::Constructor(ordinal, inner) = value
             && (*ordinal == val::CONTINUOUS_SET_ORDINAL

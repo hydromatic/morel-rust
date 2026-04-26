@@ -1043,6 +1043,91 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "unset", global = true))]
     #[strum(props(type = "string -> unit"))]
     SysUnset,
+    /// `Time.+ (t1, t2)`: time addition.
+    #[strum(props(p = "Time", name = "+", type = "time * time -> time"))]
+    TimeAdd,
+    /// `Time.compare (t1, t2)`: returns LESS, EQUAL, GREATER.
+    #[strum(props(p = "Time", name = "compare"))]
+    #[strum(props(type = "time * time -> `order`"))]
+    TimeCompare,
+    /// `Time.fmt n t`: formats `t` as decimal seconds with `n` fractional
+    /// digits.
+    #[strum(props(p = "Time", name = "fmt", throws = "Size"))]
+    #[strum(props(type = "int -> time -> string"))]
+    TimeFmt,
+    /// `Time.fromMicroseconds n`: time from microseconds.
+    #[strum(props(p = "Time", name = "fromMicroseconds"))]
+    #[strum(props(type = "int -> time"))]
+    TimeFromMicroseconds,
+    /// `Time.fromMilliseconds n`: time from milliseconds.
+    #[strum(props(p = "Time", name = "fromMilliseconds"))]
+    #[strum(props(type = "int -> time"))]
+    TimeFromMilliseconds,
+    /// `Time.fromNanoseconds n`: time from nanoseconds.
+    #[strum(props(p = "Time", name = "fromNanoseconds"))]
+    #[strum(props(type = "int -> time"))]
+    TimeFromNanoseconds,
+    /// `Time.fromReal r`: converts seconds to time. Raises `Time` on
+    /// NaN or infinity.
+    #[strum(props(p = "Time", name = "fromReal", throws = "Time"))]
+    #[strum(props(type = "real -> time"))]
+    TimeFromReal,
+    /// `Time.fromSeconds n`: time from seconds.
+    #[strum(props(p = "Time", name = "fromSeconds"))]
+    #[strum(props(type = "int -> time"))]
+    TimeFromSeconds,
+    /// `Time.fromString s`: parse a decimal-seconds string.
+    #[strum(props(p = "Time", name = "fromString"))]
+    #[strum(props(type = "string -> time option"))]
+    TimeFromString,
+    /// `Time.>= (t1, t2)`.
+    #[strum(props(p = "Time", name = ">=", type = "time * time -> bool"))]
+    TimeGe,
+    /// `Time.> (t1, t2)`.
+    #[strum(props(p = "Time", name = ">", type = "time * time -> bool"))]
+    TimeGt,
+    /// `Time.<= (t1, t2)`.
+    #[strum(props(p = "Time", name = "<=", type = "time * time -> bool"))]
+    TimeLe,
+    /// `Time.< (t1, t2)`.
+    #[strum(props(p = "Time", name = "<", type = "time * time -> bool"))]
+    TimeLt,
+    /// `Time.now ()`: current time. Honors the `now` property for
+    /// deterministic tests.
+    #[strum(props(p = "Time", name = "now"))]
+    #[strum(props(type = "unit -> time"))]
+    TimeNow,
+    /// `Time.- (t1, t2)`: time subtraction.
+    #[strum(props(p = "Time", name = "-", type = "time * time -> time"))]
+    TimeSub,
+    /// `Time.toMicroseconds t`: returns microseconds.
+    #[strum(props(p = "Time", name = "toMicroseconds"))]
+    #[strum(props(type = "time -> int"))]
+    TimeToMicroseconds,
+    /// `Time.toMilliseconds t`: returns milliseconds.
+    #[strum(props(p = "Time", name = "toMilliseconds"))]
+    #[strum(props(type = "time -> int"))]
+    TimeToMilliseconds,
+    /// `Time.toNanoseconds t`: returns nanoseconds.
+    #[strum(props(p = "Time", name = "toNanoseconds"))]
+    #[strum(props(type = "time -> int"))]
+    TimeToNanoseconds,
+    /// `Time.toReal t`: converts time to seconds as a real.
+    #[strum(props(p = "Time", name = "toReal"))]
+    #[strum(props(type = "time -> real"))]
+    TimeToReal,
+    /// `Time.toSeconds t`: returns seconds.
+    #[strum(props(p = "Time", name = "toSeconds"))]
+    #[strum(props(type = "time -> int"))]
+    TimeToSeconds,
+    /// `Time.toString t`: equivalent to `fmt 3 t`.
+    #[strum(props(p = "Time", name = "toString"))]
+    #[strum(props(type = "time -> string"))]
+    TimeToString,
+    /// `Time.zeroTime`: the zero time value.
+    #[strum(props(p = "Time", name = "zeroTime"))]
+    #[strum(props(type = "time"))]
+    TimeZeroTime,
     /// `Variant.BAG`: a constructor of the `variant` datatype.
     #[strum(props(p = "Variant", name = "BAG", global = true))]
     #[strum(props(type = "variant list -> variant", constructor = true))]
@@ -1311,6 +1396,8 @@ pub enum BuiltInRecord {
     String,
     #[strum(props(name = "Sys"))]
     Sys,
+    #[strum(props(name = "Time"))]
+    Time,
     #[strum(props(name = "Variant"))]
     Variant,
     #[strum(props(name = "Vector"))]
@@ -1358,6 +1445,8 @@ pub enum BuiltInExn {
     Size,
     #[strum(props(p = "General", explain = "subscript out of bounds"))]
     Subscript,
+    #[strum(props(p = "Time"))]
+    Time,
     #[strum(props(p = "ListPair"))]
     UnequalLengths,
     #[strum(props(p = "IEEEReal"))]

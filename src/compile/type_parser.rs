@@ -71,6 +71,7 @@ impl TypeBuilder {
                         || name == "continuous_set" && args.len() == 1
                         || name == "discrete_set" && args.len() == 1
                         || name == "variant" && args.is_empty()
+                        || name == "time" && args.is_empty()
                     {
                         Type::Data(name.clone(), arg_types)
                     } else {

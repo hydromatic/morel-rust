@@ -127,6 +127,11 @@ fn built_in_sys() {
 }
 
 #[test]
+fn built_in_time() {
+    run_script("tests/script/built-in/time.smli");
+}
+
+#[test]
 fn built_in_vector() {
     run_script("tests/script/built-in/vector.smli");
 }

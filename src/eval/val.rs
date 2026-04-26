@@ -72,6 +72,9 @@ pub enum Val {
     Order(Order),
     Real(f32),
     String(String),
+    /// `Time(nanoseconds)` represents a `time` value as a 64-bit signed
+    /// nanosecond count from the Unix epoch (or as a duration).
+    Time(i64),
     List(Vec<Val>),
     /// Built-in function.
     Fn(BuiltInFunction),
@@ -230,6 +233,13 @@ impl Val {
         }
     }
 
+    pub(crate) fn expect_time(&self) -> i64 {
+        match self {
+            Val::Time(t) => *t,
+            _ => panic!("Expected time"),
+        }
+    }
+
     pub(crate) fn maybe_bool(&self) -> Option<bool> {
         match self {
             Val::Bool(b) => Some(*b),
@@ -385,6 +395,18 @@ impl Display for Val {
             }
             Val::Some(v) => write!(f, "SOME {}", v),
             Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),
+            Val::Time(t) => {
+                // Format as decimal seconds with 3 fractional digits.
+                let neg = *t < 0;
+                let abs = t.unsigned_abs();
+                let secs = abs / 1_000_000_000;
+                let millis = (abs % 1_000_000_000) / 1_000_000;
+                if neg {
+                    write!(f, "~{}.{:03}", secs, millis)
+                } else {
+                    write!(f, "{}.{:03}", secs, millis)
+                }
+            }
             Val::Unit => write!(f, "()"),
             _ => write!(f, "{:?}", self),
         }
@@ -423,6 +445,10 @@ impl Hash for Val {
             Val::String(s) => {
                 6.hash(state);
                 s.hash(state);
+            }
+            Val::Time(t) => {
+                22.hash(state);
+                t.hash(state);
             }
             Val::List(vs) => {
                 7.hash(state);
