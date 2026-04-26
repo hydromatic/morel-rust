@@ -515,6 +515,16 @@ impl Shell {
                     Some(s.parse::<Mode>().map_err(Error::Runtime)?);
                 Ok(())
             }
+            "now" => {
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.session.borrow_mut().config.now = Some(Rc::new(s));
+                Ok(())
+            }
             "optionalInt" => {
                 let v = val.maybe_int().ok_or_else(|| {
                     Error::Runtime(
@@ -566,6 +576,16 @@ impl Shell {
                     })?);
                 Ok(())
             }
+            "timeZone" => {
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.session.borrow_mut().config.time_zone = Some(Rc::new(s));
+                Ok(())
+            }
             _ => todo!("set_prop: {}", prop),
         }
     }
@@ -589,6 +609,10 @@ impl Shell {
                 self.config.mode = None;
                 Ok(())
             }
+            "now" => {
+                self.session.borrow_mut().config.now = None;
+                Ok(())
+            }
             "optionalInt" => {
                 self.config.optional_int = None;
                 self.session.borrow_mut().config.optional_int = None;
@@ -608,6 +632,10 @@ impl Shell {
             }
             "stringDepth" => {
                 self.config.string_depth = None;
+                Ok(())
+            }
+            "timeZone" => {
+                self.session.borrow_mut().config.time_zone = None;
                 Ok(())
             }
             _ => todo!("unset_prop: {}", prop),

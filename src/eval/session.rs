@@ -269,10 +269,12 @@ pub struct Config {
     pub directory: Option<Rc<PathBuf>>,
     pub hybrid: Option<bool>,
     pub inline_pass_count: Option<i32>,
+    pub now: Option<Rc<String>>,
     pub optional_int: Option<i32>,
     pub match_coverage_enabled: Option<bool>,
     pub output: Option<Output>,
     pub script_directory: Option<Rc<PathBuf>>,
+    pub time_zone: Option<Rc<String>>,
 }
 
 impl Default for Config {
@@ -281,10 +283,12 @@ impl Default for Config {
             directory: None,
             hybrid: Some(false),
             inline_pass_count: Some(5),
+            now: None,
             optional_int: None,
             output: Some(Output::Classic),
             match_coverage_enabled: None,
             script_directory: None,
+            time_zone: None,
         }
     }
 }
@@ -294,7 +298,9 @@ impl Config {
     /// if it has not been set.
     pub fn get_optional(&self, prop: Prop) -> Option<PropVal> {
         match prop {
+            Prop::Now => self.now.clone().map(PropVal::String),
             Prop::OptionalInt => self.optional_int.map(PropVal::Int),
+            Prop::TimeZone => self.time_zone.clone().map(PropVal::String),
             _ => None,
         }
     }
@@ -316,11 +322,17 @@ impl Configurable for Config {
             (Prop::MatchCoverageEnabled, PropVal::Bool(b)) => {
                 self.match_coverage_enabled = Some(*b);
             }
+            (Prop::Now, PropVal::String(s)) => {
+                self.now = Some(s.clone());
+            }
             (Prop::Output, PropVal::Output(x)) => {
                 self.output = Some(*x);
             }
             (Prop::ScriptDirectory, PropVal::PathBuf(b)) => {
                 self.script_directory = Some(b.clone());
+            }
+            (Prop::TimeZone, PropVal::String(s)) => {
+                self.time_zone = Some(s.clone());
             }
             _ => todo!(),
         }

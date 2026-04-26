@@ -352,6 +352,16 @@ define_props! {
         required: true,
     },
 
+    Now => {
+        doc: "String property 'now' overrides the current time returned by \
+               Time.now() and used by Date.localOffset(). Value is an \
+               ISO-8601 instant string (e.g. '2024-01-01T00:00:00Z'). If \
+               not set, the system clock is used.",
+        camel_name: "now",
+        default: None as Option<PropVal>,
+        required: false,
+    },
+
     OptionalInt => {
         doc: "Integer property 'optionalInt' is for testing. Default is null.",
         camel_name: "optionalInt",
@@ -442,6 +452,17 @@ define_props! {
         camel_name: "stringDepth",
         default: Some(PropVal::Int(70)),
         required: true,
+    },
+
+    TimeZone => {
+        doc: "String property 'timeZone' overrides the local timezone used by \
+               Date.fromTimeLocal(), Date.localOffset(), and Date.date when \
+               offset=NONE. Value is a timezone ID (e.g. 'UTC' or \
+               'America/New_York'). If not set, the JVM default timezone is \
+               used.",
+        camel_name: "timeZone",
+        default: None as Option<PropVal>,
+        required: false,
     },
 }
 
@@ -539,11 +560,13 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 19);
+        assert_eq!(all_props.len(), 21);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
+        assert!(all_props.contains(&Prop::Now));
         assert!(all_props.contains(&Prop::ProductName));
         assert!(all_props.contains(&Prop::ProductVersion));
         assert!(all_props.contains(&Prop::ShowBanner));
+        assert!(all_props.contains(&Prop::TimeZone));
     }
 }

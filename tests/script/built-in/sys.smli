@@ -24,6 +24,10 @@ Sys.set ("printLength", 999);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
+Sys.set ("timeZone", "UTC");
+> val it = () : unit
+Sys.set ("now", "2024-01-01T00:00:00Z");
+> val it = () : unit
 
 Sys;
 > val it =
@@ -218,15 +222,16 @@ map
 >    ("hybrid",SOME "true"),("idempotent",SOME "false"),
 >    ("inlinePassCount",SOME "5"),("lineWidth",SOME "79"),
 >    ("matchCoverageEnabled",SOME "true"),("mode",SOME "EVALUATE"),
->    ("optionalInt",NONE),("output",SOME "CLASSIC"),("printDepth",SOME "5"),
->    ("printLength",SOME "12"),("productName",SOME "morel-rust"),
->    ("productVersion",SOME "?"),("relationalize",SOME "false"),
->    ("scriptDirectory",SOME "?"),("showBanner",SOME "true"),
->    ("stringDepth",SOME "70")] : (string * string option) list
+>    ("now",SOME "2024-01-01T00:00:00Z"),("optionalInt",NONE),
+>    ("output",SOME "CLASSIC"),("printDepth",SOME "5"),("printLength",SOME "12"),
+>    ("productName",SOME "morel-rust"),("productVersion",SOME "?"),
+>    ("relationalize",SOME "false"),("scriptDirectory",SOME "?"),
+>    ("showBanner",SOME "true"),("stringDepth",SOME "70"),
+>    ("timeZone",SOME "UTC")] : (string * string option) list
 List.length (Sys.showAll ());
-> val it = 19 : int
+> val it = 21 : int
 List.length (showAll ());
-> val it = 19 : int
+> val it = 21 : int
 Sys.plan ();
 > val it = "apply(fnValue List.length, argCode apply0(fnValue Sys.showAll))"
 >   : string
