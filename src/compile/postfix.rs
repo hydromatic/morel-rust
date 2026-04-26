@@ -277,12 +277,14 @@ mod tests {
             ("size", "string"),
             ("toString", "int"),
             ("toString", "time"),
+            ("toString", "date"),
             ("compare", "int"),
             ("compare", "real"),
             ("contains", "range"),
             ("contains", "continuous_set"),
             ("contains", "discrete_set"),
             ("fmt", "time"),
+            ("fmt", "date"),
         ] {
             assert!(
                 POSTFIX_TABLE.contains_key(&(method, recv)),

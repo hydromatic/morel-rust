@@ -37,6 +37,8 @@ path = "src/main.rs"
 
 [dependencies]
 # lint: sort until '^$'
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = { version = "0.10", default-features = false }
 im = "15.1.0"
 indexmap = "2.0"
 pest = "2.8"

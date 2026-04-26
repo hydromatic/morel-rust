@@ -259,6 +259,76 @@ pub enum BuiltInFunction {
     CharToString,
     #[strum(props(p = "Char", name = "toUpper", type = "char -> char"))]
     CharToUpper,
+    /// `Date.compare (d1, d2)`.
+    #[strum(props(p = "Date", name = "compare"))]
+    #[strum(props(type = "date * date -> `order`"))]
+    DateCompare,
+    /// `Date.date {year, month, day, hour, minute, second, offset}`.
+    #[strum(props(p = "Date", name = "date"))]
+    #[strum(props(
+        type = "{day:int, hour:int, minute:int, month:`month`, \
+                offset:time option, second:int, year:int} -> date",
+        throws = "Date"
+    ))]
+    DateDate,
+    /// `Date.day d`.
+    #[strum(props(p = "Date", name = "day", type = "date -> int"))]
+    DateDay,
+    /// `Date.fmt fmt d`.
+    #[strum(props(p = "Date", name = "fmt"))]
+    #[strum(props(type = "string -> date -> string"))]
+    DateFmt,
+    /// `Date.fromString s`.
+    #[strum(props(p = "Date", name = "fromString"))]
+    #[strum(props(type = "string -> date option"))]
+    DateFromString,
+    /// `Date.fromTimeLocal t`.
+    #[strum(props(p = "Date", name = "fromTimeLocal"))]
+    #[strum(props(type = "time -> date"))]
+    DateFromTimeLocal,
+    /// `Date.fromTimeUniv t`.
+    #[strum(props(p = "Date", name = "fromTimeUniv"))]
+    #[strum(props(type = "time -> date"))]
+    DateFromTimeUniv,
+    /// `Date.hour d`.
+    #[strum(props(p = "Date", name = "hour", type = "date -> int"))]
+    DateHour,
+    /// `Date.isDst d`.
+    #[strum(props(p = "Date", name = "isDst"))]
+    #[strum(props(type = "date -> bool option"))]
+    DateIsDst,
+    /// `Date.localOffset ()`.
+    #[strum(props(p = "Date", name = "localOffset"))]
+    #[strum(props(type = "unit -> time"))]
+    DateLocalOffset,
+    /// `Date.minute d`.
+    #[strum(props(p = "Date", name = "minute", type = "date -> int"))]
+    DateMinute,
+    /// `Date.month d`.
+    #[strum(props(p = "Date", name = "month"))]
+    #[strum(props(type = "date -> `month`"))]
+    DateMonthFn,
+    /// `Date.second d`.
+    #[strum(props(p = "Date", name = "second", type = "date -> int"))]
+    DateSecond,
+    /// `Date.toString d`.
+    #[strum(props(p = "Date", name = "toString"))]
+    #[strum(props(type = "date -> string"))]
+    DateToString,
+    /// `Date.toTime d`.
+    #[strum(props(p = "Date", name = "toTime"))]
+    #[strum(props(type = "date -> time"))]
+    DateToTime,
+    /// `Date.weekDay d`.
+    #[strum(props(p = "Date", name = "weekDay"))]
+    #[strum(props(type = "date -> `weekday`"))]
+    DateWeekDay,
+    /// `Date.year d`.
+    #[strum(props(p = "Date", name = "year", type = "date -> int"))]
+    DateYear,
+    /// `Date.yearDay d`.
+    #[strum(props(p = "Date", name = "yearDay", type = "date -> int"))]
+    DateYearDay,
     #[strum(props(p = "Relational", name = "DESC", global = true))]
     #[strum(props(type = "forall 1 'a -> 'a descending"))]
     #[strum(props(constructor = true, datatype = "descending"))]
@@ -686,6 +756,42 @@ pub enum BuiltInFunction {
     MathTan,
     #[strum(props(p = "Math", name = "tanh", type = "real -> real"))]
     MathTanh,
+    #[strum(props(p = "Date", name = "Apr", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthApr,
+    #[strum(props(p = "Date", name = "Aug", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthAug,
+    #[strum(props(p = "Date", name = "Dec", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthDec,
+    #[strum(props(p = "Date", name = "Feb", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthFeb,
+    #[strum(props(p = "Date", name = "Jan", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthJan,
+    #[strum(props(p = "Date", name = "Jul", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthJul,
+    #[strum(props(p = "Date", name = "Jun", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthJun,
+    #[strum(props(p = "Date", name = "Mar", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthMar,
+    #[strum(props(p = "Date", name = "May", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthMay,
+    #[strum(props(p = "Date", name = "Nov", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthNov,
+    #[strum(props(p = "Date", name = "Oct", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthOct,
+    #[strum(props(p = "Date", name = "Sep", global = true))]
+    #[strum(props(type = "`month`", constructor = true))]
+    MonthSep,
     #[strum(props(p = "Option", name = "app"))]
     #[strum(props(type = "forall 1 ('a -> unit) -> 'a option -> unit"))]
     OptionApp,
@@ -1277,6 +1383,27 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Vector", name = "update", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a vector * int * 'a -> 'a vector"))]
     VectorUpdate,
+    #[strum(props(p = "Date", name = "Fri", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdayFri,
+    #[strum(props(p = "Date", name = "Mon", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdayMon,
+    #[strum(props(p = "Date", name = "Sat", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdaySat,
+    #[strum(props(p = "Date", name = "Sun", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdaySun,
+    #[strum(props(p = "Date", name = "Thu", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdayThu,
+    #[strum(props(p = "Date", name = "Tue", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdayTue,
+    #[strum(props(p = "Date", name = "Wed", global = true))]
+    #[strum(props(type = "`weekday`", constructor = true))]
+    WeekdayWed,
 }
 
 impl BuiltInFunction {
@@ -1364,6 +1491,8 @@ pub enum BuiltInRecord {
     Bool,
     #[strum(props(name = "Char"))]
     Char,
+    #[strum(props(name = "Date"))]
+    Date,
     #[strum(props(name = "Either"))]
     Either,
     #[strum(props(name = "Fn"))]
@@ -1429,6 +1558,8 @@ pub enum BuiltInExn {
     Bind,
     #[strum(props(p = "General"))]
     Chr,
+    #[strum(props(p = "Date"))]
+    Date,
     #[strum(props(p = "General", explain = "divide by zero"))]
     Div,
     #[strum(props(p = "General", explain = "domain error"))]

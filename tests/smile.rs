@@ -57,6 +57,11 @@ fn built_in_char() {
 }
 
 #[test]
+fn built_in_date() {
+    run_script("tests/script/built-in/date.smli");
+}
+
+#[test]
 fn built_in_either() {
     run_script("tests/script/built-in/either.smli");
 }

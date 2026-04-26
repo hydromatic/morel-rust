@@ -21,6 +21,7 @@ pub mod bound;
 pub mod char;
 pub mod code;
 pub mod comparator;
+pub mod date;
 pub mod discrete;
 pub mod either;
 pub mod frame;

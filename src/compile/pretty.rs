@@ -17,6 +17,7 @@
 
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
 use crate::eval::code;
+use crate::eval::date;
 use crate::eval::real::Real;
 use crate::eval::val;
 use crate::eval::val::Val;
@@ -770,6 +771,47 @@ impl Pretty {
             // matching morel-java's opaque-Long form.
             return write!(buf, "{}", t).map_err(|_| fmt::Error);
         }
+        if name == "date"
+            && let Val::Date(d, o) = value
+        {
+            return write!(buf, "{}", date::format_iso(*d, *o))
+                .map_err(|_| fmt::Error);
+        }
+        if name == "weekday"
+            && let Val::Constructor(ord, _) = value
+        {
+            let label = match *ord {
+                val::WEEKDAY_MON_ORDINAL => "Mon",
+                val::WEEKDAY_TUE_ORDINAL => "Tue",
+                val::WEEKDAY_WED_ORDINAL => "Wed",
+                val::WEEKDAY_THU_ORDINAL => "Thu",
+                val::WEEKDAY_FRI_ORDINAL => "Fri",
+                val::WEEKDAY_SAT_ORDINAL => "Sat",
+                val::WEEKDAY_SUN_ORDINAL => "Sun",
+                _ => return Err(fmt::Error),
+            };
+            return self.pretty_raw(buf, indent, line_end, depth, label);
+        }
+        if name == "month"
+            && let Val::Constructor(ord, _) = value
+        {
+            let label = match *ord {
+                val::MONTH_JAN_ORDINAL => "Jan",
+                val::MONTH_FEB_ORDINAL => "Feb",
+                val::MONTH_MAR_ORDINAL => "Mar",
+                val::MONTH_APR_ORDINAL => "Apr",
+                val::MONTH_MAY_ORDINAL => "May",
+                val::MONTH_JUN_ORDINAL => "Jun",
+                val::MONTH_JUL_ORDINAL => "Jul",
+                val::MONTH_AUG_ORDINAL => "Aug",
+                val::MONTH_SEP_ORDINAL => "Sep",
+                val::MONTH_OCT_ORDINAL => "Oct",
+                val::MONTH_NOV_ORDINAL => "Nov",
+                val::MONTH_DEC_ORDINAL => "Dec",
+                _ => return Err(fmt::Error),
+            };
+            return self.pretty_raw(buf, indent, line_end, depth, label);
+        }
         if (name == "continuous_set" || name == "discrete_set")
             && let Val::Constructor(ordinal, inner) = value
             && (*ordinal == val::CONTINUOUS_SET_ORDINAL
@@ -830,10 +872,10 @@ impl Pretty {
         let list = match &value {
             Val::Fn(f) => {
                 // Nullary built-in constructors and constants
-                // (e.g. `EQUAL`, `LESS`, `GREATER`) reach here as
-                // bare function references. Their display is just
-                // their declared name; any non-nullary `Val::Fn`
-                // here is a bug.
+                // (e.g. `EQUAL`, `LESS`, `GREATER`, `Jan`, `Mon`)
+                // reach here as bare function references. Their
+                // display is just their declared name; any
+                // non-nullary `Val::Fn` here is a bug.
                 if !matches!(f.get_impl(), code::Impl::E0(_)) {
                     panic!("Expected list, got non-nullary Val::Fn({:?})", f);
                 }

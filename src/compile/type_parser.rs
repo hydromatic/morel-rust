@@ -72,6 +72,9 @@ impl TypeBuilder {
                         || name == "discrete_set" && args.len() == 1
                         || name == "variant" && args.is_empty()
                         || name == "time" && args.is_empty()
+                        || name == "date" && args.is_empty()
+                        || name == "weekday" && args.is_empty()
+                        || name == "month" && args.is_empty()
                     {
                         Type::Data(name.clone(), arg_types)
                     } else {
