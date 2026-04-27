@@ -85,3 +85,17 @@ Add three new read-only properties to the Sys structure.
 
 Fixes #30
 ```
+
+## Quick experiments
+
+To run a single Morel expression from the shell, pass `-e` (or
+`--eval`, or `--eval=EXPR`) to the binary; the result is printed and
+the process exits. Useful when reproducing a bug from a one-liner
+without needing a script file:
+
+```
+$ ./target/debug/main -e '1 + 2'
+val it = 3 : int
+$ ./target/debug/main --eval='from x in [1,2,3] yield x * 2'
+val it = [2,4,6] : int list
+```

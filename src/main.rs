@@ -54,13 +54,22 @@ fn parse_args(args: &[String]) -> CliAction {
         match first.as_str() {
             "-h" | "--help" => return CliAction::Help,
             "test" => return CliAction::Test(args[1..].to_vec()),
-            "-c" => {
+            // `-e EXPR` / `--eval EXPR` (morel#333, matching morel-java)
+            // evaluates a single expression and exits.
+            "-e" | "--eval" => {
                 return match args.get(1) {
                     Some(cmd) => CliAction::Command(cmd.clone()),
-                    None => CliAction::Error(
-                        "-c requires a command argument".into(),
-                    ),
+                    None => CliAction::Error(format!(
+                        "{} requires an expression argument",
+                        first
+                    )),
                 };
+            }
+            // `--eval=EXPR` form (morel#333).
+            s if s.starts_with("--eval=") => {
+                return CliAction::Command(
+                    s.strip_prefix("--eval=").unwrap().to_string(),
+                );
             }
             _ => {}
         }
@@ -158,13 +167,16 @@ fn print_help() {
     println!("morel-rust version {}", env!("CARGO_PKG_VERSION"));
     println!();
     println!("Usage: morel [OPTIONS] [FILES...]");
-    println!("       morel -c COMMAND");
+    println!("       morel -e EXPR | --eval EXPR | --eval=EXPR");
     println!("       morel test [FILES...]");
     println!("       morel -h | --help");
     println!();
     println!("Options:");
     println!("  -h, --help         Print this help message and exit");
-    println!("  -c COMMAND         Execute a single command and exit");
+    println!(
+        "  -e, --eval EXPR    Evaluate a single expression and exit (also as"
+    );
+    println!("                     --eval=EXPR).");
     println!(
         "  --idempotent       Force idempotent mode for all files and stdin"
     );
@@ -206,7 +218,10 @@ fn print_help() {
     println!();
     println!("Examples:");
     println!("  morel                         Interactive REPL");
-    println!("  morel -c \"1 + 2\"              Execute a single command");
+    println!(
+        "  morel -e \"1 + 2\"              Evaluate an expression and exit"
+    );
+    println!("  morel --eval='1 + 2'          Same, in --eval=EXPR form");
     println!("  morel script.sml              Run script, transcript mode");
     println!("  morel script.smli             Run script, idempotent mode");
     println!(
@@ -324,17 +339,66 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_args_dash_c_with_command() {
+    fn test_parse_args_dash_c_is_treated_as_a_filename() {
+        // morel-rust used to accept `-c COMMAND`, but morel-java has no
+        // such flag; it was removed in favour of the morel#333 form
+        // `-e EXPR` / `--eval EXPR` / `--eval=EXPR`. A bare `-c` is
+        // now treated as a (probably non-existent) file name; the
+        // shell will report a runtime error when it tries to open it.
         assert_eq!(
             parse_args(&[s("-c"), s("1 + 2")]),
+            CliAction::Scripts {
+                files: vec![s("-c"), s("1 + 2")],
+                force_idempotent: None,
+                directory: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_args_dash_e_with_expr() {
+        assert_eq!(
+            parse_args(&[s("-e"), s("1 + 2")]),
             CliAction::Command("1 + 2".into())
         );
     }
 
     #[test]
-    fn test_parse_args_dash_c_without_command_is_error() {
-        match parse_args(&[s("-c")]) {
-            CliAction::Error(msg) => assert!(msg.contains("-c")),
+    fn test_parse_args_long_eval_with_expr() {
+        assert_eq!(
+            parse_args(&[s("--eval"), s("from x in [1,2,3] yield x * 2")]),
+            CliAction::Command("from x in [1,2,3] yield x * 2".into())
+        );
+    }
+
+    #[test]
+    fn test_parse_args_long_eval_equals() {
+        assert_eq!(
+            parse_args(&[s("--eval=1 + 2")]),
+            CliAction::Command("1 + 2".into())
+        );
+    }
+
+    #[test]
+    fn test_parse_args_long_eval_equals_empty() {
+        // `--eval=` with nothing after the `=` is still parsed; the
+        // shell will report a syntax error when it tries to evaluate
+        // the empty string.
+        assert_eq!(parse_args(&[s("--eval=")]), CliAction::Command("".into()));
+    }
+
+    #[test]
+    fn test_parse_args_dash_e_without_expr_is_error() {
+        match parse_args(&[s("-e")]) {
+            CliAction::Error(msg) => assert!(msg.contains("-e")),
+            other => panic!("expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_args_long_eval_without_expr_is_error() {
+        match parse_args(&[s("--eval")]) {
+            CliAction::Error(msg) => assert!(msg.contains("--eval")),
             other => panic!("expected Error, got {:?}", other),
         }
     }
