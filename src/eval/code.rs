@@ -48,7 +48,7 @@ use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
 use crate::shell::prop::{Configurable, Prop};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::iter::{repeat_n, zip};
@@ -1918,7 +1918,7 @@ pub enum Eager0 {
 }
 
 impl Eager0 {
-    fn apply(&self) -> Val {
+    pub(crate) fn apply(&self) -> Val {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::Eager0::*;
 
@@ -2086,7 +2086,7 @@ impl EagerF0 {
 /// are eagerly evaluated before the function is called -- but allows the
 /// implementation to have side effects such as modifying the state of the
 /// session.
-#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, strum_macros::Display)]
 pub enum EagerF1 {
     // lint: sort until '#}'
     BagHd,
@@ -2136,16 +2136,7 @@ impl EagerF1 {
     /// path can construct a `MorelError` without allocating on the
     /// happy path.
     fn is_throwing(&self) -> bool {
-        #[expect(clippy::enum_glob_use)]
-        use EagerF1::*;
-        match self {
-            BagHd | BagOnly | BagTl | CharChr | CharPred | CharSucc
-            | IntAbs | ListHd | ListLast | ListOnly | ListTl | OptionValOf
-            | RealCeil | RealCheckFloat | RealFloor | RealRound | RealSign
-            | RealTrunc | RelationalMax | RelationalMin => true,
-            InteractUse | InteractUseSilently | SysPlanEx | SysShow
-            | SysUnset => false,
-        }
+        LIBRARY.eager_f1_throws.contains(self)
     }
 
     // Passing Val by value is OK because it is small.
@@ -2952,7 +2943,7 @@ impl Eager2 {
 /// are eagerly evaluated before the function is called -- but allows the
 /// implementation to have side effects such as modifying the state of the
 /// session.
-#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, strum_macros::Display)]
 pub enum EagerF2 {
     // lint: sort until '#}'
     BagAll,
@@ -3039,25 +3030,7 @@ impl EagerF2 {
 
     /// See [`EagerF1::is_throwing`].
     fn is_throwing(&self) -> bool {
-        #[expect(clippy::enum_glob_use)]
-        use EagerF2::*;
-        matches!(
-            self,
-            BagDrop
-                | BagTabulate
-                | BagTake
-                | LPAppEq
-                | LPMapEq
-                | LPZipEq
-                | ListDrop
-                | ListNth
-                | ListTabulate
-                | ListTake
-                | RealCompare
-                | StringSub
-                | VectorSub
-                | VectorTabulate
-        )
+        LIBRARY.eager_f2_throws.contains(self)
     }
 
     // Passing Val by value is OK because it is small.
@@ -3341,7 +3314,7 @@ impl EagerF2 {
 /// values). The arguments are eagerly evaluated before the function is called
 /// -- but allows the implementation to have side effects such as modifying the
 /// state of the session.
-#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, strum_macros::Display)]
 pub enum EagerF3 {
     // lint: sort until '#}'
     BagFold,
@@ -3705,6 +3678,12 @@ pub struct Lib {
     pub fn_map: BTreeMap<BuiltInFunction, (Type, Impl)>,
     pub structure_map: BTreeMap<BuiltInRecord, (Type, Val)>,
     pub name_to_built_in: HashMap<String, BuiltIn>,
+    /// Set of `EagerF1` variants whose corresponding `BuiltInFunction`
+    /// has a `throws` strum prop; populated once at startup so
+    /// `EagerF1::is_throwing` is an O(1) hash lookup.
+    pub eager_f1_throws: HashSet<EagerF1>,
+    pub eager_f2_throws: HashSet<EagerF2>,
+    pub eager_f3_throws: HashSet<EagerF3>,
 }
 
 #[derive(Default)]
@@ -4182,10 +4161,35 @@ impl LibBuilder {
             name_to_built_in.insert(name.to_string(), BuiltIn::Record(r));
         }
 
+        // Populate the throws sets from the `throws` strum prop on
+        // each BuiltInFunction. Used by Eager F1/F2/F3 is_throwing.
+        let mut eager_f1_throws = HashSet::new();
+        let mut eager_f2_throws = HashSet::new();
+        let mut eager_f3_throws = HashSet::new();
+        for (f, (_t, impl_)) in &fn_map {
+            if f.throws_name().is_some() {
+                match impl_ {
+                    Impl::EF1(v) => {
+                        eager_f1_throws.insert(*v);
+                    }
+                    Impl::EF2(v) => {
+                        eager_f2_throws.insert(*v);
+                    }
+                    Impl::EF3(v) => {
+                        eager_f3_throws.insert(*v);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Lib {
             fn_map,
             structure_map,
             name_to_built_in,
+            eager_f1_throws,
+            eager_f2_throws,
+            eager_f3_throws,
         }
     }
 }

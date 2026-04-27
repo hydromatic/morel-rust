@@ -33,17 +33,14 @@ use crate::eval::comparator::{self, comparator_for};
 use crate::eval::discrete::discrete_for_with;
 use crate::eval::frame::FrameDef;
 use crate::eval::link_table::LinkTable;
-use crate::eval::order::Order;
 use crate::eval::row_sink::{RowSink, RowSinkFactory};
 use crate::eval::session::Session;
-use crate::eval::val::{RANGE_ALL_ORDINAL, Val};
-use crate::eval::variant::{none as variant_none, unit as variant_unit};
+use crate::eval::val::Val;
 use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::{Environment, MorelError};
 use crate::shell::prop::Prop;
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -1247,25 +1244,16 @@ impl<'a> Compiler<'a> {
                 Code::new_list(&codes)
             }
             Expr::Literal(type_, val) => {
-                // Convert zero-argument constructors to their values.
+                // Constant-fold a bare reference to a zero-argument
+                // built-in (a nullary constructor or a constant like
+                // `Math.pi`) to the underlying value, by invoking the
+                // function's `Eager0` implementation. Non-zero-arg
+                // built-ins and other literals pass through unchanged.
                 let val2 = match val {
-                    Val::Fn(BuiltInFunction::BagNil) => Val::List(vec![]),
-                    Val::Fn(BuiltInFunction::ListNil) => Val::List(vec![]),
-                    Val::Fn(BuiltInFunction::OptionNone) => Val::Unit,
-                    Val::Fn(BuiltInFunction::OrderLess) => {
-                        Val::Order(Order(Ordering::Less))
-                    }
-                    Val::Fn(BuiltInFunction::OrderEqual) => {
-                        Val::Order(Order(Ordering::Equal))
-                    }
-                    Val::Fn(BuiltInFunction::OrderGreater) => {
-                        Val::Order(Order(Ordering::Greater))
-                    }
-                    Val::Fn(BuiltInFunction::RangeAll) => {
-                        Val::Constructor(RANGE_ALL_ORDINAL, Box::new(Val::Unit))
-                    }
-                    Val::Fn(BuiltInFunction::VariantNone) => variant_none(),
-                    Val::Fn(BuiltInFunction::VariantUnit) => variant_unit(),
+                    Val::Fn(f) => match f.get_impl() {
+                        Impl::E0(e0) => e0.apply(),
+                        _ => val.clone(),
+                    },
                     _ => val.clone(),
                 };
                 Code::new_constant(type_, val2.clone())

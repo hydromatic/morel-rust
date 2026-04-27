@@ -41,7 +41,7 @@ use crate::syntax::ast::{
 use crate::syntax::parser;
 use crate::unify::unifier::Var;
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
 pub fn resolve(resolved: &Resolved) -> (CoreDecl, Vec<(String, Span)>) {
@@ -1132,6 +1132,28 @@ impl<'a> Resolver<'a> {
                     span.clone(),
                 )
             }
+            PostfixKind::Curried2Rev => {
+                // `recv.m a` — build the curried call `m a recv`,
+                // i.e. `Apply(Apply(m, a), recv)`. Used when the
+                // receiver appears in the second curried position
+                // (e.g. `Time.fmt : int -> time -> string`).
+                let c_arg = self.resolve_expr(arg);
+                let recv_t = c_recv.type_();
+                let intermediate_t =
+                    Box::new(Type::Fn(recv_t.clone(), t.clone()));
+                let inner = CoreExpr::Apply(
+                    intermediate_t,
+                    Box::new(fn_literal),
+                    Box::new(c_arg),
+                    span.clone(),
+                );
+                CoreExpr::Apply(
+                    t,
+                    Box::new(inner),
+                    Box::new(c_recv),
+                    span.clone(),
+                )
+            }
         }
     }
 
@@ -1960,152 +1982,159 @@ impl ReferenceFinder {
 /// type inference leaves the outer Apply's type variable unresolved
 /// (the record-selector action only fires when the receiver is a
 /// true record, not a built-in type).
+///
+/// Computes the answer by parsing the function's declared type
+/// signature, unifying the receiver's actual type against the
+/// declared receiver position to bind type variables, and applying
+/// that substitution to the declared return type. Adding a new
+/// dispatchable built-in needs no edit here — the answer comes from
+/// the function's strum metadata.
 fn postfix_return_type(
     builtin: BuiltInFunction,
-    _kind: PostfixKind,
+    kind: PostfixKind,
     recv_type: &Type,
     arg_type: Option<&Type>,
 ) -> Box<Type> {
-    use BuiltInFunction::{
-        BagDrop, BagHd, BagLength, BagNull, BagOnly, BagTake, BagTl, BoolNot,
-        BoolToString, CharCompare, CharIsAlpha, CharIsDigit, CharOrd, CharPred,
-        CharSucc, CharToLower, CharToString, CharToUpper, IntAbs, IntCompare,
-        IntMax, IntMin, IntRem, IntSameSign, IntSign, IntToString, ListDrop,
-        ListHd, ListLength, ListNth, ListNull, ListOnly, ListTake, ListTl,
-        OptionGetOpt, OptionIsSome, OptionValOf, RangeContains,
-        RangeCsComplement, RangeCsContains, RangeCsRanges, RangeDsComplement,
-        RangeDsContains, RangeDsRanges, RangeToBag, RangeToList, RealAbs,
-        RealCeil, RealCompare, RealFloor, RealMax, RealMin, RealRem, RealSign,
-        RealToString, RealTrunc, StringExplode, StringSize, StringSub,
-        StringSubstring,
+    let ty = builtin.get_type();
+    let stripped = strip_forall(&ty);
+    let Type::Fn(arg, ret) = stripped else {
+        return Box::new(recv_type.clone());
     };
-    fn prim(p: PrimitiveType) -> Box<Type> {
-        Box::new(Type::Primitive(p))
+    // Locate the declared type of the receiver position and the
+    // declared return type, depending on the dispatch kind.
+    let (declared_recv, declared_ret): (&Type, &Type) =
+        match (kind, arg.as_ref(), ret.as_ref()) {
+            (PostfixKind::Tupled2, Type::Tuple(fs), _) if fs.len() == 2 => {
+                (&fs[0], ret)
+            }
+            (PostfixKind::Tupled3, Type::Tuple(fs), _) if fs.len() == 3 => {
+                (&fs[0], ret)
+            }
+            (PostfixKind::Curried2, a, Type::Fn(_, r)) => (a, r),
+            (PostfixKind::Curried2Rev, _, Type::Fn(a2, r)) => (a2, r),
+            (PostfixKind::Unary, a, _) => (a, ret),
+            _ => return Box::new(recv_type.clone()),
+        };
+    // Bind type variables by matching declared_recv against the
+    // actual receiver type.
+    let mut subst: HashMap<usize, Type> = HashMap::new();
+    unify_into(declared_recv, peel_type(recv_type), &mut subst);
+    let mut out = substitute(declared_ret, &subst);
+    // If the result is still a free variable, fall back to the
+    // argument's concrete type — this covers `OptionGetOpt` on a
+    // polymorphic receiver like `NONE.getOpt(0)`, where the result
+    // type variable is determined by the second argument.
+    if is_unresolved_type(&out)
+        && let Some(at) = arg_type
+        && !is_unresolved_type(at)
+    {
+        out = at.clone();
     }
-    fn clone_box(t: &Type) -> Box<Type> {
-        Box::new(t.clone())
+    Box::new(out)
+}
+
+/// Strips `Type::Forall` wrappers, returning the inner type.
+fn strip_forall(t: &Type) -> &Type {
+    let mut cur = t;
+    while let Type::Forall(inner, _) = cur {
+        cur = inner;
     }
-    /// Extracts the element type from a `T list` or `T bag`.
-    fn elem_of(t: &Type) -> Box<Type> {
-        match peel_type(t) {
-            Type::List(e) | Type::Bag(e) => e.clone(),
-            _ => Box::new(t.clone()),
+    cur
+}
+
+/// Walks `declared` and `actual` in parallel, recording bindings of
+/// declared type variables to the corresponding actual sub-types.
+/// Mismatches in shape are silently ignored (the caller falls back to
+/// the unsubstituted declared type).
+fn unify_into(
+    declared: &Type,
+    actual: &Type,
+    subst: &mut HashMap<usize, Type>,
+) {
+    let actual = peel_type(actual);
+    match (declared, actual) {
+        (Type::Variable(tv), t) => {
+            subst.insert(tv.id, t.clone());
         }
+        (Type::List(a), Type::List(b)) | (Type::Bag(a), Type::Bag(b)) => {
+            unify_into(a, b, subst);
+        }
+        (Type::Data(n, a), Type::Data(m, b))
+            if n == m && a.len() == b.len() =>
+        {
+            for (a, b) in a.iter().zip(b.iter()) {
+                unify_into(a, b, subst);
+            }
+        }
+        (Type::Named(a, n), Type::Named(b, m))
+            if n == m && a.len() == b.len() =>
+        {
+            for (a, b) in a.iter().zip(b.iter()) {
+                unify_into(a, b, subst);
+            }
+        }
+        // Cross-spelling: type parser canonicalises some types to
+        // `Type::List` / `Type::Bag` and others to `Type::Named`.
+        (Type::Bag(a), Type::Named(b, name))
+        | (Type::Named(b, name), Type::Bag(a))
+            if name == "bag" && b.len() == 1 =>
+        {
+            unify_into(a, &b[0], subst);
+        }
+        (Type::List(a), Type::Named(b, name))
+        | (Type::Named(b, name), Type::List(a))
+            if name == "list" && b.len() == 1 =>
+        {
+            unify_into(a, &b[0], subst);
+        }
+        _ => {}
     }
-    /// Builds an `order` type (the `order` datatype).
-    fn order_ty() -> Box<Type> {
-        Box::new(Type::Data("order".to_string(), vec![]))
-    }
-    match builtin {
-        // Length-like: always int
-        ListLength | BagLength | StringSize | CharOrd => {
-            prim(PrimitiveType::Int)
+}
+
+/// Replaces every `Type::Variable(id)` in `t` with `subst[id]` (if
+/// present), and normalises `Type::Named(_, name)` to
+/// `Type::Data(name, _)` for the built-in datatype names that the
+/// pretty printer special-cases. Variables not in the substitution
+/// are left untouched.
+fn substitute(t: &Type, subst: &HashMap<usize, Type>) -> Type {
+    match t {
+        Type::Variable(tv) => {
+            subst.get(&tv.id).cloned().unwrap_or_else(|| t.clone())
         }
-        // bool results
-        ListNull | BagNull | BoolNot | CharIsAlpha | CharIsDigit => {
-            prim(PrimitiveType::Bool)
-        }
-        // hd / only return element type
-        ListHd | BagHd | ListOnly | BagOnly => elem_of(recv_type),
-        // tl / drop / take return collection type
-        ListTl | BagTl | ListDrop | ListTake | BagDrop | BagTake => {
-            clone_box(recv_type)
-        }
-        // nth: (T list * int) -> T
-        ListNth => elem_of(recv_type),
-        // String
-        StringSub => prim(PrimitiveType::Char),
-        StringSubstring => prim(PrimitiveType::String),
-        StringExplode => Box::new(Type::List(prim(PrimitiveType::Char))),
-        // Int ops returning int
-        IntAbs | IntMax | IntMin | IntRem | IntSign => prim(PrimitiveType::Int),
-        IntSameSign => prim(PrimitiveType::Bool),
-        IntToString | BoolToString | CharToString | RealToString => {
-            prim(PrimitiveType::String)
-        }
-        // Int/Real compare return order
-        IntCompare | RealCompare | CharCompare => order_ty(),
-        // Real ops returning real
-        RealAbs | RealMax | RealMin | RealRem | RealTrunc => {
-            prim(PrimitiveType::Real)
-        }
-        // Real ops returning int
-        RealCeil | RealFloor | RealSign => prim(PrimitiveType::Int),
-        // Char transforms
-        CharPred | CharSucc | CharToLower | CharToUpper => {
-            prim(PrimitiveType::Char)
-        }
-        // Option methods
-        OptionIsSome => prim(PrimitiveType::Bool),
-        OptionValOf => {
-            // option T → T
-            match peel_type(recv_type) {
-                Type::Data(_, args) if args.len() == 1 => {
-                    Box::new(args[0].clone())
+        Type::List(inner) => Type::List(Box::new(substitute(inner, subst))),
+        Type::Bag(inner) => Type::Bag(Box::new(substitute(inner, subst))),
+        Type::Fn(a, r) => Type::Fn(
+            Box::new(substitute(a, subst)),
+            Box::new(substitute(r, subst)),
+        ),
+        Type::Data(n, args) => Type::Data(
+            n.clone(),
+            args.iter().map(|a| substitute(a, subst)).collect(),
+        ),
+        Type::Named(args, n) => {
+            let new_args: Vec<Type> =
+                args.iter().map(|a| substitute(a, subst)).collect();
+            // The type parser produces `Type::Named([], name)` for
+            // every datatype; normalise the ones the pretty printer
+            // expects as `Type::Data` so that postfix call results
+            // render the same as their prefix counterparts.
+            match n.as_str() {
+                "bag" if new_args.len() == 1 => {
+                    Type::Bag(Box::new(new_args.into_iter().next().unwrap()))
                 }
-                _ => clone_box(recv_type),
-            }
-        }
-        OptionGetOpt => {
-            // option T * T → T. If the receiver is still polymorphic
-            // (e.g. `NONE.getOpt(0)`), fall back to the argument's
-            // concrete type — the second argument and the result share
-            // the element type variable.
-            match peel_type(recv_type) {
-                Type::Data(_, args)
-                    if args.len() == 1 && !is_unresolved_type(&args[0]) =>
-                {
-                    return Box::new(args[0].clone());
+                "list" if new_args.len() == 1 => {
+                    Type::List(Box::new(new_args.into_iter().next().unwrap()))
                 }
-                _ => {}
-            }
-            if let Some(t) = arg_type
-                && !is_unresolved_type(t)
-            {
-                return Box::new(t.clone());
-            }
-            // Fallback: peel whatever we have, even if it's a
-            // variable.
-            match peel_type(recv_type) {
-                Type::Data(_, args) if args.len() == 1 => {
-                    Box::new(args[0].clone())
-                }
-                _ => clone_box(recv_type),
+                "continuous_set" | "date" | "discrete_set" | "month"
+                | "option" | "order" | "range" | "time" | "variant"
+                | "vector" | "weekday" => Type::Data(n.clone(), new_args),
+                _ => Type::Named(new_args, n.clone()),
             }
         }
-        // Range methods
-        // contains: 'a {range,continuous_set,discrete_set} -> 'a -> bool.
-        RangeContains | RangeCsContains | RangeDsContains => {
-            prim(PrimitiveType::Bool)
+        Type::Tuple(fs) => {
+            Type::Tuple(fs.iter().map(|a| substitute(a, subst)).collect())
         }
-        // ranges: 'a {continuous_set,discrete_set} -> 'a range list.
-        RangeCsRanges | RangeDsRanges => match peel_type(recv_type) {
-            Type::Data(_, args) if !args.is_empty() => {
-                Box::new(Type::List(Box::new(Type::Data(
-                    "range".to_string(),
-                    vec![args[0].clone()],
-                ))))
-            }
-            _ => clone_box(recv_type),
-        },
-        // toList: 'a discrete_set -> 'a list
-        RangeToList => match peel_type(recv_type) {
-            Type::Data(_, args) if !args.is_empty() => {
-                Box::new(Type::List(Box::new(args[0].clone())))
-            }
-            _ => clone_box(recv_type),
-        },
-        // toBag: 'a discrete_set -> 'a bag
-        RangeToBag => match peel_type(recv_type) {
-            Type::Data(_, args) if !args.is_empty() => {
-                Box::new(Type::Bag(Box::new(args[0].clone())))
-            }
-            _ => clone_box(recv_type),
-        },
-        // complement: 'a {continuous_set,discrete_set} -> same
-        RangeCsComplement | RangeDsComplement => clone_box(recv_type),
-        // Fallback: use the receiver's type (conservative).
-        _ => clone_box(recv_type),
+        _ => t.clone(),
     }
 }
 

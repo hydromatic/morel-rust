@@ -3416,11 +3416,11 @@ impl TypeResolver {
                     id: None,
                 }
             }
-            PostfixKind::Curried2 => {
-                // Curried2 is rewritten as nested Applies in the
-                // caller, not via this helper, so this branch is
-                // unreachable in practice.
-                unreachable!("Curried2 handled before build_postfix_arg")
+            PostfixKind::Curried2 | PostfixKind::Curried2Rev => {
+                // Curried variants are rewritten as nested Applies in
+                // the caller, not via this helper, so these branches
+                // are unreachable in practice.
+                unreachable!("Curried* handled before build_postfix_arg")
             }
         })
     }

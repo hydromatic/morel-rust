@@ -15,8 +15,8 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
+use crate::eval::code;
 use crate::eval::real::Real;
 use crate::eval::val;
 use crate::eval::val::Val;
@@ -822,13 +822,15 @@ impl Pretty {
         }
         let list = match &value {
             Val::Fn(f) => {
-                let name = match f {
-                    BuiltInFunction::OrderEqual => "EQUAL",
-                    BuiltInFunction::OrderGreater => "GREATER",
-                    BuiltInFunction::OrderLess => "LESS",
-                    _ => panic!("Expected list"),
-                };
-                return self.pretty_raw(buf, indent, line_end, depth, name);
+                // Nullary built-in constructors and constants
+                // (e.g. `EQUAL`, `LESS`, `GREATER`) reach here as
+                // bare function references. Their display is just
+                // their declared name; any non-nullary `Val::Fn`
+                // here is a bug.
+                if !matches!(f.get_impl(), code::Impl::E0(_)) {
+                    panic!("Expected list, got non-nullary Val::Fn({:?})", f);
+                }
+                return self.pretty_raw(buf, indent, line_end, depth, f.name());
             }
             Val::List(list) => list,
             Val::Order(o) => {
