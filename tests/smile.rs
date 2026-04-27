@@ -253,6 +253,11 @@ fn such_that() {
 }
 
 #[test]
+fn tail_recursion() {
+    run_script("tests/script/tail-recursion.smli");
+}
+
+#[test]
 fn type_() {
     run_script("tests/script/type.smli");
 }

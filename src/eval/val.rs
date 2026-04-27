@@ -29,7 +29,7 @@ use crate::shell::main::MorelError;
 use crate::syntax::parser;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 /// Sentinel ordinal for the built-in `DESC` constructor of the
 /// `descending` datatype. Distinct from any user-defined constructor
@@ -88,7 +88,7 @@ pub const MONTH_DEC_ORDINAL: usize = usize::MAX - 51;
 ///
 /// Passing [Val] by value is OK because it is small.
 /// We box the arguments to [Val::Typed] to keep it small.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 #[allow(clippy::needless_pass_by_value)]
 pub enum Val {
     Unit,
@@ -165,17 +165,38 @@ pub enum Val {
     /// user-defined functions. Long-term, they should be handled by inlining.
     Code(Arc<Code>),
 
-    /// `Closure(frame_def, matches, bound_vals, no_match)` is a closure.
-    /// It is evaluated similarly to `Fn(frame_def, matches)`, except
-    /// that the frame is pre-populated with the values. `no_match` is
-    /// the precomputed error to return when an application has no
-    /// matching clause.
-    Closure(
-        Arc<FrameDef>,
-        Vec<(Code, Code)>,
-        Vec<Val>,
-        Option<MorelError>,
-    ),
+    /// A closure: a function that has captured variables from its
+    /// definition site. Evaluated similarly to `Code::Fn` except that
+    /// the frame is pre-populated with the captured values. Wrapped in
+    /// `Arc<ClosureData>` so that a closure can refer to itself
+    /// (through `Val::ClosureWeak`) without leaking memory — the
+    /// self-reference is a `Weak`, and the closure is reaped when no
+    /// strong reference remains.
+    Closure(Arc<ClosureData>),
+
+    /// Weak self-reference inside a closure's `bound_vals`. Set up by
+    /// `Code::CreateClosure` for a closure-bound recursive `fun` that
+    /// references itself; upgraded back to `Val::Closure` on access.
+    /// Never observed outside the closure that owns the `Arc<ClosureData>`
+    /// it points into.
+    ClosureWeak(Weak<ClosureData>),
+}
+
+/// The data inside a [`Val::Closure`]. Boxed in an `Arc` so that the
+/// closure can hold a [`Weak`] reference to itself for self-recursion.
+#[derive(Clone, Debug)]
+pub struct ClosureData {
+    pub frame_def: Arc<FrameDef>,
+    pub matches: Vec<(Code, Code)>,
+    pub bound_vals: Vec<Val>,
+    pub no_match: Option<MorelError>,
+}
+
+impl PartialEq for ClosureData {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.frame_def, &other.frame_def)
+            && self.bound_vals == other.bound_vals
+    }
 }
 
 // REVIEW Should we use `Into` or `From` traits?
@@ -310,15 +331,19 @@ impl Val {
     ) -> Result<Val, MorelError> {
         match self {
             Val::Code(code) => code.eval_f1(r, f, arg),
-            Val::Closure(frame_def, matches, bound_vals, no_match) => {
-                CodeFrame::create_bind_and_eval(
-                    frame_def,
-                    matches,
-                    bound_vals,
-                    no_match.as_ref(),
-                    r,
-                    arg,
-                )
+            Val::Closure(data) => CodeFrame::create_bind_and_eval(
+                &data.frame_def,
+                &data.matches,
+                &data.bound_vals,
+                data.no_match.as_ref(),
+                r,
+                arg,
+            ),
+            Val::ClosureWeak(weak) => {
+                let arc = weak
+                    .upgrade()
+                    .expect("self-referential closure already dropped");
+                Val::Closure(arc).apply_f1(r, f, arg)
             }
             Val::Fn(built_in_fn) => {
                 let (_, impl_) = LIBRARY
@@ -454,6 +479,38 @@ impl Display for Val {
 }
 
 // Implement Eq for Val (needed for HashMap keys)
+impl PartialEq for Val {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Val::Unit, Val::Unit) => true,
+            (Val::Bool(a), Val::Bool(b)) => a == b,
+            (Val::Char(a), Val::Char(b)) => a == b,
+            (Val::Int(a), Val::Int(b)) => a == b,
+            (Val::Order(a), Val::Order(b)) => a == b,
+            (Val::Real(a), Val::Real(b)) => a == b,
+            (Val::String(a), Val::String(b)) => a == b,
+            (Val::List(a), Val::List(b)) => a == b,
+            (Val::Fn(a), Val::Fn(b)) => a == b,
+            (Val::Some(a), Val::Some(b)) => a == b,
+            (Val::Inl(a), Val::Inl(b)) => a == b,
+            (Val::Inr(a), Val::Inr(b)) => a == b,
+            (Val::Variant(a), Val::Variant(b)) => a == b,
+            (Val::Constructor(a, x), Val::Constructor(b, y)) => {
+                a == b && x == y
+            }
+            (Val::Typed(a), Val::Typed(b)) => a == b,
+            (Val::Named(a), Val::Named(b)) => a == b,
+            (Val::Labeled(a), Val::Labeled(b)) => a == b,
+            (Val::Type(a), Val::Type(b)) => a == b,
+            (Val::Raw(a), Val::Raw(b)) => a == b,
+            (Val::Code(a), Val::Code(b)) => Arc::ptr_eq(a, b),
+            (Val::Closure(a), Val::Closure(b)) => Arc::ptr_eq(a, b),
+            (Val::ClosureWeak(a), Val::ClosureWeak(b)) => Weak::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 impl Eq for Val {}
 
 // Implement Hash for Val (needed for HashMap keys)
@@ -560,12 +617,15 @@ impl Hash for Val {
                 // Hash the pointer address
                 Arc::as_ptr(code).hash(state);
             }
-            Val::Closure(frame_def, matchers, vals, _) => {
+            Val::Closure(data) => {
                 19.hash(state);
-                Arc::as_ptr(frame_def).hash(state);
-                // Hash match count and vals
-                matchers.len().hash(state);
-                vals.hash(state);
+                Arc::as_ptr(&data.frame_def).hash(state);
+                data.matches.len().hash(state);
+                data.bound_vals.hash(state);
+            }
+            Val::ClosureWeak(weak) => {
+                20.hash(state);
+                Weak::as_ptr(weak).hash(state);
             }
         }
     }

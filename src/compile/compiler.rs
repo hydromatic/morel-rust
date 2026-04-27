@@ -218,20 +218,46 @@ impl<'a> Compiler<'a> {
         bindings: &mut Vec<Binding>,
         actions: Option<&mut Vec<Box<dyn Action>>>,
     ) {
-        // Remember the absolute slot of the first link reserved
-        // by this declaration. After we have compiled the
-        // recursive bodies we walk the patterns in the same order
-        // and fill these slots in the shell-wide link table.
+        // Top-level RecVal uses the shell-wide link table, so that
+        // recursive references go through `Code::Constant(Val::Code(
+        // Link))` and resolve at runtime. Inner-let RecVal cannot use
+        // the same mechanism: a `Code::CreateClosure` linked into the
+        // table would be evaluated in whatever frame happened to be
+        // current, not in the let-binder's frame, and its bind_codes
+        // would read the wrong slots. For inner-let RecVal, omit the
+        // env binding so that `VarCollector::bound_vars` does not
+        // filter out the recursive name; deeper closures then capture
+        // it lexically through the normal slot/bound_vars path.
+        let is_top_level = actions.is_some();
         let mut link_code_ordinal = self.link_table.len();
+
+        // Collect the names defined by this `Decl::RecVal` so we can
+        // replace self-references in their compiled `Code::CreateClosure`
+        // bind_codes with `Code::SelfRef` placeholders. The runtime
+        // detects those placeholders and uses `Arc::new_cyclic` to build
+        // a cyclic closure (the self-slot points back at the closure
+        // itself via `Val::ClosureWeak`).
+        let mut rec_names: HashSet<String> = HashSet::new();
+        if !is_top_level && matches!(decl, Decl::RecVal(_)) {
+            decl.for_each_binding(&mut |pat, _, _, _| {
+                pat.for_each_id_pat(&mut |(_, name)| {
+                    rec_names.insert(name.to_string());
+                })
+            });
+        }
 
         if let Decl::RecVal(_) = decl {
             decl.for_each_binding(&mut |pat, _, _, _| {
                 pat.for_each_id_pat(&mut |(_, name)| {
-                    let link_code = self.create_link(name);
-                    bindings.push(Binding::of_name_value(
-                        name,
-                        &Some(Val::Code(Arc::new(link_code))),
-                    ));
+                    if is_top_level {
+                        let link_code = self.create_link(name);
+                        bindings.push(Binding::of_name_value(
+                            name,
+                            &Some(Val::Code(Arc::new(link_code))),
+                        ));
+                    } else {
+                        bindings.push(Binding::of_name(name));
+                    }
                 })
             });
         }
@@ -247,7 +273,28 @@ impl<'a> Compiler<'a> {
                   _overload_pat: &Option<Box<Id>>,
                   span: &Option<Span>| {
                 let pat_code = self.compile_pat(&cx1, pat);
-                let expr_code = Arc::new(self.compile_expr(&cx1, None, expr));
+                let mut expr_code_inner = self.compile_expr(&cx1, None, expr);
+                // For inner-let `Decl::RecVal`, replace any bind_code in the
+                // resulting `Code::CreateClosure` whose corresponding bound
+                // variable is one of the names defined by this RecVal with
+                // a `Code::SelfRef` placeholder. The runtime substitutes
+                // a cyclic `Val::ClosureWeak` for it.
+                if !rec_names.is_empty()
+                    && let Code::CreateClosure(
+                        ref frame_def,
+                        _,
+                        ref mut bind_codes,
+                        _,
+                    ) = expr_code_inner
+                {
+                    for (i, binding) in frame_def.bound_vars.iter().enumerate()
+                    {
+                        if rec_names.contains(&binding.id.name) {
+                            bind_codes[i] = Code::SelfRef;
+                        }
+                    }
+                }
+                let expr_code = Arc::new(expr_code_inner);
                 match_codes.push(Code::new_bind_with_span(
                     &pat_code,
                     &expr_code,
@@ -255,8 +302,19 @@ impl<'a> Compiler<'a> {
                 ));
 
                 // Special treatment for 'val id =' so that 'fun' declarations
-                // can be inlined.
-                if let Pat::Identifier(_, name) = pat {
+                // can be inlined. Skipped for inner-let `Decl::RecVal` so
+                // that `VarCollector::bound_vars` does not see the recursive
+                // name as `Val::Code` in the env (which would filter it out
+                // of capture lists). Without the env filter, deeper closures
+                // capture the recursive fn lexically through the let-binder's
+                // frame slot, which is the only correct path for closure-
+                // bound recursive fns whose body captures variables from
+                // the enclosing function.
+                let skip_inline_binding =
+                    !is_top_level && matches!(decl, Decl::RecVal(_));
+                if let Pat::Identifier(_, name) = pat
+                    && !skip_inline_binding
+                {
                     bindings.push(Binding::of_name_value(
                         name,
                         &Some(Val::Code(expr_code.clone())),
@@ -271,7 +329,9 @@ impl<'a> Compiler<'a> {
                 // patterns will be traversed in the same order as before, and
                 // therefore that links will be resolved in the same order that
                 // they were created.
-                if let Decl::RecVal(_) = decl {
+                if let Decl::RecVal(_) = decl
+                    && is_top_level
+                {
                     // Strip the unit-arg wrapper that `lift_decl`
                     // applies to the val expression. The wrapper
                     // has the shape
@@ -1074,12 +1134,18 @@ impl<'a> Compiler<'a> {
                 }
                 Expr::Identifier(type_, name) => {
                     let arg_code = self.compile_arg(cx, a);
-                    let fn_code =
-                        if let Some(Val::Code(code)) = &cx.env.get(name) {
-                            Code::new_constant(type_, Val::Code(code.clone()))
-                        } else {
-                            self.compile_arg(cx, f)
-                        };
+                    // The env shortcut to a `Val::Code` constant is
+                    // for top-level recursive `fun`s. A closer binding
+                    // in `cx.frame_def` (e.g. an inner-let `fun` of
+                    // the same name) must shadow it, so check the
+                    // frame first.
+                    let fn_code = if cx.frame_def.try_var_index(name).is_none()
+                        && let Some(Val::Code(code)) = &cx.env.get(name)
+                    {
+                        Code::new_constant(type_, Val::Code(code.clone()))
+                    } else {
+                        self.compile_arg(cx, f)
+                    };
                     Code::new_apply(
                         &fn_code,
                         &arg_code,
@@ -2343,7 +2409,10 @@ impl CompiledStatement for CompiledStatementImpl {
         // gone — `EvalEnv::new` now needs only the shell.
         let mut eval_env = EvalEnv::new(session, shell, effects);
         let mut vals = vec![];
-        let mut frame = Frame { vals: &mut vals };
+        let mut frame = Frame {
+            vals: &mut vals,
+            frame_def: None,
+        };
         for action in &self.actions {
             action.apply(&mut eval_env, &mut frame);
         }

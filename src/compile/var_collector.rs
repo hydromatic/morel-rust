@@ -100,12 +100,16 @@ impl<'a> VarCollector<'a> {
             let name = &binding.id.name;
             // Include this binding if not defined locally, not a recursive
             // function (a `Val::Code` in the env, typically a `Code::Link`
-            // for a `fun` / `val rec`), and not already seen. Other env
-            // entries — outer-scope `val` bindings holding plain data —
-            // are NOT filtered: an inner function parameter that happens
-            // to share a name with such an outer binding still needs to
-            // be captured into the closure's frame, otherwise the
-            // shadowing parameter would be invisible to the body.
+            // for a `fun` / `val rec` at top level), and not already seen.
+            // Other env entries — outer-scope `val` bindings holding plain
+            // data — are NOT filtered: an inner function parameter that
+            // happens to share a name with such an outer binding still
+            // needs to be captured into the closure's frame, otherwise
+            // the shadowing parameter would be invisible to the body.
+            // Inner-let `val rec` (a closure-bound recursive `fun` defined
+            // by a `let`) is intentionally absent from `cx.env` so that
+            // closures capture it lexically through the let-binder's
+            // frame slot rather than via the `LinkTable`.
             let env_recursive_fn =
                 matches!(self.rec_fns.get(name), Some(Val::Code(_)));
             if !defined_vars.contains(name)

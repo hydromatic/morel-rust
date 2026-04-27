@@ -44,7 +44,7 @@ use crate::eval::row_sink::RowSinkFactory;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
 use crate::eval::time;
-use crate::eval::val::{self, Val};
+use crate::eval::val::{self, ClosureData, Val};
 use crate::eval::variant;
 use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
@@ -56,7 +56,7 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::iter::{repeat_n, zip};
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 use strum::{EnumProperty, IntoEnumIterator};
 
 /// Evaluation mode.
@@ -229,6 +229,13 @@ pub enum Code {
         Vec<Code>,
         Option<MorelError>,
     ),
+
+    /// Placeholder for a closure-bound recursive `fun`'s self-reference
+    /// inside its own [`Code::CreateClosure`] bind_codes. At runtime,
+    /// `CreateClosure` detects these placeholders and uses
+    /// `Arc::new_cyclic` so the resulting closure points to itself
+    /// (via `Val::ClosureWeak`) at those slot positions.
+    SelfRef,
 
     /// `Fn(frame, pat_expr_codes, no_match)` first creates a frame to contain
     /// the required local variables, next iterates the (pattern, expression)
@@ -696,6 +703,7 @@ impl Code {
             Code::RangeDsComplement(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeDsOf(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RangeEnumerate(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::SelfRef => *mode == EvalMode::EagerF0,
             Code::Tuple(_) => *mode == EvalMode::EagerF0,
         }
     }
@@ -757,13 +765,51 @@ impl Code {
             Code::Constant(_, c) => Ok(c.clone()),
             Code::ConstructorWrap(_) => Ok(Val::Code(Arc::new(self.clone()))),
             Code::CreateClosure(frame_def, matches, bind_codes, no_match) => {
-                let values = capture_bound_vals(frame_def, bind_codes, r, f)?;
-                Ok(Val::Closure(
-                    frame_def.clone(),
-                    matches.clone(),
-                    values,
-                    no_match.clone(),
-                ))
+                // Self-references inside a closure-bound recursive `fun`
+                // are emitted as `Code::SelfRef` placeholders by
+                // `Compiler::compile_val_decl`. Detect them and build the
+                // closure cyclically so the self-slot points back to the
+                // same `Arc<ClosureData>` (via a `Weak`, to avoid leaks).
+                let mut bound_vals = Vec::with_capacity(bind_codes.len());
+                let mut self_slots: Vec<usize> = Vec::new();
+                for (i, bc) in bind_codes.iter().enumerate() {
+                    if matches!(bc, Code::SelfRef) {
+                        self_slots.push(i);
+                        bound_vals.push(Val::Unit); // placeholder
+                    } else if !f.has_def(frame_def) {
+                        bound_vals.push(bc.eval_f0(r, f)?);
+                    } else {
+                        // Recursive re-entry: the captured values are
+                        // already in the current frame's bound slots.
+                        bound_vals.push(f.vals[i].clone());
+                    }
+                }
+                let frame_def_c = frame_def.clone();
+                let matches_c = matches.clone();
+                let no_match_c = no_match.clone();
+                if self_slots.is_empty() {
+                    Ok(Val::Closure(Arc::new(ClosureData {
+                        frame_def: frame_def_c,
+                        matches: matches_c,
+                        bound_vals,
+                        no_match: no_match_c,
+                    })))
+                } else {
+                    let arc =
+                        Arc::new_cyclic(move |weak: &Weak<ClosureData>| {
+                            let mut bv = bound_vals;
+                            for slot in &self_slots {
+                                bv[*slot] = Val::ClosureWeak(weak.clone());
+                            }
+                            ClosureData {
+                                frame_def: frame_def_c,
+                                matches: matches_c,
+                                bound_vals: bv,
+                                no_match: no_match_c,
+                            }
+                        });
+                    Ok(Val::Closure(arc))
+                }
             }
             Code::Fn(_, _, _) | Code::Nth(_, _) => {
                 // Fn and Nth are practically literals. When evaluated, they
@@ -1005,6 +1051,10 @@ impl Code {
                 let out = enumerate_ranges(ranges, &*discrete.0, &*cmp.0);
                 Ok(Val::List(out))
             }
+            Code::SelfRef => panic!(
+                "Code::SelfRef should only appear inside Code::CreateClosure's \
+                 bind_codes; reaching eval_f0 indicates a compiler bug"
+            ),
             Code::Tuple(codes) => {
                 let mut values = Vec::with_capacity(codes.capacity());
                 for code in codes {
@@ -1031,12 +1081,23 @@ impl Code {
                 let arg = arg_code.eval_f0(r, f)?;
                 let closure = fun.expect_code().eval_f1(r, f, &arg)?;
                 match closure {
-                    Val::Closure(frame_def, matches, bound_vals, no_match) => {
+                    Val::Closure(data) => Frame::create_bind_and_eval(
+                        &data.frame_def,
+                        &data.matches,
+                        &data.bound_vals,
+                        data.no_match.as_ref(),
+                        r,
+                        a0,
+                    ),
+                    Val::ClosureWeak(weak) => {
+                        let arc = weak
+                            .upgrade()
+                            .expect("self-referential closure already dropped");
                         Frame::create_bind_and_eval(
-                            &frame_def,
-                            &matches,
-                            &bound_vals,
-                            no_match.as_ref(),
+                            &arc.frame_def,
+                            &arc.matches,
+                            &arc.bound_vals,
+                            arc.no_match.as_ref(),
                             r,
                             a0,
                         )
@@ -1599,6 +1660,12 @@ impl Display for Code {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             // lint: sort until '#}' where '##Self::'
+            Self::Apply(fn_code, arg_code) => {
+                write!(f, "apply(fn {} arg {})", fn_code, arg_code)
+            }
+            Self::ApplyClosure(fn_code, arg_code, _) => {
+                write!(f, "applyClosure(fn {} arg {})", fn_code, arg_code)
+            }
             Self::ApplyConstant(fn_code, arg_code) => {
                 write!(f, "apply(fn {} arg {})", fn_code, arg_code)
             }
@@ -1751,6 +1818,7 @@ impl Display for Code {
                     code3
                 )
             }
+            Self::SelfRef => write!(f, "self"),
             Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
             _ => todo!("fmt: {:?}", self),
         }
@@ -1760,14 +1828,21 @@ impl Display for Code {
 /// Stack frame for evaluating [Code].
 pub struct Frame<'a> {
     pub vals: &'a mut [Val],
+    /// Identity of the [`FrameDef`] this frame was created for, or
+    /// `None` for placeholder frames that are not associated with any
+    /// particular function activation. Compared by [`Arc::ptr_eq`] in
+    /// `has_def` so that a length match alone never causes a false
+    /// positive.
+    pub frame_def: Option<Arc<FrameDef>>,
 }
 
 impl<'a> Frame<'a> {
-    /// Returns whether this frame is consistent with the given definition.
-    /// We can't be sure because the definition is not stored in the frame.
+    /// Returns whether this frame was created for the given [`FrameDef`].
     pub(crate) fn has_def(&self, frame_def: &Arc<FrameDef>) -> bool {
-        self.vals.len()
-            == frame_def.local_vars.len() + frame_def.bound_vars.len()
+        match &self.frame_def {
+            Some(fd) => Arc::ptr_eq(fd, frame_def),
+            None => false,
+        }
     }
 }
 
@@ -1777,7 +1852,7 @@ impl<'a> Frame<'a> {
     ///
     /// This is the implementation of a function call.
     fn create_and_eval(
-        frame_def: &FrameDef,
+        frame_def: &Arc<FrameDef>,
         matches: &[(Code, Code)],
         no_match: Option<&MorelError>,
         r: &mut EvalEnv,
@@ -1786,11 +1861,11 @@ impl<'a> Frame<'a> {
         assert!(frame_def.bound_vars.is_empty());
         let mut val_vec: Vec<Val> =
             vec![Val::Char('a'); frame_def.local_vars.len()];
-        Self::eval(&mut val_vec, matches, no_match, r, arg)
+        Self::eval(frame_def, &mut val_vec, matches, no_match, r, arg)
     }
 
     pub(crate) fn create_bind_and_eval(
-        frame_def: &FrameDef,
+        frame_def: &Arc<FrameDef>,
         matches: &[(Code, Code)],
         bound_vals: &[Val],
         no_match: Option<&MorelError>,
@@ -1802,10 +1877,11 @@ impl<'a> Frame<'a> {
             .cloned()
             .chain(repeat_n(Val::Unit, frame_def.local_vars.len()))
             .collect();
-        Self::eval(&mut val_vec, matches, no_match, r, arg)
+        Self::eval(frame_def, &mut val_vec, matches, no_match, r, arg)
     }
 
     fn eval(
+        frame_def: &Arc<FrameDef>,
         val_vec: &mut [Val],
         matches: &[(Code, Code)],
         no_match: Option<&MorelError>,
@@ -1815,6 +1891,7 @@ impl<'a> Frame<'a> {
         for (pat_code, expr_code) in matches {
             let mut frame = Frame {
                 vals: &mut val_vec[..],
+                frame_def: Some(frame_def.clone()),
             };
             match pat_code.eval_f1(r, &mut frame, arg) {
                 Ok(Val::Bool(true)) => {
