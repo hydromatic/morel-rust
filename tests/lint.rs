@@ -169,6 +169,12 @@ impl CommentFormat {
 ///
 /// Appends a warning if not.
 fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
+    // Working notes — `plan.md` and `scratch.txt` are scratch documents
+    // for the current branch, not source artefacts. Header checks and
+    // line-length limits don't apply.
+    if matches!(file_name, "plan.md" | "scratch.txt") {
+        return;
+    }
     let file_type = FileType::for_file(file_name);
     let vec_space = concat!("{}{}", "vec!", " ");
     let vec_paren = concat!("{}{}", "vec!", "(");

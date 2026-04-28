@@ -18,6 +18,7 @@
 use crate::compile::core::{Decl, Expr, Match, Pat, PatField, Step, StepKind};
 use crate::compile::type_env::Binding;
 use crate::compile::types::{Label, Type};
+use crate::eval::code::Code;
 use crate::eval::frame::FrameDef;
 use crate::eval::val::Val;
 use crate::shell::main::Environment;
@@ -99,19 +100,19 @@ impl<'a> VarCollector<'a> {
         for binding in &self.refs {
             let name = &binding.id.name;
             // Include this binding if not defined locally, not a recursive
-            // function (a `Val::Code` in the env, typically a `Code::Link`
-            // for a `fun` / `val rec` at top level), and not already seen.
-            // Other env entries — outer-scope `val` bindings holding plain
-            // data — are NOT filtered: an inner function parameter that
-            // happens to share a name with such an outer binding still
-            // needs to be captured into the closure's frame, otherwise
-            // the shadowing parameter would be invisible to the body.
-            // Inner-let `val rec` (a closure-bound recursive `fun` defined
-            // by a `let`) is intentionally absent from `cx.env` so that
-            // closures capture it lexically through the let-binder's
-            // frame slot rather than via the `LinkTable`.
-            let env_recursive_fn =
-                matches!(self.rec_fns.get(name), Some(Val::Code(_)));
+            // function (a `Code::Link`-shaped `Val::Code` in the env —
+            // these are slots in the link table for a `fun` / `val rec`
+            // and resolve to themselves at runtime), and not already
+            // seen. Outer-scope `val` bindings holding plain data — or
+            // a let-bound `val` that has been wrapped as
+            // `Val::Code(Code::List(...))` etc. — are NOT filtered:
+            // they still need to be captured into the inner closure's
+            // frame so the runtime sees the actual value, not the
+            // wrapping `Val::Code`.
+            let env_recursive_fn = matches!(
+                self.rec_fns.get(name),
+                Some(Val::Code(c)) if matches!(c.as_ref(), Code::Link(_, _))
+            );
             if !defined_vars.contains(name)
                 && !env_recursive_fn
                 && seen_refs.insert(name.clone())
@@ -222,6 +223,11 @@ impl Expr {
             Expr::Current(_) => {
                 // 'current' refers to the primary element already in the
                 // frame; no additional frame slot is needed.
+            }
+            Expr::Extent(_, _) => {
+                // No variables. The Extent placeholder represents
+                // "all values of type T" and will be replaced by a
+                // generator scan during predicate inversion.
             }
             Expr::Fn(_, match_list, _) => {
                 // Propagate the inner fn's *free* variables (variables

@@ -2274,8 +2274,8 @@ impl TypeResolver {
                 field_vars,
                 steps2,
             ),
-            StepKind::ScanExtent(pat) => self.deduce_scan_step_type(
-                p, pat, true, None, &None, &step.span, field_vars, steps2,
+            StepKind::ScanExtent(pat) => self.deduce_scan_extent_step_type(
+                p, pat, &step.span, field_vars, steps2,
             ),
             StepKind::Skip(expr) => {
                 let v = self.unifier.variable();
@@ -2419,6 +2419,50 @@ impl TypeResolver {
         Ok(triple)
     }
 
+    /// Deduces the type of a scan-extent step — `from p` (or
+    /// `join p`) with no explicit source. The variable `p` is
+    /// unbounded; later phases of compilation invert any
+    /// surrounding `where` predicates to derive a generator. For
+    /// now we just allocate a fresh type variable for the pattern
+    /// and re-emit the same kind in the typed step list.
+    fn deduce_scan_extent_step_type(
+        &mut self,
+        p: &Triple,
+        pat: &Pat,
+        span: &Span,
+        field_vars: &mut Vec<(String, Var)>,
+        steps: &mut Vec<Step>,
+    ) -> Result<Triple, Error> {
+        let v0 = self.variable();
+        let mut term_map = Vec::new();
+        let pat2 = self.deduce_pat_type(&*p.env, pat, &mut term_map, &v0);
+
+        let mut env_builder = p.env.builder();
+        for (name, term) in &term_map {
+            env_builder.push(name.clone(), term.clone());
+            let v = self.term_to_variable(term);
+            self.reg_expr(&ExprKind::Identifier(name.clone()), span, None, &v);
+            field_vars.push((name.clone(), v));
+        }
+        let v = self.field_var(field_vars, true);
+        let is_first_scan = term_map.len() == field_vars.len();
+        let v_current = if is_first_scan { v0 } else { v };
+        env_builder.push("current".to_string(), Term::Variable(v_current));
+        let env4 = env_builder.build();
+
+        // Output collection's element type is `v`; output collection
+        // kind defaults to bag (the natural choice for an enumerated
+        // extent — `from p where p > 0 andalso p < 5` is a bag).
+        let c = self.unifier.variable();
+        self.bag_term(Term::Variable(v), &c);
+
+        steps.push(StepKind::ScanExtent(Box::new(pat2)).spanned(span));
+
+        let mut triple = Triple::new(p.root_env.clone(), env4, v, Some(c));
+        triple.ordered = false;
+        Ok(triple)
+    }
+
     /// Deduces a Yield step's type (e.g., "yield i + 4").
     fn deduce_yield_step_type(
         &mut self,
@@ -2435,11 +2479,15 @@ impl TypeResolver {
         let step = StepKind::Yield(Box::new(expr2.clone()));
         steps2.push(step.spanned(span));
 
-        // Output collection type. We initially produce list; the
-        // FromBuilder uses its `ordered` flag to determine if the actual
-        // output should be bag.
+        // Output collection kind matches the input (yield changes the
+        // element type from `p.v` to `v6` but doesn't reorder/group).
+        // Without this, queries inside an enclosing expression (e.g.
+        // `let … in from … yield … end`) read the from's type from
+        // the type_map and see `list` even when the from_builder
+        // computes `bag` — because the type_map's collection-kind
+        // entry was hard-coded to `list_term` regardless of input.
         let c6 = self.variable();
-        self.list_term(Term::Variable(v6), &c6);
+        self.is_list_or_bag_matching_input(&p.c.unwrap(), &p.v, &c6, &v6);
 
         let mut envs = p.env.builder();
         if let ExprKind::Record(with, labeled_exprs) = expr2.kind {
@@ -2868,8 +2916,17 @@ impl TypeResolver {
         };
         let c_result = self.variable();
 
-        // Output is ordered iff input is ordered (list or bag).
-        self.list_term(Term::Variable(v_result), &c_result);
+        // Output collection kind matches the input — group on a list
+        // produces a list, group on a bag produces a bag. Without
+        // this propagation, an enclosing `let ... in from ... group
+        // ... end` reads the result type as `list` even when the
+        // from is a bag.
+        self.is_list_or_bag_matching_input(
+            &p.c.unwrap(),
+            &p.v,
+            &c_result,
+            &v_result,
+        );
 
         let step2 = StepKind::Group(Box::new(key_expr2), compute_expr2);
         steps2.push(step2.spanned(span));
@@ -3340,6 +3397,51 @@ impl TypeResolver {
         };
         let Some((builtin, kind)) = postfix_dispatch(method_name, &recv_type)
         else {
+            // Not a built-in. Check whether `method_name` is a
+            // user-defined function in scope (e.g. a let-bound
+            // `fun name self = …`). If so, rewrite the apply tree
+            // to a direct call so normal Apply type inference
+            // picks up the function's result type — without this,
+            // the outer Apply slot stays as a fresh variable and
+            // the runtime resolver later reuses it as the result
+            // type, leaving the value typed `'a`.
+            if matches!(env.get(method_name, self), Some(BindType::Val(_))) {
+                let span = recv.span.union(&arg.span);
+                let name_id = Expr {
+                    kind: ExprKind::Identifier(method_name.to_string()),
+                    span: recv.span.clone(),
+                    id: None,
+                };
+                // Calling convention mirrors
+                // `resolver::build_user_postfix_call`:
+                //   arg = `()`              → name recv
+                //   arg = `(a, b, …)` tuple → name (recv, a, b, …)
+                //   otherwise                → name (recv, arg)
+                let new_arg = match &arg.kind {
+                    ExprKind::Literal(l)
+                        if matches!(l.kind, LiteralKind::Unit) =>
+                    {
+                        recv.clone()
+                    }
+                    ExprKind::Tuple(elts) => {
+                        let mut parts = vec![recv.clone()];
+                        parts.extend(elts.iter().cloned());
+                        Expr {
+                            kind: ExprKind::Tuple(parts),
+                            span: span.clone(),
+                            id: None,
+                        }
+                    }
+                    _ => Expr {
+                        kind: ExprKind::Tuple(vec![recv.clone(), arg.clone()]),
+                        span: span.clone(),
+                        id: None,
+                    },
+                };
+                let (fun2, arg2) =
+                    self.deduce_apply_type(env, &name_id, &new_arg, v_result)?;
+                return Ok(Some((fun2, arg2)));
+            }
             return Ok(None);
         };
 

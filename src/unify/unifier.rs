@@ -1207,8 +1207,15 @@ impl Unifier {
         constraints: &[Constraint],
     ) -> Result<Substitution, UnificationFailure> {
         let tracer = &NullTracer; // switch to PrintTracer for debugging
-        let term_actions: HashMap<Var, Rc<dyn Action>> =
-            term_action_list.iter().cloned().collect();
+        // Multiple actions may be registered on the same variable
+        // (e.g. two record-field selectors `v.a` and `v.b` on the
+        // same `v`). All of them must fire when the variable
+        // resolves, so we group by variable.
+        let mut term_actions: HashMap<Var, Vec<Rc<dyn Action>>> =
+            HashMap::new();
+        for (var, action) in term_action_list {
+            term_actions.entry(*var).or_default().push(action.clone());
+        }
         if false {
             // Uncomment this section to generate a unit test.
             eprintln!(
@@ -1370,7 +1377,7 @@ impl Unifier {
         term: &Term,
         work: &mut Work,
         substitution: &Substitution,
-        term_actions: &HashMap<Var, Rc<dyn Action>>,
+        term_actions: &HashMap<Var, Vec<Rc<dyn Action>>>,
         active: &mut HashSet<Var>,
     ) {
         // To prevent infinite recursion, this method is a no-op if the variable
@@ -1389,21 +1396,23 @@ impl Unifier {
         term: &Term,
         work: &mut Work,
         substitution: &Substitution,
-        term_actions: &HashMap<Var, Rc<dyn Action>>,
+        term_actions: &HashMap<Var, Vec<Rc<dyn Action>>>,
         active: &mut HashSet<Var>,
     ) {
-        if let Some(action) = term_actions.get(variable) {
-            let mut to_add = Vec::new();
-            action.accept(
-                variable,
-                term,
-                substitution,
-                &self.op_defs,
-                &mut to_add,
-            );
-            to_add
-                .iter()
-                .for_each(|(t1, t2)| work.add(t1.clone(), t2.clone()))
+        if let Some(actions) = term_actions.get(variable) {
+            for action in actions {
+                let mut to_add = Vec::new();
+                action.accept(
+                    variable,
+                    term,
+                    substitution,
+                    &self.op_defs,
+                    &mut to_add,
+                );
+                to_add
+                    .iter()
+                    .for_each(|(t1, t2)| work.add(t1.clone(), t2.clone()));
+            }
         }
         if let Term::Variable(variable) = term {
             // Create a temporary list to prevent concurrent modification, in
@@ -1441,10 +1450,15 @@ impl Unifier {
         substitution
             .substitutions
             .iter()
-            .for_each(|(variable2, term)| {
+            .for_each(|(variable2, sub_term)| {
                 // Substitution contains "variable2 -> variable"; call the
-                // actions of "variable2", because it too has just been unified.
-                if let Term::Variable(v) = term
+                // actions of "variable2", because it too has just been
+                // unified. Pass the outer `term` (the value `variable`
+                // just resolved to), not `sub_term` (still a Variable
+                // pointing at `variable`) — actions like field-selector
+                // projection only do real work when given the resolved
+                // sequence, so passing the chain-pointer would be a no-op.
+                if let Term::Variable(v) = sub_term
                     && v.id == variable.id
                 {
                     self.act(

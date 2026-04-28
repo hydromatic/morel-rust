@@ -45,14 +45,27 @@ use std::str::from_utf8;
 /// only declares the strings equivalent when they normalize to the
 /// same byte sequence.
 pub fn equivalent(actual: &str, expected: &str) -> bool {
-    match extract_type(expected) {
-        Some(t) => match type_parser::try_string_to_type_permissive(&t) {
-            Ok(parsed_type) => {
-                equivalent_with_type(&parsed_type, actual, expected)
+    let actual_type = extract_type(actual);
+    let expected_type = extract_type(expected);
+    match (actual_type, expected_type) {
+        (Some(at), Some(et)) => {
+            // Type-string mismatch (after whitespace normalization)
+            // is a real difference: `fn : 'a -> 'a` vs
+            // `fn : 'a -> 'b` are not equivalent even though both
+            // values pretty-print as `fn`. Catching the mismatch
+            // here means `equivalent_with_type` doesn't have to
+            // re-extract or compare types itself.
+            if normalize_whitespace(&at) != normalize_whitespace(&et) {
+                return false;
             }
-            Err(_) => fallback_equal(actual, expected),
-        },
-        None => fallback_equal(actual, expected),
+            match type_parser::try_string_to_type_permissive(&et) {
+                Ok(parsed_type) => {
+                    equivalent_with_type(&parsed_type, actual, expected)
+                }
+                Err(_) => fallback_equal(actual, expected),
+            }
+        }
+        _ => fallback_equal(actual, expected),
     }
 }
 
@@ -1094,6 +1107,18 @@ mod tests {
         let a = "val outer = fn : 'a -> 'a";
         let b = "val outer = fn : 'a -> 'a";
         assert!(equivalent(a, b));
+    }
+
+    #[test]
+    fn type_strings_must_match_for_equivalence() {
+        // `equivalent` compares the type strings (after whitespace
+        // normalisation) before falling through to value
+        // comparison. `'a -> 'a` and `'a -> 'b` are reported as
+        // NOT equivalent even though both values pretty-print as
+        // `fn`, because the displayed types are different.
+        let a = "val outer = fn : 'a -> 'a";
+        let b = "val outer = fn : 'a -> 'b";
+        assert!(!equivalent(a, b));
     }
 
     #[test]

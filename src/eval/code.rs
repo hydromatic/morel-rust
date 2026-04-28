@@ -4112,6 +4112,32 @@ impl Custom {
                 other => other,
             }
         }
+
+        /// Lexicographic comparison for tuple/list values.
+        /// Returns negative, zero, positive.
+        fn lex_compare(a: &[Val], b: &[Val]) -> i32 {
+            for (x, y) in a.iter().zip(b.iter()) {
+                let c = compare_val(x, y);
+                if c != 0 {
+                    return c;
+                }
+            }
+            a.len() as i32 - b.len() as i32
+        }
+        fn compare_val(a: &Val, b: &Val) -> i32 {
+            match (a, b) {
+                (Val::Int(x), Val::Int(y)) => x.cmp(y) as i32,
+                (Val::Real(x), Val::Real(y)) => match x.partial_cmp(y) {
+                    Some(o) => o as i32,
+                    None => 0,
+                },
+                (Val::Bool(x), Val::Bool(y)) => x.cmp(y) as i32,
+                (Val::Char(x), Val::Char(y)) => x.cmp(y) as i32,
+                (Val::String(x), Val::String(y)) => x.cmp(y) as i32,
+                (Val::List(x), Val::List(y)) => lex_compare(x, y),
+                _ => 0,
+            }
+        }
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             BoolIf => panic!("Not implemented"),
@@ -4126,6 +4152,9 @@ impl Custom {
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x >= y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x >= y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x >= y),
+                (Val::List(x), Val::List(y)) => {
+                    Val::Bool(lex_compare(&x, &y) >= 0)
+                }
                 _ => panic!("Type error in >= comparison"),
             },
             GGt => match (a0, a1) {
@@ -4133,6 +4162,9 @@ impl Custom {
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x > y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x & !y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x > y),
+                (Val::List(x), Val::List(y)) => {
+                    Val::Bool(lex_compare(&x, &y) > 0)
+                }
                 _ => panic!("Type error in > comparison"),
             },
             GLe => match (a0, a1) {
@@ -4140,6 +4172,9 @@ impl Custom {
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x <= y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(x <= y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x <= y),
+                (Val::List(x), Val::List(y)) => {
+                    Val::Bool(lex_compare(&x, &y) <= 0)
+                }
                 _ => panic!("Type error in <= comparison"),
             },
             GLt => match (a0, a1) {
@@ -4147,6 +4182,9 @@ impl Custom {
                 (Val::Real(x), Val::Real(y)) => Val::Bool(x < y),
                 (Val::Bool(x), Val::Bool(y)) => Val::Bool(!x & y),
                 (Val::Char(x), Val::Char(y)) => Val::Bool(x < y),
+                (Val::List(x), Val::List(y)) => {
+                    Val::Bool(lex_compare(&x, &y) < 0)
+                }
                 _ => panic!("Type error in < comparison"),
             },
             GMinus => match (a0, a1) {

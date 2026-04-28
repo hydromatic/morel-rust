@@ -18,9 +18,10 @@
 use crate::compile::core::{
     ConBind as CoreConBind, DatatypeBind as CoreDatatypeBind, Decl as CoreDecl,
     Expr as CoreExpr, Match as CoreMatch, Pat as CorePat,
-    PatField as CorePatField, StepKind as CoreStepKind,
+    PatField as CorePatField, Step as CoreStep, StepKind as CoreStepKind,
     TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
+use crate::compile::expander;
 use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
 use crate::compile::library;
@@ -45,9 +46,169 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Converts an AST to a Core tree.
 pub fn resolve(resolved: &Resolved) -> (CoreDecl, Vec<(String, Span)>) {
+    let session_fns = expander::FnEnv::new();
+    resolve_with_session_fns(resolved, &session_fns)
+}
+
+/// Same as `resolve`, but seeds the predicate-inversion pass
+/// with session-level function bindings from earlier statements
+/// (hydromatic/morel#223).
+pub fn resolve_with_session_fns(
+    resolved: &Resolved,
+    session_fns: &expander::FnEnv,
+) -> (CoreDecl, Vec<(String, Span)>) {
+    let empty_rec = expander::FnEnv::new();
+    resolve_with_session_fns_rec(resolved, session_fns, &empty_rec)
+}
+
+/// Same as [`resolve_with_session_fns`], but additionally accepts
+/// a parallel `rec_session_fns` map of pre-expander fn bodies for
+/// Phase 2 of recursive predicate inversion.
+pub fn resolve_with_session_fns_rec(
+    resolved: &Resolved,
+    session_fns: &expander::FnEnv,
+    rec_session_fns: &expander::FnEnv,
+) -> (CoreDecl, Vec<(String, Span)>) {
     let resolver = Resolver::new(&resolved.type_map, resolved.base_line);
     let decl = resolver.resolve_decl(&resolved.decl);
+    // Run the predicate-inversion pass over the whole resolved decl,
+    // accumulating let-bound function definitions as we walk so that
+    // `maybe_function` can inline them.
+    let decl = expander::expand_decl_with_session_rec(
+        decl,
+        &resolved.type_map.datatype_constructors,
+        session_fns,
+        rec_session_fns,
+    );
+    // Any `Expr::Extent` that survived the expander represents an
+    // unbounded variable predicate inversion couldn't ground. Surface
+    // it as a compile-time error pointing at the original `from p`
+    // step's span. Catching it here (rather than emitting a runtime
+    // `Code::RaiseIllegalArgument` from the compiler) avoids the
+    // dead-code path through code-generation and matches the
+    // user-visible shape of other compile errors.
+    {
+        let mut errors = resolver.errors.borrow_mut();
+        check_unbounded_extents(&decl, &mut errors);
+    }
     (decl, resolver.errors.into_inner())
+}
+
+/// Walks `decl` after the expander pass and reports any
+/// `Scan(_, Expr::Extent(_, span), _)` reachable from a concrete
+/// query as an unbounded-variable compile error.
+///
+/// Function bodies are NOT recursed into — Extents there may
+/// be grounded later by the inliner at a concrete call site
+/// (the surrounding parameters become bindings only when the
+/// function is applied with real arguments). A user-visible
+/// error fires only at the call site, where the post-inline
+/// pass flagged the Extent on a real `from`.
+fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
+    fn check_expr(e: &CoreExpr, errors: &mut Vec<(String, Span)>) {
+        match e {
+            CoreExpr::Apply(_, f, a, _) => {
+                check_expr(f, errors);
+                check_expr(a, errors);
+            }
+            CoreExpr::Case(_, subj, arms, _) => {
+                check_expr(subj, errors);
+                for m in arms {
+                    check_expr(&m.expr, errors);
+                }
+            }
+            CoreExpr::Fn(_, _, _) => {
+                // Skip function bodies: their Extents may be
+                // grounded by inlining at the call site.
+            }
+            CoreExpr::Let(_, decls, body) => {
+                for d in decls {
+                    check_decl(d, errors);
+                }
+                check_expr(body, errors);
+            }
+            CoreExpr::Tuple(_, items) | CoreExpr::List(_, items) => {
+                for i in items {
+                    check_expr(i, errors);
+                }
+            }
+            CoreExpr::Aggregate(_, l, r) => {
+                check_expr(l, errors);
+                check_expr(r, errors);
+            }
+            CoreExpr::From(_, steps)
+            | CoreExpr::Exists(_, steps)
+            | CoreExpr::Forall(_, steps) => {
+                for s in steps {
+                    check_step(s, errors);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn check_step(s: &CoreStep, errors: &mut Vec<(String, Span)>) {
+        match &s.kind {
+            CoreStepKind::Scan(pat, src, cond) => {
+                if let CoreExpr::Extent(_, span) = src.as_ref() {
+                    let name = match pat.as_ref() {
+                        CorePat::Identifier(_, n) => n.clone(),
+                        _ => "_".to_string(),
+                    };
+                    errors.push((
+                        format!("pattern '{}' is not grounded", name),
+                        span.clone(),
+                    ));
+                } else {
+                    check_expr(src, errors);
+                }
+                if let Some(c) = cond {
+                    check_expr(c, errors);
+                }
+            }
+            CoreStepKind::Where(c)
+            | CoreStepKind::Yield(c)
+            | CoreStepKind::Order(c)
+            | CoreStepKind::Compute(c)
+            | CoreStepKind::Skip(c)
+            | CoreStepKind::Take(c)
+            | CoreStepKind::Require(c) => check_expr(c, errors),
+            CoreStepKind::Group(k, agg) => {
+                check_expr(k, errors);
+                if let Some(a) = agg {
+                    check_expr(a, errors);
+                }
+            }
+            CoreStepKind::Except(_, exprs)
+            | CoreStepKind::Intersect(_, exprs)
+            | CoreStepKind::Union(_, exprs) => {
+                for e in exprs {
+                    check_expr(e, errors);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn check_decl(d: &CoreDecl, errors: &mut Vec<(String, Span)>) {
+        match d {
+            CoreDecl::NonRecVal(b) => check_expr(&b.expr, errors),
+            CoreDecl::RecVal(binds) => {
+                for b in binds {
+                    check_expr(&b.expr, errors);
+                }
+            }
+            _ => {}
+        }
+    }
+    check_decl(decl, errors);
+}
+
+/// Resolves an AST to a Core decl WITHOUT running the expander.
+/// Used by the shell to capture pre-expander fn bodies for Phase 2
+/// of recursive predicate inversion, so the original step
+/// predicates aren't lost when the body is later expanded.
+pub fn resolve_pre_expander(resolved: &Resolved) -> CoreDecl {
+    let resolver = Resolver::new(&resolved.type_map, resolved.base_line);
+    resolver.resolve_decl(&resolved.decl)
 }
 
 /// Converts an AST to a Core tree.
@@ -505,9 +666,12 @@ impl<'a> Resolver<'a> {
                 // Add an Exists step to signal that we want an ExistsRowSink.
                 builder.exists();
 
-                builder
-                    .build_simplify()
-                    .expect("Failed to build EXISTS expression")
+                expander::expand_from(
+                    builder
+                        .build_simplify()
+                        .expect("Failed to build EXISTS expression"),
+                    &self.type_map.datatype_constructors,
+                )
             }
             ExprKind::Fn(matches) => CoreExpr::Fn(
                 t,
@@ -529,9 +693,12 @@ impl<'a> Resolver<'a> {
                 // Add an Exists step to short-circuit on first violation.
                 builder.exists();
 
-                let from_expr = builder
-                    .build_simplify()
-                    .expect("Failed to build FORALL expression");
+                let from_expr = expander::expand_from(
+                    builder
+                        .build_simplify()
+                        .expect("Failed to build FORALL expression"),
+                    &self.type_map.datatype_constructors,
+                );
 
                 // Apply "not" to the exists result.
                 let fn_type = BuiltInFunction::BoolNot.get_type();
@@ -561,7 +728,7 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharGt, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GGt, &span, a0, a1),
                 }
             }
             ExprKind::GreaterThanOrEqual(a0, a1) => {
@@ -578,7 +745,7 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharGe, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GGe, &span, a0, a1),
                 }
             }
             ExprKind::Identifier(name) => {
@@ -656,7 +823,7 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharLt, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GLt, &span, a0, a1),
                 }
             }
             ExprKind::LessThanOrEqual(a0, a1) => {
@@ -673,7 +840,7 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharLe, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GLe, &span, a0, a1),
                 }
             }
             ExprKind::Let(decls, body) => {
@@ -741,7 +908,7 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Bool) => {
                         self.call2(t, BuiltInFunction::BoolNe, &span, a0, a1)
                     }
-                    _ => todo!("resolve {:?}", a0),
+                    _ => self.call2(t, BuiltInFunction::GNe, &span, a0, a1),
                 }
             }
             ExprKind::OpSection(name) => {
@@ -1417,9 +1584,12 @@ impl<'a> Resolver<'a> {
             for step in &steps[..steps.len() - 1] {
                 self.resolve_step(&mut builder, step);
             }
-            let from_result = builder
-                .build_simplify()
-                .expect("Failed to build From expression");
+            let from_result = expander::expand_from(
+                builder
+                    .build_simplify()
+                    .expect("Failed to build From expression"),
+                &self.type_map.datatype_constructors,
+            );
 
             // Apply the function to the query result.
             let func = self.resolve_expr(func_expr);
@@ -1450,9 +1620,12 @@ impl<'a> Resolver<'a> {
             self.resolve_step(&mut builder, step);
         }
 
-        builder
-            .build_simplify()
-            .expect("Failed to build From expression")
+        expander::expand_from(
+            builder
+                .build_simplify()
+                .expect("Failed to build From expression"),
+            &self.type_map.datatype_constructors,
+        )
     }
 
     /// Resolves a step in a query, adding it to a [FromBuilder].
@@ -1549,6 +1722,31 @@ impl<'a> Resolver<'a> {
                 let singleton = CoreExpr::List(list_type, vec![resolved_expr]);
                 builder.scan_with_condition(resolved_pat, singleton, None);
             }
+            AstStepKind::ScanExtent(pat) => {
+                // `from p` (or `join p`) with no explicit source: the
+                // variable `p` is unbounded. Lower to a scan over an
+                // `Extent(t, span)` placeholder; predicate inversion
+                // (Phase 1+) replaces the placeholder with a real
+                // generator derived from surrounding `where`
+                // predicates. Programs that reach code generation
+                // containing an Extent are rejected with a "pattern
+                // not grounded" error pointing at the captured span.
+                //
+                // Use the pattern's span, not the step's: Pest's
+                // `scan1` rule span can extend past the pattern into
+                // the next token (it consumes whitespace while
+                // looking ahead for an `=` or `in` it never finds).
+                let resolved_pat = self.resolve_pat(pat);
+                let elem_type = resolved_pat.type_();
+                let extent_type =
+                    Box::new(Type::Bag(Box::new(elem_type.as_ref().clone())));
+                let span = Span::from_pest_span(
+                    &pat.span.to_pest_span(),
+                    self.base_line,
+                );
+                let extent = CoreExpr::Extent(extent_type, span);
+                builder.scan_with_condition(resolved_pat, extent, None);
+            }
             AstStepKind::Skip(expr) => {
                 let resolved_expr = self.resolve_expr(expr);
                 builder.skip(resolved_expr);
@@ -1600,11 +1798,6 @@ impl<'a> Resolver<'a> {
             AstStepKind::Yield(expr) => {
                 let resolved_expr = self.resolve_expr(expr);
                 builder.yield_(resolved_expr);
-            }
-            _ => {
-                // For now, fall back to the old resolve_step for unsupported
-                // step types.
-                todo!("resolve_from_step: {:?}", step.kind)
             }
         }
     }

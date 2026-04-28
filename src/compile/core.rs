@@ -75,6 +75,17 @@ pub enum Expr {
     From(Box<Type>, Vec<Step>),
     Exists(Box<Type>, Vec<Step>),
     Forall(Box<Type>, Vec<Step>),
+
+    /// Placeholder for "all values of type `t`" — produced by lowering
+    /// `from p` (no `in`) when the variable's source has not yet been
+    /// resolved by predicate inversion. The compile-time checker
+    /// rejects programs that still contain `Extent` after the
+    /// expander pass; for now (no expander), any program that lowers
+    /// to an `Extent` errors with "unbounded variable in `from`".
+    /// `span` points at the source `from p` step so the runtime
+    /// "pattern not grounded" error can pinpoint the offending
+    /// site.
+    Extent(Box<Type>, Span),
 }
 
 impl Expr {
@@ -112,6 +123,7 @@ impl Expr {
             Expr::Case(t, _, _, _) => t.clone(),
             Expr::Current(t) => t.clone(),
             Expr::Exists(t, _) => t.clone(),
+            Expr::Extent(t, _) => t.clone(),
             Expr::Fn(t, _, _) => t.clone(),
             Expr::Forall(t, _) => t.clone(),
             Expr::From(t, _) => t.clone(),
@@ -173,6 +185,7 @@ impl Display for Expr {
             }
             Expr::Current(_) => write!(f, "current"),
             Expr::Exists(_, steps) => write!(f, "exists {:?}", steps),
+            Expr::Extent(t, _) => write!(f, "extent({})", t),
             Expr::Fn(_, arms, _) => {
                 write!(f, "fn ")?;
                 for (i, match_) in arms.iter().enumerate() {

@@ -1313,6 +1313,20 @@ impl<'a> Compiler<'a> {
                     Code::new_get_local(&cx.frame_def, slot)
                 }
             }
+            Expr::Extent(t, _) => {
+                // Reached only when a `from p` (no `in`) survives all
+                // earlier passes — i.e. predicate inversion failed
+                // to resolve the unbounded variable. Phase 1+ will
+                // replace this with a real generator scan; until
+                // then, panic with a clear message rather than the
+                // anonymous `todo!`.
+                panic!(
+                    "unbounded variable in `from`: cannot enumerate \
+                     all values of type {:?} (predicate inversion \
+                     not yet implemented)",
+                    t
+                );
+            }
             Expr::Fn(_, match_list, fn_span) => {
                 let mut collector = VarCollector::new(&cx.env);
                 for m in match_list {
@@ -1850,7 +1864,27 @@ impl<'a> Compiler<'a> {
                     element_type,
                 );
                 let pat_code = self.compile_pat(cx, pat);
-                let expr_code = self.compile_expr(cx, None, expr);
+                // The resolver's post-expander
+                // `check_unbounded_extents` catches residual
+                // `Scan(_, Expr::Extent, _)` in concrete queries
+                // and surfaces them as compile-time errors. It
+                // skips function bodies, where Extents may be
+                // grounded later by call-site inlining; the
+                // runtime fallback below catches the rare case
+                // where a function with an ungrounded body Extent
+                // is actually invoked.
+                let expr_code = if let Expr::Extent(_, span) = expr.as_ref() {
+                    let name = match pat.as_ref() {
+                        Pat::Identifier(_, n) => n.clone(),
+                        _ => "_".to_string(),
+                    };
+                    Code::RaiseIllegalArgument(
+                        format!("pattern '{}' is not grounded", name),
+                        span.clone(),
+                    )
+                } else {
+                    self.compile_expr(cx, None, expr)
+                };
                 let condition_code = if let Some(condition_expr) = cond {
                     self.compile_expr(cx, None, condition_expr)
                 } else {
