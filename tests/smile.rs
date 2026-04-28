@@ -42,6 +42,96 @@ fn built_in() {
 }
 
 #[test]
+fn built_in_bag() {
+    run_script("tests/script/built-in/bag.smli");
+}
+
+#[test]
+fn built_in_bool() {
+    run_script("tests/script/built-in/bool.smli");
+}
+
+#[test]
+fn built_in_char() {
+    run_script("tests/script/built-in/char.smli");
+}
+
+#[test]
+fn built_in_either() {
+    run_script("tests/script/built-in/either.smli");
+}
+
+#[test]
+fn built_in_fn() {
+    run_script("tests/script/built-in/fn.smli");
+}
+
+#[test]
+fn built_in_general() {
+    run_script("tests/script/built-in/general.smli");
+}
+
+#[test]
+fn built_in_int() {
+    run_script("tests/script/built-in/int.smli");
+}
+
+#[test]
+fn built_in_interact() {
+    run_script("tests/script/built-in/interact.smli");
+}
+
+#[test]
+fn built_in_list() {
+    run_script("tests/script/built-in/list.smli");
+}
+
+#[test]
+fn built_in_list_pair() {
+    run_script("tests/script/built-in/list-pair.smli");
+}
+
+#[test]
+fn built_in_math() {
+    run_script("tests/script/built-in/math.smli");
+}
+
+#[test]
+fn built_in_option() {
+    run_script("tests/script/built-in/option.smli");
+}
+
+#[test]
+fn built_in_order() {
+    run_script("tests/script/built-in/order.smli");
+}
+
+#[test]
+fn built_in_real() {
+    run_script("tests/script/built-in/real.smli");
+}
+
+#[test]
+fn built_in_relational() {
+    run_script("tests/script/built-in/relational.smli");
+}
+
+#[test]
+fn built_in_string() {
+    run_script("tests/script/built-in/string.smli");
+}
+
+#[test]
+fn built_in_sys() {
+    run_script("tests/script/built-in/sys.smli");
+}
+
+#[test]
+fn built_in_vector() {
+    run_script("tests/script/built-in/vector.smli");
+}
+
+#[test]
 fn closure() {
     run_script("tests/script/closure.smli");
 }

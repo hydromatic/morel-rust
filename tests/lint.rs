@@ -18,6 +18,8 @@
 use phf::{Map, Set, phf_map, phf_set};
 use regex::Regex;
 use std::collections::HashMap;
+use std::io;
+use std::path::Path;
 use std::process::Command;
 use std::{fs, iter};
 
@@ -563,19 +565,40 @@ fn test_signatures() {
 #[test]
 fn test_smli_coverage() {
     use std::collections::{HashMap, HashSet};
-    use std::path::Path;
 
-    // Read all .smli files from tests/script/
+    // Read all .smli files from tests/script/, recursing into
+    // subdirectories. Each entry is the path relative to tests/script/
+    // with the .smli extension stripped (e.g. "bag", "built-in",
+    // "built-in/bag").
     let script_dir = Path::new("tests/script");
     // Helper scripts loaded by other tests, not standalone tests.
     let helper_scripts: HashSet<&str> = HashSet::from(["use-1"]);
-    let smli_files: HashSet<String> = fs::read_dir(script_dir)
-        .expect("Failed to read tests/script directory")
-        .filter_map(Result::ok)
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "smli"))
-        .map(|e| e.path().file_stem().unwrap().to_str().unwrap().to_string())
-        .filter(|name| !helper_scripts.contains(name.as_str()))
-        .collect();
+    fn collect_smli(
+        dir: &Path,
+        base: &Path,
+        out: &mut HashSet<String>,
+    ) -> io::Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                collect_smli(&path, base, out)?;
+            } else if path.extension().is_some_and(|ext| ext == "smli") {
+                let rel = path
+                    .with_extension("")
+                    .strip_prefix(base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                out.insert(rel);
+            }
+        }
+        Ok(())
+    }
+    let mut smli_files: HashSet<String> = HashSet::new();
+    collect_smli(script_dir, script_dir, &mut smli_files)
+        .expect("Failed to read tests/script directory");
+    smli_files.retain(|name| !helper_scripts.contains(name.as_str()));
 
     // Read smile.rs and extract test function names
     let smile_rs = fs::read_to_string("tests/smile.rs")
@@ -599,14 +622,23 @@ fn test_smli_coverage() {
             if fn_name == "run_script" {
                 return None;
             }
-            // Convert function name to expected .smli file name
-            // Multi-word file names use kebab-case (hyphens)
-            // Special cases: trailing underscores for reserved words
+            // Convert function name to expected .smli file name.
+            // Multi-word file names use kebab-case (hyphens). The
+            // `built_in_X` family lives under the `built-in/`
+            // subdirectory, so map e.g. `built_in_list_pair` ->
+            // `built-in/list-pair`.
+            // Special cases: trailing underscores for reserved words.
             let smli_name = match fn_name {
                 "type_" => "type".to_string(),
                 "match_test" => "match".to_string(),
                 "use_" => "use".to_string(),
-                _ => fn_name.replace('_', "-"),
+                _ => {
+                    if let Some(rest) = fn_name.strip_prefix("built_in_") {
+                        format!("built-in/{}", rest.replace('_', "-"))
+                    } else {
+                        fn_name.replace('_', "-")
+                    }
+                }
             };
             Some((smli_name, fn_name.to_string()))
         })
@@ -662,12 +694,13 @@ fn test_smli_coverage() {
 
 /// Converts a .smli file name to the expected test function name.
 /// Examples: "type" -> "type_", "match" -> "match_test",
-/// "regex-example" -> "regex_example", "fixed-point" -> "fixed_point"
+/// "regex-example" -> "regex_example", "fixed-point" -> "fixed_point",
+/// "built-in/list-pair" -> "built_in_list_pair"
 fn smli_to_fn_name(smli_name: &str) -> String {
     match smli_name {
         "type" => "type_".to_string(),
         "match" => "match_test".to_string(),
         "use" => "use_".to_string(),
-        _ => smli_name.replace('-', "_"),
+        _ => smli_name.replace(['-', '/'], "_"),
     }
 }
