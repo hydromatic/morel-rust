@@ -995,7 +995,15 @@ impl Decl {
 
 impl ValBind {
     fn visit(&self, env: &Env, x: &dyn Transformer) -> Self {
-        let env2 = env.child_none(self.pat.name().unwrap().as_str(), &self.t);
+        // Shadow every name bound by the pattern in the rhs's env so
+        // inlining does not substitute outer bindings for a recursive
+        // self-reference. `pat.name()` only returns the top-level
+        // identifier and is None for compound patterns (tuple, record,
+        // cons, as), so walk the whole pattern tree.
+        let mut env2 = env.clone();
+        self.pat.for_each_id_pat(&mut |(t, name): (&Type, &str)| {
+            env2 = env2.child_none(name, t);
+        });
         let pat = x.transform_pat(env, &self.pat);
         let expr = x.transform_expr(&env2, &self.expr);
         ValBind {

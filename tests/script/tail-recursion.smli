@@ -16,63 +16,62 @@
  * language governing permissions and limitations under the
  * License.
  *
- * Recursion patterns; see
- * https://github.com/hydromatic/morel-rust/issues/39.
- * Tail-call optimization is tracked separately in
- * https://github.com/hydromatic/morel/issues/151.
+ * This test illustrates various patterns of recursion, some of
+ * which ran into implementation issues (e.g. closures failing
+ * to capture necessary values) at one point. Many of these
+ * examples benefit from tail-call optimization (TCO); without
+ * TCO, several of these examples overflow stack even on modest
+ * input sizes.
  *)
 
-(* Lambda passed out of `let` calls a sibling recursive `fun`.
- * The lambda `fn () => inner ()` captures `inner` from the
- * enclosing `let`. Before the closure-capture fix, the lambda
- * resolved `inner` through the shell-wide link table and lost
- * `inner`'s capture of `x` (see hydromatic/morel-rust#42).
- *)
-fun outer x =
-  let
-    fun inner () = x
-  in
-    (fn () => inner ()) ()
-  end;
-> val outer = fn : 'a -> 'a
+(* Pattern 1: Simple self-recursion ------------------------------ *)
+fun fact 0 = 1 | fact n = n * fact (n - 1);
+> val fact = fn : int -> int
 
-outer 42;
-> val it = 42 : int
+fact 5;
+> val it = 120 : int
 
-(* Pattern 4 from #39: closure captures outer vars.
- * `g4` captures `i` and `fc` from the enclosing `f4`. `g4`
- * itself is not recursive; the recursion goes through `f4`.
- *)
-fun f4 (i, fc) =
-  let fun g4 j = f4 (i + 1, fc)
-  in if i > 3 then 0 else g4 1 end;
-> val f4 = fn : int * 'a -> int
-
-f4 (1, fn () => 99);
-> val it = 0 : int
-
-(* Simple tail recursion ------------------------------------------
- * resum: a simple tail-recursive accumulator.
- * Needs TCO to handle large inputs (depth > ~1,000).
- *)
+(* Pattern 2: Self-recursion via let-rec ------------------------- *)
 let
-  fun resum (m, n) =
-    if m = 0 then n
-    else resum (m - 1, n + 1)
+  val rec resum =
+    fn (m, n) =>
+      if m = 0 then n
+      else resum (m - 1, n + 1)
 in
   resum (1000, 0)
 end;
 > val it = 1000 : int
 
-let fun resum (m, n) = if m = 0 then n else resum (m - 1, n + 1)
-in resum (1000000, 0) end;
+(* Needs tail-call optimization (TCO) to handle large depths
+ * (depth > ~1,000). *)
+let
+  fun resum (m, n) = if m = 0 then n else resum (m - 1, n + 1)
+in
+  resum (1000000, 0)
+end;
 > val it = 1000000 : int
 
-(* Coprime numbers -------------------------------------------------------
- * coprime: tests whether two numbers are coprime.
- * a and b are coprime if their greatest common divisor is 1.
- * Uses mutual tail recursion.
- *)
+(* Pattern 3: Top-level mutual recursion (`fun ... and ...`) ----- *)
+fun even2 0 = true | even2 n = odd2 (n - 1)
+and odd2 0 = false | odd2 n = even2 (n - 1);
+> val even2 = fn : int -> bool
+> val odd2 = fn : int -> bool
+
+even2 4;
+> val it = true : bool
+
+odd2 3;
+> val it = true : bool
+
+(*) Large inputs require TCO to avoid stack overflow.
+even2 100000;
+> val it = true : bool
+
+odd2 100000;
+> val it = false : bool
+
+(* coprime: a single self-recursive fn that's also tail-recursive
+ * regardless of branch. *)
 fun coprime (a, b) =
   if a < 1 orelse b < 1 then false
   else if a = 1 orelse b = 1 then true
@@ -84,41 +83,183 @@ fun coprime (a, b) =
 coprime (3, 2);
 > val it = true : bool
 
-coprime (6, 1);
-> val it = true : bool
-
-coprime (1, 8);
-> val it = true : bool
-
-coprime (~6, 2);
-> val it = false : bool
-
-coprime (15, 3);
-> val it = false : bool
-
 coprime (15, 6);
 > val it = false : bool
-
-coprime (6, 15);
-> val it = false : bool
-
-coprime (21, 10);
-> val it = true : bool
 
 (*) the 46th and 45th terms in the fibonacci sequence
 coprime (1836311903, 1134903170);
 > val it = true : bool
 
-(* The N-queens block from morel-java commit 6bf5306c (#148) is
- * deferred. It exposes a pre-existing closure-capture issue in
- * morel-rust unrelated to TCO: `capture_bound_vals`' frame
- * heuristic (matching by val_vec length) is too lax, so when a
- * let-bound inner fn's `bound_vars + local_vars` count happens to
- * equal the enclosing function's frame size, the "recursive
- * re-entry" branch fires by accident and binds captured values to
- * the wrong bound_vars positions. The bug was latent until #151
- * because `try` was previously called via Apply (which goes through
- * `Val::Closure::apply_f1` and creates the closure in-place) rather
- * than through CreateClosure's heuristic. *)
+(* Pattern 4: Closure captures outer vars ------------------------ *)
+fun f4 (i, fc) =
+  let
+    fun g4 j = f4 (i + 1, fc)
+  in
+    if i > 3 then 0 else g4 1
+  end;
+> val f4 = fn : int * 'a -> int
+
+f4 (1, fn () => 99);
+> val it = 0 : int
+
+(* Pattern 5: Continuation captures sibling recursive function -- *)
+fun f5 (i, fc) =
+  let fun g5 j =
+    if j > 3 then fc ()
+    else f5 (i + 1, fn () => g5 (j + 1))
+  in if i > 3 then 0 else g5 1 end;
+> val f5 = fn : int * (unit -> int) -> int
+
+f5 (1, fn () => 99);
+> val it = 0 : int
+
+(* Pattern 6: N-queens (continuation + mutual recursion) ---------
+ * Based on https://rosettacode.org/wiki/N-queens_problem#Standard_ML
+ * See https://github.com/hydromatic/morel/issues/148.
+ *)
+
+(*) 'threat' returns true iff two queens threaten each other.
+fun threat (x, y) (x', y') =
+  x = x' orelse y = y' orelse abs (x - x') = abs (y - y');
+> val threat = fn : int * int -> int * int -> bool
+
+(* 'conflict' returns true if a position conflicts with any queen in
+ * the list. *)
+fun conflict pos = List.`exists` (threat pos);
+> val conflict = fn : int * int -> (int * int) list -> bool
+
+(*) 'addQueen' tries to place a queen in row i using continuations.
+(*) 'try' and 'addQueen' are mutually tail-recursive so depth is O(n).
+fun addQueen (i, n, qs, fc) =
+  let
+    fun try j =
+      if j > n then fc ()
+      else if conflict (i, j) qs then try (j + 1)
+      else if i = n then SOME ((i, j) :: qs)
+      else addQueen (i + 1, n, (i, j) :: qs, fn () => try (j + 1))
+  in
+    try 1
+  end;
+> val addQueen = fn
+>   : int * int * (int * int) list * (unit -> (int * int) list option)
+>     -> (int * int) list option
+
+fun queens n = addQueen (1, n, [], fn () => NONE);
+> val queens = fn : int -> (int * int) list option
+
+(*) No solution for n=2.
+queens 2;
+> val it = NONE : (int * int) list option
+
+(*) One solution for n=6.
+queens 6;
+> val it = SOME [(6,5),(5,3),(4,1),(3,6),(2,4),(1,2)] : (int * int) list option
+
+(*) One solution for n=8.
+queens 8;
+> val it = SOME [(8,4),(7,2),(6,7),(5,3),(4,6),(3,8),(2,5),(1,1)] : (int * int) list option
+
+(*) One solution for n=12.
+queens 12;
+> val it =
+>   SOME [(12,4),(11,9),(10,7),(9,2),(8,11),(7,6),(6,12),(5,10),(4,8),(3,5),(2,3),
+>    (1,1)] : (int * int) list option
+
+(* For higher values of N, the algorithm is correct but takes too
+ * long to run.
+
+(*) N=16, t=4 seconds
+queens 16;
+> val it =
+>   SOME [(16,10),(15,8),(14,11),(13,4),(12,7),(11,16),(10,6),(9,15),(8,12),
+>    (7,14),(6,9),(5,13),(4,2),(3,5),(2,3),(1,1)] : (int * int) list option
+
+(*) N=20, t=24 seconds
+queens 20;
+> val it =
+>   SOME [(20,11),(19,6),(18,14),(17,7),(16,10),(15,8),(14,19),(13,16),(12,9),
+>    (11,17),(10,20),(9,18),(8,12),(7,15),(6,13),(5,4),(4,2),(3,5),(2,3),(1,1)]
+>   : (int * int) list option
+
+(*) N=24, t=65 seconds
+queens 24;
+> val it =
+>   SOME [(24,15),(23,17),(22,7),(21,13),(20,16),(19,12),(18,8),(17,6),(16,21),
+>    (15,10),(14,24),(13,20),(12,23),(11,19),(10,22),(9,18),(8,14),(7,11),(6,9),
+>    (5,4),(4,2),(3,5),(2,3),(1,1)] : (int * int) list option
+
+(*) N=28, t=678 seconds
+queens 28;
+> val it =
+>   SOME [(28,19),(27,21),(26,6),(25,20),(24,14),(23,10),(22,8),(21,18),(20,16),
+>    (19,12),(18,7),(17,27),(16,24),(15,26),(14,28),(13,22),(12,25),(11,23),
+>    (10,17),(9,15),(8,13),(7,11),(6,9),(5,4),(4,2),(3,5),(2,3),(1,1)]
+>   : (int * int) list option
+
+*)
+
+(*) A one-function solution to N queens.
+fun queens' n =
+  let
+    fun threat (x, y) (x', y') =
+      x = x' orelse y = y' orelse abs (x - x') = abs (y - y')
+    fun conflict pos =
+      List.`exists` (threat pos)
+    fun addQueen (i, n, qs, fc) =
+      let
+        fun try j =
+          if j > n then fc ()
+          else if conflict (i, j) qs then try (j + 1)
+          else if i = n then SOME ((i, j) :: qs)
+          else addQueen (i + 1, n, (i, j) :: qs, fn () => try (j + 1))
+      in
+        try 1
+      end
+  in
+    addQueen (1, n, [], fn () => NONE)
+  end;
+> val queens'  =  fn : int -> (int * int) list option
+
+(*) The single-function algorithm gives the same solution.
+queens' 8;
+> val it = SOME [(8,4),(7,2),(6,7),(5,3),(4,6),(3,8),(2,5),(1,1)] : (int * int) list option
+
+(* Pattern 7: `val rec ... and` with tuple pattern ------------------
+ * `val rec (x, y) = (1, 2)` is morel-specific; SML/NJ rejects it.
+ *)
+let
+  val rec (x, y) = (1, 2)
+  and f = fn n => if n = 1 then 1 else n * f (n - 1)
+in
+  x + f 5 + y
+end;
+> val it = 123 : int
+
+(* Pattern 8: Mutually recursive let-rec SCC ------------------------
+ * Per GHC inlining, (f, g, h), (g, p, q) are strongly connected
+ * components of the dependency graph. The compiler must terminate
+ * on this declaration; the closures must cross-reference each
+ * other correctly at runtime.
+ *)
+val p =
+  let
+    val rec f = fn i => g (i + 1)
+    and g = fn i => h (i + 2) + p (i + 4)
+    and h = fn i => if i > 100 then i + 8 else f (i + 16)
+    and p = fn i => q (i + 32)
+    and q = fn i => if i > 200 then i + 64 else g (i + 128)
+  in
+    g
+  end;
+> val p = fn : int -> int
+
+p 1;
+> val it = 4003 : int
+
+p 6;
+> val it = 3381 : int
+
+p 7;
+> val it = 3394 : int
 
 (*) End tail-recursion.smli

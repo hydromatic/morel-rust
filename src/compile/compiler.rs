@@ -116,6 +116,7 @@ impl<'a> Compiler<'a> {
         None
     }
 
+    #[allow(clippy::mutable_key_type)] // HashSet<Expr> never holds RecCell
     fn compile_statement(
         &mut self,
         env: &Environment,
@@ -171,6 +172,7 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    #[allow(clippy::mutable_key_type)] // HashSet<Expr> never holds RecCell
     fn compile_decl(
         &mut self,
         cx: &Context,
@@ -208,6 +210,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    #[allow(clippy::mutable_key_type)] // HashSet<Expr> never holds RecCell
     fn compile_val_decl(
         &mut self,
         cx: &Context,
@@ -266,6 +269,14 @@ impl<'a> Compiler<'a> {
 
         // Collect all bindings first to avoid borrowing issues
         let mut collected_actions = Vec::new();
+        // For inner-let `Decl::RecVal`, accumulate the closure-shaped
+        // bindings here and emit a single `Code::RecValBindings` after
+        // the loop. The runtime allocates a `Val::RecCell` per slot
+        // before evaluating any closure, so cross-references between
+        // sibling closures resolve correctly regardless of the order
+        // they are created.
+        let inner_rec_cells = !is_top_level && matches!(decl, Decl::RecVal(_));
+        let mut rec_cell_items: Vec<(usize, Code, Option<Span>)> = Vec::new();
 
         decl.for_each_binding(
             &mut |pat: &Pat,
@@ -274,12 +285,22 @@ impl<'a> Compiler<'a> {
                   span: &Option<Span>| {
                 let pat_code = self.compile_pat(&cx1, pat);
                 let mut expr_code_inner = self.compile_expr(&cx1, None, expr);
-                // For inner-let `Decl::RecVal`, replace any bind_code in the
-                // resulting `Code::CreateClosure` whose corresponding bound
-                // variable is one of the names defined by this RecVal with
+                // For inner-let `Decl::RecVal`, replace any bind_code in
+                // the resulting `Code::CreateClosure` whose corresponding
+                // bound variable refers to *this* binding's own name with
                 // a `Code::SelfRef` placeholder. The runtime substitutes
-                // a cyclic `Val::ClosureWeak` for it.
+                // a cyclic `Val::ClosureWeak` for it. References to *other*
+                // names in the same RecVal group stay as ordinary captures
+                // (`Code::Get`) — at evaluation time the slot will hold a
+                // `Val::RecCell` that the new closure captures, and the
+                // cell is filled with the sibling's value once that
+                // sibling's closure has been built (see Code::RecValBindings).
+                let own_name: Option<&str> = match pat {
+                    Pat::Identifier(_, n) => Some(n.as_str()),
+                    _ => None,
+                };
                 if !rec_names.is_empty()
+                    && let Some(own) = own_name
                     && let Code::CreateClosure(
                         ref frame_def,
                         _,
@@ -289,17 +310,32 @@ impl<'a> Compiler<'a> {
                 {
                     for (i, binding) in frame_def.bound_vars.iter().enumerate()
                     {
-                        if rec_names.contains(&binding.id.name) {
+                        if binding.id.name == own {
                             bind_codes[i] = Code::SelfRef;
                         }
                     }
                 }
+                let is_rec_closure = inner_rec_cells
+                    && matches!(expr_code_inner, Code::CreateClosure(..))
+                    && own_name.is_some();
                 let expr_code = Arc::new(expr_code_inner);
-                match_codes.push(Code::new_bind_with_span(
-                    &pat_code,
-                    &expr_code,
-                    span.clone(),
-                ));
+                if is_rec_closure {
+                    let name = own_name.unwrap();
+                    let slot = cx1.frame_def.try_var_index(name).expect(
+                        "rec name must have a slot in the let-binder's frame",
+                    );
+                    rec_cell_items.push((
+                        slot,
+                        (*expr_code).clone(),
+                        span.clone(),
+                    ));
+                } else {
+                    match_codes.push(Code::new_bind_with_span(
+                        &pat_code,
+                        &expr_code,
+                        span.clone(),
+                    ));
+                }
 
                 // Special treatment for 'val id =' so that 'fun' declarations
                 // can be inlined. Skipped for inner-let `Decl::RecVal` so
@@ -379,6 +415,15 @@ impl<'a> Compiler<'a> {
                 });
             },
         );
+
+        // For inner-let `Decl::RecVal`, emit a single
+        // `Code::RecValBindings` covering all closure-shaped bindings.
+        // Non-closure bindings in the same group (e.g. a tuple binding
+        // `val rec (x, y) = (1, 2) and f = ...`) were already pushed
+        // as regular `Code::Bind`s above.
+        if !rec_cell_items.is_empty() {
+            match_codes.push(Code::RecValBindings(rec_cell_items));
+        }
 
         // Add collected actions to the action vector.
         if let Some(actions) = actions {

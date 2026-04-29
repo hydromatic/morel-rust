@@ -348,7 +348,7 @@ Bag.tabulate (~1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact
 >   raised at: stdIn:1.1-1.86
 Sys.plan ();
 > val it =
->   "apply(fnValue Bag.tabulate, argCode tuple(constant(~1), let(bind(bind(0) = createClosure(captures(self), body(case(apply2(fnValue Int.eq, get(1), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(1), applyClosure(fn get(0) arg apply2(fnValue Int.minus, get(1), constant(1)))))))) in get(0)), constant(stdIn:1.1-1.86)))"
+>   "apply(fnValue Bag.tabulate, argCode tuple(constant(~1), let(recValBindings(slot 0: createClosure(captures(self), body(case(apply2(fnValue Int.eq, get(1), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(1), applyClosure(fn get(0) arg apply2(fnValue Int.minus, get(1), constant(1)))))))) in get(0)), constant(stdIn:1.1-1.86)))"
 >   : string
 
 (*) End bag.smli

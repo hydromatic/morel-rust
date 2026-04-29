@@ -29,7 +29,7 @@ use crate::shell::main::MorelError;
 use crate::syntax::parser;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 /// Sentinel ordinal for the built-in `DESC` constructor of the
 /// `descending` datatype. Distinct from any user-defined constructor
@@ -180,6 +180,19 @@ pub enum Val {
     /// Never observed outside the closure that owns the `Arc<ClosureData>`
     /// it points into.
     ClosureWeak(Weak<ClosureData>),
+
+    /// Indirection for an as-yet-unevaluated mutually-recursive
+    /// binding. Used by inner-let `Decl::RecVal` with multiple
+    /// `and`-bindings, where each closure's cross-references to its
+    /// siblings need to be resolved *after* every closure has been
+    /// constructed. The cell is allocated empty, captured by each
+    /// closure that references the corresponding name, then filled
+    /// once the closure for that name has been created. Apply,
+    /// dispatch, and other consumers transparently read the cell.
+    /// Same-rec-group closures form a reference cycle through the
+    /// cells; the cycle is leaked (one rec group per let-rec
+    /// activation), which is acceptable for the test/script use case.
+    RecCell(Arc<Mutex<Val>>),
 
     /// Sentinel returned by [`Code::TailApply`] from a tail-position
     /// function call. The trampoline in `Frame::create_bind_and_eval`
@@ -358,6 +371,10 @@ impl Val {
                     .expect("self-referential closure already dropped");
                 Val::Closure(arc).apply_f1(r, f, arg)
             }
+            Val::RecCell(cell) => {
+                let v = cell.lock().unwrap().clone();
+                v.apply_f1(r, f, arg)
+            }
             Val::Fn(built_in_fn) => {
                 let (_, impl_) = LIBRARY
                     .fn_map
@@ -406,6 +423,7 @@ impl Display for Val {
                 write!(f, "#\"{}\"", parser::string_to_string(&c.to_string()))
             }
             Val::Closure(..) | Val::Code(_) => write!(f, "fn"),
+            Val::ClosureWeak(_) => write!(f, "fn"),
             Val::Constructor(ordinal, v) => {
                 if **v == Val::Unit {
                     write!(f, "#{}", ordinal)
@@ -471,6 +489,7 @@ impl Display for Val {
                 // Use Real.toString to format real values
                 write!(f, "{}", Real::to_string(*r))
             }
+            Val::RecCell(_) => write!(f, "fn"),
             Val::Some(v) => write!(f, "SOME {}", v),
             Val::String(s) => write!(f, "\"{}\"", parser::string_to_string(s)),
             Val::Time(t) => {
@@ -519,6 +538,7 @@ impl PartialEq for Val {
             (Val::Code(a), Val::Code(b)) => Arc::ptr_eq(a, b),
             (Val::Closure(a), Val::Closure(b)) => Arc::ptr_eq(a, b),
             (Val::ClosureWeak(a), Val::ClosureWeak(b)) => Weak::ptr_eq(a, b),
+            (Val::RecCell(a), Val::RecCell(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -640,8 +660,12 @@ impl Hash for Val {
                 20.hash(state);
                 Weak::as_ptr(weak).hash(state);
             }
+            Val::RecCell(cell) => {
+                21.hash(state);
+                Arc::as_ptr(cell).hash(state);
+            }
             Val::TailCall(fn_, arg) => {
-                20.hash(state);
+                22.hash(state);
                 fn_.hash(state);
                 arg.hash(state);
             }

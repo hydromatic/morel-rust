@@ -56,7 +56,7 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::iter::{repeat_n, zip};
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Weak};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 use strum::{EnumProperty, IntoEnumIterator};
 
 /// Evaluation mode.
@@ -340,6 +340,22 @@ pub enum Code {
     /// `Range.toList` and `Range.toBag` (bags share the `Val::List`
     /// representation).
     RangeEnumerate(CmpRef, DiscreteRef, Box<Code>),
+    /// `RecValBindings(items)` compiles an inner-let `Decl::RecVal`
+    /// whose bindings may cross-reference each other. For each item
+    /// `(slot, expr_code, span)`:
+    /// 1. Allocates a `Val::RecCell` (an `Arc<Mutex<Val::Unit>>`),
+    ///    binds it into the let-binder's frame at `slot`. Cross-refs
+    ///    in sibling closures' `bind_codes` capture this cell as a
+    ///    `Val::RecCell` rather than a `Val::Closure`.
+    /// 2. After all cells are allocated, evaluates each `expr_code`
+    ///    (a `Code::CreateClosure`) to obtain `Val::Closure(arc)`,
+    ///    fills the corresponding cell with that closure, and
+    ///    overwrites the frame slot with the closure too.
+    ///
+    /// References that captured the cell read through the
+    /// `Mutex<Val>` at apply time, so cross-references resolve to
+    /// the right closure regardless of the order they were created.
+    RecValBindings(Vec<(usize, Code, Option<Span>)>),
     /// `TailApply(fn_code, arg_code)` is the tail-call variant of
     /// [`Code::Apply`]. It evaluates `fn_code` and `arg_code` and
     /// returns a [`Val::TailCall`] sentinel; the trampoline in
@@ -710,6 +726,7 @@ impl Code {
             Code::RangeDsComplement(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeDsOf(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RangeEnumerate(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::RecValBindings(_) => *mode == EvalMode::EagerF0,
             Code::SelfRef => *mode == EvalMode::EagerF0,
             Code::TailApply(_, _) => *mode == EvalMode::EagerF0,
             Code::Tuple(_) => *mode == EvalMode::EagerF0,
@@ -1095,6 +1112,30 @@ impl Code {
                 };
                 let out = enumerate_ranges(ranges, &*discrete.0, &*cmp.0);
                 Ok(Val::List(out))
+            }
+            Code::RecValBindings(items) => {
+                // Phase 1: allocate one cell per binding and pre-bind
+                // it to the let-binder's frame slot. Sibling closures'
+                // `bind_codes` will see `Val::RecCell(cell)` when they
+                // capture a not-yet-evaluated cross-reference.
+                let cells: Vec<Arc<Mutex<Val>>> = items
+                    .iter()
+                    .map(|_| Arc::new(Mutex::new(Val::Unit)))
+                    .collect();
+                for (i, (slot, _, _)) in items.iter().enumerate() {
+                    f.vals[*slot] = Val::RecCell(cells[i].clone());
+                }
+                // Phase 2: evaluate each closure expression in order.
+                // Once a binding's slot has been overwritten with the
+                // closure value, later bindings capture it directly
+                // (not via the cell), but the cell is already shared
+                // with any earlier closure that captured it.
+                for (i, (slot, expr_code, _span)) in items.iter().enumerate() {
+                    let v = expr_code.eval_f0(r, f)?;
+                    *cells[i].lock().unwrap() = v.clone();
+                    f.vals[*slot] = v;
+                }
+                Ok(Val::Unit)
             }
             Code::SelfRef => panic!(
                 "Code::SelfRef should only appear inside Code::CreateClosure's \
@@ -1894,6 +1935,16 @@ impl Display for Code {
                     code3
                 )
             }
+            Self::RecValBindings(items) => {
+                write!(f, "recValBindings(")?;
+                for (i, (slot, code, _)) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "slot {}: {}", slot, code)?;
+                }
+                write!(f, ")")
+            }
             Self::SelfRef => write!(f, "self"),
             Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
             _ => todo!("fmt: {:?}", self),
@@ -2007,6 +2058,10 @@ impl<'a> Frame<'a> {
                     .upgrade()
                     .expect("self-referential closure already dropped");
                 Self::dispatch_no_trampoline(r, &Val::Closure(arc), arg)
+            }
+            Val::RecCell(cell) => {
+                let v = cell.lock().unwrap().clone();
+                Self::dispatch_no_trampoline(r, &v, arg)
             }
             Val::Code(code) => match code.as_ref() {
                 Code::Fn(frame_def, matches, no_match) => {
