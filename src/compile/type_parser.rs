@@ -19,10 +19,20 @@ use crate::compile::types::{PrimitiveType, Type, TypeVariable};
 use crate::syntax::ast::{Type as AstType, TypeKind, TypeScheme};
 use crate::syntax::parser;
 
-/// Converts a type string to a type.
+/// Converts a type string to a type. Panics on any parse or
+/// conversion failure; callers that need to recover from malformed
+/// input should use [`try_string_to_type`] instead.
 pub fn string_to_type(code: &str) -> Box<Type> {
-    let type_scheme =
-        parser::parse_type_scheme(code).expect("failed to parse type");
+    try_string_to_type(code)
+        .unwrap_or_else(|e| panic!("failed to parse type {:?}: {}", code, e))
+}
+
+/// Like [`string_to_type`] but returns the parse/conversion error
+/// instead of panicking. The error string is human-readable and not
+/// stable.
+pub fn try_string_to_type(code: &str) -> Result<Box<Type>, String> {
+    let type_scheme = parser::parse_type_scheme(code)
+        .map_err(|e| format!("parse error: {}", e))?;
     let mut type_builder = TypeBuilder::new();
     type_builder.ast_to_type_scheme(&type_scheme)
 }
@@ -36,33 +46,40 @@ impl TypeBuilder {
         TypeBuilder { ty_vars: vec![] }
     }
 
-    fn ast_to_type_scheme(&mut self, type_scheme: &TypeScheme) -> Box<Type> {
+    fn ast_to_type_scheme(
+        &mut self,
+        type_scheme: &TypeScheme,
+    ) -> Result<Box<Type>, String> {
         for i in 0..type_scheme.var_count {
             self.ty_vars.push(TypeVariable::new(i));
         }
-        let type_ = self.ast_to_type(&type_scheme.type_);
-        if type_scheme.var_count == 0 {
+        let type_ = self.ast_to_type(&type_scheme.type_)?;
+        Ok(if type_scheme.var_count == 0 {
             type_
         } else {
             Type::Forall(type_, type_scheme.var_count).into()
-        }
+        })
     }
 
-    fn ast_to_type(&mut self, t: &AstType) -> Box<Type> {
-        Box::new(match &t.kind {
+    fn ast_to_type(&mut self, t: &AstType) -> Result<Box<Type>, String> {
+        Ok(Box::new(match &t.kind {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, base_type) => {
                 let flat_args = AstType::flatten(args);
-                let arg_types: Vec<Type> =
-                    flat_args.iter().map(|t| *self.ast_to_type(t)).collect();
-                let base = self.ast_to_type(base_type);
+                let arg_types: Vec<Type> = flat_args
+                    .iter()
+                    .map(|t| self.ast_to_type(t).map(|b| *b))
+                    .collect::<Result<_, _>>()?;
+                let base = self.ast_to_type(base_type)?;
 
                 // Check if this is a list type application
                 if let TypeKind::Id(name) = &base_type.kind {
                     if name == "list" && args.len() == 1 {
-                        Type::List(Box::new(
-                            arg_types.into_iter().next().unwrap(),
-                        ))
+                        let arg =
+                            arg_types.into_iter().next().ok_or_else(|| {
+                                "list type application with no arg".to_string()
+                            })?;
+                        Type::List(Box::new(arg))
                     } else if name == "option" && args.len() == 1
                         || name == "either" && args.len() == 2
                         || name == "descending" && args.len() == 1
@@ -90,8 +107,8 @@ impl TypeBuilder {
                 }
             }
             TypeKind::Fn(from_type, to_type) => {
-                let from = self.ast_to_type(from_type);
-                let to = self.ast_to_type(to_type);
+                let from = self.ast_to_type(from_type)?;
+                let to = self.ast_to_type(to_type)?;
                 Type::Fn(from, to)
             }
             TypeKind::Id(name) => {
@@ -109,14 +126,16 @@ impl TypeBuilder {
                 let mut field_map = BTreeMap::new();
                 for field in fields {
                     let label = Label::String(field.label.name.clone());
-                    let field_type = *self.ast_to_type(&field.type_);
+                    let field_type = *self.ast_to_type(&field.type_)?;
                     field_map.insert(label, field_type);
                 }
                 Type::Record(false, field_map)
             }
             TypeKind::Tuple(types) => {
-                let type_args: Vec<Type> =
-                    types.iter().map(|t| *self.ast_to_type(t)).collect();
+                let type_args: Vec<Type> = types
+                    .iter()
+                    .map(|t| self.ast_to_type(t).map(|b| *b))
+                    .collect::<Result<_, _>>()?;
                 Type::Tuple(type_args)
             }
             TypeKind::Var(name) => {
@@ -126,12 +145,14 @@ impl TypeBuilder {
                 match self.ty_vars.iter().position(|v| &v.name() == name) {
                     Some(index) => Type::Variable(self.ty_vars[index].clone()),
                     None => {
-                        panic!("Unknown type variable {}", name);
+                        return Err(format!("Unknown type variable {}", name));
                     }
                 }
             }
-            _ => todo!("ast_to_type: {:?}", t),
-        })
+            other => {
+                return Err(format!("ast_to_type: unsupported {:?}", other));
+            }
+        }))
     }
 }
 

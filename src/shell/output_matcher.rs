@@ -32,25 +32,34 @@
 use crate::compile::type_parser;
 use crate::compile::types::{Label, Type};
 use std::collections::{BTreeMap, HashMap};
-use std::panic::catch_unwind;
 use std::str::from_utf8;
 
 /// Compares two output strings modulo whitespace and bag reordering.
 ///
 /// Parses the type annotation from the expected output (the text
-/// after the top-level ` : `) and uses it to guide comparison.
-/// Returns `false` if either string doesn't have the expected
-/// `VALUE : TYPE` shape.
+/// after the top-level ` : `) and uses it to guide comparison. If
+/// the expected output has no type annotation, or the annotation
+/// fails to parse (e.g. a built-in record type, or a type variable
+/// not bound by an outer `forall`), falls back to whitespace-
+/// normalized string equality. The fallback is conservative: it
+/// only declares the strings equivalent when they normalize to the
+/// same byte sequence.
 pub fn equivalent(actual: &str, expected: &str) -> bool {
-    let t = match extract_type(expected) {
-        Some(s) => s,
-        None => return false,
-    };
-    let parsed_type = match catch_unwind(|| type_parser::string_to_type(&t)) {
-        Ok(t) => *t,
-        Err(_) => return false,
-    };
-    equivalent_with_type(&parsed_type, actual, expected)
+    match extract_type(expected) {
+        Some(t) => match type_parser::try_string_to_type(&t) {
+            Ok(parsed_type) => {
+                equivalent_with_type(&parsed_type, actual, expected)
+            }
+            Err(_) => fallback_equal(actual, expected),
+        },
+        None => fallback_equal(actual, expected),
+    }
+}
+
+/// Whitespace-normalized string comparison. Used by [`equivalent`]
+/// when the type annotation is missing or malformed.
+fn fallback_equal(actual: &str, expected: &str) -> bool {
+    normalize_whitespace(actual) == normalize_whitespace(expected)
 }
 
 /// Same as [`equivalent`] but with an explicit type (used by unit
@@ -60,14 +69,21 @@ pub fn equivalent_with_type(
     actual: &str,
     expected: &str,
 ) -> bool {
-    let code0 = match extract_value(actual) {
-        Some(s) => s,
+    let (prefix0, code0) = match extract_prefix_and_value(actual) {
+        Some(p) => p,
         None => return false,
     };
-    let code1 = match extract_value(expected) {
-        Some(s) => s,
+    let (prefix1, code1) = match extract_prefix_and_value(expected) {
+        Some(p) => p,
         None => return false,
     };
+    // The `val NAME = ` prefix (or absence thereof) is part of the
+    // output; mismatching prefixes — different variable names, a
+    // missing `val`, or a typo like `value` — must produce a
+    // non-equivalent verdict regardless of how the value compares.
+    if normalize_whitespace(&prefix0) != normalize_whitespace(&prefix1) {
+        return false;
+    }
     code_equal(type_, &code0, &code1)
 }
 
@@ -139,26 +155,19 @@ enum Parsed {
     Seq(Vec<Parsed>),
 }
 
-/// Extracts the value portion from `val x = VALUE : TYPE` or
-/// `VALUE : TYPE`. Returns the VALUE substring or `None` if it
-/// can't find the top-level `: ` separator.
-fn extract_value(s: &str) -> Option<String> {
+/// Splits `val NAME = VALUE : TYPE` (or `VALUE : TYPE`) into the
+/// `val NAME = ` prefix (empty when absent) and the `VALUE`
+/// portion. Returns `None` if the top-level ` : ` separator is
+/// missing.
+fn extract_prefix_and_value(s: &str) -> Option<(String, String)> {
     let bytes = s.as_bytes();
     let n = bytes.len();
 
-    // Optional `val <name> = ` prefix — find the first `=`
-    // followed by whitespace, and skip to after the whitespace.
-    let mut value_start = 0usize;
-    let eq_idx = index_of_eq_whitespace(s);
-    if let Some(eq) = eq_idx
-        && s[..eq].contains("val ")
-    {
-        let mut start = eq + 1;
-        while start < n && is_whitespace_char(bytes[start] as char) {
-            start += 1;
-        }
-        value_start = start;
-    }
+    // Optional `val NAME = ` prefix. Strict pattern (whitespace*
+    // `val` whitespace+ ident whitespace* `=` whitespace*) — the
+    // old substring check accepted `value queens =` because
+    // "value" contains "val".
+    let value_start = parse_val_prefix(s).unwrap_or(0);
 
     // Find end of value: last top-level ` : `.
     let mut depth: i32 = 0;
@@ -196,7 +205,10 @@ fn extract_value(s: &str) -> Option<String> {
     if end < value_start {
         return None;
     }
-    Some(s[value_start..end].to_string())
+    Some((
+        s[..value_start].to_string(),
+        s[value_start..end].to_string(),
+    ))
 }
 
 fn is_whitespace_char(c: char) -> bool {
@@ -207,11 +219,48 @@ fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '\'' || c == '~'
 }
 
-fn index_of_eq_whitespace(s: &str) -> Option<usize> {
+/// Recognizes a `val NAME = ` prefix at the start of `s` and returns
+/// the byte index just past the trailing whitespace, or `None` if
+/// the input doesn't match. Whitespace is permitted around `val`
+/// and `=`. The keyword `val` must be followed by ASCII whitespace
+/// (so `value queens = …` is rejected).
+fn parse_val_prefix(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
-    (0..bytes.len().saturating_sub(1)).find(|&i| {
-        bytes[i] as char == '=' && is_whitespace_char(bytes[i + 1] as char)
-    })
+    let n = bytes.len();
+    let mut i = 0;
+    while i < n && is_whitespace_char(bytes[i] as char) {
+        i += 1;
+    }
+    if i + 3 > n || &bytes[i..i + 3] != b"val" {
+        return None;
+    }
+    i += 3;
+    // `val` must be terminated by whitespace; this also rejects
+    // identifiers that start with `val` such as `value`.
+    if i >= n || !is_whitespace_char(bytes[i] as char) {
+        return None;
+    }
+    while i < n && is_whitespace_char(bytes[i] as char) {
+        i += 1;
+    }
+    let ident_start = i;
+    while i < n && is_word_char(bytes[i] as char) {
+        i += 1;
+    }
+    if i == ident_start {
+        return None;
+    }
+    while i < n && is_whitespace_char(bytes[i] as char) {
+        i += 1;
+    }
+    if i >= n || bytes[i] as char != '=' {
+        return None;
+    }
+    i += 1;
+    while i < n && is_whitespace_char(bytes[i] as char) {
+        i += 1;
+    }
+    Some(i)
 }
 
 /// Collapses any run of whitespace into a single space, keeping
@@ -810,5 +859,167 @@ mod tests {
         let a = "val it = [1,2,3] : int bag";
         let b = "val it = [1,2] : int bag";
         assert!(!equivalent_with_type(&int_bag(), a, b));
+    }
+
+    // --- Fallback paths: type missing or unparseable ---------------
+
+    #[test]
+    fn type_unparseable_falls_back_to_string_equality() {
+        // Built-in record syntax ({<:..., a:..., ...}) panics in
+        // `type_parser`; equivalent() should fall back to a
+        // whitespace-normalized string compare.
+        let a = "val it = {a=1,b=2} : {<:int * int -> bool, a:int, b:int}";
+        let b = "val it = {a=1,b=2} : {<:int * int -> bool, a:int, b:int}";
+        assert!(equivalent(a, b));
+    }
+
+    #[test]
+    fn type_unparseable_with_real_difference_returns_false() {
+        let a = "val it = {a=1,b=2} : {<:int * int -> bool, a:int, b:int}";
+        let b = "val it = {a=1,b=3} : {<:int * int -> bool, a:int, b:int}";
+        assert!(!equivalent(a, b));
+    }
+
+    #[test]
+    fn unknown_type_variable_falls_back_to_string_equality() {
+        // 'a is not bound by a `forall` in the displayed type, so
+        // `try_string_to_type` returns Err.
+        let a = "val outer = fn : 'a -> 'a";
+        let b = "val outer = fn : 'a -> 'a";
+        assert!(equivalent(a, b));
+    }
+
+    #[test]
+    fn unknown_type_variable_real_diff_returns_false() {
+        let a = "val outer = fn : 'a -> 'a";
+        let b = "val outer = fn : 'a -> 'b";
+        assert!(!equivalent(a, b));
+    }
+
+    #[test]
+    fn no_type_annotation_falls_back_to_string_equality() {
+        assert!(equivalent("hello world", "hello world"));
+        assert!(!equivalent("hello world", "hello there"));
+    }
+
+    #[test]
+    fn no_type_annotation_whitespace_tolerant() {
+        // Fallback applies the same whitespace normalization as the
+        // happy path.
+        assert!(equivalent("[1,  2, 3]", "[1, 2,  3]"));
+        assert!(equivalent("val it = ()", "val  it  =  ()"));
+    }
+
+    #[test]
+    fn type_parse_failure_does_not_panic_or_print() {
+        // try_string_to_type returns Err on these — equivalent() is
+        // expected to handle without panicking. A regression that
+        // re-introduces `panic!` (and `catch_unwind` to swallow it)
+        // would still pass this test by name, but Rust's default
+        // panic hook would print a stack trace to stderr. We can't
+        // assert "no stderr noise" cheaply without a stderr-capture
+        // helper, so this is left as a smoke test.
+        let _ = equivalent(
+            "val it = {} : {<:int * int -> bool}",
+            "val it = {} : {<:int * int -> bool}",
+        );
+        let _ = equivalent("val outer = fn : 'a -> 'a", "x");
+        let _ = equivalent("x", "y");
+    }
+
+    // --- extract_type ----------------------------------------------
+
+    #[test]
+    fn extract_type_no_annotation_is_none() {
+        assert_eq!(extract_type("hello"), None);
+        assert_eq!(extract_type("val it = 3"), None);
+        assert_eq!(extract_type(""), None);
+    }
+
+    #[test]
+    fn extract_type_simple() {
+        assert_eq!(extract_type("val it = 3 : int"), Some("int".to_string()),);
+        assert_eq!(
+            extract_type("val it = [1,2] : int list"),
+            Some("int list".to_string()),
+        );
+    }
+
+    #[test]
+    fn extract_type_ignores_inner_colons() {
+        // Colon inside a string literal must not be treated as a
+        // type separator.
+        assert_eq!(
+            extract_type("val it = \"a:b\" : string"),
+            Some("string".to_string()),
+        );
+        // Colon inside a record field type is at depth > 0; only
+        // the top-level ` : ` separates value from type.
+        assert_eq!(
+            extract_type("val it = {a=1} : {a:int}"),
+            Some("{a:int}".to_string()),
+        );
+    }
+
+    // --- val-prefix sanity checks ----------------------------------
+
+    #[test]
+    fn variable_name_difference_caught() {
+        // queens vs queens' — distinct identifiers, must NOT
+        // collapse to equivalent.
+        let a = "val queens' = fn : int -> int";
+        let b = "val queens = fn : int -> int";
+        assert!(!equivalent(a, b));
+    }
+
+    #[test]
+    fn val_keyword_typo_caught() {
+        // `value` ≠ `val`. The old "val " substring check accepted
+        // this because "value" contains "val ".
+        let a = "val queens' = fn : int -> int";
+        let b = "value queens' = fn : int -> int";
+        assert!(!equivalent(a, b));
+    }
+
+    #[test]
+    fn missing_val_keyword_caught() {
+        // Bare assignment without the `val` keyword.
+        let a = "val it = 3 : int";
+        let b = "it = 3 : int";
+        assert!(!equivalent(a, b));
+    }
+
+    #[test]
+    fn val_prefix_whitespace_tolerant() {
+        // Different whitespace inside the `val NAME = ` prefix is
+        // still equivalent (matches the rest of the matcher's
+        // contract).
+        let a = "val queens' = fn : int -> int";
+        let b = "val queens'  =  fn : int -> int";
+        assert!(equivalent(a, b));
+    }
+
+    #[test]
+    fn parse_val_prefix_accepts_well_formed() {
+        // Keyword `val`, whitespace, identifier, optional whitespace,
+        // `=`, optional whitespace.
+        assert_eq!(parse_val_prefix("val it = 3"), Some(9));
+        assert_eq!(parse_val_prefix("val queens' = fn"), Some(14));
+        assert_eq!(parse_val_prefix("val   x   =   3"), Some(14));
+    }
+
+    #[test]
+    fn parse_val_prefix_rejects_lookalikes() {
+        // `value` is not the keyword.
+        assert_eq!(parse_val_prefix("value foo = 3"), None);
+        // `val` immediately followed by an identifier character is
+        // also rejected (it would be `vali` for example).
+        assert_eq!(parse_val_prefix("vali = 3"), None);
+        // Missing `=`.
+        assert_eq!(parse_val_prefix("val foo bar"), None);
+        // Missing identifier.
+        assert_eq!(parse_val_prefix("val = 3"), None);
+        // Bare expression — no `val`.
+        assert_eq!(parse_val_prefix("3"), None);
     }
 }
