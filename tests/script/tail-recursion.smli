@@ -51,4 +51,74 @@ fun f4 (i, fc) =
 f4 (1, fn () => 99);
 > val it = 0 : int
 
+(* Simple tail recursion ------------------------------------------
+ * resum: a simple tail-recursive accumulator.
+ * Needs TCO to handle large inputs (depth > ~1,000).
+ *)
+let
+  fun resum (m, n) =
+    if m = 0 then n
+    else resum (m - 1, n + 1)
+in
+  resum (1000, 0)
+end;
+> val it = 1000 : int
+
+let fun resum (m, n) = if m = 0 then n else resum (m - 1, n + 1)
+in resum (1000000, 0) end;
+> val it = 1000000 : int
+
+(* Coprime numbers -------------------------------------------------------
+ * coprime: tests whether two numbers are coprime.
+ * a and b are coprime if their greatest common divisor is 1.
+ * Uses mutual tail recursion.
+ *)
+fun coprime (a, b) =
+  if a < 1 orelse b < 1 then false
+  else if a = 1 orelse b = 1 then true
+  else if a < b then coprime (a, b mod a)
+  else if a > b then coprime (a mod b, b)
+  else false;
+> val coprime = fn : int * int -> bool
+
+coprime (3, 2);
+> val it = true : bool
+
+coprime (6, 1);
+> val it = true : bool
+
+coprime (1, 8);
+> val it = true : bool
+
+coprime (~6, 2);
+> val it = false : bool
+
+coprime (15, 3);
+> val it = false : bool
+
+coprime (15, 6);
+> val it = false : bool
+
+coprime (6, 15);
+> val it = false : bool
+
+coprime (21, 10);
+> val it = true : bool
+
+(*) the 46th and 45th terms in the fibonacci sequence
+coprime (1836311903, 1134903170);
+> val it = true : bool
+
+(* The N-queens block from morel-java commit 6bf5306c (#148) is
+ * deferred. It exposes a pre-existing closure-capture issue in
+ * morel-rust unrelated to TCO: `capture_bound_vals`' frame
+ * heuristic (matching by val_vec length) is too lax, so when a
+ * let-bound inner fn's `bound_vars + local_vars` count happens to
+ * equal the enclosing function's frame size, the "recursive
+ * re-entry" branch fires by accident and binds captured values to
+ * the wrong bound_vars positions. The bug was latent until #151
+ * because `try` was previously called via Apply (which goes through
+ * `Val::Closure::apply_f1` and creates the closure in-place) rather
+ * than through CreateClosure's heuristic. *)
+
 (*) End tail-recursion.smli

@@ -142,8 +142,9 @@ ack 2 3;
 > val it = 9 : int
 set("mode", "validate");
 > val it = () : unit
-(* Disabled because of stack overflow. Revisit after
- * hydromatic/morel#151 "Tail call optimization" is fixed. *)
+(* Disabled because of stack overflow. ack m (n-1) is not in tail
+ * position (its result is consumed as the second arg of an outer
+ * call), so TCO #151 alone does not help. *)
 ack 3 3;
 > val it = 61 : int
 set("mode", "evaluate");
