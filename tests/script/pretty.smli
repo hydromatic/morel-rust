@@ -18,7 +18,8 @@
  *
  * Pretty-printing and output modes
  *)
-(* -------------------------------------------------------------
+
+(* -------------------------------------------------------------------
  * [MOREL-259] Tabular mode
  *)
 
@@ -80,7 +81,6 @@ set("mode", "evaluate");
 
 Sys.set ("output", "tabular");
 > val it = () : unit
-
 
 (* List of primitives uses classic style. *)
 [1,2,3];

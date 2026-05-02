@@ -27,9 +27,10 @@ Sys.set ("stringDepth", ~1);
 set("mode", "validate");
 > val it = () : unit
 
-(* ---------------------------------------------------------------------------
- * Example based on "A Second Look at Overloading" by Martin Odersky, Philip
- * Wadler, Martin Wehr (1995). *)
+(* -------------------------------------------------------------------
+ * Example based on "A Second Look at Overloading" by Martin Odersky,
+ * Philip Wadler, Martin Wehr (1995).
+ *)
 (*
 over first;
 > over first
@@ -64,9 +65,9 @@ demo (3,"four");
 > val it = ("four",3) : string * int
 *)
 
-(* ---------------------------------------------------------------------------
+(* -------------------------------------------------------------------
  * Two overloads, bool -> bool and int -> int. We call with bool argument,
-   expect bool result. *)
+ * expect bool result. *)
 set("mode", "evaluate");
 > val it = () : unit
 let
@@ -148,9 +149,9 @@ set("mode", "validate");
 (o0 (SOME 1), o0 [2], o0 (SOME {i=3, b=true}));
 > val it = ([1],false,[{b=true,i=3}]) : int list * bool * {b:bool, i:int} list
 
-(* ---------------------------------------------------------------------------
+(* -------------------------------------------------------------------
  * Two overloads, bool -> int and string -> bool list. We require that a_list
-   is a list, so working backwards, arg must be an string. *)
+ * is a list, so working backwards, arg must be an string. *)
 (* TODO
 fn arg =>
   let
@@ -167,10 +168,10 @@ fn arg =>
 > val it = fn : string -> int
 *)
 
-(* ---------------------------------------------------------------------------
+(* -------------------------------------------------------------------
  * Very simple case. 'o4', when applied to an option, yields a list of the
-   same type; and, when applied to a list, returns whether the list is
-   empty. *)
+ * same type; and, when applied to a list, returns whether the list is
+ * empty. *)
 let
   over o4
   val inst o4 = fn NONE => [] | SOME x => [x]
@@ -235,7 +236,7 @@ o4a;
 o4a (SOME 1);
 > val it = [1] : int list
 
-(* ---------------------------------------------------------------------------
+(* -------------------------------------------------------------------
  * The 'unorder' operator will help us mix lists and bags in queries. *)
 
 (* A type similar to the built-in 'bag', and a function to convert any list to
@@ -294,7 +295,7 @@ unsort (MULTI_CONS (1, MULTI_CONS (2, MULTI_NIL)));
 unsort [4];
 > val it = MULTI_CONS (4,MULTI_NIL) : int multiset
 
-(* ---------------------------------------------------------------------------
+(* -------------------------------------------------------------------
  * The 'scan' operator allows us to read lists and bags. *)
 
 set("mode", "evaluate");
@@ -312,9 +313,9 @@ set("mode", "validate");
 scan (bag [1]);
 > val it = [1] : int bag
 
-(* ---------------------------------------------------------------------------
+(* -------------------------------------------------------------------
  * An overloaded aggregate function is resolved based on whether the input is
-   ordered. *)
+ * ordered. *)
 over overAgg;
 > over overAgg
 val inst overAgg = fn bag => if Bag.length bag < 0 then "" else "bag";

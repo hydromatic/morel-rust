@@ -277,7 +277,6 @@ from p in [(1, 2), (3, 5)]
   yield case p of (x, y) => {x, y};
 > val it = [{x=1,y=2},{x=3,y=5}] : {x:int, y:int} list
 
-
 (*) 'yield' uses 'case' to deconstruct a record
 from p in [{x = 1, y = 2}, {x = 3, y = 5}]
   yield case p of {x=x, y=y} => (x, y);
@@ -287,7 +286,6 @@ from p in [{x = 1, y = 2}, {x = 3, y = 5}]
 from p in [{x = 1, y = 2},{x = 3, y = 5}]
   yield case p of {x, y} => (x, y);
 > val it = [(1,2),(3,5)] : (int * int) list
-
 
 from e in emps
   yield {x = e.id + e.deptno, y = e.id - e.deptno}
@@ -301,7 +299,8 @@ from e in emps
   yield x + y;
 > val it = [202] : int list
 
-(* Order ------------------------------------------------------ *)
+(* Order ---------------------------------------------------------- *)
+
 from e in emps
   yield {e.deptno, e.name}
   order DESC deptno;
@@ -384,7 +383,8 @@ end;
 >    [{deptno=20,id=101},{deptno=30,id=102},{deptno=30,id=103}])
 >   : {deptno:int, id:int} list * {deptno:int, id:int} list
 
-(* Unorder ---------------------------------------------------- *)
+(* Unorder -------------------------------------------------------- *)
+
 from i in [1,2] unorder;
 > val it = [1,2] : int bag
 
@@ -400,14 +400,12 @@ from i in [1,2,3,4] where i > 1 unorder where i < 4 unorder;
 from i in [1,2,3,4] where i > 1 unorder where i < 4 order DESC i;
 > val it = [3,2] : int list
 
-
 from e in emps
   order DESC e.name
   take 2
   unorder;
 > val it = [{deptno=20,id=101,name="Velma"},{deptno=30,id=102,name="Shaggy"}]
 >   : {deptno:int, id:int, name:string} bag
-
 
 exists i in [1,2,3,4] unorder where i > 3;
 > val it = true : bool
@@ -421,7 +419,8 @@ forall i in [1,2,3,4] unorder require i > 3;
 forall i in [] unorder require false;
 > val it = true : bool
 
-(* Current ---------------------------------------------------- *)
+(* Current -------------------------------------------------------- *)
+
 from e in emps
   where current.deptno = 10;
 > val it = [{deptno=10,id=100,name="Fred"}]
@@ -450,7 +449,6 @@ from e in emps,
   order (current mod 2, current);
 > val it = [110,132,121,133] : int list
 
-
 (*) "current" is not available in "skip", "take", "union", "intersect", "except"
 1 + current;
 > stdIn:1.5-1.12 Error: 'current' is only valid in a query
@@ -460,7 +458,6 @@ from e in emps,
 from i in [current + 1, current + 2, current + 3];
 > stdIn:1.12-1.19 Error: 'current' is only valid in a query
 >   raised at: stdIn:1.12-1.19
-
 
 (*) ... but it can be used in the second
 from i in [1, 2],
@@ -514,7 +511,7 @@ from i in [1,2,3,4,5]
   where not (exists j in ["a","b","ccc","dd"] skip current);
 > val it = [4,5] : int list
 
-(* Ordinal ---------------------------------------------------- *)
+(* Ordinal -------------------------------------------------------- *)
 
 1 + ordinal;
 > stdIn:1.5-1.12 Error: 'ordinal' is only valid in a query
@@ -578,7 +575,6 @@ from e in emps
 >   [{name="Shaggy",ordinal=4},{name="Shaggy",ordinal=5},
 >    {name="Scooby",ordinal=6},{name="Scooby",ordinal=7}]
 >   : {name:string, ordinal:int} list
-
 
 (*) Do the equivalent of 'take' using ordinal.
 from e in emps
@@ -672,7 +668,8 @@ from i in [1,2]
 > val it = [{i=1,j=0},{i=1,j=1},{i=1,j=2},{i=2,j=0},{i=2,j=1},{i=2,j=2}]
 >   : {i:int, j:int} list
 
-(* Degenerate joins ------------------------------------------- *)
+(* Degenerate joins ----------------------------------------------- *)
+
 (*) Join atom to list of units
 from i in [1,2,3],
   () in [()];
@@ -802,7 +799,8 @@ from _ = "a",
   _ = 1;
 > val it = [()] : unit list
 
-(* Combinations of steps -------------------------------------- *)
+(* Combinations of steps ------------------------------------------ *)
+
 (*) 'yield' followed by 'order'
 from e in emps
   yield {e.deptno, x = e.deptno, e.name}
@@ -930,7 +928,6 @@ from i in [1, 2, 3]
   group {};
 > val it = [()] : unit list
 
-
 (*) singleton record 'yield' followed by 'yield'
 from i in [1, 2, 3],
     j in [1, 2, 3]
@@ -944,7 +941,6 @@ from i in [1, 2, 3],
   yield {x = i + j}
   yield x;
 > val it = [2,3,4,3,4,5,4,5,6] : int list
-
 
 (*) singleton record 'yield' followed by 'group'
 from e in emps
@@ -958,14 +954,10 @@ from e in emps
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
-
-
 from i in [1,2]
   group i compute 1 + 2;
 > stdIn:2.19-2.24 Error: cannot derive label for compute expression
 >   raised at: stdIn:2.19-2.24
-
-
 from i in [1,2]
   group i compute {three = 1 + 2};
 > val it = [{i=1,three=3},{i=2,three=3}] : {i:int, three:int} list
@@ -983,7 +975,7 @@ from i in [1,2]
   compute 1 + 2;
 > val it = 3 : int
 
-(* Elements --------------------------------------------------- *)
+(* Elements ------------------------------------------------------- *)
 from i in [1, 2, 3]
   compute elements;
 > val it = [1,2,3] : int list
@@ -1203,8 +1195,9 @@ from i in [2, 1, 2]
   group i compute {c = count (bag ["a", "b"])};
 > val it = [{c=2,i=2},{c=2,i=1}] : {c:int, i:int} list
 
-(* ---------------------------------------------------------------------------
- * List and bag aggregate functions can be applied to list and bag inputs. *)
+(* -------------------------------------------------------------------
+ * List and bag aggregate functions can be applied to list and bag
+ * inputs. *)
 
 (*) List aggregate function returns first element, bag returns second.
 fun listAgg list = List.hd list;
@@ -1243,7 +1236,6 @@ from e in [{a = 1, b = 5}, {a = 0, b = 1}, {a = 1, b = 1}]
  * "compute" step. So, the following is ambiguous. We treat it as a single
  * "group ... compute" step. Under the two-step interpretation, the type
  * would have been "int". *)
-
 from (i, j) in [(1, 1), (2, 3), (3, 4)]
   group {j = i mod 2}
   compute sum over j;
@@ -1261,11 +1253,15 @@ from (i, j) in [(1, 1), (2, 3), (3, 4)]
 > val it = [{count=2,j=1,sum=5},{count=1,j=0,sum=3}]
 >   : {count:int, j:int, sum:int} list
 
+(* Elements ------------------------------------------------------- *)
 
-(* Elements --------------------------------------------------- *)
 from i in [1, 2, 3]
   compute elements;
 > val it = [1,2,3] : int list
+
+from i in [1, 2, 3] unorder
+  compute elements;
+> val it = [1,2,3] : int bag
 
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   compute elements;
@@ -1284,7 +1280,6 @@ from i in [1, 2, 3]
   group i compute {l = length elements};
 > val it = [{i=1,l=1},{i=2,l=1},{i=3,l=1}] : {i:int, l:int} list
 
-
 from i in [1, 2, 3]
   group i compute elements order i;
 > val it = [{elements=[1],i=1},{elements=[2],i=2},{elements=[3],i=3}]
@@ -1294,6 +1289,14 @@ from i in [1, 2, 3]
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   group {i} compute {s = from r in elements compute sum over r.j} order i;
 > val it = [{i="a",s=4},{i="b",s=4}] : {i:string, s:int} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {s = from r in elements unorder compute sum over r.j} order i;
+> val it = [{i="a",s=4},{i="b",s=4}] : {i:string, s:int} list
+
+from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
+  group {i} compute {s = from r in elements order r.j take 1 compute sum over r.j} order i;
+> val it = [{i="a",s=1},{i="b",s=4}] : {i:string, s:int} list
 
 from (i, j) in [("a", 1), ("b", 4), ("a", 3)]
   group {i} compute {s = from r in elements where r.j < 2 compute sum over r.j}
@@ -1338,7 +1341,6 @@ elements;
 > stdIn:1.1-1.9 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.1-1.9
 
-
 length elements;
 > stdIn:1.8-1.16 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.8-1.16
@@ -1347,7 +1349,8 @@ from e in elements;
 > stdIn:1.11-1.19 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.11-1.19
 
-(* Yield ------------------------------------------------------ *)
+(* Yield ---------------------------------------------------------- *)
+
 from i in [1, 2, 3]
   yield {i = {i = i}};
 > val it = [{i={i=1}},{i={i=2}},{i={i=3}}] : {i:{i:int}} list
@@ -1568,7 +1571,7 @@ from e in emps
   join d in depts
   where deptno = d.deptno;
 
-(* as previous, using 'on' rather than 'where' *)
+(*) as previous, using 'on' rather than 'where'
 from e in emps
   group e.deptno compute count
   join d in depts on deptno = d.deptno;
@@ -1644,8 +1647,7 @@ from e in emps
 yield e.name;
 > val it = ["Fred","Velma"] : string list
 
-
-(* Set operations (union, intersect, except) ------------------ *)
+(* Set operations (union, intersect, except) ---------------------- *)
 
 (* Workaround for [MOREL-270] Ambiguous collection types. *)
 fun mustBeList (list: 'a list) = list;
@@ -1681,7 +1683,7 @@ from e in emps
 from e in emps
   yield e.deptno
   intersect (from d in depts yield d.deptno);
-> val it = [20,10,30] : int list
+> val it = [10,20,30] : int list
 
 (*) intersect distinct (matches SQL's INTERSECT DISTINCT)
 from e in emps
@@ -1755,6 +1757,10 @@ from i in [2, 1, 2, 2, 2, 3] except [2, 2, 4], [2];
 from i in [2, 1, 2, 2, 2, 3] except [2, 2, 4], [2, 2, 2];
 > val it = [1,3] : int list
 
+(*) 2 occurs twice on left, once on right, so should be output once.
+from i in [1,2,3,4,5,1,5,1,2] except [2,4];
+> val it = [1,3,5,1,5,1,2] : int list
+
 (*) Hybrid union/intersect/except (list and bag) yields bag
 from d in scott.depts yield d.deptno;
 > val it = [10,20,30,40] : int bag
@@ -1763,15 +1769,15 @@ set("mode", "validate");
 from i in [10, 15, 20] union (from d in scott.depts yield d.deptno);
 > val it = [10,15,20,10,20,30,40] : int bag
 from i in [10, 15, 20] intersect (from d in scott.depts yield d.deptno);
-> val it = [20,10] : int bag
+> val it = [10,20] : int bag
 from i in [10, 15, 20] except (from d in scott.depts yield d.deptno);
 > val it = [15] : int bag
 from d in scott.depts yield d.deptno union [10, 15, 20];
 > val it = [10,20,30,40,10,15,20] : int bag
 from d in scott.depts yield d.deptno intersect [10, 15, 20];
-> val it = [20,10] : int bag
+> val it = [10,20] : int bag
 from d in scott.depts yield d.deptno except [10, 15, 20];
-> val it = [40,30] : int bag
+> val it = [30,40] : int bag
 
 
 set("mode", "evaluate");
@@ -1818,9 +1824,9 @@ group x compute {c = count over ()}
 order (c, x);
 > val it = [{c=1,x=10},{c=1,x=20},{c=1,x=30}] : {c:int, x:int} list
 
-(* ------------------------------------------------------------
-   Compute highest common factor (HCF) using intersect over
-   bags.
+(* -------------------------------------------------------------------
+ * Compute highest common factor (HCF) using intersect over
+ * bags.
  *)
 
 set("mode", "evaluate");
@@ -1865,7 +1871,7 @@ hcf (9, 8);
 hcf (38024, 16296);
 > val it = 5432 : int
 
-(* Group ------------------------------------------------------ *)
+(* Group ---------------------------------------------------------- *)
 
 (* We can simulate "group" using "foldl". *)
 
@@ -1874,7 +1880,7 @@ let
   fun foldl f start [] = start
     | foldl f start (hd :: tl) = foldl f (f (start, hd)) tl
 in
-  foldl (fn (x, y) => x + y) 0 [2,3,4]
+  foldl (op +) 0 [2,3,4]
 end;
 > val it = 9 : int
 
@@ -2046,7 +2052,6 @@ order deptno;
 > val it = [{c1=2,deptno=10},{c1=2,deptno=20},{c1=2,deptno=30},{c1=2,deptno=30}]
 >   : {c1:int, deptno:int} list
 
-
 (*) 'group' with join
 from e in emps, d in depts
 where e.deptno = d.deptno
@@ -2094,7 +2099,6 @@ yield {e, d};
 >    {d={deptno=30,name="Engineering"},e={deptno=30,id=102,name="Shaggy"}},
 >    {d={deptno=30,name="Engineering"},e={deptno=30,id=103,name="Scooby"}}]
 >   : {d:{deptno:int, name:string}, e:{deptno:int, id:int, name:string}} list
-
 
 (*) empty 'group' with singleton 'compute'
 from e in emps
@@ -2474,6 +2478,13 @@ from e in emps
   into sum;
 > val it = 90 : int
 
+(*) As previous, with 'unorder'
+from e in emps
+  yield e.deptno
+  unorder
+  into sum;
+> val it = 90 : int
+
 (*) Multiple 'into' is not allowed
 (* TODO: enable
 from e in emps
@@ -2487,7 +2498,6 @@ from e in emps
 (*) Empty from
 from;
 > val it = [()] : unit list
-
 
 (*) Empty from with where
 from where true;
@@ -2540,7 +2550,6 @@ from
   group {} compute {c = count over "a"};
 > val it = [{c=1}] : {c:int} list
 
-
 (*) Empty from with group
 let
   val ten = 6 + 4
@@ -2550,7 +2559,6 @@ in
     group ten compute {sumEleven = sum over eleven}
 end;
 > val it = [{sumEleven=11,ten=10}] : {sumEleven:int, ten:int} list
-
 
 (*) Empty from with composite group
 from
@@ -2584,7 +2592,6 @@ sumPairs [(1, 2), (3, 4)];
 from (l, 2) in [(1, 2), (3, 4), (5, 2)]
   yield l;
 > val it = [1,5] : int list
-
 
 (*) Record pattern
 from {b = b, a = a} in [{a=1,b=2}];
@@ -2697,7 +2704,6 @@ fun listHeads2 (lists: 'a list) =
   from list as (hd :: tl) in lists
   yield hd + 1 + (length list);
 > val listHeads2 = fn : int list list -> int list
-
 listHeads2 [];
 > val it = [] : int list
 listHeads2 [[1, 2], [3], [4, 5, 6]];
@@ -2763,7 +2769,7 @@ flatMap explode ["ab", "", "def"];
 > val it = [#"a",#"b",#"d",#"e",#"f"] : char list
 
 (*) Here's another way to define flatMap
-fun flatMap2 f l = foldl (fn (x, y) => x @ y) [] (map f l);
+fun flatMap2 f l = foldl (op @) [] (map f l);
 > val flatMap2 = fn : ('a -> 'b list) -> 'a list -> 'b list
 flatMap2 explode ["ab", "", "def"];
 > val it = [#"d",#"e",#"f",#"a",#"b"] : char list
@@ -2827,7 +2833,6 @@ val triples =
     yield {t.x, t.y, foo = fn z => t.x * z + t.y};
 > val triples = [{foo=fn,x=1,y=2},{foo=fn,x=2,y=6},{foo=fn,x=3,y=5}]
 >   : {foo:int -> int, x:int, y:int} list
-
 from t in triples order t.foo 1;
 > val it = [{foo=fn,x=1,y=2},{foo=fn,x=2,y=6},{foo=fn,x=3,y=5}]
 >   : {foo:int -> int, x:int, y:int} list
@@ -2879,10 +2884,10 @@ from e in
 >   [{deptno=10,id=100,name="Fred"},{deptno=20,id=101,name="Velma"},
 >    {deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]
 >   : {deptno:int, id:int, name:string} list
+
 (*) Hybrid
 Sys.set ("hybrid", false);
 > val it = () : unit
-
 from r1 in
   List.tabulate (6, fn i =>
     {i, j = i + 3, s = substring ("morel", 0, i)})
@@ -2906,7 +2911,6 @@ set("mode", "evaluate");
 
 Sys.set ("hybrid", true);
 > val it = () : unit
-
 from r in
   List.tabulate (6, fn i2 =>
     {i = i2, j = i2 + 3, s = substring ("morel", 0, i2)})
@@ -2930,8 +2934,6 @@ set("mode", "evaluate");
 (*) row types: record, tuple, primitive
 List.filter (fn {i, j} => i mod 2 = 0) [{i = 1, j = 1}, {i = 2, j = 2}, {i = 3, j = 3}, {i = 4, j = 5}];
 > val it = [{i=2,j=2},{i=4,j=5}] : {i:int, j:int} list
-
-
 List.filter (fn (i, j) => i mod 2 = 0) [(1, 1), (2, 2), (3, 3), (4, 5)];
 > val it = [(2,2),(4,5)] : (int * int) list
 List.filter (fn i => i mod 2 = 0) [1, 2, 3, 4];
@@ -3025,7 +3027,6 @@ fun threes list =
    f [] list
   end;
 > val threes = fn : 'a list -> 'a list list
-
 threes [1];
 > val it = [[1]] : int list list
 threes [1,2];
@@ -3073,8 +3074,8 @@ in
   pipeline scott.emps
 end;
 > val it =
->   [{count=3,deptno=10,sum=8750.0},{count=4,deptno=20,sum=10075.0},
->    {count=5,deptno=30,sum=8450.0}] : {count:int, deptno:int, sum:real} list
+>   [{count=3,deptno=10,sum=8750},{count=4,deptno=20,sum=10075},
+>    {count=5,deptno=30,sum=8450}] : {count:int, deptno:int, sum:real} list
 
 from d in scott.depts
   through i2 in (Bag.map (fn x => [x]));
@@ -3095,12 +3096,11 @@ fun pivot listlists =
     []
   else
     let
-      fun id x = x
       val n = (from list in listlists compute min over length list)
     in
       List.tabulate (n,
         fn i => (from list in listlists
-                 compute id over List.nth (list, i)))
+                 compute Fn.id over List.nth (list, i)))
     end;
 > val pivot = fn : 'a list list -> 'a list list
 pivot [[1,2],[3,4],[5,6]];
@@ -3129,7 +3129,7 @@ from list in [[1,2,3],[2,3,4],[3,4,5]]
 set("mode", "evaluate");
 > val it = () : unit
 
-(* let ------------------------------------- *)
+(* let ------------------------------------------------------------ *)
 
 (*) let bag-query in query
 let

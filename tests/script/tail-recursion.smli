@@ -24,14 +24,14 @@
  * input sizes.
  *)
 
-(* Pattern 1: Simple self-recursion ------------------------------ *)
+(* Pattern 1: Simple self-recursion ------------------------------- *)
 fun fact 0 = 1 | fact n = n * fact (n - 1);
 > val fact = fn : int -> int
 
 fact 5;
 > val it = 120 : int
 
-(* Pattern 2: Self-recursion via let-rec ------------------------- *)
+(* Pattern 2: Self-recursion via let-rec -------------------------- *)
 let
   val rec resum =
     fn (m, n) =>
@@ -51,7 +51,7 @@ in
 end;
 > val it = 1000000 : int
 
-(* Pattern 3: Top-level mutual recursion (`fun ... and ...`) ----- *)
+(* Pattern 3: Top-level mutual recursion (`fun ... and ...`) ------ *)
 fun even2 0 = true | even2 n = odd2 (n - 1)
 and odd2 0 = false | odd2 n = even2 (n - 1);
 > val even2 = fn : int -> bool
@@ -90,7 +90,7 @@ coprime (15, 6);
 coprime (1836311903, 1134903170);
 > val it = true : bool
 
-(* Pattern 4: Closure captures outer vars ------------------------ *)
+(* Pattern 4: Closure captures outer vars ------------------------- *)
 fun f4 (i, fc) =
   let
     fun g4 j = f4 (i + 1, fc)
@@ -113,7 +113,7 @@ fun f5 (i, fc) =
 f5 (1, fn () => 99);
 > val it = 0 : int
 
-(* Pattern 6: N-queens (continuation + mutual recursion) ---------
+(* Pattern 6: N-queens (continuation + mutual recursion) -------------
  * Based on https://rosettacode.org/wiki/N-queens_problem#Standard_ML
  * See https://github.com/hydromatic/morel/issues/148.
  *)
@@ -224,7 +224,7 @@ fun queens' n =
 queens' 8;
 > val it = SOME [(8,4),(7,2),(6,7),(5,3),(4,6),(3,8),(2,5),(1,1)] : (int * int) list option
 
-(* Pattern 7: `val rec ... and` with tuple pattern ------------------
+(* Pattern 7: `val rec ... and` with tuple pattern -------------------
  * `val rec (x, y) = (1, 2)` is morel-specific; SML/NJ rejects it.
  *)
 let
@@ -235,7 +235,7 @@ in
 end;
 > val it = 123 : int
 
-(* Pattern 8: Mutually recursive let-rec SCC ------------------------
+(* Pattern 8: Mutually recursive let-rec SCC -------------------------
  * Per GHC inlining, (f, g, h), (g, p, q) are strongly connected
  * components of the dependency graph. The compiler must terminate
  * on this declaration; the closures must cross-reference each

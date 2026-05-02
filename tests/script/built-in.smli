@@ -28,7 +28,7 @@ Sys.set ("stringDepth", ~1);
 fun print x = General.ignore x;
 > val print = fn : 'a -> unit
 
-(* Operators --------------------------------------------------- *)
+(* Operators ------------------------------------------------------ *)
 2 + 3;
 > val it = 5 : int
 2 + 3 * 4;
@@ -66,7 +66,7 @@ val nan =
 Real.signBit nan;
 > val it = true : bool
 
-(* Datatypes --------------------------------------------------- *)
+(* Datatypes ------------------------------------------------------ *)
 
 (*
  * The "option" datatype, declared as follows:
@@ -110,7 +110,12 @@ set("mode", "validate");
 DESC (DESC "a");
 > val it = DESC (DESC "a") : string descending descending
 
-(* Top-level environment --------------------------------------- *)
+(* Top-level environment ---------------------------------------------
+ * A few functions and operators belong to signatures but can be used
+ * unqualified. For example, "hd" is shorthand for "List.hd".  The
+ * following are all of the top-level functions and operators defined
+ * by Standard ML.
+ *)
 set("mode", "evaluate");
 > val it = () : unit
 (* A few functions and operators belong to signatures but can be

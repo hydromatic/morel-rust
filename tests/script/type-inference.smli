@@ -483,7 +483,7 @@ end;
 :t Bag.concat [bag [1, 2], bag.nil];
 > val it : int bag
 
-(*) Record ------------------------------------------------
+(* Record --------------------------------------------------------- *)
 :t {a=1, b="x"};
 > val it : {a:int, b:string}
 :t {c=[1], b="x"};
@@ -803,7 +803,7 @@ forall d in [{a=1,b=true}];
 >   raised at: stdIn:1.8-1.27
 *)
 
-(*) Query -------------------------------------------------
+(* ) Query -----------------------------------------------------------
 :t from i in [1, 2];
 > val it : int list
 
@@ -906,7 +906,7 @@ forall d in [{a=1,b=true}];
   require i mod 2 = 0;
 > val it : bool
 
-(*) Join -----------------------------------------------
+(* ) Join ------------------------------------------------------------
 
 (*) Cartesian product
 :t from i in [1, 2]
@@ -931,7 +931,7 @@ forall d in [{a=1,b=true}];
 > val it : {d:int, e:string, n:string} list
 *)
 
-(*) Set operations -------------------------------------
+(* ) Set operations --------------------------------------------------
 :t from i in [1, 2, 3]
   union [4, 5];
 > val it : int list
@@ -952,7 +952,7 @@ forall d in [{a=1,b=true}];
   union distinct [2, 3];
 > val it : int list
 
-(*) Group operation -----------------------------------
+(* ) Group operation -------------------------------------------------
 :t from i in [1, 2, 3]
   group i;
 > val it : int list
@@ -1011,7 +1011,7 @@ forall d in [{a=1,b=true}];
 > stdIn:1.27-1.35 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.27-1.35
 
-(*) Compute operation ---------------------------------
+(* ) Compute operation -----------------------------------------------
 
 :t from i in [1, 2, 3]
   compute {sum = List.foldl (op +) 0 elements};
@@ -1025,7 +1025,7 @@ forall d in [{a=1,b=true}];
   compute {elements, a = "xyz"};
 > val it : {a:string, elements:int list}
 
-(*) Correlated subqueries ----------------------------
+(* ) Correlated subqueries -------------------------------------------
 :t from i in [1, 2, 3]
   where (exists j in [1, 2] where j = i);
 > val it : int list
@@ -1034,7 +1034,7 @@ forall d in [{a=1,b=true}];
   where (exists s in [{x=1}, {x=3}] where s.x = r.a);
 > val it : {a:int, b:int} list
 
-(*) Advanced query steps ------------------------------
+(* ) Advanced query steps --------------------------------------------
 (*) Into step (applies function to entire collection)
 :t from i in [1, 2, 3]
   into List.length;
@@ -1128,7 +1128,7 @@ forall d in [{a=1,b=true}];
 :t from i in [1, 2, 3] into (fn x => List.length x + 1);
 > val it : int
 
-(*) Record ------------------------------------------------
+(* ) Record ----------------------------------------------------------
 :t {a=1, b="x"};
 > val it : {a:int, b:string}
 :t {c=[1], b="x"};
@@ -1444,7 +1444,7 @@ forall d in [{a=1,b=true}];
 >   raised at: stdIn:1.8-1.27
 *)
 
-(*) Query -------------------------------------------------
+(* ) Query -----------------------------------------------------------
 :t from i in [1, 2];
 > val it : int list
 
@@ -1536,7 +1536,7 @@ forall d in [{a=1,b=true}];
   require i mod 2 = 0;
 > val it : bool
 
-(*) Join -----------------------------------------------
+(* ) Join ------------------------------------------------------------
 
 (*) Cartesian product
 :t from i in [1, 2]
@@ -1554,7 +1554,7 @@ forall d in [{a=1,b=true}];
   join x = e.dno + 10;
 > val it : {e:{dno:int, eid:int}, x:int} list
 
-(*) Set operations -------------------------------------
+(* ) Set operations --------------------------------------------------
 :t from i in [1, 2, 3]
   union [4, 5];
 > val it : int list
@@ -1575,7 +1575,7 @@ forall d in [{a=1,b=true}];
   union distinct [2, 3];
 > val it : int list
 
-(*) Group operation -----------------------------------
+(* ) Group operation -------------------------------------------------
 :t from i in [1, 2, 3]
   group i;
 > val it : int list
@@ -1631,7 +1631,7 @@ forall d in [{a=1,b=true}];
 > stdIn:1.27-1.35 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.27-1.35
 
-(*) Compute operation ---------------------------------
+(* ) Compute operation -----------------------------------------------
 
 :t from i in [1, 2, 3]
   compute {sum = List.foldl (op +) 0 elements};
@@ -1645,7 +1645,7 @@ forall d in [{a=1,b=true}];
   compute {elements, a = "xyz"};
 > val it : {a:string, elements:int list}
 
-(*) Correlated subqueries ----------------------------
+(* ) Correlated subqueries -------------------------------------------
 :t from i in [1, 2, 3]
   where (exists j in [1, 2] where j = i);
 > val it : int list
@@ -1654,7 +1654,7 @@ forall d in [{a=1,b=true}];
   where (exists s in [{x=1}, {x=3}] where s.x = r.a);
 > val it : {a:int, b:int} list
 
-(*) Advanced query steps ------------------------------
+(* ) Advanced query steps --------------------------------------------
 (*) Into step (applies function to entire collection)
 :t from i in [1, 2, 3]
   into List.length;

@@ -27,7 +27,7 @@ Sys.set ("lineWidth", 78);
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
-(*) === README.md ===================================================
+(* --- README.md -------------------------------------------------- *)
 
 (*) Auxiliary declarations
 val e = {deptno = 10, name = "Fred"};
@@ -120,7 +120,7 @@ end;
 set("mode", "evaluate");
 > val it = () : unit
 
-(*) === Screen cast =================================================
+(* --- Screen cast ------------------------------------------------ *)
 
 (*) Now we're in morel's shell, for interactive commands.
 (*) First of all, we need to talk about comments.
@@ -316,7 +316,7 @@ end;
 (*) Follow our progress at https://github.com/hydromatic/morel.
 (*) This is only release 0.1, so there's more to come!
 
-(*) === 2020/02/25: Morel: A functional language for data ===========
+(* --- 2020/02/25: Morel: A functional language for data ---------- *)
 
 (*) Auxiliary declarations
 val hr = {
@@ -337,7 +337,7 @@ yield {e.id, e.deptno, ename = e.name, dname = d.name};
 > val it = [{deptno=10,dname="SALES",ename="SCOTT",id=100}]
 >   : {deptno:int, dname:string, ename:string, id:int} list
 
-(*) === 2020/03/03: Morel: The basic language =======================
+(* --- 2020/03/03: Morel: The basic language ---------------------- *)
 
 (* As a functional language, everything in Morel is an expression.
 The basic types are `bool`, `int`, `float`, `string` and `char`.  Here
@@ -587,7 +587,7 @@ in
 end;
 > val it = ["Shaggy","Scooby"] : string list
 
-(*) === 2020/03/03: Morel: The basic language =======================
+(* --- 2020/03/03: Morel: The basic language ---------------------- *)
 
 (*) WordCount in Standard ML
 fun mapReduce mapper reducer list =
@@ -694,7 +694,7 @@ from p in wordCount lines order p.word;
 >    {count=3,word="stump"},{count=2,word="stunk"},{count=3,word="the"},
 >    {count=2,word="thunk"}] : {count:int, word:string} list
 
-(*) === Aggregate functions =========================================
+(* --- Aggregate functions ---------------------------------------- *)
 
 val emps = scott.emps;
 > val emps = <relation>
@@ -763,7 +763,7 @@ from e in emps
 >    {deptno=30,names=["ALLEN","WARD","MARTIN","BLAKE","TURNER","JAMES"]}]
 >   : {deptno:int, names:string bag} list
 
-(*) === StrangeLoop 2021 talk =======================================
+(* --- StrangeLoop 2021 talk -------------------------------------- *)
 (*) Standard ML: values
 "Hello, world!";
 > val it = "Hello, world!" : string
@@ -1280,7 +1280,7 @@ from line in lines,
 >    {c=1,word="sat"},{c=2,word="skunk"},{c=3,word="stump"},{c=2,word="stunk"},
 >    {c=3,word="the"},{c=2,word="thunk"}] : {c:int, word:string} list
 
-(*) === More than Query =============================================
+(* --- More than Query -------------------------------------------- *)
 (* Talk "More than Query", at Data Council, 2025/04/23. *)
 Sys.set ("hybrid", false);
 > val it = () : unit
@@ -1658,7 +1658,7 @@ from b, c
 >   [{b=29,c=14,profit=17900},{b=30,c=13,profit=17850},{b=26,c=16,profit=17600}]
 >   : {b:int, c:int, profit:int} list
 
-(*) === GCD and LCM =================================================
+(* --- GCD and LCM ------------------------------------------------ *)
 (* "INTERSECT ALL, EXCEPT ALL, and the arithmetic of fractions",
    posted on 2025/06/03. *)
 fun factorize n =
@@ -1715,7 +1715,7 @@ lcm' (36, 120);
 gcd (36, 120);
 > val it = 12 : int
 
-(*) === Query.md ====================================================
+(* --- Query.md --------------------------------------------------- *)
 set("mode", "evaluate");
 > val it = () : unit
 Sys.set ("output", "tabular");
@@ -2383,7 +2383,7 @@ forall e in scott.emps
     andalso e.job elem ["CLERK", "MANAGER", "PRESIDENT"];
 > val it = false : bool
 
-(*) === Coda ========================================================
+(* --- Coda ------------------------------------------------------- *)
 from message in ["the end"];
 > val it = ["the end"] : string list
 

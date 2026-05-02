@@ -85,6 +85,43 @@ static STANDARD_DERIVE_TRAITS: &[&str] = &[
     "Default",
 ];
 
+/// Maximum line length in Markdown files.
+const MD_WIDTH: usize = 80;
+
+/// Maximum line length in Morel block-comment lines.
+const MOREL_WIDTH: usize = 70;
+
+/// Language a source file is written in.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[allow(dead_code, clippy::upper_case_acronyms)]
+enum Language {
+    JAVA,
+    MARKDOWN,
+    MOREL,
+    UNKNOWN,
+}
+
+/// Deduces the language of a file from its filename.
+fn language_of(filename: &str) -> Language {
+    if filename.ends_with(".java")
+        || filename.ends_with(".jj")
+        || filename.ends_with(".fmpp")
+        || filename.ends_with(".ftl")
+    {
+        return Language::JAVA;
+    }
+    if filename.ends_with(".sml")
+        || filename.ends_with(".smli")
+        || filename.ends_with(".sig")
+    {
+        return Language::MOREL;
+    }
+    if filename.ends_with(".md") {
+        return Language::MARKDOWN;
+    }
+    Language::UNKNOWN
+}
+
 /// Comment format information for different file types.
 struct CommentFormat {
     line_prefix: &'static str,
@@ -170,17 +207,24 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         let mut in_raw_string = false;
         let mut sort: Option<Sort> = None;
         let mut impl_lines: HashMap<String, usize> = HashMap::new();
+        let language = language_of(file_name);
+
         // For .smli files: track mode to detect redundant set("mode",...).
-        // The default mode is "evaluate", so setting evaluate first is
+        // The default mode is "evaluate", so setting "evaluate" first is
         // redundant; so is repeating either mode consecutively.
-        let is_smli = file_name.ends_with(".smli");
         let mut smli_mode: Option<&str> = None; // None = evaluate (default)
+
         // Track whether any real statement (line ending in ';') has appeared
         // since the previous set("mode",...). If not, both the previous and
         // the current set("mode",...) are redundant (no statements ran in the
         // intermediate mode).
         let mut last_set_mode_line: usize = 0; // 0 = none yet
         let mut had_stmt_since_set: bool = false;
+
+        // For .md files: track generated blocks delimited by
+        // `[//]: # (start:...)` / `[//]: # (end:...)`. Lines inside such
+        // a block are exempt from the line-length check.
+        let mut in_generated_block = false;
         contents
             .lines()
             .chain(iter::once("")) // add a blank line at the end
@@ -227,17 +271,35 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                 if l.contains("\"#") {
                     in_raw_string = false;
                 }
-                if l.contains("<pre>") {
+                if l.contains("<pre>")
+                    || l.contains("<pre ")
+                    || l.contains("<div class=\"code-")
+                {
                     in_pre = true;
                 }
-                if l.contains("</pre>") {
+                if l.contains("</pre>") || l.contains("</div>") {
                     in_pre = false;
+                }
+                if language == Language::MARKDOWN
+                    && l.starts_with("[//]: # (start:")
+                {
+                    in_generated_block = true;
+                }
+                if language == Language::MARKDOWN
+                    && l.starts_with("[//]: # (end:")
+                {
+                    in_generated_block = false;
                 }
                 if l.len() > file_type.max_line_length
                     && !l.contains("://")
+                    && !l.contains("src=\"")
+                    && !l.contains("href=\"")
                     && !l.starts_with("|") // markdown table
+                    && !l.starts_with("    ") // indented code
+                    && !is_md_table_separator(l)
                     && !in_raw_string
                     && !in_pre
+                    && !in_generated_block
                 {
                     // ignore URLs
                     warnings.push(format!(
@@ -303,7 +365,7 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                     }
                 }
                 // In .smli files, any set("mode",...) must be canonical.
-                if is_smli && set_mode_re.is_match(l) {
+                if language == Language::MOREL && set_mode_re.is_match(l) {
                     // Check for a pair of set("mode",...) with no statements
                     // between them: both are redundant because no statements
                     // ran in the intermediate mode.
@@ -346,9 +408,56 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                             file_name, line, l
                         ));
                     }
-                } else if is_smli && l.ends_with(';') && !l.starts_with('>') {
+                } else if language == Language::MOREL
+                    && l.ends_with(';')
+                    && !l.starts_with('>')
+                {
                     // A real statement (not a set("mode",...) or output line).
                     had_stmt_since_set = true;
+                }
+
+                // A "decorative" line uses a banner of repeating characters
+                // (`---`, `===`, or `***`) to separate sections in source.
+                if language == Language::MOREL && l.starts_with("(*") {
+                    // `(*) ... ===` / `(*) ... ***`: line-comment style
+                    // banners should be the block-comment form
+                    // `(* --- ... --- *)` instead.
+                    if l.starts_with("(*)")
+                        && (l.contains("===") || l.contains("***"))
+                    {
+                        warnings.push(format!(
+                            "{}:{}: decorative comment should be \
+                             '(* --- ... --- *)'",
+                            file_name, line
+                        ));
+                    }
+                    // Block-comment banners that use `===` or `***`
+                    // should use `---` instead.
+                    if (l.contains("===") || l.contains("***"))
+                        && !l.starts_with("(*)")
+                    {
+                        let bad = if l.contains("***") { "***" } else { "===" };
+                        warnings.push(format!(
+                            "{}:{}: decorative comment; use '---' not '{}'",
+                            file_name, line, bad
+                        ));
+                    }
+                    // Single-line decorative `(* --- ... --- *)`
+                    // headers (and multi-line openers ending in `--`)
+                    // must be exactly `MOREL_WIDTH` (70) characters.
+                    if (l.ends_with("*)") || l.ends_with("--"))
+                        && l.contains("---")
+                        && !l.starts_with("(*)")
+                        && l.len() != MOREL_WIDTH
+                    {
+                        warnings.push(format!(
+                            "{}:{}: decorative comment length {} != {}",
+                            file_name,
+                            line,
+                            l.len(),
+                            MOREL_WIDTH
+                        ));
+                    }
                 }
                 // Check for alphabetically sorted derive macros
                 if let Some(caps) = derive_regex.captures(l) {
@@ -448,6 +557,13 @@ impl Sort {
     }
 }
 
+/// Returns true if the line is a Markdown table separator row (e.g.
+/// `|---|---|` or `:---|---:`). Such rows can be wider than `MD_WIDTH`
+/// without being a violation.
+fn is_md_table_separator(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c == '-' || c == '|' || c == ':')
+}
+
 /// Converts a string to a regular expression.
 ///
 /// If "##" occurs in the string, it is replaced with a string that matches the
@@ -516,7 +632,7 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
         "<!--\n{% comment %}\n",
         "",
         "\n{% endcomment %}\n-->",
-        80,
+        MD_WIDTH,
     ),
     "pest" => CommentFormat::new("", "// ", "", usize::MAX),
     "rs" => CommentFormat::new("", "// ", "", 80),

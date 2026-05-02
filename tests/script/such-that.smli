@@ -23,7 +23,7 @@
 set("mode", "validate");
 > val it = () : unit
 
-(* ------------------------------------------------------ *)
+(*----------------------------------------------------------------- *)
 (* Convert predicates into ranges. *)
 from i where i > 0 andalso i < 10;
 > val it = [1,2,3,4,5,6,7,8,9] : int bag
@@ -67,7 +67,7 @@ where j > 4 andalso j < 7
 >    {i=2,j=5,k=9,m=14},{i=2,j=5,k=10,m=13},{i=2,j=5,k=10,m=14},...]
 >   : {i:int, j:int, k:int, m:int} bag
 
-(* ------------------------------------------------------ *)
+(*----------------------------------------------------------------- *)
 (* Unbounded variables with `take` and other clauses. *)
 
 (* Odd and even numbers that are not a multiple of 6. *)
@@ -348,7 +348,7 @@ from i where isBetween (i, 5, 8);
 set("mode", "evaluate");
 > val it = () : unit
 
-(* ------------------------------------------------------ *)
+(*----------------------------------------------------------------- *)
 (* Convenience function that converts a predicate to a
  * relation. *)
 (*
@@ -363,7 +363,7 @@ val enumerate = fn : ('a -> bool) -> 'a list
 enumerate isEmp;
 *)
 
-(* ------------------------------------------------------ *)
+(*----------------------------------------------------------------- *)
 (* The following example from Souffle,
  * https://souffle-lang.github.io/simple.
  *
@@ -474,7 +474,7 @@ from x, y
   group x, y;
 *)
 
-(* ------------------------------------------------------ *)
+(*----------------------------------------------------------------- *)
 (* Joe's bar.
  * See http://infolab.stanford.edu/~ullman/fcdb/aut07/slides/dlog.pdf.
  *)
@@ -730,8 +730,8 @@ enumerate cousin2;
 set("mode", "evaluate");
 > val it = () : unit
 
-(* ------------------------------------------------------ *)
-(* Coloring Australia using three colors.
+(* -------------------------------------------------------------------
+ * Coloring Australia using three colors.
  * (From "Basic Modelling in MiniZinc".)
  *
  * Australia has six federated states (New South Wales, Queensland,
@@ -779,7 +779,7 @@ where q = RED
 >    {nsw=RED,nt=GREEN,q=RED,sa=BLUE,t=GREEN,v=GREEN,wa=RED}]
 >   : {nsw:Color, nt:Color, q:Color, sa:Color, t:Color, v:Color, wa:Color} bag
 
-(* ------------------------------------------------------ *)
+(*----------------------------------------------------------------- *)
 (* Arithmetic optimization.
  * (From "Basic Modelling in MiniZinc".)
  *
