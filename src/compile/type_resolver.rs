@@ -3541,7 +3541,6 @@ impl TypeResolver {
         struct ActionImpl {
             field_name: String,
             v_field: Var,
-            op_defs: Rc<Vec<OpDef>>,
             errors: Rc<RefCell<Vec<(String, Span)>>>,
             span: Span,
             found: RefCell<bool>,
@@ -3552,15 +3551,25 @@ impl TypeResolver {
                 _variable: &Var,
                 term: &Term,
                 substitution: &Substitution,
+                op_defs: &[OpDef],
                 term_pairs: &mut Vec<(Term, Term)>,
             ) {
                 // This function is called when we know the record type (v_rec).
                 // So now we can deduce the type of the field (v_field).
                 // If, say, v_rec is "{a: int, b: real}" and field_name = "b"
                 // (selector is "#b") we can deduce that v_field is "real".
+                //
+                // Use the unifier's CURRENT `op_defs` (passed in by the
+                // unifier when the action fires), not a snapshot taken at
+                // action-creation time. Otherwise, ops registered between
+                // creation and fire are absent from the snapshot — and
+                // because `Unifier::define_op` calls `Rc::make_mut` on its
+                // `Rc<Vec<OpDef>>`, the snapshot is silently split off,
+                // so the action would index into a stale vec and panic
+                // with "index out of bounds".
                 if let Term::Sequence(sequence) = term {
                     if let Some(field_list) =
-                        TypeResolver::field_list(&self.op_defs, sequence)
+                        TypeResolver::field_list(op_defs, sequence)
                     {
                         if let Some(i) = field_list
                             .iter()
@@ -3583,7 +3592,7 @@ impl TypeResolver {
                                     "no field '{}' in type '{}'",
                                     self.field_name,
                                     TypeResolver::type_name(
-                                        &self.op_defs,
+                                        op_defs,
                                         sequence,
                                         &field_list,
                                     )
@@ -3600,7 +3609,6 @@ impl TypeResolver {
             Rc::new(ActionImpl {
                 field_name: field_name.to_string(),
                 v_field: *v_field,
-                op_defs: self.unifier.op_defs.clone(),
                 errors: self.field_errors.clone(),
                 span: span.clone(),
                 found: RefCell::new(false),
@@ -3967,6 +3975,7 @@ impl TypeResolver {
                 _variable: &Var,
                 term: &Term,
                 substitution: &Substitution,
+                _op_defs: &[OpDef],
                 term_pairs: &mut Vec<(Term, Term)>,
             ) {
                 if let Term::Sequence(seq) = term
@@ -4080,6 +4089,7 @@ impl TypeResolver {
                 _variable: &Var,
                 term: &Term,
                 substitution: &Substitution,
+                _op_defs: &[OpDef],
                 term_pairs: &mut Vec<(Term, Term)>,
             ) {
                 if let Term::Sequence(seq) = term
@@ -4121,6 +4131,7 @@ impl TypeResolver {
                 _variable: &Var,
                 term: &Term,
                 substitution: &Substitution,
+                _op_defs: &[OpDef],
                 term_pairs: &mut Vec<(Term, Term)>,
             ) {
                 if let Term::Sequence(seq) = term
@@ -4179,6 +4190,7 @@ impl TypeResolver {
                 _variable: &Var,
                 term: &Term,
                 substitution: &Substitution,
+                _op_defs: &[OpDef],
                 term_pairs: &mut Vec<(Term, Term)>,
             ) {
                 if let Term::Sequence(seq) = term
@@ -4804,6 +4816,7 @@ impl TypeResolver {
                             _variable: &Var,
                             term: &Term,
                             substitution: &Substitution,
+                            _op_defs: &[OpDef],
                             term_pairs: &mut Vec<(Term, Term)>,
                         ) {
                             if let Term::Sequence(seq) = term

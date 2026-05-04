@@ -1033,6 +1033,16 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Relational", name = "empty", global = true))]
     #[strum(props(type = "forall 1 'a bag -> bool"))]
     RelationalEmpty,
+    #[strum(props(p = "Relational", name = "iterate", global = true))]
+    // Overloaded between `'a bag -> ...` and `'a list -> ...`. Both
+    // collection kinds are represented as `Val::List` at runtime;
+    // morel-rust's type parser doesn't yet accept `|`-alternations
+    // in a builtin signature, so we register the polymorphic
+    // `'a -> ('a * 'a -> 'a) -> 'a` and rely on the type unifier
+    // (constrained by the call site's collection) to fix `'a` to
+    // `'b bag` or `'b list`.
+    #[strum(props(type = "forall 1 'a -> ('a * 'a -> 'a) -> 'a"))]
+    RelationalIterate,
     #[strum(props(p = "Relational", name = "max", global = true))]
     #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
     RelationalMax,

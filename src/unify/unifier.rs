@@ -1394,7 +1394,13 @@ impl Unifier {
     ) {
         if let Some(action) = term_actions.get(variable) {
             let mut to_add = Vec::new();
-            action.accept(variable, term, substitution, &mut to_add);
+            action.accept(
+                variable,
+                term,
+                substitution,
+                &self.op_defs,
+                &mut to_add,
+            );
             to_add
                 .iter()
                 .for_each(|(t1, t2)| work.add(t1.clone(), t2.clone()))
@@ -1461,6 +1467,7 @@ pub trait Action {
         variable: &Var,
         term: &Term,
         substitution: &Substitution,
+        op_defs: &[OpDef],
         term_pairs: &mut Vec<(Term, Term)>,
     );
 }

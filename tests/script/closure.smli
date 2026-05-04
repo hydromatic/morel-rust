@@ -215,4 +215,48 @@ in
 end;
 > val it = 60 : int
 
+(*) Closure body references a let-bound non-fn capture, called from a
+(*) higher-order built-in. The compiler stashes let-bound names in the
+(*) env as `Val::Code(expr_code)` so that `fun` declarations can be
+(*) inlined at use sites. A previous bug propagated that wrapper through
+(*) `Expr::Identifier` lowering, leaving the body to receive
+(*) `Val::Code(Code::Tuple(...))` (the unevaluated literal) instead of
+(*) the evaluated value. Any consumer that called `expect_list`/`expect_tuple`
+(*) /`expect_record` then panicked. Cover one case for each shape.
+
+(*) Tuple capture.
+let val t = (10, 20) in List.map (fn _ => #1 t + #2 t) [0] end;
+> val it = [30] : int list
+
+(*) Record capture.
+let val r = {a = 1, b = 2} in List.map (fn _ => #a r + #b r) [0] end;
+> val it = [3] : int list
+
+(*) List capture.
+let val xs = [1, 2, 3] in List.map (fn _ => xs @ xs) [0] end;
+> val it = [[1,2,3,1,2,3]] : int list list
+
+(*) Three-binding chain where a deeper closure captures a let-binding
+(*) whose own compiled code references yet another let-binding.
+(*) Previously the env-shortcut path stashed `ancestor` as
+(*) `Val::Code(<iterate code>)`. The iterate code contained a
+(*) `GetLocal(outer_let_frame, parent_slot)` reference. When the
+(*) descendant closure body re-evaluated the substituted code, the
+(*) runtime frame was the closure's own — the GetLocal panicked with
+(*) "bad frame in GetLocal" because parent's slot didn't match.
+let
+  val parent = [(1, 2), (2, 3)]
+  val ancestor =
+    Relational.iterate parent
+      (fn (a, n) =>
+        from (x, y) in n, (v, z) in parent where y = v yield (x, z))
+  val descendant =
+    Relational.iterate []
+      (fn (_, _) => from (d, p) in ancestor yield (p, d))
+in
+  (ancestor, descendant)
+end;
+> val it = ([(1,2),(2,3),(1,3)],[(2,1),(3,2),(3,1)])
+>   : (int * int) list * (int * int) list
+
 (*) End closure.smli

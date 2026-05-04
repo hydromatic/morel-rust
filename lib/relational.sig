@@ -48,6 +48,13 @@ sig
    * d in depts where empty (from e where e.deptno = d.deptno)`. *)
   val empty : 'a list -> bool
 
+  (* "iterate initialList listUpdate" computes a fixed point, starting
+   * with `initialList` and calling `listUpdate (prevList, newList)`
+   * each iteration, terminating the iteration when `newList` is
+   * empty (after subtracting the elements seen on prior
+   * iterations). *)
+  val iterate : 'a bag -> ('a bag * 'a bag -> 'a bag) -> 'a bag
+
   (* "max list" returns the greatest element of list. Often used with
    * `group`, for example `from e in emps group e.deptno compute maxId
    * = max over e.id`. *)

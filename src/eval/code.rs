@@ -3504,6 +3504,7 @@ pub enum EagerF2 {
     OptionMap,
     OptionMapPartial,
     RealCompare,
+    RelationalIterate,
     StringCollate,
     StringConcatWith,
     StringFields,
@@ -3747,6 +3748,35 @@ impl EagerF2 {
             OptionMapPartial => Opt::map_partial(r, f, &a0, &a1),
             RealCompare => {
                 Real::compare(a0.expect_real(), a1.expect_real(), span.unwrap())
+            }
+            // Relational.iterate initial update
+            //
+            // Computes a fixed point. Calls `update (allList, newList)` on
+            // each iteration. Subtracts already-seen elements (semi-naive
+            // evaluation) so cyclic graphs terminate. Stops when no
+            // genuinely new elements appear.
+            RelationalIterate => {
+                let mut list: Vec<Val> = a0.expect_list().to_vec();
+                let mut new_list: Vec<Val> = list.clone();
+                loop {
+                    let pair = Val::List(vec![
+                        Val::List(list.clone()),
+                        Val::List(new_list.clone()),
+                    ]);
+                    let next = a1.apply_f1(r, f, &pair)?;
+                    let next_vec = next.expect_list().to_vec();
+                    let mut genuinely_new: Vec<Val> = Vec::new();
+                    for v in next_vec {
+                        if !list.contains(&v) && !genuinely_new.contains(&v) {
+                            genuinely_new.push(v);
+                        }
+                    }
+                    if genuinely_new.is_empty() {
+                        return Ok(Val::List(list));
+                    }
+                    list.extend(genuinely_new.iter().cloned());
+                    new_list = genuinely_new;
+                }
             }
             StringCollate => {
                 let tuple = a1.expect_list();
@@ -4531,6 +4561,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager2::RelationalCompare.implements(&mut b, RelationalCompare);
     Eager1::RelationalCount.implements(&mut b, RelationalCount);
     Eager1::RelationalEmpty.implements(&mut b, RelationalEmpty);
+    EagerF2::RelationalIterate.implements(&mut b, RelationalIterate);
     EagerF1::RelationalMax.implements(&mut b, RelationalMax);
     EagerF1::RelationalMin.implements(&mut b, RelationalMin);
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);

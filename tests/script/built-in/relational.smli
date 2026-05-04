@@ -26,10 +26,11 @@ Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
 Relational;
-> val it = {compare=fn,count=fn,empty=fn,max=fn,min=fn,nonEmpty=fn,sum=fn}
+> val it =
+>   {compare=fn,count=fn,empty=fn,iterate=fn,max=fn,min=fn,nonEmpty=fn,sum=fn}
 >   : {compare:'a * 'a -> order, count:'b bag -> int, empty:'c bag -> bool,
->      max:'d bag -> 'd, min:'e bag -> 'e, nonEmpty:'f bag -> bool,
->      sum:int bag -> int}
+>      iterate:'d -> ('d * 'd -> 'd) -> 'd, max:'e bag -> 'e, min:'f bag -> 'f,
+>      nonEmpty:'g bag -> bool, sum:int bag -> int}
 
 (* Descending:
      datatype descending = DESC of 'a
@@ -95,8 +96,6 @@ val emps = [
 >    {empno=7900,ename="JAMES",mgr=7698},{empno=7934,ename="MILLER",mgr=7782},
 >    {empno=7876,ename="ADAMS",mgr=7788},{empno=7369,ename="SMITH",mgr=7902}]
 >   : {empno:int, ename:string, mgr:int} list
-set("mode", "validate");
-> val it = () : unit
 Relational.iterate
   (from e in emps where e.mgr = 0)
   fn (oldList, newList) =>
@@ -113,6 +112,8 @@ Relational.iterate
 >    {empno=7900,ename="JAMES",mgr=7698},{empno=7934,ename="MILLER",mgr=7782},
 >    {empno=7876,ename="ADAMS",mgr=7788},{empno=7369,ename="SMITH",mgr=7902}]
 >   : {empno:int, ename:string, mgr:int} list
+set("mode", "validate");
+> val it = () : unit
 Sys.plan ();
 > val it =
 >   "apply2(fnValue Relational.iterate, from(sink join(pat e_1, exp constant([[7839, KING, 0], [7566, JONES, 7839], [7698, BLAKE, 7839], [7782, CLARK, 7839], [7788, SCOTT, 7566], [7902, FORD, 7566], [7499, ALLEN, 7698], [7521, WARD, 7698], [7654, MARTIN, 7698], [7844, TURNER, 7698], [7900, JAMES, 7698], [7934, MILLER, 7782], [7876, ADAMS, 7788], [7369, SMITH, 7902]]), sink where(condition apply2(fnValue =, apply(fnValue nth:2, argCode get(name e)), constant(0)), sink collect(get(name e))))), match(v, apply(fnCode match((oldList, newList), from(sink join(pat d, exp get(name newList), sink join(pat e, exp constant([[7839, KING, 0], [7566, JONES, 7839], [7698, BLAKE, 7839], [7782, CLARK, 7839], [7788, SCOTT, 7566], [7902, FORD, 7566], [7499, ALLEN, 7698], [7521, WARD, 7698], [7654, MARTIN, 7698], [7844, TURNER, 7698], [7900, JAMES, 7698], [7934, MILLER, 7782], [7876, ADAMS, 7788], [7369, SMITH, 7902]]), sink where(condition apply2(fnValue =, apply(fnValue nth:2, argCode get(name e)), apply(fnValue nth:0, argCode get(name d))), sink collect(get(name e))))))), argCode get(name v))))"

@@ -337,17 +337,25 @@ impl<'a> Compiler<'a> {
                     ));
                 }
 
-                // Special treatment for 'val id =' so that 'fun' declarations
-                // can be inlined. Skipped for inner-let `Decl::RecVal` so
-                // that `VarCollector::bound_vars` does not see the recursive
-                // name as `Val::Code` in the env (which would filter it out
-                // of capture lists). Without the env filter, deeper closures
-                // capture the recursive fn lexically through the let-binder's
-                // frame slot, which is the only correct path for closure-
-                // bound recursive fns whose body captures variables from
-                // the enclosing function.
-                let skip_inline_binding =
-                    !is_top_level && matches!(decl, Decl::RecVal(_));
+                // Special treatment for top-level `val id =` so that
+                // `fun` declarations can be inlined. The shortcut is
+                // safe at top level because the Val::Code is a
+                // `Code::Link(slot)` resolved via the shell-wide
+                // LinkTable; the link frame is independent of any
+                // enclosing-let frame layout.
+                //
+                // Skipped for inner-let bindings entirely. An
+                // inner-let `val foo = expr` whose `expr_code`
+                // contains `Code::GetLocal(outer_let_frame, slot)`
+                // references the OUTER let's frame layout. If the env
+                // shortcut substituted that code into a deeper
+                // closure body, the GetLocal would resolve against
+                // the closure's frame instead and panic with "bad
+                // frame in GetLocal". Inner-let bindings are looked
+                // up via the normal capture-into-bound_vars path —
+                // VarCollector sees the bare name and the closure
+                // captures it through a frame slot.
+                let skip_inline_binding = !is_top_level;
                 if let Pat::Identifier(_, name) = pat
                     && !skip_inline_binding
                 {
@@ -1391,7 +1399,21 @@ impl<'a> Compiler<'a> {
                 if let Some(slot) = cx.frame_def.try_var_index(name) {
                     Code::new_get_local(&cx.frame_def, slot)
                 } else if let Some(val) = cx.env.get(name) {
-                    Code::new_constant(type_, val.clone())
+                    // For let-bound names whose value is a `Val::Code(c)`
+                    // wrapper (set by `compile_val_decl` so that `fun`
+                    // bodies can be inlined into Apply positions), emit
+                    // the underlying code directly instead of wrapping
+                    // it in a `Code::Constant`. The constant form
+                    // evaluates to the wrapper itself, which the apply
+                    // path unwraps but list/tuple/elem consumers do
+                    // not — so identifier references to a let-bound
+                    // list literal would surface as `Val::Code(Tuple)`
+                    // and panic when consumed as a list.
+                    if let Val::Code(c) = val {
+                        (**c).clone()
+                    } else {
+                        Code::new_constant(type_, val.clone())
+                    }
                 } else if let Some(rec) = name_to_rec(name) {
                     let (_, val) = code::LIBRARY
                         .structure_map
