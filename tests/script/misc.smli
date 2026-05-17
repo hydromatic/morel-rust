@@ -18,6 +18,7 @@
  *
  * Miscellaneous stuff - often test cases for bugs
  *)
+
 (* -------------------------------------------------------------------
  * [MOREL-251] Add function `Sys.clearEnv ()`
  *
@@ -83,7 +84,6 @@ Sys.set ("output", "bad");
 (*) After you unset a property with a default value, it reverts to the default.
 Sys.unset "output";
 > val it = () : unit
-
 Sys.show "output";
 > val it = SOME "CLASSIC" : string option
 
@@ -197,6 +197,18 @@ set("mode", "evaluate");
 > val it = [1,2,3,4] : int list
 (op @) ([1,2],[3,4]);
 > val it = [1,2,3,4] : int list
+
+(* Error messages ----------------------------------------------------
+ * Unbound-variable errors include the source position.
+ * Single-character identifiers produce a single-column position;
+ * longer identifiers produce a column range.
+ *)
+val x = z;
+> stdIn:1.9 Error: unbound variable or constructor: z
+>   raised at: stdIn:1.9
+val x = abc;
+> stdIn:1.9-1.12 Error: unbound variable or constructor: abc
+>   raised at: stdIn:1.9-1.12
 
 (*) Nested block comments ([MOREL-306])
 (* outer (* inner *) still outer *) 1 + 2;

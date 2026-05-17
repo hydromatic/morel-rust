@@ -37,13 +37,35 @@ pub fn try_string_to_type(code: &str) -> Result<Box<Type>, String> {
     type_builder.ast_to_type_scheme(&type_scheme)
 }
 
+/// Like [`try_string_to_type`] but treats unbound type variables
+/// as fresh polymorphic placeholders instead of erroring. Intended
+/// for the test-output matcher, which sees printed types like
+/// `('a, bool * int) either bag` whose `'a` has no enclosing
+/// `forall` quantifier — `try_string_to_type` would reject such
+/// inputs.
+pub fn try_string_to_type_permissive(code: &str) -> Result<Box<Type>, String> {
+    let type_scheme = parser::parse_type_scheme(code)
+        .map_err(|e| format!("parse error: {}", e))?;
+    let mut type_builder = TypeBuilder::new();
+    type_builder.allow_free_vars = true;
+    type_builder.ast_to_type_scheme(&type_scheme)
+}
+
 struct TypeBuilder {
     ty_vars: Vec<TypeVariable>,
+    /// If true, encountering a `Var` whose name isn't bound by any
+    /// enclosing `forall` allocates a fresh `TypeVariable` instead
+    /// of returning an error. The test-output matcher sets this so
+    /// it can compare printed output-line types verbatim.
+    allow_free_vars: bool,
 }
 
 impl TypeBuilder {
     fn new() -> Self {
-        TypeBuilder { ty_vars: vec![] }
+        TypeBuilder {
+            ty_vars: vec![],
+            allow_free_vars: false,
+        }
     }
 
     fn ast_to_type_scheme(
@@ -72,21 +94,35 @@ impl TypeBuilder {
                     .collect::<Result<_, _>>()?;
                 let base = self.ast_to_type(base_type)?;
 
-                // Check if this is a list type application
+                // Check if this is a list type application.
+                // Permissive mode (used by the test-output matcher)
+                // prefers the *flattened* arg count so multi-arg
+                // type-apps like `('a, 'b) either` become
+                // `Data(either, [Var, Var])` and the matcher's
+                // per-constructor arg-type lookup works. Strict
+                // mode (the builtin-function type table) keeps the
+                // syntactic check for backwards compatibility —
+                // downstream code there still expects multi-arg
+                // type-apps to surface as `Named`.
+                let arity = if self.allow_free_vars {
+                    arg_types.len()
+                } else {
+                    args.len()
+                };
                 if let TypeKind::Id(name) = &base_type.kind {
-                    if name == "list" && args.len() == 1 {
+                    if name == "list" && arity == 1 {
                         let arg =
                             arg_types.into_iter().next().ok_or_else(|| {
                                 "list type application with no arg".to_string()
                             })?;
                         Type::List(Box::new(arg))
-                    } else if name == "option" && args.len() == 1
-                        || name == "either" && args.len() == 2
-                        || name == "descending" && args.len() == 1
-                        || name == "order" && args.is_empty()
-                        || name == "range" && args.len() == 1
-                        || name == "continuous_set" && args.len() == 1
-                        || name == "discrete_set" && args.len() == 1
+                    } else if name == "option" && arity == 1
+                        || name == "either" && arity == 2
+                        || name == "descending" && arity == 1
+                        || name == "order" && arity == 0
+                        || name == "range" && arity == 1
+                        || name == "continuous_set" && arity == 1
+                        || name == "discrete_set" && arity == 1
                         || name == "variant" && args.is_empty()
                         || name == "time" && args.is_empty()
                         || name == "date" && args.is_empty()
@@ -144,6 +180,11 @@ impl TypeBuilder {
                 // variable with the same name before.
                 match self.ty_vars.iter().position(|v| &v.name() == name) {
                     Some(index) => Type::Variable(self.ty_vars[index].clone()),
+                    None if self.allow_free_vars => {
+                        let i = self.ty_vars.len();
+                        self.ty_vars.push(TypeVariable::new(i));
+                        Type::Variable(self.ty_vars[i].clone())
+                    }
                     None => {
                         return Err(format!("Unknown type variable {}", name));
                     }

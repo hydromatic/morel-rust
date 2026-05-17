@@ -454,6 +454,12 @@ end;
 from b in [SOME true, NONE];
 > val it = [SOME true,NONE] : bool option list
 
+(*) List of polymorphic type.
+[INR(true,1)];
+> val it = [INR (true,1)] : ('a,bool * int) either list
+[INR(true,1),INL "x"];
+> val it = [INR (true,1),INL "x"] : (string,bool * int) either list
+
 (*) If a function type is spread over several lines, put '->' at the start of
 (*) the next line.
 val f : ('a -> (int * int) list) -> ('a -> (int * int) list) -> 'a -> (int * int) list = fn a => fn b => fn c => [];

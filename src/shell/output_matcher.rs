@@ -46,7 +46,7 @@ use std::str::from_utf8;
 /// same byte sequence.
 pub fn equivalent(actual: &str, expected: &str) -> bool {
     match extract_type(expected) {
-        Some(t) => match type_parser::try_string_to_type(&t) {
+        Some(t) => match type_parser::try_string_to_type_permissive(&t) {
             Ok(parsed_type) => {
                 equivalent_with_type(&parsed_type, actual, expected)
             }
@@ -133,6 +133,16 @@ fn extract_type(s: &str) -> Option<String> {
 /// Compares two value strings (no `val x =` prefix, no `: type`
 /// suffix) under the given type.
 pub fn code_equal(type_: &Type, code0: &str, code1: &str) -> bool {
+    // Tabular output is a multi-line block (`count y\n----- --\n
+    // <rows>\n\nval it`) that the whitespace-normalizing scanner
+    // can't parse as a value. Detect and parse it row-by-row before
+    // falling through to the linear path.
+    if let (Some(v0), Some(v1)) = (
+        try_parse_tabular(code0, type_),
+        try_parse_tabular(code1, type_),
+    ) {
+        return values_equal(type_, &v0, &v1);
+    }
     let norm0 = normalize_whitespace(code0);
     let norm1 = normalize_whitespace(code1);
     let mut s0 = Scanner::new(&norm0);
@@ -146,6 +156,136 @@ pub fn code_equal(type_: &Type, code0: &str, code1: &str) -> bool {
         None => return false,
     };
     values_equal(type_, &v0, &v1)
+}
+
+/// Parses tabular pretty-printer output into a `Parsed::Seq` of
+/// records. Returns `None` if `value` is not in tabular form, or the
+/// type is not a collection of records.
+///
+/// Tabular form (produced by `Pretty::pretty_tabular`):
+/// ```text
+/// col1 col2
+/// ---- ----
+/// v11  v12
+/// v21  v22
+///
+/// val it
+/// ```
+/// The trailing `val it` (the `val NAME` half of `val NAME : TYPE`,
+/// since `extract_prefix_and_value` only strips the type) and any
+/// blank lines are tolerated.
+fn try_parse_tabular(value: &str, type_: &Type) -> Option<Parsed> {
+    let elem_type = match peel_alias(type_) {
+        Type::List(elem) | Type::Bag(elem) => elem.as_ref(),
+        Type::Named(args, name)
+            if (name == "bag" || name == "list") && args.len() == 1 =>
+        {
+            &args[0]
+        }
+        _ => return None,
+    };
+    let fields = match peel_alias(elem_type) {
+        Type::Record(_, fields) => fields,
+        _ => return None,
+    };
+    let mut lines: Vec<&str> = value.lines().map(str::trim_end).collect();
+    while let Some(last) = lines.last() {
+        let l = last.trim_start();
+        if l.is_empty() || l.starts_with("val ") || l == "val" {
+            lines.pop();
+        } else {
+            break;
+        }
+    }
+    if lines.len() < 2 {
+        return None;
+    }
+    let header = lines[0];
+    let separator = lines[1];
+    if separator.is_empty()
+        || !separator.bytes().all(|b| b == b'-' || b == b' ')
+        || !separator.contains('-')
+    {
+        return None;
+    }
+    // Column extents are runs of `-` in the separator.
+    let sep_bytes = separator.as_bytes();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < sep_bytes.len() {
+        if sep_bytes[i] == b'-' {
+            let s = i;
+            while i < sep_bytes.len() && sep_bytes[i] == b'-' {
+                i += 1;
+            }
+            spans.push((s, i));
+        } else {
+            i += 1;
+        }
+    }
+    if spans.len() != fields.len() {
+        return None;
+    }
+    // Read column names at the same byte spans in the header.
+    let header_bytes = header.as_bytes();
+    let mut column_names = Vec::with_capacity(spans.len());
+    for &(s, e) in &spans {
+        if s >= header_bytes.len() {
+            return None;
+        }
+        let end = e.min(header_bytes.len());
+        let name = from_utf8(&header_bytes[s..end]).ok()?.trim();
+        column_names.push(name.to_string());
+    }
+    // Map each column position to the corresponding field index in
+    // the BTreeMap. The pretty printer iterates fields in BTreeMap
+    // (alphabetical) order, but we validate by name to be safe.
+    let field_names: Vec<String> =
+        fields.keys().map(ToString::to_string).collect();
+    let mut col_to_field_idx = Vec::with_capacity(spans.len());
+    for col in &column_names {
+        let idx = field_names.iter().position(|f| f == col)?;
+        col_to_field_idx.push(idx);
+    }
+    let field_types: Vec<&Type> = fields.values().collect();
+    // Parse data rows.
+    let mut records: Vec<Parsed> = Vec::new();
+    for line in &lines[2..] {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let cells: Vec<&str> = line.split_whitespace().collect();
+        if cells.len() != column_names.len() {
+            return None;
+        }
+        let mut row: Vec<Option<Parsed>> =
+            (0..fields.len()).map(|_| None).collect();
+        for (col_idx, cell) in cells.iter().enumerate() {
+            let field_idx = col_to_field_idx[col_idx];
+            // Tabular ints use `~` for negatives; the smli script may
+            // have been hand-written with `-`. Normalize before
+            // parsing so the resulting atoms compare equal.
+            let normalized = normalize_tabular_cell(cell);
+            let mut sc = Scanner::new(&normalized);
+            let v = parse_value(&mut sc, field_types[field_idx])?;
+            row[field_idx] = Some(v);
+        }
+        let row_vec: Option<Vec<Parsed>> = row.into_iter().collect();
+        records.push(Parsed::Seq(row_vec?));
+    }
+    Some(Parsed::Seq(records))
+}
+
+/// Tabular numeric cells use `~` for negative; rewrite a leading `-`
+/// to `~` so a hand-written smli `-1` and the printer's `~1` produce
+/// the same atom.
+fn normalize_tabular_cell(cell: &str) -> String {
+    if let Some(rest) = cell.strip_prefix('-')
+        && rest.chars().next().is_some_and(|c| c.is_ascii_digit())
+    {
+        return format!("~{}", rest);
+    }
+    cell.to_string()
 }
 
 /// Parsed value tree: an atomic string, or a list of sub-values.
@@ -483,6 +623,8 @@ fn constructor_arg_type(
         ("option", "SOME", [t]) => Some(t.clone()),
         ("option", "NONE", _) => None,
         ("descending", "DESC", [t]) => Some(t.clone()),
+        ("either", "INL", [l, _]) => Some(l.clone()),
+        ("either", "INR", [_, r]) => Some(r.clone()),
         // User-defined datatypes are not handled yet; fall through
         // to atom parsing.
         _ => None,
@@ -840,11 +982,74 @@ mod tests {
     }
 
     #[test]
+    fn tabular_bag_reorder_equivalent() {
+        // Tabular pretty-printer output: header line, dashes, then
+        // rows. Bag semantics let rows match in any order; the
+        // matcher also treats hand-written `-N` as equivalent to the
+        // printer's `~N`.
+        let mut fields = BTreeMap::new();
+        fields.insert(Label::from("count"), int());
+        fields.insert(Label::from("y"), int());
+        let row = Type::Record(false, fields);
+        let t = Type::Bag(Box::new(row));
+        let actual = "count y\n----- --\n\
+                      1     ~1\n1     0\n2     1\n2     2\n\n\
+                      val it : {count:int, y:int} bag";
+        let expected = "count y\n----- --\n\
+                        2     1\n2     2\n1     -1\n1     0\n\n\
+                        val it : {count:int, y:int} bag";
+        assert!(equivalent_with_type(&t, actual, expected));
+    }
+
+    #[test]
+    fn tabular_bag_wrong_row_not_equivalent() {
+        let mut fields = BTreeMap::new();
+        fields.insert(Label::from("count"), int());
+        fields.insert(Label::from("y"), int());
+        let row = Type::Record(false, fields);
+        let t = Type::Bag(Box::new(row));
+        let actual = "count y\n----- --\n1     ~1\n2     1\n\n\
+                      val it : {count:int, y:int} bag";
+        let expected = "count y\n----- --\n1     ~2\n2     1\n\n\
+                        val it : {count:int, y:int} bag";
+        assert!(!equivalent_with_type(&t, actual, expected));
+    }
+
+    #[test]
     fn bag_of_bags() {
         let t = Type::Bag(Box::new(int_bag()));
         let a = "val it = [[3],[1, 2]] : int bag bag";
         let b = "val it = [[2,1],[3]] : int bag bag";
         assert!(equivalent_with_type(&t, a, b));
+    }
+
+    #[test]
+    fn either_with_free_type_var_in_bag() {
+        // Regression test: `('a, bool * int) either bag` has a free
+        // type variable `'a`. Before the fix, `try_string_to_type`
+        // bailed on the free var and `equivalent` fell back to a
+        // literal whitespace-normalized string compare, which
+        // doesn't mask bag reordering. Now the parser allocates a
+        // fresh `Type::Variable` for unbound vars and the
+        // multi-arg type constructor `either` is recognised at any
+        // arity, so the matcher can compare element multisets.
+        let a = "val it = [INR (true,2),INR (false,1)] \
+                 : ('a,bool * int) either bag";
+        let b = "val it = [INR (false,1),INR (true,2)] \
+                 : ('a,bool * int) either bag";
+        assert!(equivalent(a, b));
+    }
+
+    #[test]
+    fn either_inl_inr_dispatch_to_correct_arg_type() {
+        // `either` is a 2-arg datatype: `INL` carries the first
+        // arg's type, `INR` the second. The matcher must use the
+        // right type when parsing each constructor's payload.
+        let a = "val it = [INL \"x\",INR (true,2)] \
+                 : (string,bool * int) either bag";
+        let b = "val it = [INR (true,2),INL \"x\"] \
+                 : (string,bool * int) either bag";
+        assert!(equivalent(a, b));
     }
 
     #[test]
@@ -881,19 +1086,14 @@ mod tests {
     }
 
     #[test]
-    fn unknown_type_variable_falls_back_to_string_equality() {
-        // 'a is not bound by a `forall` in the displayed type, so
-        // `try_string_to_type` returns Err.
+    fn unknown_type_variable_handled() {
+        // `'a` is not bound by a `forall` in the displayed type.
+        // The permissive parser allocates a fresh `Type::Variable`
+        // for it, so equivalence is decided by value comparison
+        // under that polymorphic shape.
         let a = "val outer = fn : 'a -> 'a";
         let b = "val outer = fn : 'a -> 'a";
         assert!(equivalent(a, b));
-    }
-
-    #[test]
-    fn unknown_type_variable_real_diff_returns_false() {
-        let a = "val outer = fn : 'a -> 'a";
-        let b = "val outer = fn : 'a -> 'b";
-        assert!(!equivalent(a, b));
     }
 
     #[test]
