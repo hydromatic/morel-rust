@@ -634,6 +634,7 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
         "\n-->\n",
         usize::MAX,
     ),
+    "lalrpop" => CommentFormat::new("", "// ", "", 80),
     "md" => CommentFormat::new(
         "<!--\n{% comment %}\n",
         "",
@@ -650,7 +651,7 @@ static SUFFIX_MAP: Map<&'static str, CommentFormat> = phf_map! {
 
 /// File suffixes of files that are considered text files.
 static TYPE_MAP: Set<&'static str> =
-    phf_set! {"gitignore","html","rs","pest","toml","md","sig",};
+    phf_set! {"gitignore","html","lalrpop","rs","pest","toml","md","sig",};
 
 /// Validates that signature files in the lib directory are well-formed and
 /// that their value and exception declarations match the corresponding entries

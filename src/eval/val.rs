@@ -156,8 +156,11 @@ pub enum Val {
     Named(Box<(String, Val)>),
 
     Labeled(Box<(Label, Type)>),
-    /// `Type(prefix, type_)`
-    Type(Box<(String, Type)>),
+    /// `Type(prefix, type_, suffix)`. `prefix` is emitted before the type and
+    /// `suffix` after it, e.g. prefix `": "`, suffix `" variant"` produces
+    /// `": int variant"`. Both being part of the same `Val` lets the
+    /// pretty-printer treat them as a single wrappable unit.
+    Type(Box<(String, Type, String)>),
     /// `Raw(value)` is printed to the output as-is, without any quoting.
     Raw(String),
 
@@ -232,7 +235,20 @@ impl Val {
 
     /// Creates a new Type value with the given prefix and type.
     pub fn new_type(prefix: &str, type_: &Type) -> Self {
-        Val::Type(Box::new((prefix.to_string(), type_.clone())))
+        Val::Type(Box::new((prefix.to_string(), type_.clone(), String::new())))
+    }
+
+    /// Creates a new Type value with the given prefix, type, and suffix.
+    pub fn new_type_with_suffix(
+        prefix: &str,
+        type_: &Type,
+        suffix: &str,
+    ) -> Self {
+        Val::Type(Box::new((
+            prefix.to_string(),
+            type_.clone(),
+            suffix.to_string(),
+        )))
     }
 
     /// Creates a new Typed value with the given name, value, and type.
@@ -637,8 +653,9 @@ impl Hash for Val {
             }
             Val::Type(boxed) => {
                 16.hash(state);
-                let (name, _type) = boxed.as_ref();
+                let (name, _type, suffix) = boxed.as_ref();
                 name.hash(state);
+                suffix.hash(state);
                 // Skip type for hashing
             }
             Val::Raw(s) => {

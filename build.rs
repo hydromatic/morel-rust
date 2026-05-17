@@ -15,15 +15,6 @@
 // language governing permissions and limitations under the
 // License.
 
-pub mod compile;
-pub mod datalog;
-pub mod eval;
-pub mod shell;
-pub mod syntax;
-pub mod unify;
-
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
-
-#[cfg(target_arch = "wasm32")]
-pub use wasm::MorelShell;
+fn main() {
+    lalrpop::process_root().unwrap();
+}

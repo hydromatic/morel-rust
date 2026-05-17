@@ -22,6 +22,7 @@ use std::io::{IsTerminal, Read, Write, stdin, stdout};
 use std::process::exit;
 
 mod compile;
+mod datalog;
 mod eval;
 mod shell;
 mod syntax;

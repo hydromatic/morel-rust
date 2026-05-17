@@ -71,17 +71,29 @@ impl ScriptTest {
         };
 
         let mut session_config = SessionConfig::default();
-        if let Some(p) = in_file.parent().map(Path::to_path_buf) {
-            session_config.script_directory = Some(Rc::new(p));
-        }
-
-        // Adjust directory for specific tests
-        if path.to_string_lossy().contains("/file.")
-            && let Some(dir) = session_config.directory.clone()
-        {
-            let mut new_dir = (*dir).clone();
-            new_dir.push("data");
-            session_config.directory = Some(Rc::new(new_dir));
+        if let Some(script_dir) = in_file.parent().map(Path::to_path_buf) {
+            // Walk up from the script's directory until we find an ancestor
+            // named "script"; the directory that contains it (e.g. `tests/`)
+            // becomes the base directory used to resolve `.input` files.
+            // Mirrors morel-java's Script.run().
+            let mut directory = script_dir.clone();
+            let mut cursor: Option<&Path> = Some(script_dir.as_path());
+            while let Some(d) = cursor {
+                if d.file_name().is_some_and(|n| n == "script") {
+                    if let Some(parent) = d.parent() {
+                        directory = parent.to_path_buf();
+                    }
+                    break;
+                }
+                cursor = d.parent();
+            }
+            // For the "file.smli" test, move to a subdirectory; it's more
+            // predictable.
+            if path.to_string_lossy().contains("/file.") {
+                directory.push("data");
+            }
+            session_config.script_directory = Some(Rc::new(script_dir));
+            session_config.directory = Some(Rc::new(directory));
         }
 
         // Create and run the shell

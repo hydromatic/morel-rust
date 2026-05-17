@@ -259,6 +259,25 @@ pub enum BuiltInFunction {
     CharToString,
     #[strum(props(p = "Char", name = "toUpper", type = "char -> char"))]
     CharToUpper,
+    /// `Datalog.execute program`: runs `program` and returns its output
+    /// relations as a `variant`. Errors (parse, analysis, runtime) are
+    /// surfaced as a string-typed variant whose value starts with
+    /// `"ERROR: "`.
+    #[strum(props(p = "Datalog", name = "execute"))]
+    #[strum(props(type = "string -> variant"))]
+    DatalogExecute,
+    /// `Datalog.translate program`: parses and analyzes `program`,
+    /// returning `SOME morelSource` on success or `NONE` on failure.
+    #[strum(props(p = "Datalog", name = "translate"))]
+    #[strum(props(type = "string -> string option"))]
+    DatalogTranslate,
+    /// `Datalog.validate program`: parses and analyzes `program`,
+    /// returning `"OK"` (provisional, will become a type description in
+    /// phase 4) or an error message starting with `"Parse error: "` or
+    /// `"Compilation error: "`.
+    #[strum(props(p = "Datalog", name = "validate"))]
+    #[strum(props(type = "string -> string"))]
+    DatalogValidate,
     /// `Date.compare (d1, d2)`.
     #[strum(props(p = "Date", name = "compare"))]
     #[strum(props(type = "date * date -> `order`"))]
@@ -1501,6 +1520,8 @@ pub enum BuiltInRecord {
     Bool,
     #[strum(props(name = "Char"))]
     Char,
+    #[strum(props(name = "Datalog"))]
+    Datalog,
     #[strum(props(name = "Date"))]
     Date,
     #[strum(props(name = "Either"))]

@@ -330,7 +330,9 @@ impl Pretty {
                 buf.push(' ');
                 // If the value is a `variant`, the static type is `variant`
                 // but we display the wrapped inner type with a " variant"
-                // suffix, e.g. `42 : int variant`.
+                // suffix, e.g. `42 : int variant`. The suffix rides on the
+                // `Val::Type` so the prefix, type, and suffix wrap as one
+                // unit — wrapping just the trailing ` variant` is wrong.
                 let (display_type, type_suffix) = match v2 {
                     Val::Variant(boxed) => {
                         (boxed.as_ref().0.clone(), " variant")
@@ -343,19 +345,14 @@ impl Pretty {
                     line_end,
                     depth,
                     &BOOL,
-                    &Val::new_type(": ", &display_type),
+                    &Val::new_type_with_suffix(
+                        ": ",
+                        &display_type,
+                        type_suffix,
+                    ),
                     0,
                     0,
                 )?;
-                if !type_suffix.is_empty() {
-                    self.pretty_raw(
-                        buf,
-                        indent + 2,
-                        line_end,
-                        depth,
-                        type_suffix,
-                    )?;
-                }
                 return Ok(());
             }
             Val::Named(b) => {
@@ -392,10 +389,12 @@ impl Pretty {
                 return Ok(());
             }
             Val::Type(b) => {
-                let (prefix, type_) = &**b;
-                return self.pretty_type(
+                let (prefix, type_, suffix) = &**b;
+                self.pretty_type(
                     buf, indent, line_end, depth, prefix, type_, left, right,
-                );
+                )?;
+                buf.push_str(suffix);
+                return Ok(());
             }
             _ => {}
         }

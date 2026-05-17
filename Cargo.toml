@@ -41,6 +41,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 chrono-tz = { version = "0.10", default-features = false }
 im = "15.1.0"
 indexmap = "2.0"
+lalrpop-util = { version = "0.22", features = ["lexer", "unicode"] }
 pest = "2.8"
 pest_ascii_tree = "0.1.0"
 pest_consume = "1.1"
@@ -51,6 +52,9 @@ similar = "2.7.0"
 strum = "0.27.2"
 strum_macros = "0.27.2"
 wasm-bindgen = "0.2"
+
+[build-dependencies]
+lalrpop = "0.22"
 
 [features]
 # Enabling profiling with `cargo build --features=profiling`

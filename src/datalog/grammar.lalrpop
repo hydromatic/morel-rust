@@ -1,0 +1,199 @@
+// Licensed to Julian Hyde under one or more contributor license
+// agreements.  See the NOTICE file distributed with this work
+// for additional information regarding copyright ownership.
+// Julian Hyde licenses this file to you under the Apache
+// License, Version 2.0 (the "License"); you may not use this
+// file except in compliance with the License.  You may obtain a
+// copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.  See the License for the specific
+// language governing permissions and limitations under the
+// License.
+
+// LALRPOP grammar for Datalog. Mirrors morel-java's DatalogParser.jj
+// (hydromatic/morel#323). Each JavaCC production has a one-to-one
+// counterpart here.
+
+use crate::datalog::ast::{
+    Atom, ArithOp, BodyAtom, CompOp, Declaration, DatalogType, Fact, Input,
+    Output, Param, Program, Rule, Statement, Term,
+};
+use crate::datalog::parser::unescape;
+
+grammar;
+
+// Whitespace and comments are skipped. The match block also gives
+// keyword tokens priority over the IDENTIFIER pattern so that ".decl",
+// "int", etc. are recognized as keywords rather than identifiers.
+match {
+    // Skip whitespace
+    r"\s+" => { },
+    // Skip line comments and block comments
+    r"//[^\n\r]*[\n\r]*" => { },
+    r"#[^\n\r]*[\n\r]*" => { },
+    r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/" => { },
+    // Multi-character punctuation must outrank single-character ones
+    ":-",
+    "<=",
+    ">=",
+    "!=",
+    // Keywords
+    ".decl",
+    ".input",
+    ".output",
+    "int",
+    "string",
+} else {
+    // Default tokens (single chars, IDENTIFIER, literals)
+    _
+}
+
+pub Program: Program = {
+    <stmts:Statement*> => Program::new(stmts),
+};
+
+Statement: Statement = {
+    <d:Declaration> => Statement::Declaration(d),
+    <i:Input> => Statement::Input(i),
+    <o:Output> => Statement::Output(o),
+    <fr:FactOrRule> => fr,
+};
+
+Declaration: Declaration = {
+    ".decl" <name:Ident> "(" <params:CommaSep<Param>> ")" => Declaration {
+        name,
+        params,
+    },
+};
+
+Param: Param = {
+    <name:Ident> ":" <ty:DatalogType> => Param { name, ty },
+};
+
+DatalogType: DatalogType = {
+    "int" => DatalogType::Int,
+    "string" => DatalogType::String,
+};
+
+Input: Input = {
+    ".input" <relation:Ident> <file_name:StringLit?> => Input {
+        relation,
+        file_name,
+    },
+};
+
+Output: Output = {
+    ".output" <relation:Ident> => Output { relation },
+};
+
+// Fact: head atom followed by `.`.
+// Rule: head atom, `:-`, body, `.`.
+FactOrRule: Statement = {
+    <head:Atom> "." => Statement::Fact(Fact { atom: head }),
+    <head:Atom> ":-" <body:RuleBody> "." => {
+        Statement::Rule(Rule { head, body })
+    },
+};
+
+RuleBody: Vec<BodyAtom> = {
+    <first:BodyAtom> <rest:("," <BodyAtom>)*> => {
+        let mut v = vec![first];
+        v.extend(rest);
+        v
+    },
+};
+
+// A body atom is either a comparison or an atom (possibly negated).
+// The grammar deliberately does not factor out a shared "lhs Term"
+// prefix between Comparison and Atom because LALR(1) cannot defer the
+// choice past the "(" / CompOp distinction. Instead, the IDENTIFIER
+// case is handled by trying the Atom production first; the lookahead
+// distinguishes "ident (" (Atom) from "ident <comp_op>" (Comparison
+// where lhs is a Variable).
+BodyAtom: BodyAtom = {
+    <l:Term> <op:CompOp> <r:Term> => BodyAtom::Comparison {
+        left: l,
+        op,
+        right: r,
+    },
+    <a:Atom> => BodyAtom::Atom { atom: a, negated: false },
+    "!" <a:Atom> => BodyAtom::Atom { atom: a, negated: true },
+};
+
+CompOp: CompOp = {
+    "=" => CompOp::Eq,
+    "!=" => CompOp::Ne,
+    "<=" => CompOp::Le,
+    ">=" => CompOp::Ge,
+    "<" => CompOp::Lt,
+    ">" => CompOp::Gt,
+};
+
+Atom: Atom = {
+    <name:Ident> "(" <terms:CommaSep<Term>> ")" => Atom { name, terms },
+};
+
+// term ::= multiplicativeTerm (('+'|'-') multiplicativeTerm)*
+Term: Term = {
+    <l:Term> "+" <r:MultTerm> => Term::Arith {
+        left: Box::new(l),
+        op: ArithOp::Plus,
+        right: Box::new(r),
+    },
+    <l:Term> "-" <r:MultTerm> => Term::Arith {
+        left: Box::new(l),
+        op: ArithOp::Minus,
+        right: Box::new(r),
+    },
+    MultTerm,
+};
+
+MultTerm: Term = {
+    <l:MultTerm> "*" <r:PrimaryTerm> => Term::Arith {
+        left: Box::new(l),
+        op: ArithOp::Times,
+        right: Box::new(r),
+    },
+    <l:MultTerm> "/" <r:PrimaryTerm> => Term::Arith {
+        left: Box::new(l),
+        op: ArithOp::Divide,
+        right: Box::new(r),
+    },
+    PrimaryTerm,
+};
+
+PrimaryTerm: Term = {
+    <n:Ident> => Term::Variable(n),
+    <n:IntLit> => Term::IntConst(n),
+    <s:StringLit> => Term::StringConst(s),
+    "(" <t:Term> ")" => t,
+};
+
+// Helpers ---------------------------------------------------------
+
+CommaSep<T>: Vec<T> = {
+    => vec![],
+    <first:T> <rest:("," <T>)*> => {
+        let mut v = vec![first];
+        v.extend(rest);
+        v
+    },
+};
+
+Ident: String = {
+    <s:r"[A-Za-z_][A-Za-z0-9_]*"> => s.to_string(),
+};
+
+IntLit: i64 = {
+    <s:r"[0-9]+"> => s.parse().unwrap(),
+};
+
+// Souffle-style string literal with simple backslash escapes.
+StringLit: String = {
+    <s:r#""(?:[^"\\\n\r]|\\[\\"nrt])*""#> => unescape(s),
+};

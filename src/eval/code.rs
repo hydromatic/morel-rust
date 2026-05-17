@@ -22,6 +22,9 @@ use crate::compile::span::Span;
 use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
 use crate::compile::types::{Label, PrimitiveType, Type};
+use crate::datalog::execute as datalog_execute;
+use crate::datalog::translate_string as datalog_translate;
+use crate::datalog::validate as datalog_validate;
 use crate::eval::bool::Bool;
 use crate::eval::bound::{
     complement, enumerate_ranges, from_ranges, set_contains,
@@ -2480,6 +2483,8 @@ pub enum EagerF1 {
     CharChr,
     CharPred,
     CharSucc,
+    DatalogExecute,
+    DatalogValidate,
     DateDate,
     DateFromTimeLocal,
     IntAbs,
@@ -2549,6 +2554,27 @@ impl EagerF1 {
             CharChr => Char::chr(a0.expect_int(), span.unwrap()),
             CharPred => Char::pred(a0.expect_char(), span.unwrap()),
             CharSucc => Char::succ(a0.expect_char(), span.unwrap()),
+            DatalogExecute => {
+                let dir = r
+                    .session
+                    .config
+                    .directory
+                    .as_ref()
+                    .map(|d| d.as_path().to_path_buf());
+                Ok(datalog_execute(&a0.expect_string(), dir.as_deref()))
+            }
+            DatalogValidate => {
+                let dir = r
+                    .session
+                    .config
+                    .directory
+                    .as_ref()
+                    .map(|d| d.as_path().to_path_buf());
+                Ok(Val::String(datalog_validate(
+                    &a0.expect_string(),
+                    dir.as_deref(),
+                )))
+            }
             DateDate => {
                 date::make_date(a0.expect_list(), span.unwrap(), r.session)
             }
@@ -2689,6 +2715,7 @@ pub enum Eager1 {
     CharToLower,
     CharToString,
     CharToUpper,
+    DatalogTranslate,
     DateDay,
     DateFromString,
     DateFromTimeUniv,
@@ -2862,6 +2889,10 @@ impl Eager1 {
             CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
             CharToString => Val::String(Char::to_string(a0.expect_char())),
             CharToUpper => Val::Char(Char::to_upper(a0.expect_char())),
+            DatalogTranslate => match datalog_translate(&a0.expect_string()) {
+                Some(s) => Val::Some(Box::new(Val::String(s))),
+                None => Val::Unit,
+            },
             DateDay => {
                 let (n, o) = a0.expect_date();
                 date::day(n, o)
@@ -4348,6 +4379,9 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager1::CharToLower.implements(&mut b, CharToLower);
     Eager1::CharToString.implements(&mut b, CharToString);
     Eager1::CharToUpper.implements(&mut b, CharToUpper);
+    EagerF1::DatalogExecute.implements(&mut b, DatalogExecute);
+    Eager1::DatalogTranslate.implements(&mut b, DatalogTranslate);
+    EagerF1::DatalogValidate.implements(&mut b, DatalogValidate);
     Eager2::DateCompare.implements(&mut b, DateCompare);
     EagerF1::DateDate.implements(&mut b, DateDate);
     Eager1::DateDay.implements(&mut b, DateDay);

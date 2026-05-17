@@ -46,7 +46,7 @@ use crate::shell::prop::{Mode, Output, create_banner};
 use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::env::current_dir;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -697,8 +697,16 @@ impl Shell {
     }
 
     /// Returns the value of a binding in the environment, if it exists.
-    pub(crate) fn get_val(&self, name: &str) -> Option<&Val> {
+    pub fn get_val(&self, name: &str) -> Option<&Val> {
         self.environment.get(name)
+    }
+
+    /// Borrows this shell's session immutably. Public so external
+    /// callers (e.g. the `Datalog.execute` orchestrator that runs a
+    /// fresh shell to evaluate a translated Datalog program) can read
+    /// type bindings produced by `process_statement`.
+    pub fn session_borrow(&self) -> Ref<'_, Session> {
+        self.session.borrow()
     }
 
     /// Runs the shell with given input/output streams.
