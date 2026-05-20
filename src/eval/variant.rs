@@ -18,6 +18,7 @@
 //! Support for the `variant` built-in datatype and the `Variant`
 //! structure.
 
+use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{Label, PrimitiveType, Type, TypeVariable};
 use crate::eval::char::Char;
 use crate::eval::int::Int;
@@ -267,8 +268,6 @@ pub(crate) fn constant(arg: Val) -> Val {
 /// representation that pretty-prints the constructor name and the
 /// payload variant as `NAME payload`.
 pub(crate) fn construct(arg: Val) -> Val {
-    use crate::eval::val::DESC_ORDINAL;
-
     let parts = match arg {
         Val::List(items) if items.len() == 2 => items,
         _ => panic!("Expected (name, variant) pair, got {:?}", arg),
@@ -306,7 +305,10 @@ pub(crate) fn construct(arg: Val) -> Val {
                 ),
                 "DESC" => variant_of(
                     Type::Data("descending".to_string(), vec![inner_type]),
-                    Val::Constructor(DESC_ORDINAL, Box::new(inner_val)),
+                    Val::Constructor(
+                        BuiltInFunction::DescendingDesc.runtime_tag(),
+                        Box::new(inner_val),
+                    ),
                 ),
                 _ => unreachable!(),
             }

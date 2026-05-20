@@ -1470,7 +1470,7 @@ impl Display for MorelError {
                 // User-raised exceptions (via `raise`) don't show the
                 // built-in description: a programmer who writes
                 // `raise Bind` is reusing the exception value, not
-                // signalling the original cause.
+                // signaling the original cause.
                 write!(f, "uncaught exception {}", exn)?;
                 if let Some(msg) = payload {
                     write!(f, " [{}: {}]", exn, msg)?;

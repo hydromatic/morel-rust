@@ -31,71 +31,43 @@ use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, Weak};
 
-/// Sentinel ordinal for the built-in `DESC` constructor of the
-/// `descending` datatype. Distinct from any user-defined constructor
-/// ordinal (which are 0-based).
-pub const DESC_ORDINAL: usize = usize::MAX;
+// The runtime tag stored in `Val::Constructor(tag, _)` for a
+// built-in constructor is the `BuiltInFunction` enum's `#[repr(u16)]`
+// discriminant — unique across all built-in constructors. Callers
+// match against `tag as u16` so the consts below (one per
+// dispatched built-in constructor) can be used directly as match
+// arms; `BuiltInFunction::runtime_tag()` returns the same value at
+// runtime.
+//
+// User-declared datatype values also use `Val::Constructor`, but
+// their tag is the 0-based position within the user's datatype
+// declaration. Built-in and user-defined tags share a single
+// `usize` field but never collide at runtime because pattern
+// matching is type-bounded: the type at the match site decides
+// which set of constructors a tag refers to.
 
-/// Sentinel ordinals for the 10 built-in constructors of the `range`
-/// datatype. Distinct from any user-defined constructor ordinal (which
-/// are 0-based) and from [`DESC_ORDINAL`].
-pub const RANGE_ALL_ORDINAL: usize = usize::MAX - 10;
-pub const RANGE_AT_LEAST_ORDINAL: usize = usize::MAX - 11;
-pub const RANGE_AT_MOST_ORDINAL: usize = usize::MAX - 12;
-pub const RANGE_CLOSED_ORDINAL: usize = usize::MAX - 13;
-pub const RANGE_CLOSED_OPEN_ORDINAL: usize = usize::MAX - 14;
-pub const RANGE_GREATER_THAN_ORDINAL: usize = usize::MAX - 15;
-pub const RANGE_LESS_THAN_ORDINAL: usize = usize::MAX - 16;
-pub const RANGE_OPEN_ORDINAL: usize = usize::MAX - 17;
-pub const RANGE_OPEN_CLOSED_ORDINAL: usize = usize::MAX - 18;
-pub const RANGE_POINT_ORDINAL: usize = usize::MAX - 19;
+/// Runtime tag of the sole `descending` constructor.
+pub const DESCENDING_DESC: usize = BuiltInFunction::DescendingDesc as usize;
 
-/// Sentinel ordinals for the `continuous_set` and `discrete_set`
-/// wrapper types. A value wraps a `Val::List` of `range` constructors.
-pub const CONTINUOUS_SET_ORDINAL: usize = usize::MAX - 20;
-pub const DISCRETE_SET_ORDINAL: usize = usize::MAX - 21;
+/// Runtime tags of the ten `range` constructors.
+pub const RANGE_ALL: usize = BuiltInFunction::RangeAll as usize;
+pub const RANGE_AT_LEAST: usize = BuiltInFunction::RangeAtLeast as usize;
+pub const RANGE_AT_MOST: usize = BuiltInFunction::RangeAtMost as usize;
+pub const RANGE_CLOSED: usize = BuiltInFunction::RangeClosed as usize;
+pub const RANGE_CLOSED_OPEN: usize = BuiltInFunction::RangeClosedOpen as usize;
+pub const RANGE_GREATER_THAN: usize =
+    BuiltInFunction::RangeGreaterThan as usize;
+pub const RANGE_LESS_THAN: usize = BuiltInFunction::RangeLessThan as usize;
+pub const RANGE_OPEN: usize = BuiltInFunction::RangeOpen as usize;
+pub const RANGE_OPEN_CLOSED: usize = BuiltInFunction::RangeOpenClosed as usize;
+pub const RANGE_POINT: usize = BuiltInFunction::RangePoint as usize;
 
-/// Sentinel ordinals for the 7 nullary constructors of the `weekday`
-/// datatype. Stored values are `Val::Constructor(o, Box::new(Val::Unit))`.
-pub const WEEKDAY_MON_ORDINAL: usize = usize::MAX - 30;
-pub const WEEKDAY_TUE_ORDINAL: usize = usize::MAX - 31;
-pub const WEEKDAY_WED_ORDINAL: usize = usize::MAX - 32;
-pub const WEEKDAY_THU_ORDINAL: usize = usize::MAX - 33;
-pub const WEEKDAY_FRI_ORDINAL: usize = usize::MAX - 34;
-pub const WEEKDAY_SAT_ORDINAL: usize = usize::MAX - 35;
-pub const WEEKDAY_SUN_ORDINAL: usize = usize::MAX - 36;
-
-/// Sentinel ordinals for the 12 nullary constructors of the `month`
-/// datatype. Stored values are `Val::Constructor(o, Box::new(Val::Unit))`.
-pub const MONTH_JAN_ORDINAL: usize = usize::MAX - 40;
-pub const MONTH_FEB_ORDINAL: usize = usize::MAX - 41;
-pub const MONTH_MAR_ORDINAL: usize = usize::MAX - 42;
-pub const MONTH_APR_ORDINAL: usize = usize::MAX - 43;
-pub const MONTH_MAY_ORDINAL: usize = usize::MAX - 44;
-pub const MONTH_JUN_ORDINAL: usize = usize::MAX - 45;
-pub const MONTH_JUL_ORDINAL: usize = usize::MAX - 46;
-pub const MONTH_AUG_ORDINAL: usize = usize::MAX - 47;
-pub const MONTH_SEP_ORDINAL: usize = usize::MAX - 48;
-pub const MONTH_OCT_ORDINAL: usize = usize::MAX - 49;
-pub const MONTH_NOV_ORDINAL: usize = usize::MAX - 50;
-pub const MONTH_DEC_ORDINAL: usize = usize::MAX - 51;
-
-// Ordinals for the constructors of the built-in `exn` datatype. The
-// `Fail` constructor carries a `string` payload; the others carry
-// `Val::Unit`.
-pub const EXN_BIND_ORDINAL: usize = usize::MAX - 60;
-pub const EXN_CHR_ORDINAL: usize = usize::MAX - 61;
-pub const EXN_DIV_ORDINAL: usize = usize::MAX - 62;
-pub const EXN_DOMAIN_ORDINAL: usize = usize::MAX - 63;
-pub const EXN_EMPTY_ORDINAL: usize = usize::MAX - 64;
-pub const EXN_FAIL_ORDINAL: usize = usize::MAX - 65;
-pub const EXN_MATCH_ORDINAL: usize = usize::MAX - 66;
-pub const EXN_OVERFLOW_ORDINAL: usize = usize::MAX - 67;
-pub const EXN_SIZE_ORDINAL: usize = usize::MAX - 68;
-pub const EXN_SPAN_ORDINAL: usize = usize::MAX - 69;
-pub const EXN_SUBSCRIPT_ORDINAL: usize = usize::MAX - 70;
-pub const EXN_UNEQUAL_LENGTHS_ORDINAL: usize = usize::MAX - 71;
-pub const EXN_UNORDERED_ORDINAL: usize = usize::MAX - 72;
+/// Runtime tags of the synthetic single-constructor wrappers for
+/// `continuous_set` and `discrete_set`.
+pub const RANGE_CONTINUOUS_SET: usize =
+    BuiltInFunction::RangeContinuousSet as usize;
+pub const RANGE_DISCRETE_SET: usize =
+    BuiltInFunction::RangeDiscreteSet as usize;
 
 /// Runtime value.
 ///
@@ -144,13 +116,16 @@ pub enum Val {
     /// `STRING`, `LIST`, etc. functions.
     Variant(Box<(Type, Val)>),
 
-    /// `Constructor(ordinal, v)` represents a user-defined datatype
-    /// constructor application. `ordinal` is the 0-based position of the
-    /// constructor in the datatype declaration (used for comparison
-    /// ordering). Nullary constructors carry `Val::Unit`. For example,
-    /// `Y 0` of `datatype foo = X | Y of int` becomes
-    /// `Constructor(1, Box::new(Int(0)))`. The built-in `DESC`
-    /// constructor uses [`DESC_ORDINAL`] as its ordinal.
+    /// `Constructor(tag, v)` represents a datatype constructor
+    /// application. For user-declared datatypes `tag` is the 0-based
+    /// position within the datatype's constructor list (used for
+    /// comparison ordering). For built-in datatypes `tag` is the
+    /// matching `BuiltInFunction`'s enum discriminant; the two
+    /// schemes share this field but never collide at runtime because
+    /// pattern matching is type-bounded. Nullary constructors carry
+    /// `Val::Unit`. For example, `Y 0` of
+    /// `datatype foo = X | Y of int` becomes
+    /// `Constructor(1, Box::new(Int(0)))`.
     Constructor(usize, Box<Val>),
 
     /// Wrapper that indicates that a value should be printed with its name

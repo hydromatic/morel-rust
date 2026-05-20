@@ -442,37 +442,12 @@ fn closed_constructors(
         Type::Primitive(PrimitiveType::Bool) => {
             Some(vec!["true".to_string(), "false".to_string()])
         }
-        Type::Data(name, _) if name == "order" => Some(vec![
-            "LESS".to_string(),
-            "EQUAL".to_string(),
-            "GREATER".to_string(),
-        ]),
-        Type::Data(name, _) if name == "option" => {
-            Some(vec!["NONE".to_string(), "SOME".to_string()])
-        }
-        Type::Data(name, _) if name == "either" => {
-            Some(vec!["INL".to_string(), "INR".to_string()])
-        }
-        Type::Data(name, _) if name == "variant" => Some(vec![
-            "UNIT".to_string(),
-            "BOOL".to_string(),
-            "INT".to_string(),
-            "REAL".to_string(),
-            "CHAR".to_string(),
-            "STRING".to_string(),
-            "LIST".to_string(),
-            "BAG".to_string(),
-            "VECTOR".to_string(),
-            "VARIANT_NONE".to_string(),
-            "VARIANT_SOME".to_string(),
-            "RECORD".to_string(),
-            "CONSTANT".to_string(),
-            "CONSTRUCT".to_string(),
-        ]),
-        Type::Data(name, _) => {
-            // Look up user-defined datatype constructors.
-            user_datatypes.get(name).cloned()
-        }
+        // Both built-in datatypes (`order`, `option`, `either`,
+        // `variant`, …) and user-declared datatypes resolve through
+        // the same map: built-ins are seeded from
+        // `library::built_in_datatype_constructors`, user types are
+        // added as `datatype` declarations are processed.
+        Type::Data(name, _) => user_datatypes.get(name).cloned(),
         Type::List(_) => Some(vec!["nil".to_string(), "cons".to_string()]),
         _ => None,
     }

@@ -254,8 +254,35 @@ impl Type {
                 f.write_str("}")
             }
             Type::Tuple(types) => {
+                // `*` is non-associative — `(t1 * t2) * t3` and
+                // `t1 * (t2 * t3)` and `t1 * t2 * t3` are three distinct
+                // types. So any tuple-typed element must be surrounded
+                // by parentheses.
                 const OP: Op = Op::TUPLE;
-                Self::describe_list(types, f, &OP, left, right)?;
+                let need_outer = left > OP.left || right > OP.right;
+                if need_outer {
+                    f.write_str("(")?;
+                }
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(" * ")?;
+                    }
+                    let wrap = matches!(t, Type::Tuple(_));
+                    if wrap {
+                        f.write_str("(")?;
+                        t.describe(f, 0, 0)?;
+                        f.write_str(")")?;
+                    } else {
+                        // Pass tight precedence so non-tuple operands
+                        // (e.g. `int -> int`) wrap as needed.
+                        let l = if i == 0 { 0 } else { OP.right };
+                        let r = if i == types.len() - 1 { 0 } else { OP.right };
+                        t.describe(f, l, r)?;
+                    }
+                }
+                if need_outer {
+                    f.write_str(")")?;
+                }
                 Ok(())
             }
             Type::Variable(var) => f.write_str(var.name().as_str()),

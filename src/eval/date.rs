@@ -22,18 +22,11 @@
 //! seconds east of UTC. Field accessors like `Date.year` use the
 //! local broken-down time (`utc_nanos + offset_secs * 1e9`).
 
-use crate::compile::library::BuiltInExn;
+use crate::compile::library::{BuiltInExn, BuiltInFunction};
 use crate::compile::span::Span;
 use crate::eval::order::Order;
 use crate::eval::session::Session;
-use crate::eval::val::{
-    MONTH_APR_ORDINAL, MONTH_AUG_ORDINAL, MONTH_DEC_ORDINAL, MONTH_FEB_ORDINAL,
-    MONTH_JAN_ORDINAL, MONTH_JUL_ORDINAL, MONTH_JUN_ORDINAL, MONTH_MAR_ORDINAL,
-    MONTH_MAY_ORDINAL, MONTH_NOV_ORDINAL, MONTH_OCT_ORDINAL, MONTH_SEP_ORDINAL,
-    Val, WEEKDAY_FRI_ORDINAL, WEEKDAY_MON_ORDINAL, WEEKDAY_SAT_ORDINAL,
-    WEEKDAY_SUN_ORDINAL, WEEKDAY_THU_ORDINAL, WEEKDAY_TUE_ORDINAL,
-    WEEKDAY_WED_ORDINAL,
-};
+use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 use crate::shell::prop::{Prop, PropVal};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
@@ -59,69 +52,69 @@ struct Broken {
     yearday: u32, // 0..365
 }
 
-fn weekday_ordinal(w: u32) -> usize {
-    match w {
-        0 => WEEKDAY_MON_ORDINAL,
-        1 => WEEKDAY_TUE_ORDINAL,
-        2 => WEEKDAY_WED_ORDINAL,
-        3 => WEEKDAY_THU_ORDINAL,
-        4 => WEEKDAY_FRI_ORDINAL,
-        5 => WEEKDAY_SAT_ORDINAL,
-        6 => WEEKDAY_SUN_ORDINAL,
-        _ => panic!("invalid weekday: {}", w),
-    }
+// The chrono index for weekdays (0=Mon..6=Sun) and months
+// (1=Jan..12=Dec) maps to a `BuiltInFunction` via the static
+// arrays below, then to a runtime tag via `runtime_tag()`. The
+// arrays' contents have to be written out explicitly because the
+// `BuiltInFunction` variants are kept alphabetical, but chrono's
+// indices follow the calendar order.
+
+const WEEKDAY_FUNCTIONS: [BuiltInFunction; 7] = [
+    BuiltInFunction::WeekdayMon,
+    BuiltInFunction::WeekdayTue,
+    BuiltInFunction::WeekdayWed,
+    BuiltInFunction::WeekdayThu,
+    BuiltInFunction::WeekdayFri,
+    BuiltInFunction::WeekdaySat,
+    BuiltInFunction::WeekdaySun,
+];
+
+const MONTH_FUNCTIONS: [BuiltInFunction; 12] = [
+    BuiltInFunction::MonthJan,
+    BuiltInFunction::MonthFeb,
+    BuiltInFunction::MonthMar,
+    BuiltInFunction::MonthApr,
+    BuiltInFunction::MonthMay,
+    BuiltInFunction::MonthJun,
+    BuiltInFunction::MonthJul,
+    BuiltInFunction::MonthAug,
+    BuiltInFunction::MonthSep,
+    BuiltInFunction::MonthOct,
+    BuiltInFunction::MonthNov,
+    BuiltInFunction::MonthDec,
+];
+
+fn weekday_tag(w: u32) -> usize {
+    assert!(w < 7, "invalid weekday: {}", w);
+    WEEKDAY_FUNCTIONS[w as usize].runtime_tag()
 }
 
-fn month_ordinal(m: u32) -> usize {
-    match m {
-        1 => MONTH_JAN_ORDINAL,
-        2 => MONTH_FEB_ORDINAL,
-        3 => MONTH_MAR_ORDINAL,
-        4 => MONTH_APR_ORDINAL,
-        5 => MONTH_MAY_ORDINAL,
-        6 => MONTH_JUN_ORDINAL,
-        7 => MONTH_JUL_ORDINAL,
-        8 => MONTH_AUG_ORDINAL,
-        9 => MONTH_SEP_ORDINAL,
-        10 => MONTH_OCT_ORDINAL,
-        11 => MONTH_NOV_ORDINAL,
-        12 => MONTH_DEC_ORDINAL,
-        _ => panic!("invalid month: {}", m),
-    }
+fn month_tag(m: u32) -> usize {
+    assert!((1..=12).contains(&m), "invalid month: {}", m);
+    MONTH_FUNCTIONS[m as usize - 1].runtime_tag()
 }
 
-/// Returns the 1-based month (1..12) for the given month constructor
-/// ordinal.
-pub(crate) fn ordinal_to_month(o: usize) -> u32 {
-    match o {
-        x if x == MONTH_JAN_ORDINAL => 1,
-        x if x == MONTH_FEB_ORDINAL => 2,
-        x if x == MONTH_MAR_ORDINAL => 3,
-        x if x == MONTH_APR_ORDINAL => 4,
-        x if x == MONTH_MAY_ORDINAL => 5,
-        x if x == MONTH_JUN_ORDINAL => 6,
-        x if x == MONTH_JUL_ORDINAL => 7,
-        x if x == MONTH_AUG_ORDINAL => 8,
-        x if x == MONTH_SEP_ORDINAL => 9,
-        x if x == MONTH_OCT_ORDINAL => 10,
-        x if x == MONTH_NOV_ORDINAL => 11,
-        x if x == MONTH_DEC_ORDINAL => 12,
-        _ => panic!("not a month ordinal: {}", o),
+/// Returns the 1-based month (1..12) for the given month runtime
+/// tag, or panics if `tag` isn't a recognized month-constructor tag.
+pub(crate) fn tag_to_month(tag: usize) -> u32 {
+    match MONTH_FUNCTIONS.iter().position(|f| f.runtime_tag() == tag) {
+        Some(i) => (i + 1) as u32,
+        None => panic!("not a month tag: {}", tag),
     }
 }
 
 /// Wraps a date constructor as a `Val::Constructor` with `Val::Unit`
 /// payload.
-fn ctor(o: usize) -> Val {
-    Val::Constructor(o, Box::new(Val::Unit))
+fn ctor(tag: usize) -> Val {
+    Val::Constructor(tag, Box::new(Val::Unit))
 }
 
 fn weekday_val(w: u32) -> Val {
-    ctor(weekday_ordinal(w))
+    ctor(weekday_tag(w))
 }
 
 fn month_val(m: u32) -> Val {
-    ctor(month_ordinal(m))
+    ctor(month_tag(m))
 }
 
 const MONTH_NAMES_SHORT: [&str; 12] = [
@@ -396,15 +389,15 @@ pub(crate) fn make_date(
     let day = args[0].expect_int();
     let hour = args[1].expect_int();
     let minute = args[2].expect_int();
-    let month_ord = match &args[3] {
-        Val::Constructor(o, _) => *o,
+    let month_tag = match &args[3] {
+        Val::Constructor(tag, _) => *tag,
         _ => panic!("expected month constructor"),
     };
     let offset = &args[4]; // time option (Unit = NONE)
     let second = args[5].expect_int();
     let year = args[6].expect_int();
 
-    let m = ordinal_to_month(month_ord);
+    let m = tag_to_month(month_tag);
     if !(1..=days_in_month(year, m) as i32).contains(&day)
         || !(0..24).contains(&hour)
         || !(0..60).contains(&minute)

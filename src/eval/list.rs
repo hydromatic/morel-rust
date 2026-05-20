@@ -124,7 +124,7 @@ impl List {
     /// Returns the elements that are in list1 but not in the union of
     /// list2..listN, counting multiplicities. Each occurrence in list2..N
     /// removes one occurrence from list1; surplus occurrences are kept.
-    /// Order of list1 is preserved. (hydromatic/morel#321)
+    /// Order of list1 is preserved.
     pub(crate) fn except(lists: &[Val]) -> Vec<Val> {
         match lists.len() {
             0 => Vec::new(),
@@ -271,11 +271,10 @@ impl List {
         }
     }
 
-    /// Returns the list of elements that are in all lists.
     /// Returns the multiset intersection of all lists: the multiplicity
     /// of each value is the minimum of its multiplicity across all input
     /// lists. The result is in the order of the first list, taking the
-    /// first `min(counts)` occurrences. (hydromatic/morel#321)
+    /// first `min(counts)` occurrences.
     pub(crate) fn intersect(lists: &[Val]) -> Vec<Val> {
         match lists.len() {
             0 => Vec::new(),

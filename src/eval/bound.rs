@@ -22,10 +22,16 @@
 //! support (the `Discrete` interface) is not yet wired up; it lands in
 //! a later commit with `Range.discreteSetOf`.
 
+use crate::compile::library::BuiltInFunction;
 use crate::eval::comparator::Comparator;
 use crate::eval::discrete::Discrete;
 use crate::eval::val::{self, Val};
 use std::cmp::Ordering;
+use val::{
+    RANGE_ALL, RANGE_AT_LEAST, RANGE_AT_MOST, RANGE_CLOSED, RANGE_CLOSED_OPEN,
+    RANGE_GREATER_THAN, RANGE_LESS_THAN, RANGE_OPEN, RANGE_OPEN_CLOSED,
+    RANGE_POINT,
+};
 
 /// One endpoint of a range: either unbounded (representing −∞ or +∞)
 /// or a specific value with inclusivity.
@@ -68,17 +74,13 @@ impl Bound {
             _ => panic!("Bound::lower: not a range value"),
         };
         match ord {
-            val::RANGE_ALL_ORDINAL
-            | val::RANGE_AT_MOST_ORDINAL
-            | val::RANGE_LESS_THAN_ORDINAL => Self::UNBOUNDED,
-            val::RANGE_POINT_ORDINAL | val::RANGE_AT_LEAST_ORDINAL => {
-                Self::inclusive(inner.clone())
-            }
-            val::RANGE_CLOSED_ORDINAL | val::RANGE_CLOSED_OPEN_ORDINAL => {
+            RANGE_ALL | RANGE_AT_MOST | RANGE_LESS_THAN => Self::UNBOUNDED,
+            RANGE_POINT | RANGE_AT_LEAST => Self::inclusive(inner.clone()),
+            RANGE_CLOSED | RANGE_CLOSED_OPEN => {
                 Self::inclusive(inner.expect_list()[0].clone())
             }
-            val::RANGE_GREATER_THAN_ORDINAL => Self::exclusive(inner.clone()),
-            val::RANGE_OPEN_ORDINAL | val::RANGE_OPEN_CLOSED_ORDINAL => {
+            RANGE_GREATER_THAN => Self::exclusive(inner.clone()),
+            RANGE_OPEN | RANGE_OPEN_CLOSED => {
                 Self::exclusive(inner.expect_list()[0].clone())
             }
             _ => panic!("Bound::lower: unknown range constructor {}", ord),
@@ -92,17 +94,13 @@ impl Bound {
             _ => panic!("Bound::upper: not a range value"),
         };
         match ord {
-            val::RANGE_ALL_ORDINAL
-            | val::RANGE_AT_LEAST_ORDINAL
-            | val::RANGE_GREATER_THAN_ORDINAL => Self::UNBOUNDED,
-            val::RANGE_POINT_ORDINAL | val::RANGE_AT_MOST_ORDINAL => {
-                Self::inclusive(inner.clone())
-            }
-            val::RANGE_CLOSED_ORDINAL | val::RANGE_OPEN_CLOSED_ORDINAL => {
+            RANGE_ALL | RANGE_AT_LEAST | RANGE_GREATER_THAN => Self::UNBOUNDED,
+            RANGE_POINT | RANGE_AT_MOST => Self::inclusive(inner.clone()),
+            RANGE_CLOSED | RANGE_OPEN_CLOSED => {
                 Self::inclusive(inner.expect_list()[1].clone())
             }
-            val::RANGE_LESS_THAN_ORDINAL => Self::exclusive(inner.clone()),
-            val::RANGE_OPEN_ORDINAL | val::RANGE_CLOSED_OPEN_ORDINAL => {
+            RANGE_LESS_THAN => Self::exclusive(inner.clone()),
+            RANGE_OPEN | RANGE_CLOSED_OPEN => {
                 Self::exclusive(inner.expect_list()[1].clone())
             }
             _ => panic!("Bound::upper: unknown range constructor {}", ord),
@@ -112,40 +110,41 @@ impl Bound {
     /// Converts a lower-upper `Bound` pair to a runtime range value.
     pub fn to_range(lo: &Self, hi: &Self) -> Val {
         match (&lo.value, &hi.value) {
-            (None, None) => {
-                Val::Constructor(val::RANGE_ALL_ORDINAL, Box::new(Val::Unit))
-            }
+            (None, None) => Val::Constructor(
+                BuiltInFunction::RangeAll.runtime_tag(),
+                Box::new(Val::Unit),
+            ),
             (None, Some(h)) => {
-                let ord = if hi.inclusive {
-                    val::RANGE_AT_MOST_ORDINAL
+                let f = if hi.inclusive {
+                    BuiltInFunction::RangeAtMost
                 } else {
-                    val::RANGE_LESS_THAN_ORDINAL
+                    BuiltInFunction::RangeLessThan
                 };
-                Val::Constructor(ord, Box::new(h.clone()))
+                Val::Constructor(f.runtime_tag(), Box::new(h.clone()))
             }
             (Some(l), None) => {
-                let ord = if lo.inclusive {
-                    val::RANGE_AT_LEAST_ORDINAL
+                let f = if lo.inclusive {
+                    BuiltInFunction::RangeAtLeast
                 } else {
-                    val::RANGE_GREATER_THAN_ORDINAL
+                    BuiltInFunction::RangeGreaterThan
                 };
-                Val::Constructor(ord, Box::new(l.clone()))
+                Val::Constructor(f.runtime_tag(), Box::new(l.clone()))
             }
             (Some(l), Some(h)) => {
                 if lo.inclusive && hi.inclusive && l == h {
                     return Val::Constructor(
-                        val::RANGE_POINT_ORDINAL,
+                        BuiltInFunction::RangePoint.runtime_tag(),
                         Box::new(l.clone()),
                     );
                 }
-                let ord = match (lo.inclusive, hi.inclusive) {
-                    (true, true) => val::RANGE_CLOSED_ORDINAL,
-                    (true, false) => val::RANGE_CLOSED_OPEN_ORDINAL,
-                    (false, true) => val::RANGE_OPEN_CLOSED_ORDINAL,
-                    (false, false) => val::RANGE_OPEN_ORDINAL,
+                let f = match (lo.inclusive, hi.inclusive) {
+                    (true, true) => BuiltInFunction::RangeClosed,
+                    (true, false) => BuiltInFunction::RangeClosedOpen,
+                    (false, true) => BuiltInFunction::RangeOpenClosed,
+                    (false, false) => BuiltInFunction::RangeOpen,
                 };
                 Val::Constructor(
-                    ord,
+                    f.runtime_tag(),
                     Box::new(Val::List(vec![l.clone(), h.clone()])),
                 )
             }

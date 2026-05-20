@@ -57,6 +57,20 @@
 () = {};
 > val it = true : bool
 
+(*) Nested tuple
+(1,true,7);
+> val it = (1,true,7) : int * bool * int
+((1,true),7);
+> val it = ((1,true),7) : (int * bool) * int
+(1,(true,7));
+> val it = (1,(true,7)) : int * (bool * int)
+fn (x: (int * bool) * int) => true;
+> val it = fn : (int * bool) * int -> bool
+fn (x: int * (bool * int)) => true;
+> val it = fn : int * (bool * int) -> bool
+fn (x: int * bool * int) => true;
+> val it = fn : int * bool * int -> bool
+
 (*) Expressions with type annotations
 1: int;
 > val it = 1 : int
@@ -66,6 +80,35 @@
 > val it = [(2,true)] : (int * bool) list
 (2, [true]): int * (bool list);
 > val it = (2,[true]) : int * bool list
+(*) Standalone '(t1, ..., tn)' is not a valid type; a tuple type must
+(*) be written 't1 * ... * tn'.
+fn (x: (int, bool)) => true;
+> stdIn:1.8-1.19 Error: tuple types must be written 't1 * ... * tn', not '(t1, ..., tn)'
+>   raised at: stdIn:1.8-1.19
+
+(*) Multi-arg type constructors do not parenthesize tuple-typed arguments
+(*) (the outer '(', ',', ')' already disambiguates them); single-arg
+(*) constructors do.
+INL (1, true);
+> val it = INL (1,true) : (int * bool,'a) either
+INR ((1, true), 7);
+> val it = INR ((1,true),7) : ('a,(int * bool) * int) either
+INR (1, (true, 7));
+> val it = INR (1,(true,7)) : ('a,int * (bool * int)) either
+
+(*) Tuple types and function types interact correctly: '*' binds tighter
+(*) than '->' in both source syntax and printed form. A tuple as a
+(*) function arg or result needs no parens; a function as a tuple element
+(*) does.
+fun f (x: int * bool) = 1;
+> val f = fn : int * bool -> int
+fn x: int * bool => x;
+> val it = fn : int * bool -> int * bool
+fn x: int -> int * bool => 1;
+> val it = fn : (int -> int * bool) -> int
+fn x: (int -> int) * bool => 1;
+> val it = fn : (int -> int) * bool -> int
+
 []: int list;
 > val it = [] : int list
 []: {a: int, b: string} list;

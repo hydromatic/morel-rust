@@ -19,6 +19,7 @@
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::collapsible_if)]
 
+use crate::compile::library;
 use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::type_env::{
@@ -377,15 +378,6 @@ impl<'a> TermToTypeConverter<'a> {
                             PrimitiveType::parse_name(op_name).unwrap();
                         Box::new(Type::Primitive(primitive_type))
                     }
-                    "either" => {
-                        assert_eq!(sequence.terms.len(), 2);
-                        let arg1 = *self.term_type(&sequence.terms[0]);
-                        let arg2 = *self.term_type(&sequence.terms[1]);
-                        Box::new(Type::Data(
-                            op_name.to_string(),
-                            vec![arg1, arg2],
-                        ))
-                    }
                     "fn" => {
                         assert_eq!(sequence.terms.len(), 2);
                         let param_type = self.term_type(&sequence.terms[0]);
@@ -396,17 +388,6 @@ impl<'a> TermToTypeConverter<'a> {
                         assert_eq!(sequence.terms.len(), 1);
                         let type_ = self.term_type(&sequence.terms[0]);
                         Box::new(Type::List(type_))
-                    }
-                    "option" | "descending" | "range" | "continuous_set"
-                    | "discrete_set" => {
-                        assert_eq!(sequence.terms.len(), 1);
-                        let args = vec![*self.term_type(&sequence.terms[0])];
-                        Box::new(Type::Data(op_name.to_string(), args))
-                    }
-                    "order" | "variant" | "time" | "date" | "weekday"
-                    | "month" => {
-                        assert_eq!(sequence.terms.len(), 0);
-                        Box::new(Type::Data(op_name.to_string(), vec![]))
                     }
                     "tuple" => {
                         let types = sequence
@@ -432,14 +413,13 @@ impl<'a> TermToTypeConverter<'a> {
                         }
                         Box::new(Type::Record(false, fields))
                     }
-                    "vector" => {
-                        assert_eq!(sequence.terms.len(), 1);
-                        let args = vec![*self.term_type(&sequence.terms[0])];
-                        Box::new(Type::Data(op_name.to_string(), args))
-                    }
                     _ => {
-                        // User-defined datatype: convert each
-                        // argument term back to a Type.
+                        // Every other named type — built-in
+                        // (`option`, `either`, `range`, `variant`, …)
+                        // or user-declared — lowers uniformly to
+                        // `Type::Data`. Arity is enforced by the
+                        // unifier; assertions here would be
+                        // redundant.
                         let args: Vec<Type> = sequence
                             .terms
                             .iter()
@@ -604,6 +584,15 @@ pub struct TypeResolver {
     /// and `datatype` declarations.
     pub type_aliases: HashMap<String, Type>,
 
+    /// Parameter count (arity) of every user-declared datatype seen
+    /// so far (added by `deduce_datatype_decl_type` or seeded by
+    /// the session from prior statements). Built-in datatype
+    /// arities are *not* stored here — they're read on demand from
+    /// `library::BuiltInDatatype` / `library::BuiltInEqtype` via
+    /// `library::builtin_type_arity`. A redeclaration overwrites the
+    /// previous entry.
+    pub user_datatype_arities: HashMap<String, usize>,
+
     /// Constructor bindings from `datatype` declarations, stored
     /// here during `deduce_datatype_decl_type` and merged into
     /// `Resolved::bindings` at the end of `deduce_type`.
@@ -668,8 +657,82 @@ impl Default for TypeResolver {
     }
 }
 
-#[allow(dead_code)]
 impl TypeResolver {
+    /// Returns the declared parameter count (arity) of a type
+    /// constructor by name, or `None` if it isn't a known one.
+    /// Consults both built-in types (via [`library::BuiltInDatatype`]
+    /// / [`library::BuiltInEqtype`] strum properties) and
+    /// user-declared datatypes accumulated in
+    /// `self.user_datatype_arities`.
+    fn arity_of_type_ctor(&self, name: &str) -> Option<usize> {
+        library::builtin_type_arity(name)
+            .or_else(|| self.user_datatype_arities.get(name).copied())
+    }
+
+    /// Walks an AST type and pushes errors for invalid forms:
+    /// standalone `(t1, ..., tn)` tuple types, and wrong-arity
+    /// applications of known type constructors. Used by code paths
+    /// (datatype/type declarations) that lower types via
+    /// [`ast_type_to_core_type_with_vars`], which silently swallows
+    /// errors.
+    fn validate_ast_type(&self, ast_type: &AstType) {
+        match &ast_type.kind {
+            TypeKind::Composite(types) => {
+                self.field_errors.borrow_mut().push((
+                    "tuple types must be written 't1 * ... * tn', \
+                     not '(t1, ..., tn)'"
+                        .to_string(),
+                    ast_type.span.clone(),
+                ));
+                for t in types {
+                    self.validate_ast_type(t);
+                }
+            }
+            TypeKind::App(args, base) => {
+                let flat_args = AstType::flatten(args);
+                if let TypeKind::Id(name) = &base.kind
+                    && let Some(expected) = self.arity_of_type_ctor(name)
+                    && expected != flat_args.len()
+                {
+                    let actual = flat_args.len();
+                    self.field_errors.borrow_mut().push((
+                        format!(
+                            "type constructor {} given {} argument{}, \
+                             wants {}",
+                            name,
+                            actual,
+                            if actual == 1 { "" } else { "s" },
+                            expected,
+                        ),
+                        ast_type.span.clone(),
+                    ));
+                }
+                for arg in &flat_args {
+                    self.validate_ast_type(arg);
+                }
+            }
+            TypeKind::Fn(a, b) => {
+                self.validate_ast_type(a);
+                self.validate_ast_type(b);
+            }
+            TypeKind::Tuple(types) => {
+                for t in types {
+                    self.validate_ast_type(t);
+                }
+            }
+            TypeKind::Record(fields) => {
+                for f in fields {
+                    self.validate_ast_type(&f.type_);
+                }
+            }
+            TypeKind::Con(_)
+            | TypeKind::Id(_)
+            | TypeKind::Unit
+            | TypeKind::Var(_)
+            | TypeKind::Expression(_) => {}
+        }
+    }
+
     /// Creates a new type resolver.
     pub fn new() -> Self {
         let mut unifier = Unifier::new(true);
@@ -700,6 +763,7 @@ impl TypeResolver {
             fn_op,
             decl_type_vars: BTreeMap::new(),
             type_aliases: HashMap::new(),
+            user_datatype_arities: HashMap::new(),
             datatype_bindings: Vec::new(),
             prior_datatype_constructors: HashMap::new(),
             prior_constructor_arg_types: HashMap::new(),
@@ -1180,6 +1244,7 @@ impl TypeResolver {
                 // resolved core type of the RHS, so subsequent uses of
                 // 'myInt' in type position resolve to 'int'.
                 for tb in type_binds {
+                    self.validate_ast_type(&tb.type_);
                     if let Some(rhs_type) = ast_type_to_core_type(&tb.type_) {
                         self.type_aliases.insert(tb.name.clone(), rhs_type);
                     }
@@ -1370,13 +1435,18 @@ impl TypeResolver {
     ) -> Result<(), Error> {
         // Phase 1: Register each datatype's name as a type alias
         // so that constructor types can reference it (including
-        // self-references and mutual references).
+        // self-references and mutual references). Publish the arity
+        // to `user_datatype_arities` so that `(t1, …, tn) name` in a
+        // later annotation is arity-checked. A redeclaration with a
+        // new arity overwrites the previous entry.
         for db in datatype_binds {
             let type_var_types: Vec<Type> = (0..db.type_vars.len())
                 .map(|i| Type::Variable(TypeVariable::new(i)))
                 .collect();
             let data_type = Type::Data(db.name.clone(), type_var_types);
             self.type_aliases.insert(db.name.clone(), data_type);
+            self.user_datatype_arities
+                .insert(db.name.clone(), db.type_vars.len());
         }
 
         // Phase 2: For each datatype, process constructors and
@@ -1393,6 +1463,9 @@ impl TypeResolver {
                 //   nullary  → datatype  (e.g. Empty : 'a tree)
                 //   with arg → Fn(arg_type, datatype)
                 let con_type = if let Some(ast_type) = &con.type_ {
+                    // Surface composite/arity errors that would
+                    // otherwise be swallowed by the unwrap_or below.
+                    self.validate_ast_type(ast_type);
                     let arg_core = ast_type_to_core_type_with_vars(
                         ast_type,
                         &db.type_vars,
@@ -3618,21 +3691,15 @@ impl TypeResolver {
             "bag" => Some(Box::new(Type::Bag(Box::new(Type::Primitive(
                 PrimitiveType::Unit,
             ))))),
-            "option" => {
-                // Option of any element type; dispatch keys on the
-                // "option" Data name.
-                Some(Box::new(Type::Data(
-                    "option".to_string(),
-                    vec![Type::Primitive(PrimitiveType::Unit)],
-                )))
-            }
-            "range" | "continuous_set" | "discrete_set" => {
-                // postfix_dispatch only keys on the data-type name;
-                // the element-type slot is filled with a placeholder.
-                Some(Box::new(Type::Data(
-                    op_name.clone(),
-                    vec![Type::Primitive(PrimitiveType::Unit)],
-                )))
+            s if let Some(arity) = library::builtin_type_arity(s) => {
+                // Any other built-in named type (`option`, `range`,
+                // `continuous_set`, …): postfix_dispatch only keys
+                // on the data-type name, so the element-type slots
+                // are filled with placeholders.
+                let args = (0..arity)
+                    .map(|_| Type::Primitive(PrimitiveType::Unit))
+                    .collect();
+                Some(Box::new(Type::Data(op_name.to_string(), args)))
             }
             _ => None,
         }
@@ -5231,12 +5298,12 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
     match &ast_type.kind {
         TypeKind::Id(name) => PrimitiveType::parse_name(name)
             .map(Type::Primitive)
-            .or_else(|| match name.as_str() {
-                "order" | "option" | "list" | "bag" | "vector" | "variant"
-                | "time" | "date" | "weekday" | "month" | "exn" => {
-                    Some(Type::Data(name.clone(), vec![]))
-                }
-                _ => None,
+            .or_else(|| {
+                // Bare name of a built-in datatype/eqtype: build a
+                // placeholder `Type::Data` with no args; later
+                // unification fills in fresh type variables.
+                library::builtin_type_arity(name.as_str())
+                    .map(|_| Type::Data(name.clone(), vec![]))
             }),
         TypeKind::Tuple(types) => {
             let cores: Vec<Type> =
@@ -5363,6 +5430,36 @@ impl<'a> TypeToTermConverter<'a> {
                         let arg2 = self.type_term(&arg, subst, &v2);
                         args2.push(arg2);
                     }
+                    // Arity check: if the type constructor is known
+                    // (built-in or previously declared), reject mismatched
+                    // applications. Without this, e.g. `(bool, int) list`
+                    // either panics in the unifier or silently drops the
+                    // extra arg.
+                    let expected_opt =
+                        self.type_resolver.arity_of_type_ctor(name.as_str());
+                    if let Some(expected) = expected_opt
+                        && expected != terms.len()
+                    {
+                        let actual = terms.len();
+                        self.type_resolver.field_errors.borrow_mut().push((
+                            format!(
+                                "type constructor {} given {} argument{}, \
+                                 wants {}",
+                                name,
+                                actual,
+                                if actual == 1 { "" } else { "s" },
+                                expected,
+                            ),
+                            type_node.span.clone(),
+                        ));
+                        // Bind to a fresh variable so resolution can
+                        // continue and the error is reported.
+                        return self.type_resolver.reg_type(
+                            &type_node.kind,
+                            &type_node.span,
+                            &v,
+                        );
+                    }
                     let op = self
                         .type_resolver
                         .unifier
@@ -5374,6 +5471,25 @@ impl<'a> TypeToTermConverter<'a> {
                 } else {
                     panic!("{:?}", type_node.kind)
                 }
+            }
+            TypeKind::Composite(_) => {
+                // `(t1, ..., tn)` is only valid as the argument list of
+                // a parameterized type, e.g. `(int, string) either`.
+                // It is not valid by itself: a tuple type must be
+                // written `t1 * ... * tn`, e.g. `int * string`.
+                self.type_resolver.field_errors.borrow_mut().push((
+                    "tuple types must be written 't1 * ... * tn', \
+                     not '(t1, ..., tn)'"
+                        .to_string(),
+                    type_node.span.clone(),
+                ));
+                // Bind to a fresh variable so resolution can continue
+                // and the error is reported.
+                self.type_resolver.reg_type(
+                    &type_node.kind,
+                    &type_node.span,
+                    &v,
+                )
             }
             TypeKind::Expression(expr) => {
                 // `typeof expr` — the type of this annotation is the type

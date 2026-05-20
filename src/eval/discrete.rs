@@ -31,10 +31,12 @@
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::char::Char;
 use crate::eval::order::Order;
-use crate::eval::val::{self, Val};
+use crate::eval::val;
+use crate::eval::val::Val;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
+use val::DESCENDING_DESC;
 
 /// Represents a discrete ordered type: each value (except the max) has
 /// a unique successor. Analogous to Guava's `DiscreteDomain`.
@@ -218,31 +220,31 @@ pub struct DescendingDiscrete {
 impl Discrete for DescendingDiscrete {
     fn next(&self, v: &Val) -> Option<Val> {
         let inner_val = match v {
-            Val::Constructor(val::DESC_ORDINAL, inner) => inner.as_ref(),
+            Val::Constructor(DESCENDING_DESC, inner) => inner.as_ref(),
             _ => panic!("DescendingDiscrete::next: expected DESC value"),
         };
         self.inner
             .prev(inner_val)
-            .map(|x| Val::Constructor(val::DESC_ORDINAL, Box::new(x)))
+            .map(|x| Val::Constructor(DESCENDING_DESC, Box::new(x)))
     }
     fn prev(&self, v: &Val) -> Option<Val> {
         let inner_val = match v {
-            Val::Constructor(val::DESC_ORDINAL, inner) => inner.as_ref(),
+            Val::Constructor(DESCENDING_DESC, inner) => inner.as_ref(),
             _ => panic!("DescendingDiscrete::prev: expected DESC value"),
         };
         self.inner
             .next(inner_val)
-            .map(|x| Val::Constructor(val::DESC_ORDINAL, Box::new(x)))
+            .map(|x| Val::Constructor(DESCENDING_DESC, Box::new(x)))
     }
     fn min_value(&self) -> Option<Val> {
         self.inner
             .max_value()
-            .map(|x| Val::Constructor(val::DESC_ORDINAL, Box::new(x)))
+            .map(|x| Val::Constructor(DESCENDING_DESC, Box::new(x)))
     }
     fn max_value(&self) -> Option<Val> {
         self.inner
             .min_value()
-            .map(|x| Val::Constructor(val::DESC_ORDINAL, Box::new(x)))
+            .map(|x| Val::Constructor(DESCENDING_DESC, Box::new(x)))
     }
 }
 
@@ -613,8 +615,8 @@ mod tests {
         let d = DescendingDiscrete {
             inner: Arc::new(IntDiscrete),
         };
-        let desc_3 = Val::Constructor(val::DESC_ORDINAL, Box::new(Val::Int(3)));
-        let desc_2 = Val::Constructor(val::DESC_ORDINAL, Box::new(Val::Int(2)));
+        let desc_3 = Val::Constructor(DESCENDING_DESC, Box::new(Val::Int(3)));
+        let desc_2 = Val::Constructor(DESCENDING_DESC, Box::new(Val::Int(2)));
         // next(DESC 3) = DESC 2 (reversed).
         assert_eq!(d.next(&desc_3), Some(desc_2));
     }

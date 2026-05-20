@@ -22,10 +22,12 @@
 //! sort query results.
 
 use crate::compile::types::Type;
-use crate::eval::val::{self, Val};
+use crate::eval::val;
+use crate::eval::val::Val;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
+use val::DESCENDING_DESC;
 
 /// A trait for comparing two values.
 ///
@@ -242,11 +244,11 @@ impl Comparator for ReverseComparator {
     fn compare(&self, a: &Val, b: &Val) -> Ordering {
         // Unwrap DESC constructor wrappers, then reverse comparison.
         let a_inner = match a {
-            Val::Constructor(val::DESC_ORDINAL, v) => v.as_ref(),
+            Val::Constructor(DESCENDING_DESC, v) => v.as_ref(),
             _ => a,
         };
         let b_inner = match b {
-            Val::Constructor(val::DESC_ORDINAL, v) => v.as_ref(),
+            Val::Constructor(DESCENDING_DESC, v) => v.as_ref(),
             _ => b,
         };
         self.inner.compare(b_inner, a_inner)

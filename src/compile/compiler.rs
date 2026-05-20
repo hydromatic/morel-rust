@@ -19,7 +19,7 @@ use crate::compile::core::{
     DatatypeBind, Decl, Expr, Match, Pat, PatField, Step, StepEnv, StepKind,
     TypeBind, ValBind,
 };
-use crate::compile::library::{BuiltInExn, BuiltInFunction, name_to_rec};
+use crate::compile::library::{self, BuiltInExn, BuiltInFunction, name_to_rec};
 use crate::compile::pretty::Pretty;
 use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, Id};
@@ -40,9 +40,11 @@ use crate::shell::Shell;
 use crate::shell::config::Config as ShellConfig;
 use crate::shell::main::{Environment, MorelError};
 use crate::shell::prop::Prop;
+use library::BuiltInDatatype;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 /// Compiles a declaration to code that can be evaluated.
 ///
@@ -104,14 +106,27 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    /// Looks up the ordinal (0-based position) of a constructor within its
-    /// datatype declaration. Returns `None` for built-in types.
-    fn constructor_ordinal(&self, type_: &Type, name: &str) -> Option<usize> {
-        if let Type::Data(datatype_name, _) = type_
-            && let Some(constructors) =
+    /// Looks up the runtime tag a constructor stores in
+    /// `Val::Constructor`. For user-declared datatypes this is the
+    /// 0-based position within the datatype's constructor list; for
+    /// built-in datatypes (`weekday`, `month`, `range`, `exn`, …)
+    /// it's the matching `BuiltInFunction`'s enum discriminant, which
+    /// is unique across all built-in constructors. Returns `None`
+    /// for unknown types.
+    fn constructor_tag(&self, type_: &Type, name: &str) -> Option<usize> {
+        if let Type::Data(datatype_name, _) = type_ {
+            if BuiltInDatatype::from_name(datatype_name).is_some() {
+                return BuiltInFunction::iter().find_map(|f| {
+                    (f.datatype() == Some(datatype_name.as_str())
+                        && f.name() == name)
+                        .then(|| f.runtime_tag())
+                });
+            }
+            if let Some(constructors) =
                 self.type_map.datatype_constructors.get(datatype_name)
-        {
-            return constructors.iter().position(|c| c == name);
+            {
+                return constructors.iter().position(|c| c == name);
+            }
         }
         None
     }
@@ -527,8 +542,8 @@ impl<'a> Compiler<'a> {
             }
             Pat::Constructor(type_, name, p) => {
                 let code = p.clone().map(|p2| self.compile_pat(cx, &p2));
-                let ordinal = self.constructor_ordinal(type_, name);
-                Code::new_bind_constructor(type_, name, ordinal, &code)
+                let tag = self.constructor_tag(type_, name);
+                Code::new_bind_constructor(type_, name, tag, &code)
             }
             Pat::Identifier(_, name) => {
                 let slot = cx.frame_def.var_index(name);
@@ -2453,15 +2468,17 @@ impl Action for DatatypeDeclAction {
             cons.join(" | ")
         )));
 
-        // Register each constructor as a runtime binding.
-        for (ordinal, con) in db.constructors.iter().enumerate() {
+        // Register each constructor as a runtime binding. The
+        // user-defined tag is the constructor's 0-based position
+        // within the datatype declaration.
+        for (tag, con) in db.constructors.iter().enumerate() {
             let val = if con.type_.is_some() {
                 // Value-carrying: a Code that wraps arg in
-                // Val::Constructor(ordinal, arg).
-                Val::Code(Arc::new(Code::ConstructorWrap(ordinal)))
+                // Val::Constructor(tag, arg).
+                Val::Code(Arc::new(Code::ConstructorWrap(tag)))
             } else {
                 // Nullary: just the tagged value.
-                Val::Constructor(ordinal, Box::new(Val::Unit))
+                Val::Constructor(tag, Box::new(Val::Unit))
             };
             r.emit_effect(Effect::AddBinding(Binding::of_name_value(
                 &con.name,

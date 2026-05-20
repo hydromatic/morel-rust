@@ -26,7 +26,6 @@ use crate::unify::unifier::{Term, Var};
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
-use strum::EnumProperty;
 
 /// What kind of value is bound?
 #[derive(Clone, Debug)]
@@ -118,13 +117,11 @@ impl TypeEnv for FunTypeEnv {
                 BuiltIn::Fn(f) => {
                     if let Some((t, _)) = LIBRARY.fn_map.get(&f) {
                         let term = tr.type_to_term(t);
-                        return Some(
-                            if f.get_bool("constructor").unwrap_or(false) {
-                                BindType::Constructor(Term::Variable(term))
-                            } else {
-                                BindType::Val(Term::Variable(term))
-                            },
-                        );
+                        return Some(if f.is_constructor() {
+                            BindType::Constructor(Term::Variable(term))
+                        } else {
+                            BindType::Val(Term::Variable(term))
+                        });
                     }
                 }
                 BuiltIn::Record(r) => {

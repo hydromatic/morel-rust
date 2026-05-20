@@ -2314,19 +2314,17 @@ fn substitute(t: &Type, subst: &HashMap<usize, Type>) -> Type {
             // every datatype; normalise the ones the pretty printer
             // expects as `Type::Data` so that postfix call results
             // render the same as their prefix counterparts.
-            match n.as_str() {
-                "bag" if new_args.len() == 1 => {
-                    Type::Bag(Box::new(new_args.into_iter().next().unwrap()))
-                }
-                "list" if new_args.len() == 1 => {
-                    Type::List(Box::new(new_args.into_iter().next().unwrap()))
-                }
-                "continuous_set" | "date" | "discrete_set" | "exn"
-                | "month" | "option" | "order" | "range" | "time"
-                | "variant" | "vector" | "weekday" => {
-                    Type::Data(n.clone(), new_args)
-                }
-                _ => Type::Named(new_args, n.clone()),
+            // `list` and `bag` have dedicated `Type` variants; every
+            // other built-in named type (entries in `BuiltInDatatype`
+            // and `BuiltInEqtype`) lowers to `Type::Data`.
+            if n == "bag" && new_args.len() == 1 {
+                Type::Bag(Box::new(new_args.into_iter().next().unwrap()))
+            } else if n == "list" && new_args.len() == 1 {
+                Type::List(Box::new(new_args.into_iter().next().unwrap()))
+            } else if library::builtin_type_arity(n.as_str()).is_some() {
+                Type::Data(n.clone(), new_args)
+            } else {
+                Type::Named(new_args, n.clone())
             }
         }
         Type::Tuple(fs) => {

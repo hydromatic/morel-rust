@@ -30,6 +30,7 @@
 //! receiver type at the right position requires no changes here —
 //! the new function appears in the dispatch table automatically.
 
+use crate::compile::library;
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{PrimitiveType, Type};
 use std::collections::{HashMap, HashSet};
@@ -72,19 +73,10 @@ fn type_recv_key(t: &Type) -> Option<&'static str> {
         Type::Bag(_) => Some("bag"),
         // The type parser canonicalises `'a list` to `Type::List` and
         // `'a bag` to `Type::Named(_, "bag")` — accept both spellings,
-        // and similarly for the other built-in datatypes.
-        Type::Named(_, name) | Type::Data(name, _) => match name.as_str() {
-            "bag" => Some("bag"),
-            "continuous_set" => Some("continuous_set"),
-            "date" => Some("date"),
-            "discrete_set" => Some("discrete_set"),
-            "list" => Some("list"),
-            "option" => Some("option"),
-            "range" => Some("range"),
-            "time" => Some("time"),
-            "vector" => Some("vector"),
-            _ => None,
-        },
+        // and similarly for every other built-in datatype/eqtype.
+        Type::Named(_, name) | Type::Data(name, _) => {
+            library::BuiltInType::from_name(name).map(|t| t.name())
+        }
         _ => None,
     }
 }

@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library;
 use crate::compile::types::{PrimitiveType, Type, TypeVariable};
 use crate::syntax::ast::{Type as AstType, TypeKind, TypeScheme};
 use crate::syntax::parser;
@@ -110,25 +111,24 @@ impl TypeBuilder {
                     args.len()
                 };
                 if let TypeKind::Id(name) = &base_type.kind {
+                    // `list` and `bag` have dedicated `Type` variants
+                    // (`Type::List` / `Type::Bag`), so handle them
+                    // ahead of the generic `Type::Data` path.
                     if name == "list" && arity == 1 {
                         let arg =
                             arg_types.into_iter().next().ok_or_else(|| {
                                 "list type application with no arg".to_string()
                             })?;
                         Type::List(Box::new(arg))
-                    } else if name == "option" && arity == 1
-                        || name == "either" && arity == 2
-                        || name == "descending" && arity == 1
-                        || name == "order" && arity == 0
-                        || name == "range" && arity == 1
-                        || name == "continuous_set" && arity == 1
-                        || name == "discrete_set" && arity == 1
-                        || name == "variant" && args.is_empty()
-                        || name == "time" && args.is_empty()
-                        || name == "date" && args.is_empty()
-                        || name == "weekday" && args.is_empty()
-                        || name == "month" && args.is_empty()
-                        || name == "exn" && args.is_empty()
+                    } else if name == "bag" && arity == 1 {
+                        let arg =
+                            arg_types.into_iter().next().ok_or_else(|| {
+                                "bag type application with no arg".to_string()
+                            })?;
+                        Type::Bag(Box::new(arg))
+                    } else if let Some(expected) =
+                        library::builtin_type_arity(name)
+                        && expected == arity
                     {
                         Type::Data(name.clone(), arg_types)
                     } else {
