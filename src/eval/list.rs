@@ -22,7 +22,6 @@ use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::main::MorelError;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 
 /// Support for the `list` built-in type and the `List` structure.
 pub struct List;
@@ -122,22 +121,42 @@ impl List {
         }
     }
 
-    /// Returns the elements that are in list1 but not in list2.
+    /// Returns the elements that are in list1 but not in the union of
+    /// list2..listN, counting multiplicities. Each occurrence in list2..N
+    /// removes one occurrence from list1; surplus occurrences are kept.
+    /// Order of list1 is preserved. (hydromatic/morel#321)
     pub(crate) fn except(lists: &[Val]) -> Vec<Val> {
         match lists.len() {
             0 => Vec::new(),
             1 => lists[0].expect_list().to_vec(),
             _ => {
-                let hd_list = lists[0].expect_list();
-                let mut tl_sets: Vec<HashSet<&Val>> = Vec::new();
+                let head = lists[0].expect_list();
+                // Walk the head once, tracking a per-value "knockouts
+                // remaining" count seeded from the union of the tail
+                // lists. O(n*m) over total length; matches morel-java.
+                let mut to_remove: Vec<(&Val, usize)> = Vec::new();
                 for list in &lists[1..] {
-                    tl_sets.push(HashSet::from_iter(list.expect_list()));
+                    for v in list.expect_list() {
+                        if let Some(entry) =
+                            to_remove.iter_mut().find(|(k, _)| *k == v)
+                        {
+                            entry.1 += 1;
+                        } else {
+                            to_remove.push((v, 1));
+                        }
+                    }
                 }
-                hd_list
-                    .iter()
-                    .filter(|v| !tl_sets.iter().any(|set| set.contains(v)))
-                    .cloned()
-                    .collect()
+                let mut result = Vec::with_capacity(head.len());
+                for v in head {
+                    if let Some(entry) =
+                        to_remove.iter_mut().find(|(k, c)| *c > 0 && *k == v)
+                    {
+                        entry.1 -= 1;
+                        continue;
+                    }
+                    result.push(v.clone());
+                }
+                result
             }
         }
     }
@@ -253,21 +272,53 @@ impl List {
     }
 
     /// Returns the list of elements that are in all lists.
+    /// Returns the multiset intersection of all lists: the multiplicity
+    /// of each value is the minimum of its multiplicity across all input
+    /// lists. The result is in the order of the first list, taking the
+    /// first `min(counts)` occurrences. (hydromatic/morel#321)
     pub(crate) fn intersect(lists: &[Val]) -> Vec<Val> {
         match lists.len() {
             0 => Vec::new(),
             1 => lists[0].expect_list().to_vec(),
             _ => {
-                let hd_list = lists[0].expect_list();
-                let mut tl_sets: Vec<HashSet<&Val>> = Vec::new();
-                for list in &lists[1..] {
-                    tl_sets.push(HashSet::from_iter(list.expect_list()));
+                let head = lists[0].expect_list();
+                // For each distinct value v in head, compute the min
+                // count across lists[1..]; that's the number of times
+                // v survives. Walk head once, taking the first
+                // min-count occurrences.
+                let mut quotas: Vec<(&Val, usize)> = Vec::new();
+                for v in head {
+                    if quotas.iter().any(|(k, _)| *k == v) {
+                        continue;
+                    }
+                    let mut min_count = usize::MAX;
+                    for list in &lists[1..] {
+                        let count = list
+                            .expect_list()
+                            .iter()
+                            .filter(|x| *x == v)
+                            .count();
+                        if count < min_count {
+                            min_count = count;
+                        }
+                        if min_count == 0 {
+                            break;
+                        }
+                    }
+                    if min_count > 0 {
+                        quotas.push((v, min_count));
+                    }
                 }
-                hd_list
-                    .iter()
-                    .filter(|v| tl_sets.iter().all(|set| set.contains(v)))
-                    .cloned()
-                    .collect()
+                let mut result = Vec::with_capacity(head.len());
+                for v in head {
+                    if let Some(entry) =
+                        quotas.iter_mut().find(|(k, c)| *c > 0 && *k == v)
+                    {
+                        entry.1 -= 1;
+                        result.push(v.clone());
+                    }
+                }
+                result
             }
         }
     }
