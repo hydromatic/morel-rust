@@ -197,6 +197,11 @@ fn idempotent() {
 }
 
 #[test]
+fn it() {
+    run_script("tests/script/it.smli");
+}
+
+#[test]
 fn logic() {
     run_script("tests/script/logic.smli");
 }
