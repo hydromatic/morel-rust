@@ -67,6 +67,11 @@ pub enum Expr {
     Let(Box<Type>, Vec<Decl>, Box<Expr>),
     Fn(Box<Type>, Vec<Match>, Span),
 
+    /// `raise e` — evaluates `e` to an `exn` value, then throws.
+    /// `type` is the type of the surrounding context (since `raise`
+    /// never returns).
+    Raise(Box<Type>, Box<Expr>, Span),
+
     // Constructors for data structures
     Tuple(Box<Type>, Vec<Expr>), // e.g. `(x, y, z)`
     List(Box<Type>, Vec<Expr>),  // e.g. `[x, y, z]`
@@ -132,6 +137,7 @@ impl Expr {
             Expr::List(t, _) => t.clone(),
             Expr::Literal(t, _) => t.clone(),
             Expr::Ordinal(t) => t.clone(),
+            Expr::Raise(t, _, _) => t.clone(),
             Expr::RecordSelector(t, _) => t.clone(),
             Expr::Tuple(t, _) => t.clone(),
         }
@@ -222,6 +228,7 @@ impl Display for Expr {
             }
             Expr::Literal(_, lit) => write!(f, "{}", lit),
             Expr::Ordinal(_) => write!(f, "ordinal"),
+            Expr::Raise(_, e, _) => write!(f, "raise {}", e),
             Expr::RecordSelector(_, slot) => write!(f, "#{}", slot),
             Expr::Tuple(t, elems) => {
                 if let Type::Record(_, type_fields) = t.as_ref() {

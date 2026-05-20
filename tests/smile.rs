@@ -167,6 +167,11 @@ fn dummy() {
 }
 
 #[test]
+fn exception() {
+    run_script("tests/script/exception.smli");
+}
+
+#[test]
 fn file() {
     run_script("tests/script/file.smli");
 }

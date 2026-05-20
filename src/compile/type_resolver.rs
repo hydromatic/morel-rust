@@ -2020,6 +2020,16 @@ impl TypeResolver {
                 let x = ExprKind::Plus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Raise(e) => {
+                // `raise e` expects `e : exn` and itself can have any type
+                // (since it never returns).
+                let v_exn = self.variable();
+                let exn_type = Type::Data("exn".to_string(), vec![]);
+                self.type_term(&exn_type, &Subst::Empty, &v_exn);
+                let e2 = self.deduce_expr_type(env, e, &v_exn)?;
+                let x = ExprKind::Raise(Box::new(e2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::Record(with_expr, labeled_expr_list) => {
                 let mut field_vars = Vec::new(); // never read
                 let (with_expr2, labeled_expr_list2) =
@@ -5223,7 +5233,7 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
             .map(Type::Primitive)
             .or_else(|| match name.as_str() {
                 "order" | "option" | "list" | "bag" | "vector" | "variant"
-                | "time" | "date" | "weekday" | "month" => {
+                | "time" | "date" | "weekday" | "month" | "exn" => {
                     Some(Type::Data(name.clone(), vec![]))
                 }
                 _ => None,

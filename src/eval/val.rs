@@ -80,6 +80,23 @@ pub const MONTH_OCT_ORDINAL: usize = usize::MAX - 49;
 pub const MONTH_NOV_ORDINAL: usize = usize::MAX - 50;
 pub const MONTH_DEC_ORDINAL: usize = usize::MAX - 51;
 
+// Ordinals for the constructors of the built-in `exn` datatype. The
+// `Fail` constructor carries a `string` payload; the others carry
+// `Val::Unit`.
+pub const EXN_BIND_ORDINAL: usize = usize::MAX - 60;
+pub const EXN_CHR_ORDINAL: usize = usize::MAX - 61;
+pub const EXN_DIV_ORDINAL: usize = usize::MAX - 62;
+pub const EXN_DOMAIN_ORDINAL: usize = usize::MAX - 63;
+pub const EXN_EMPTY_ORDINAL: usize = usize::MAX - 64;
+pub const EXN_FAIL_ORDINAL: usize = usize::MAX - 65;
+pub const EXN_MATCH_ORDINAL: usize = usize::MAX - 66;
+pub const EXN_OVERFLOW_ORDINAL: usize = usize::MAX - 67;
+pub const EXN_SIZE_ORDINAL: usize = usize::MAX - 68;
+pub const EXN_SPAN_ORDINAL: usize = usize::MAX - 69;
+pub const EXN_SUBSCRIPT_ORDINAL: usize = usize::MAX - 70;
+pub const EXN_UNEQUAL_LENGTHS_ORDINAL: usize = usize::MAX - 71;
+pub const EXN_UNORDERED_ORDINAL: usize = usize::MAX - 72;
+
 /// Runtime value.
 ///
 /// The [Val::Typed], [Val::Named], [Val::Labeled], and [Val::Type] variants are

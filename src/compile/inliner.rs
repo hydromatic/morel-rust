@@ -217,6 +217,9 @@ impl Analyzer {
                     self.visit_step(&step.kind);
                 }
             }
+            Expr::Raise(_, e, _) => {
+                self.visit_expr(e);
+            }
             Expr::Extent(_, _) => {}
         }
     }
@@ -430,6 +433,7 @@ fn references_var(expr: &Expr, name: &str) -> bool {
             }
             false
         }
+        Expr::Raise(_, e, _) => references_var(e, name),
         Expr::Extent(_, _) => false,
     }
 }
@@ -870,6 +874,11 @@ impl Expr {
             ),
             Expr::Literal(_t, _v) => self.clone(),
             Expr::Ordinal(_) => self.clone(),
+            Expr::Raise(t, e, span) => Expr::Raise(
+                t.clone(),
+                Box::new(x.transform_expr(env, e)),
+                span.clone(),
+            ),
             Expr::RecordSelector(_t, _) => self.clone(),
             Expr::Tuple(t, expr_list) => Expr::Tuple(
                 t.clone(),

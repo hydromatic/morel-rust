@@ -266,6 +266,7 @@ pub enum ExprKind<SubExpr> {
 
     // Control structures
     If(Box<SubExpr>, Box<SubExpr>, Box<SubExpr>),
+    Raise(Box<SubExpr>),
     Case(Box<SubExpr>, Vec<Match>),
     Let(Vec<Decl>, Box<SubExpr>),
     Fn(Vec<Match>),
@@ -383,6 +384,7 @@ impl ExprKind<Expr> {
             ExprKind::OrElse(..) => Op::ORELSE,
             ExprKind::Ordinal => Op::ATOM,
             ExprKind::Plus(..) => Op::PLUS,
+            ExprKind::Raise(..) => Op::LOW_EXPR,
             ExprKind::Record(..) => Op::ATOM,
             ExprKind::RecordSelector(..) => Op::ATOM,
             ExprKind::Times(..) => Op::TIMES_OP,
@@ -511,6 +513,7 @@ impl ExprKind<Expr> {
             }
             ExprKind::Ordinal => f.write_str("ordinal"),
             ExprKind::Plus(a0, a1) => infix(f, a0, Op::PLUS, a1, left, right),
+            ExprKind::Raise(e) => write!(f, "raise {}", e),
             ExprKind::Record(base, fields) => {
                 f.write_str("{")?;
                 if let Some(b) = base {

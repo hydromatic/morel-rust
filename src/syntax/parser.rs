@@ -600,6 +600,7 @@ impl MorelParser {
             [list_expr(e)] => e,
             [record_expr(e)] => e,
             [if_expr(e)] => e,
+            [raise_expr(e)] => e,
             [case_expr(e)] => e,
             [let_expr(e)] => e,
             [fn_expr(e)] => e,
@@ -651,6 +652,14 @@ impl MorelParser {
         Ok(match_nodes!(input.children();
             [_case(_), expr(e), _of(_), match_list(arms)] => {
                 ExprKind::Case(Box::new(e), arms).wrap(input)
+            },
+        ))
+    }
+
+    fn raise_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [_raise(_), expr(e)] => {
+                ExprKind::Raise(Box::new(e)).wrap(input)
             },
         ))
     }
@@ -1808,6 +1817,10 @@ impl MorelParser {
     }
 
     fn _over(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _raise(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 

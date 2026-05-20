@@ -105,6 +105,11 @@ fn visit_expr(
         ),
         Expr::Literal(t, val) => Expr::Literal(t.clone(), val.clone()),
         Expr::Ordinal(t) => Expr::Ordinal(t.clone()),
+        Expr::Raise(t, e, span) => Expr::Raise(
+            t.clone(),
+            Box::new(visit_expr(e, map, shadow)),
+            span.clone(),
+        ),
         Expr::RecordSelector(t, slot) => Expr::RecordSelector(t.clone(), *slot),
         Expr::Tuple(t, items) => Expr::Tuple(
             t.clone(),

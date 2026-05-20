@@ -1374,6 +1374,7 @@ fn body_has_extent(expr: &Expr) -> bool {
         Expr::List(_, items) | Expr::Tuple(_, items) => {
             items.iter().any(body_has_extent)
         }
+        Expr::Raise(_, e, _) => body_has_extent(e),
         Expr::Current(_)
         | Expr::Identifier(_, _)
         | Expr::Literal(_, _)
@@ -1628,6 +1629,11 @@ fn simplify_tuple_projections(expr: &Expr) -> Expr {
         Expr::Tuple(t, items) => Expr::Tuple(
             t.clone(),
             items.iter().map(simplify_tuple_projections).collect(),
+        ),
+        Expr::Raise(t, e, span) => Expr::Raise(
+            t.clone(),
+            Box::new(simplify_tuple_projections(e)),
+            span.clone(),
         ),
         Expr::Current(_)
         | Expr::Extent(_, _)

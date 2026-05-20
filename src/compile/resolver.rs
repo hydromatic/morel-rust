@@ -933,6 +933,9 @@ impl<'a> Resolver<'a> {
                     _ => self.call2(t, BuiltInFunction::GPlus, &span, a0, a1),
                 }
             }
+            ExprKind::Raise(e) => {
+                CoreExpr::Raise(t, Box::new(self.resolve_expr(e)), span.clone())
+            }
             ExprKind::Record(with_base, fields) => {
                 match with_base {
                     None => {
@@ -2318,9 +2321,11 @@ fn substitute(t: &Type, subst: &HashMap<usize, Type>) -> Type {
                 "list" if new_args.len() == 1 => {
                     Type::List(Box::new(new_args.into_iter().next().unwrap()))
                 }
-                "continuous_set" | "date" | "discrete_set" | "month"
-                | "option" | "order" | "range" | "time" | "variant"
-                | "vector" | "weekday" => Type::Data(n.clone(), new_args),
+                "continuous_set" | "date" | "discrete_set" | "exn"
+                | "month" | "option" | "order" | "range" | "time"
+                | "variant" | "vector" | "weekday" => {
+                    Type::Data(n.clone(), new_args)
+                }
                 _ => Type::Named(new_args, n.clone()),
             }
         }

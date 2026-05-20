@@ -128,6 +128,7 @@ impl TypeBuilder {
                         || name == "date" && args.is_empty()
                         || name == "weekday" && args.is_empty()
                         || name == "month" && args.is_empty()
+                        || name == "exn" && args.is_empty()
                     {
                         Type::Data(name.clone(), arg_types)
                     } else {

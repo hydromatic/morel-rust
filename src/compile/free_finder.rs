@@ -100,6 +100,9 @@ fn visit_expr(
             }
         }
         Expr::Literal(_, _) | Expr::RecordSelector(_, _) => {}
+        Expr::Raise(_, e, _) => {
+            visit_expr(e, bound, out);
+        }
     }
 }
 

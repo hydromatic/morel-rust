@@ -286,6 +286,9 @@ impl Expr {
                 // can write to it before each row is processed.
                 collector.add_def(Binding::of_name("ordinal"));
             }
+            Expr::Raise(_, e, _) => {
+                e.collect_vars(collector);
+            }
             Expr::RecordSelector(_, _) => {
                 // no variables
             }

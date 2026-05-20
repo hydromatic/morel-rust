@@ -63,6 +63,7 @@ keywords = {
   | _ordinal
   | _orelse
   | _over
+  | _raise
   | _rec
   | _require
   | _sig
@@ -121,6 +122,7 @@ _order = @{ "order" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _ordinal = @{ "ordinal" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _orelse = @{ "orelse" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _over = @{ "over" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_raise = @{ "raise" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _rec = @{ "rec" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _require = @{ "require" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _sig = @{ "sig" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -270,6 +272,7 @@ atom = {
   | list_expr
   | record_expr
   | if_expr
+  | raise_expr
   | case_expr
   | let_expr
   | fn_expr
@@ -317,6 +320,7 @@ labeled_expr = {
 }
 
 if_expr = { _if ~ expr ~ _then ~ expr ~ _else ~ expr }
+raise_expr = { _raise ~ expr }
 
 case_expr = { _case ~ expr ~ _of ~ match_list }
 fn_expr = { _fn ~ match_list }

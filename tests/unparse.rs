@@ -195,11 +195,12 @@ fn test_each_expr_kind() {
     // Type annotation: `:`.
     k.check_kind("1 : int");
 
-    // Control flow: if, case, let, fn.
+    // Control flow: if, case, let, fn, raise.
     k.check_kind("if x then 1 else 2");
     k.check_kind("case x of 1 => \"a\" | _ => \"b\"");
     k.check_kind("let val x = 1 in x end");
     k.check_kind("fn x => x");
+    k.check_kind("raise Bind");
     k.check_kind("if x > 0 then y + 1 else y - 1");
     k.check_kind("let val x = 1 in x + 2 end");
     k.check_kind("fn x => x + 1");

@@ -601,7 +601,9 @@ fn visit_expr(
         | ExprKind::Ordinal
         | ExprKind::Elements => {}
 
-        ExprKind::Negate(e) | ExprKind::Annotated(e, _) => {
+        ExprKind::Negate(e)
+        | ExprKind::Annotated(e, _)
+        | ExprKind::Raise(e) => {
             visit_expr(e, type_map, warnings)?;
         }
 

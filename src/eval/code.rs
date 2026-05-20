@@ -308,6 +308,11 @@ pub enum Code {
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
     Nth(Box<Type>, usize),
+    /// `Raise(exp_code, span)` — evaluates `exp_code` to a value of
+    /// type `exn`, then throws it as a runtime error. The span
+    /// points at the `raise` keyword's source location, used to
+    /// report the location of an uncaught exception.
+    Raise(Box<Code>, Span),
     /// `RaiseIllegalArgument(msg, span)` raises
     /// `MorelError::IllegalArgument` when evaluated. Baked into the
     /// `Code` tree by compile-time interceptors that detect invalid
@@ -723,6 +728,9 @@ impl Code {
             Code::Nth(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
+            Code::Raise(_, _) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
             Code::RaiseIllegalArgument(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeContains(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RangeCsOf(_, _) => *mode == EvalMode::EagerF0,
@@ -1056,6 +1064,11 @@ impl Code {
                 let v2 = code2.eval_f0(r, f)?;
                 let v3 = code3.eval_f0(r, f)?;
                 eager.apply(r, f, v0, v1, v2, v3, span.as_ref())
+            }
+            Code::Raise(exp_code, span) => {
+                let value = exp_code.eval_f0(r, f)?;
+                let (exn, payload) = exn_from_val(&value);
+                Err(MorelError::Runtime2(exn, payload, span.clone()))
             }
             Code::RaiseIllegalArgument(msg, span) => {
                 Err(MorelError::IllegalArgument(msg.clone(), span.clone()))
@@ -2199,6 +2212,18 @@ pub enum Eager0 {
     CharMaxChar,
     CharMaxOrd,
     CharMinChar,
+    ExnBind,
+    ExnChr,
+    ExnDiv,
+    ExnDomain,
+    ExnEmpty,
+    ExnMatch,
+    ExnOverflow,
+    ExnSize,
+    ExnSpan,
+    ExnSubscript,
+    ExnUnequalLengths,
+    ExnUnordered,
     IntMaxInt,
     IntMinInt,
     IntPrecision,
@@ -2255,6 +2280,45 @@ impl Eager0 {
             CharMaxChar => Val::Char(Char::MAX_CHAR),
             CharMaxOrd => Val::Int(Char::MAX_ORD),
             CharMinChar => Val::Char(Char::MIN_CHAR),
+            ExnBind => {
+                Val::Constructor(val::EXN_BIND_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnChr => {
+                Val::Constructor(val::EXN_CHR_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnDiv => {
+                Val::Constructor(val::EXN_DIV_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnDomain => {
+                Val::Constructor(val::EXN_DOMAIN_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnEmpty => {
+                Val::Constructor(val::EXN_EMPTY_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnMatch => {
+                Val::Constructor(val::EXN_MATCH_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnOverflow => {
+                Val::Constructor(val::EXN_OVERFLOW_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnSize => {
+                Val::Constructor(val::EXN_SIZE_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnSpan => {
+                Val::Constructor(val::EXN_SPAN_ORDINAL, Box::new(Val::Unit))
+            }
+            ExnSubscript => Val::Constructor(
+                val::EXN_SUBSCRIPT_ORDINAL,
+                Box::new(Val::Unit),
+            ),
+            ExnUnequalLengths => Val::Constructor(
+                val::EXN_UNEQUAL_LENGTHS_ORDINAL,
+                Box::new(Val::Unit),
+            ),
+            ExnUnordered => Val::Constructor(
+                val::EXN_UNORDERED_ORDINAL,
+                Box::new(Val::Unit),
+            ),
             IntMaxInt => Val::Some(Box::new(Val::Int(i32::MAX))),
             IntMinInt => Val::Some(Box::new(Val::Int(i32::MIN))),
             IntPrecision => Val::Some(Box::new(Val::Int(32))),
@@ -2738,6 +2802,7 @@ pub enum Eager1 {
     EitherIsRight,
     EitherPartition,
     EitherProj,
+    ExnFail,
     FnId,
     GeneralIgnore,
     IntFromInt,
@@ -2948,6 +3013,7 @@ impl Eager1 {
             EitherIsRight => Val::Bool(Either::is_right(&a0)),
             EitherPartition => Either::partition(a0.expect_list()),
             EitherProj => Either::proj(&a0),
+            ExnFail => Val::Constructor(val::EXN_FAIL_ORDINAL, Box::new(a0)),
             FnId => a0,
             GeneralIgnore => Val::Unit,
             IntFromInt => a0,
@@ -4416,6 +4482,19 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     EagerF2::EitherMapRight.implements(&mut b, EitherMapRight);
     Eager1::EitherPartition.implements(&mut b, EitherPartition);
     Eager1::EitherProj.implements(&mut b, EitherProj);
+    Eager0::ExnBind.implements(&mut b, ExnBind);
+    Eager0::ExnChr.implements(&mut b, ExnChr);
+    Eager0::ExnDiv.implements(&mut b, ExnDiv);
+    Eager0::ExnDomain.implements(&mut b, ExnDomain);
+    Eager0::ExnEmpty.implements(&mut b, ExnEmpty);
+    Eager1::ExnFail.implements(&mut b, ExnFail);
+    Eager0::ExnMatch.implements(&mut b, ExnMatch);
+    Eager0::ExnOverflow.implements(&mut b, ExnOverflow);
+    Eager0::ExnSize.implements(&mut b, ExnSize);
+    Eager0::ExnSpan.implements(&mut b, ExnSpan);
+    Eager0::ExnSubscript.implements(&mut b, ExnSubscript);
+    Eager0::ExnUnequalLengths.implements(&mut b, ExnUnequalLengths);
+    Eager0::ExnUnordered.implements(&mut b, ExnUnordered);
     EagerF2::FnApply.implements(&mut b, FnApply);
     Eager2::FnConst.implements(&mut b, FnConst);
     EagerF3::FnCurry.implements(&mut b, FnCurry);
@@ -4750,6 +4829,38 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
 fn is_datatype_constructor(f: BuiltInFunction, name: &str) -> bool {
     f.is_constructor()
         && name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Maps a runtime value of type `exn` to a [`BuiltInExn`] tag and an
+/// optional payload string. Used by [`Code::Raise`] to convert an
+/// `exn` value into a `MorelError::Runtime2`.
+fn exn_from_val(value: &Val) -> (BuiltInExn, Option<String>) {
+    if let Val::Constructor(ord, inner) = value {
+        let exn = match *ord {
+            val::EXN_BIND_ORDINAL => BuiltInExn::Bind,
+            val::EXN_CHR_ORDINAL => BuiltInExn::Chr,
+            val::EXN_DIV_ORDINAL => BuiltInExn::Div,
+            val::EXN_DOMAIN_ORDINAL => BuiltInExn::Domain,
+            val::EXN_EMPTY_ORDINAL => BuiltInExn::Empty,
+            val::EXN_FAIL_ORDINAL => {
+                let msg = match inner.as_ref() {
+                    Val::String(s) => Some(s.clone()),
+                    _ => None,
+                };
+                return (BuiltInExn::Fail, msg);
+            }
+            val::EXN_MATCH_ORDINAL => BuiltInExn::Match,
+            val::EXN_OVERFLOW_ORDINAL => BuiltInExn::Overflow,
+            val::EXN_SIZE_ORDINAL => BuiltInExn::Size,
+            val::EXN_SPAN_ORDINAL => BuiltInExn::Span,
+            val::EXN_SUBSCRIPT_ORDINAL => BuiltInExn::Subscript,
+            val::EXN_UNEQUAL_LENGTHS_ORDINAL => BuiltInExn::UnequalLengths,
+            val::EXN_UNORDERED_ORDINAL => BuiltInExn::Unordered,
+            _ => panic!("unknown exn ordinal: {}", ord),
+        };
+        return (exn, None);
+    }
+    panic!("not an exn value: {:?}", value)
 }
 
 impl LibBuilder {

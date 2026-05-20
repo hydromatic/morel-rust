@@ -811,6 +811,42 @@ impl Pretty {
             };
             return self.pretty_raw(buf, indent, line_end, depth, label);
         }
+        if name == "exn"
+            && let Val::Constructor(ord, inner) = value
+        {
+            let label = match *ord {
+                val::EXN_BIND_ORDINAL => "Bind",
+                val::EXN_CHR_ORDINAL => "Chr",
+                val::EXN_DIV_ORDINAL => "Div",
+                val::EXN_DOMAIN_ORDINAL => "Domain",
+                val::EXN_EMPTY_ORDINAL => "Empty",
+                val::EXN_FAIL_ORDINAL => "Fail",
+                val::EXN_MATCH_ORDINAL => "Match",
+                val::EXN_OVERFLOW_ORDINAL => "Overflow",
+                val::EXN_SIZE_ORDINAL => "Size",
+                val::EXN_SPAN_ORDINAL => "Span",
+                val::EXN_SUBSCRIPT_ORDINAL => "Subscript",
+                val::EXN_UNEQUAL_LENGTHS_ORDINAL => "UnequalLengths",
+                val::EXN_UNORDERED_ORDINAL => "Unordered",
+                _ => return Err(fmt::Error),
+            };
+            if *ord == val::EXN_FAIL_ORDINAL {
+                self.pretty_raw(buf, indent, line_end, depth, label)?;
+                buf.push(' ');
+                let string_type = Type::Primitive(PrimitiveType::String);
+                return self.pretty1(
+                    buf,
+                    indent,
+                    line_end,
+                    depth,
+                    &string_type,
+                    inner,
+                    0,
+                    0,
+                );
+            }
+            return self.pretty_raw(buf, indent, line_end, depth, label);
+        }
         if (name == "continuous_set" || name == "discrete_set")
             && let Val::Constructor(ordinal, inner) = value
             && (*ordinal == val::CONTINUOUS_SET_ORDINAL

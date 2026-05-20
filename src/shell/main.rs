@@ -165,6 +165,7 @@ fn expr_contains_reference(expr: &Expr, name: &str) -> bool {
             .iter()
             .any(|m| expr_contains_reference(&m.expr, name)),
         Expr::From(_, _) | Expr::Exists(_, _) | Expr::Forall(_, _) => false,
+        Expr::Raise(_, e, _) => expr_contains_reference(e, name),
         Expr::Extent(_, _) => false,
     }
 }
@@ -1437,6 +1438,11 @@ fn comment_depth(code: &str) -> i32 {
 pub enum MorelError {
     Runtime(BuiltInExn, Span),
 
+    /// Same as [`Self::Runtime`] but with a string payload (e.g. for
+    /// `Fail "boom"`). Rendered as
+    /// `uncaught exception Fail [Fail: boom]`.
+    Runtime2(BuiltInExn, Option<String>, Span),
+
     /// Surfaces a caller error with a custom message (e.g. "not a
     /// discrete type: real" raised by `Range.discreteSetOf`).
     /// Analogous to Java's `IllegalArgumentException`.
@@ -1457,6 +1463,17 @@ impl Display for MorelError {
                 write!(f, "uncaught exception {}", exn)?;
                 if let Some(explanation) = exn.explain() {
                     write!(f, " [{}]", explanation)?;
+                }
+                write!(f, "\n  raised at: {}", loc)
+            }
+            MorelError::Runtime2(exn, payload, loc) => {
+                // User-raised exceptions (via `raise`) don't show the
+                // built-in description: a programmer who writes
+                // `raise Bind` is reusing the exception value, not
+                // signalling the original cause.
+                write!(f, "uncaught exception {}", exn)?;
+                if let Some(msg) = payload {
+                    write!(f, " [{}: {}]", exn, msg)?;
                 }
                 write!(f, "\n  raised at: {}", loc)
             }

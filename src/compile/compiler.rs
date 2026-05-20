@@ -1482,6 +1482,10 @@ impl<'a> Compiler<'a> {
                 let slot = cx.frame_def.var_index("ordinal");
                 Code::new_get_local(&cx.frame_def, slot)
             }
+            Expr::Raise(_, e, span) => {
+                let e_code = self.compile_expr(cx, None, e);
+                Code::Raise(Box::new(e_code), span.clone())
+            }
             Expr::RecordSelector(t, slot) => {
                 let (record_type, _) = t.expect_fn();
                 Code::new_nth(record_type, *slot)

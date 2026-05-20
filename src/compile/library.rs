@@ -411,6 +411,61 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Either", name = "proj"))]
     #[strum(props(type = "forall 1 ('a,'a) either -> 'a"))]
     EitherProj,
+    // Built-in exceptions. They are constructors of the `exn`
+    // datatype and are bound globally (no `General.` qualifier
+    // needed) per the Standard ML basis library.
+    #[strum(props(p = "General", name = "Bind", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnBind,
+    #[strum(props(p = "General", name = "Chr", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnChr,
+    #[strum(props(p = "General", name = "Div", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnDiv,
+    #[strum(props(p = "General", name = "Domain", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnDomain,
+    #[strum(props(p = "List", name = "Empty"))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnEmpty,
+    #[strum(props(p = "General", name = "Fail", global = true))]
+    #[strum(props(type = "string -> exn"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnFail,
+    #[strum(props(p = "General", name = "Match", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnMatch,
+    #[strum(props(p = "General", name = "Overflow", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnOverflow,
+    #[strum(props(p = "General", name = "Size", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnSize,
+    #[strum(props(p = "General", name = "Span", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnSpan,
+    #[strum(props(p = "General", name = "Subscript", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnSubscript,
+    #[strum(props(p = "ListPair", name = "UnequalLengths"))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnUnequalLengths,
+    #[strum(props(p = "IEEEReal", name = "Unordered"))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor = true, datatype = "exn"))]
+    ExnUnordered,
     #[strum(props(p = "Fn", name = "apply"))]
     #[strum(props(type = "forall 2 ('a -> 'b) * 'a -> 'b"))]
     FnApply,
@@ -1597,6 +1652,8 @@ pub enum BuiltInExn {
     Domain,
     #[strum(props(p = "List"))]
     Empty,
+    #[strum(props(p = "General"))]
+    Fail,
     #[strum(props(p = "General", explain = "nonexhaustive match failure"))]
     Match,
     #[strum(props(p = "Option"))]
@@ -1605,6 +1662,8 @@ pub enum BuiltInExn {
     Overflow,
     #[strum(props(p = "General"))]
     Size,
+    #[strum(props(p = "General"))]
+    Span,
     #[strum(props(p = "General", explain = "subscript out of bounds"))]
     Subscript,
     #[strum(props(p = "Time"))]
