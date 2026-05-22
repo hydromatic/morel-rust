@@ -837,14 +837,7 @@ impl Code {
                         self_slots.push(i);
                         bound_vals.push(Val::Unit); // placeholder
                     } else {
-                        let v = if !f.has_def(frame_def) {
-                            bc.eval_f0(r, f)?
-                        } else {
-                            // Recursive re-entry: the captured values
-                            // are already in the current frame's
-                            // bound slots.
-                            f.vals[i].clone()
-                        };
+                        let v = bc.eval_f0(r, f)?;
                         // Upgrade any captured `Val::ClosureWeak` (a
                         // self-reference inside the enclosing
                         // recursive fn) to a strong `Val::Closure`,
@@ -1437,7 +1430,7 @@ impl Code {
                 // wrapped expression captures variables (e.g. a
                 // previously-defined `it`), the wrapper compiles to
                 // a CreateClosure rather than a plain Fn.
-                let values = capture_bound_vals(frame_def, bind_codes, r, f)?;
+                let values = capture_bound_vals(bind_codes, r, f)?;
                 Frame::create_bind_and_eval(
                     frame_def,
                     matches,
@@ -1605,45 +1598,6 @@ impl Code {
     }
 }
 
-/// Captures the bound values for a [`Code::CreateClosure`].
-///
-/// TODO(hydromatic/morel#151): when tail-call optimisation is
-/// propagated, the recursive-reentry shortcut below should be
-/// folded into the trampoline. With a trampoline loop, a
-/// recursive tail call to a let-bound closure would never
-/// re-enter `CreateClosure::eval_*` for the same closure — the
-/// loop would reuse the current frame in place. The
-/// `f.has_def(frame_def)` check here is also a shape-based
-/// approximation of closure identity (two distinct closures
-/// with identical frame shapes would be misclassified); a
-/// trampoline can carry an exact identity instead. Revisit when
-/// importing the morel-java tail-call work.
-///
-/// Normally we walk `bind_codes`, evaluating each one in the
-/// current frame to read the value the closure captures from its
-/// surrounding scope. This is correct when `CreateClosure` is
-/// reached from the scope that originally contained the closure
-/// (e.g. the first time `let val rec fact4 = ... in ... end`
-/// runs inside `baz4`).
-///
-/// However, when the closure is invoked **recursively from
-/// inside its own body**, control reaches `CreateClosure` again
-/// — once per recursive call. At that point the current frame
-/// is the closure's *own* frame, not the scope that originally
-/// constructed it. The `bind_codes` reference the *original*
-/// scope's frame layout via `Code::GetLocal`, so re-evaluating
-/// them in the closure's own frame would either read from the
-/// wrong slots or hit a frame-shape mismatch.
-///
-/// Fortunately, when we are in the closure's own frame, the
-/// values we want are *already there*: a `Val::Closure` is
-/// always entered through [`Frame::create_bind_and_eval`], which
-/// pre-loads `bound_vals` into slots `0..bound_vars.len()`. So
-/// if `f.has_def(frame_def)` we can simply clone those slots
-/// instead of re-evaluating `bind_codes`. This is what makes
-/// recursive let-bound closures (like the `fact4` helper inside
-/// `baz4` in `closure.smli`) work without rebuilding their
-/// captured environment from a now-vanished outer frame.
 /// Re-wraps the elements of a homogeneous LIST/BAG/VECTOR variant value
 /// as `Val::Variant((elem_type, elem))` so that a constructor pattern
 /// (e.g. `LIST (v::vs)`) hands the inner pattern a list of variants
@@ -1717,16 +1671,10 @@ fn wrap_record_pairs(inner_type: &Type, value: &Val) -> Option<Val> {
 }
 
 fn capture_bound_vals(
-    frame_def: &Arc<FrameDef>,
     bind_codes: &[Code],
     r: &mut EvalEnv,
     f: &mut Frame,
 ) -> Result<Vec<Val>, MorelError> {
-    if f.has_def(frame_def) {
-        // Recursive re-entry: the captured values are already in
-        // the current frame's bound slots; reuse them.
-        return Ok(f.vals[..frame_def.bound_vars.len()].to_vec());
-    }
     let mut values = Vec::with_capacity(bind_codes.len());
     for bind_code in bind_codes {
         values.push(bind_code.eval_f0(r, f)?);
