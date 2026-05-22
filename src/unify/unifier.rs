@@ -24,10 +24,9 @@
 #![allow(clippy::collapsible_if)]
 
 use crate::unify;
-use im::{HashMap as ImHashMap, HashSet};
 use std::cell::RefCell;
 use std::cmp::{Ordering, PartialEq, max};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::iter::zip;
 use std::rc::Rc;
@@ -39,7 +38,7 @@ use std::time::Instant;
 trait TermLike {
     fn apply1(&self, variable: &Var, term: &Term) -> Term;
     #[allow(dead_code)]
-    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term;
+    fn apply(&self, map: &HashMap<Var, Term>) -> Term;
     fn as_term(&self) -> Term;
 }
 
@@ -91,7 +90,7 @@ impl Term {
     }
 
     /// Applies a substitution to this term.
-    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
+    fn apply(&self, map: &HashMap<Var, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(map),
             Term::Sequence(seq) => seq.apply(map),
@@ -133,7 +132,7 @@ impl TermLike for Term {
         }
     }
 
-    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
+    fn apply(&self, map: &HashMap<Var, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(&map),
             Term::Sequence(seq) => seq.apply(&map),
@@ -273,7 +272,7 @@ impl TermLike for Var {
         }
     }
 
-    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
+    fn apply(&self, map: &HashMap<Var, Term>) -> Term {
         map.get(self).cloned().unwrap_or_else(|| self.as_term())
     }
 
@@ -348,7 +347,7 @@ impl Sequence {
         }
     }
 
-    fn sub(&self, map: &ImHashMap<Var, Term>) -> Self {
+    fn sub(&self, map: &HashMap<Var, Term>) -> Self {
         // Find the index of the first change.
         for (i, t) in self.terms.iter().enumerate() {
             let new_term = t.apply(map);
@@ -384,7 +383,7 @@ impl TermLike for Sequence {
         Term::Sequence(self.sub1(variable, term))
     }
 
-    fn apply(&self, map: &ImHashMap<Var, Term>) -> Term {
+    fn apply(&self, map: &HashMap<Var, Term>) -> Term {
         Term::Sequence(self.sub(&map))
     }
 
@@ -409,11 +408,11 @@ impl FromTerm for Sequence {
 /// Substitution.
 #[derive(Clone, Debug)]
 pub struct Substitution {
-    pub substitutions: ImHashMap<Var, Term>,
+    pub substitutions: HashMap<Var, Term>,
 }
 
 impl Substitution {
-    fn from_result(p0: &ImHashMap<Var, Term>) -> Self {
+    fn from_result(p0: &HashMap<Var, Term>) -> Self {
         Substitution {
             substitutions: p0.clone(),
         }
@@ -423,7 +422,7 @@ impl Substitution {
         if self.has_cycles() {
             return self.clone();
         }
-        let new_substitutions: ImHashMap<Var, Term> = self
+        let new_substitutions: HashMap<Var, Term> = self
             .substitutions
             .iter()
             .map(|(key, value)| (*key, self.resolve_term(value)))
@@ -689,7 +688,7 @@ struct Work<'a> {
     seq_seq_queue: Rc<RefCell<VecDeque<(Sequence, Sequence)>>>,
     var_any_queue: Rc<RefCell<VecDeque<(Var, Term)>>>,
     constraint_queue: VecDeque<MutableConstraint>,
-    result: ImHashMap<Var, Term>,
+    result: HashMap<Var, Term>,
 }
 
 impl Display for Work<'_> {
@@ -725,7 +724,7 @@ impl<'a> Work<'a> {
             var_any_queue: Rc::new(RefCell::new(VecDeque::new())),
             seq_seq_queue: Rc::new(RefCell::new(VecDeque::new())),
             constraint_queue: VecDeque::new(),
-            result: ImHashMap::new(),
+            result: HashMap::new(),
         };
         term_pairs
             .iter()
@@ -1181,10 +1180,7 @@ impl Unifier {
     }
 
     /// Creates a substitution from a variable to a term.
-    fn substitution(
-        &self,
-        substitutions: &ImHashMap<Var, Term>,
-    ) -> Substitution {
+    fn substitution(&self, substitutions: &HashMap<Var, Term>) -> Substitution {
         Substitution {
             substitutions: substitutions.clone(),
         }
@@ -1382,7 +1378,7 @@ impl Unifier {
     ) {
         // To prevent infinite recursion, this method is a no-op if the variable
         // is already in the working set.
-        if active.insert(*variable).is_none() {
+        if active.insert(*variable) {
             self.act2(variable, term, work, substitution, term_actions, active);
 
             // Remove the variable from the working set.
@@ -1749,7 +1745,7 @@ mod tests {
             }
             Term::Variable(v) => v,
         };
-        let mut map: ImHashMap<Var, Term> = ImHashMap::new();
+        let mut map: HashMap<Var, Term> = HashMap::new();
         map.insert(z_v, f_a_y);
         let sub = t.unifier.substitution(&map);
         assert_eq!(t.unifier.substitution_string(&sub), "[f(a, Y)/Z]");

@@ -39,7 +39,6 @@ path = "src/main.rs"
 # lint: sort until '^$'
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 chrono-tz = { version = "0.10", default-features = false }
-im = "15.1.0"
 indexmap = "2.0"
 lalrpop-util = { version = "0.22", features = ["lexer", "unicode"] }
 pest = "2.8"
@@ -55,6 +54,12 @@ wasm-bindgen = "0.2"
 
 [build-dependencies]
 lalrpop = "0.22"
+
+# Keep line-number info in release builds so flamegraphs (and other
+# profilers) can resolve symbols. Adds a couple MB to the binary;
+# zero perf impact.
+[profile.release]
+debug = "line-tables-only"
 
 [features]
 # Enabling profiling with `cargo build --features=profiling`

@@ -17,6 +17,8 @@
 
 use crate::compile::core::Decl;
 use crate::compile::core::{Expr as CoreExpr, Pat as CorePat};
+use crate::compile::inliner::Env;
+use crate::compile::library;
 use crate::compile::library::{
     BuiltInFunction, built_in_datatype_constructors,
 };
@@ -33,7 +35,8 @@ use crate::shell::main::MorelError;
 use crate::shell::prop::{Configurable, Output, Prop, PropVal};
 use crate::syntax::ast::Statement;
 use crate::unify::unifier::Term;
-use std::collections::HashMap;
+use std::cell::OnceCell;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -93,6 +96,11 @@ pub struct Session {
     /// predicates are still visible as conjuncts of the inner
     /// `where`.
     pub rec_fn_bindings: HashMap<String, (CorePat, CoreExpr)>,
+    /// Cached inliner `Env` populated with all built-in functions
+    /// and structures. Built lazily on first access and reused
+    /// across statements; each statement clones it and layers
+    /// session bindings on top.
+    base_env: OnceCell<Env>,
 }
 
 // static SESSION_COUNTER: std::sync::atomic::AtomicUsize =
@@ -142,7 +150,20 @@ impl Session {
             overloads,
             fn_bindings: HashMap::new(),
             rec_fn_bindings: HashMap::new(),
+            base_env: OnceCell::new(),
         }
+    }
+
+    /// Returns the cached inliner `Env` populated with all built-in
+    /// functions and structures. Built lazily on first call and
+    /// reused thereafter; callers clone it before layering
+    /// session-local bindings.
+    pub fn base_env(&self) -> &Env {
+        self.base_env.get_or_init(|| {
+            let mut map: BTreeMap<&str, (Type, Option<Val>)> = BTreeMap::new();
+            library::populate_env(&mut map);
+            Env::empty().multi(&map)
+        })
     }
 
     pub(crate) fn set_prop(

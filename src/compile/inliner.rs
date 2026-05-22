@@ -20,10 +20,9 @@ use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Type;
 use crate::eval::order::Order;
 use crate::eval::val::Val;
-use im::HashMap;
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::collections::HashMap as StdHashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 
 /// Can transform any expression, declaration, or pattern in a tree.
 /// Combined with [Decl::visit], [Expr::visit], and [Pat::visit], this
@@ -104,7 +103,7 @@ impl MutableUse {
 /// Result of an analysis: the `Use` for each name encountered.
 #[derive(Debug)]
 pub struct Analysis {
-    map: StdHashMap<String, Use>,
+    map: HashMap<String, Use>,
 }
 
 impl Analysis {
@@ -116,13 +115,13 @@ impl Analysis {
 }
 
 struct Analyzer {
-    map: StdHashMap<String, MutableUse>,
+    map: HashMap<String, MutableUse>,
 }
 
 impl Analyzer {
     fn new() -> Self {
         Self {
-            map: StdHashMap::new(),
+            map: HashMap::new(),
         }
     }
 
@@ -225,8 +224,7 @@ impl Analyzer {
     }
 
     fn visit_parallel(&mut self, matches: &[Match]) {
-        let mut branch_uses: StdHashMap<String, Vec<MutableUse>> =
-            StdHashMap::new();
+        let mut branch_uses: HashMap<String, Vec<MutableUse>> = HashMap::new();
         for m in matches {
             let mut sub = Analyzer::new();
             sub.ensure_bindings(&m.pat);
@@ -1027,69 +1025,93 @@ impl ValBind {
         }
     }
 }
-/// Environment for inlining. Tracks two parallel maps:
+/// Environment for inlining. Represented as a chain of `EnvFrame`s.
+///
+/// Each frame holds two parallel hash maps:
 ///
 /// * `map`: scoped `(type, optional value)` for built-in constants and
-///   atomic literals (used by `lookup_constant`).
+///   atomic literals (used by `lookup_constant` / `lookup`).
 /// * `exprs`: scoped expressions to substitute for `ATOMIC` and
 ///   `ONCE_SAFE` let-bound variables (used by `lookup_expr`).
+///
+/// Shadowing semantics: if an inner frame binds `name` in `map` but
+/// not in `exprs`, then `lookup_expr(name)` returns `None` — the
+/// inlineable expression in the parent has been overridden.
 #[derive(Clone, Debug)]
 pub struct Env {
-    map: im::HashMap<String, (Type, Option<Val>)>,
-    exprs: im::HashMap<String, Expr>,
+    inner: Rc<EnvFrame>,
+}
+
+#[derive(Debug)]
+struct EnvFrame {
+    parent: Option<Rc<EnvFrame>>,
+    map: HashMap<String, (Type, Option<Val>)>,
+    exprs: HashMap<String, Expr>,
 }
 
 impl Env {
     /// Returns an empty environment.
     pub(crate) fn empty() -> Self {
         Env {
-            map: HashMap::new(),
-            exprs: HashMap::new(),
+            inner: Rc::new(EnvFrame {
+                parent: None,
+                map: HashMap::new(),
+                exprs: HashMap::new(),
+            }),
         }
     }
 
-    /// Returns an environment with a given backing map.
+    /// Returns an environment whose root frame is `map`.
     pub fn with(map: HashMap<String, (Type, Option<Val>)>) -> Env {
         Env {
-            map,
-            exprs: HashMap::new(),
+            inner: Rc::new(EnvFrame {
+                parent: None,
+                map,
+                exprs: HashMap::new(),
+            }),
         }
     }
 
     pub(crate) fn child(&self, name: &str, t: &Type, v: &Val) -> Env {
-        let map2 = self
-            .map
-            .update(name.to_string(), (t.clone(), Some(v.clone())));
-        let exprs2 = self.exprs.without(name);
-        Env {
-            map: map2,
-            exprs: exprs2,
-        }
+        let mut map = HashMap::with_capacity(1);
+        map.insert(name.to_string(), (t.clone(), Some(v.clone())));
+        self.with_frame(map, HashMap::new())
     }
 
     pub(crate) fn child_none(&self, name: &str, t: &Type) -> Env {
-        let map2 = self.map.update(name.to_string(), (t.clone(), None));
-        let exprs2 = self.exprs.without(name);
-        Env {
-            map: map2,
-            exprs: exprs2,
-        }
+        let mut map = HashMap::with_capacity(1);
+        map.insert(name.to_string(), (t.clone(), None));
+        self.with_frame(map, HashMap::new())
     }
 
     /// Binds `name` to a let-bound expression that the inliner should
     /// substitute on every reference. Use this for `ATOMIC` and
     /// `ONCE_SAFE` bindings.
     pub(crate) fn child_expr(&self, name: &str, t: &Type, expr: &Expr) -> Env {
-        let map2 = self.map.update(name.to_string(), (t.clone(), None));
-        let exprs2 = self.exprs.update(name.to_string(), expr.clone());
-        Env {
-            map: map2,
-            exprs: exprs2,
-        }
+        let mut map = HashMap::with_capacity(1);
+        map.insert(name.to_string(), (t.clone(), None));
+        let mut exprs = HashMap::with_capacity(1);
+        exprs.insert(name.to_string(), expr.clone());
+        self.with_frame(map, exprs)
     }
 
     pub(crate) fn lookup_expr(&self, s: &str) -> Option<Expr> {
-        self.exprs.get(s).cloned()
+        let mut frame: &EnvFrame = &self.inner;
+        loop {
+            if let Some(e) = frame.exprs.get(s) {
+                return Some(e.clone());
+            }
+            // A `map` binding in this frame shadows any inlineable
+            // expression in an ancestor: the binding was rewritten,
+            // so the parent's expr no longer applies.
+            if frame.map.contains_key(s) {
+                return None;
+            }
+            match &frame.parent {
+                Some(p) => frame = p,
+                None => return None,
+            }
+        }
     }
 
     pub(crate) fn multi(
@@ -1099,19 +1121,11 @@ impl Env {
         if map.is_empty() {
             return self.clone();
         }
-
-        // Optimization: Use from_iter for batch construction.
-        // This is more efficient than chaining updates.
-        let new_entries = map.iter().map(|(k, v)| (k.to_string(), v.clone()));
-        let map2 = self.map.clone().union(HashMap::from_iter(new_entries));
-        let mut exprs2 = self.exprs.clone();
-        for k in map.keys() {
-            exprs2 = exprs2.without(*k);
-        }
-        Env {
-            map: map2,
-            exprs: exprs2,
-        }
+        let frame_map: HashMap<String, (Type, Option<Val>)> = map
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect();
+        self.with_frame(frame_map, HashMap::new())
     }
 
     pub(crate) fn lookup_constant(&self, s: &str) -> Option<Val> {
@@ -1123,6 +1137,31 @@ impl Env {
     }
 
     pub(crate) fn lookup(&self, s: &str) -> Option<(Type, Option<Val>)> {
-        self.map.get(s).cloned()
+        let mut frame: &EnvFrame = &self.inner;
+        loop {
+            if let Some(v) = frame.map.get(s) {
+                return Some(v.clone());
+            }
+            match &frame.parent {
+                Some(p) => frame = p,
+                None => return None,
+            }
+        }
+    }
+
+    /// Pushes a new frame holding `map` and `exprs`, parented to the
+    /// current top frame.
+    fn with_frame(
+        &self,
+        map: HashMap<String, (Type, Option<Val>)>,
+        exprs: HashMap<String, Expr>,
+    ) -> Env {
+        Env {
+            inner: Rc::new(EnvFrame {
+                parent: Some(self.inner.clone()),
+                map,
+                exprs,
+            }),
+        }
     }
 }
