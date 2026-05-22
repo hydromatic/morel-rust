@@ -85,8 +85,8 @@ fn is_plan_or_plan_ex_call(decl: &Decl) -> bool {
 /// Records safe-to-inline expressions from this statement's decls so
 /// that the inliner can substitute them in subsequent compile units.
 /// Mirrors morel-java's logic in `Inliner.visit(Core.Id)`'s
-/// cross-compile-unit branch (issue hydromatic/morel#223): atomic
-/// expressions are always safe; a `fn` body is safe only if it is
+/// cross-compile-unit branch: atomic expressions are always safe;
+/// a `fn` body is safe only if it is
 /// non-recursive, monomorphic, and references no free variables that
 /// the inliner won't see in later statements.
 fn record_cross_unit_exprs(decl: &Decl, env: &mut Environment) {
@@ -1064,7 +1064,7 @@ impl Shell {
         // `resolve_with_session_fns_rec` returns both the
         // post-expander decl (which flows through the rest of the
         // pipeline) and the pre-expander fn-bindings used by
-        // recursive predicate inversion (morel-rust #217).
+        // recursive predicate inversion.
         let (decl, pre_fn_env, resolve_errors) =
             resolver::resolve_with_session_fns_rec(
                 resolved,
@@ -1197,7 +1197,7 @@ impl Shell {
         }
 
         // Stash safe-to-inline expressions for cross-compile-unit
-        // inlining (morel#223). Mirrors the `binding.exp` field that
+        // inlining. Mirrors the `binding.exp` field that
         // morel-java's `Inliner.visit(Core.Id)` consults: a non-recursive,
         // non-polymorphic, free-variable-free function or atomic
         // expression can be substituted at use sites in later
@@ -1214,11 +1214,11 @@ impl Shell {
         self.session.borrow_mut().commit_bindings(resolved);
 
         // Record any single-arm `fn p => body` value-bindings for
-        // future statements' predicate inversion (#223). Save the
+        // future statements' predicate inversion. Save the
         // post-expander bodies into `fn_bindings` (used by
         // `inline_tuple_fn_calls_in_where`). The pre-expander
-        // bodies (used by recursive predicate inversion in #217)
-        // were already captured into `pre_fn_env`; commit them here.
+        // bodies used by recursive predicate inversion were already
+        // captured into `pre_fn_env`; commit them here.
         collect_session_fn_bindings(
             &decl,
             &mut self.session.borrow_mut().fn_bindings,
@@ -1551,7 +1551,7 @@ mod tests {
     fn test_interactive_no_bare_echo() {
         // The input line must NOT appear echoed back in the output:
         // the terminal (in real tty use) echoes, and piped mode matches
-        // SML-NJ by not echoing either. This is the core fix for issue #36.
+        // SML-NJ by not echoing either. This is the core fix.
         let input = "val x = 42;\n";
         let body_joined = run_interactive_piped(input).join("\n");
         assert!(

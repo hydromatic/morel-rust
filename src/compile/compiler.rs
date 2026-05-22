@@ -1447,10 +1447,8 @@ impl<'a> Compiler<'a> {
                     }
                 } else if let Some(rec) = name_to_rec(name) {
                     let val = code::LIBRARY.with(|lib| {
-                        lib.structure_map
-                            .get(&rec)
+                        lib.structure_val(rec)
                             .expect("structure not in library")
-                            .1
                             .clone()
                     });
                     Code::new_constant(type_, val)

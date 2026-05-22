@@ -384,12 +384,7 @@ impl Val {
                 v.apply_f1(r, f, arg)
             }
             Val::Fn(built_in_fn) => {
-                let impl_ = LIBRARY.with(|lib| {
-                    lib.fn_map
-                        .get(built_in_fn)
-                        .expect("Function not in library")
-                        .1
-                });
+                let impl_ = LIBRARY.with(|lib| lib.fn_impl(*built_in_fn));
                 match &impl_ {
                     Impl::E1(eager1) => Ok(eager1.apply(arg.clone())),
                     Impl::EF1(eagerf1) => {

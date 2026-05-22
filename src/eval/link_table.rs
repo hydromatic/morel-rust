@@ -119,9 +119,8 @@ use std::sync::Arc;
 /// user types, which is small. Heavier alternatives that reclaim
 /// memory (carrying a per-function link table on `Val::Code`,
 /// substituting `Link`s with their resolved `Code` at storage
-/// time, etc.) are described in the design notes for issue
-/// hydromatic/morel#301; revisit if memory growth becomes a
-/// problem.
+/// time, etc.) are possible but unimplemented; revisit if memory
+/// growth becomes a problem.
 ///
 /// # Concurrency
 ///

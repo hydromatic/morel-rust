@@ -15,7 +15,6 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::library;
 use crate::compile::library::BuiltIn;
 use crate::compile::type_resolver::TypeResolver;
 use crate::compile::types::Type;
@@ -112,25 +111,22 @@ impl TypeEnv for SimpleTypeEnv {
 
 impl TypeEnv for FunTypeEnv {
     fn get(&self, name: &str, tr: &mut TypeResolver) -> Option<BindType> {
-        if let Some(b) = library::lookup(name) {
-            let result = LIBRARY.with(|lib| match b {
-                BuiltIn::Fn(f) => lib.fn_map.get(&f).map(|(t, _)| {
-                    let term = tr.type_to_term(t);
-                    if f.is_constructor() {
-                        BindType::Constructor(Term::Variable(term))
-                    } else {
-                        BindType::Val(Term::Variable(term))
-                    }
-                }),
-                BuiltIn::Record(r) => {
-                    lib.structure_map.get(&r).map(|(t, _)| {
-                        BindType::Val(Term::Variable(tr.type_to_term(t)))
-                    })
-                }
-            });
-            if result.is_some() {
-                return result;
+        let result = LIBRARY.with(|lib| match lib.lookup(name)? {
+            BuiltIn::Fn(f) => {
+                let term = tr.type_to_term(lib.fn_type(f));
+                Some(if f.is_constructor() {
+                    BindType::Constructor(Term::Variable(term))
+                } else {
+                    BindType::Val(Term::Variable(term))
+                })
             }
+            BuiltIn::Record(r) => {
+                let t = lib.structure_type(r)?;
+                Some(BindType::Val(Term::Variable(tr.type_to_term(t))))
+            }
+        });
+        if result.is_some() {
+            return result;
         }
         self.parent.get(name, tr)
     }
@@ -241,7 +237,6 @@ impl TypeEnvBuilder {
 pub struct Id {
     pub name: String,
     pub ordinal: usize,
-    // pub type_: Rc<Type>,
 }
 
 impl Id {

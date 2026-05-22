@@ -26,4 +26,7 @@ Cargo.lock
 # Intellij
 .idea
 
+# Claude Code
+.claude
+
 # End .gitignore

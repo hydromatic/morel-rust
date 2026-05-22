@@ -16,7 +16,7 @@
 // License.
 
 //! Synthesises generator expressions from `where` conjuncts.
-//! Phase 1 of predicate inversion (hydromatic/morel#217).
+//! Phase 1 of predicate inversion.
 //!
 //! Mirrors morel-java's `compile.Generators::maybeGenerator`
 //! with the leaf strategies — point, elem, range. Later phases

@@ -25,10 +25,10 @@ use strum::{EnumCount, EnumProperty, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter, EnumProperty, EnumString, FromRepr};
 
 /// Returns the datatype of a built-in function or record.
-pub fn name_to_type(id: &str) -> Option<Type> {
+pub fn name_to_type(id: &str) -> Option<Rc<Type>> {
     if let Some(b) = BY_NAME.get(id) {
         match b {
-            BuiltIn::Fn(f) => Some((*f.get_type()).clone()),
+            BuiltIn::Fn(f) => Some(f.get_type()),
             BuiltIn::Record(r) => r.get_type(),
         }
     } else {
@@ -1505,13 +1505,11 @@ pub enum BuiltInFunction {
 
 impl BuiltInFunction {
     pub fn get_impl(&self) -> Impl {
-        LIBRARY.with(|lib| lib.fn_map.get(self).expect("fn impl").1)
+        LIBRARY.with(|lib| lib.fn_impl(*self))
     }
 
     pub fn get_type(&self) -> Rc<Type> {
-        LIBRARY.with(|lib| {
-            Rc::new(lib.fn_map.get(self).expect("fn type").0.clone())
-        })
+        LIBRARY.with(|lib| Rc::clone(lib.fn_type(*self)))
     }
 
     pub(crate) fn name(&self) -> &'static str {
@@ -1683,8 +1681,8 @@ impl BuiltInRecord {
         self.get_str("name").unwrap()
     }
 
-    pub(crate) fn get_type(&self) -> Option<Type> {
-        LIBRARY.with(|lib| lib.structure_map.get(self).map(|(t, _)| t.clone()))
+    pub(crate) fn get_type(&self) -> Option<Rc<Type>> {
+        LIBRARY.with(|lib| lib.structure_type(*self).map(Rc::clone))
     }
 }
 
@@ -2017,7 +2015,7 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
     LIBRARY.with(|lib| {
         // Add built-in records to the environment
         map.extend(lib.structure_map.iter().map(|(r, (type_, v))| {
-            (r.name(), (type_.clone(), Some(v.clone())))
+            (r.name(), ((**type_).clone(), Some(v.clone())))
         }));
 
         // Until we can deduce type for records, keep the old logic that
@@ -2026,7 +2024,9 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
             lib.fn_map
                 .iter()
                 .filter(|(f, _)| f.get_bool("global").is_some_and(|b| b))
-                .map(|(f, (t, _))| (f.name(), (t.clone(), Some(Val::Fn(*f))))),
+                .map(|(f, (t, _))| {
+                    (f.name(), ((**t).clone(), Some(Val::Fn(*f))))
+                }),
         );
 
         // Add global built-in functions to the environment.
@@ -2037,10 +2037,10 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
                     (
                         f.name(),
                         (
-                            t.clone(),
+                            (**t).clone(),
                             if !f.is_global() {
                                 None
-                            } else if let Type::Fn(_, _) = t {
+                            } else if let Type::Fn(_, _) = **t {
                                 Some(Val::Fn(*f))
                             } else if f == &BuiltInFunction::ListNil
                                 || f == &BuiltInFunction::BagNil
@@ -2059,7 +2059,7 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
         // Add operator names for functions with alias = "op <name>"
         for (f, (t, _)) in &lib.fn_map {
             if let Some(op_name) = f.get_str("global") {
-                map.insert(op_name, (t.clone(), Some(Val::Fn(*f))));
+                map.insert(op_name, ((**t).clone(), Some(Val::Fn(*f))));
             }
         }
     });
@@ -2086,7 +2086,7 @@ pub fn built_in_datatype_constructors() -> HashMap<String, Vec<String>> {
 
 /// Looks up a built-in (function or structure) by name.
 pub fn lookup(name: &str) -> Option<BuiltIn> {
-    LIBRARY.with(|lib| lib.name_to_built_in.get(name).cloned())
+    LIBRARY.with(|lib| lib.lookup(name))
 }
 
 /// Looks up a structure field by `"Struct.field"` name.

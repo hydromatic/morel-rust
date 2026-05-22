@@ -28,6 +28,7 @@ use crate::compile::type_env::{
 use crate::compile::types;
 use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
+use crate::eval::code::{LIBRARY, Lib};
 use crate::shell::error::Error;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, LabeledExpr,
@@ -120,21 +121,19 @@ impl TypeMap {
             .get(var)
             .cloned()
             .unwrap_or(Term::Variable(*var));
-        let mut c = TermToTypeConverter {
-            type_map: self,
-            var_map: BTreeMap::new(),
-            with_alias: false,
-        };
-        Some((*c.term_type(&term)).clone())
+        LIBRARY.with(|lib| {
+            let mut c = TermToTypeConverter {
+                type_map: self,
+                lib,
+                var_map: BTreeMap::new(),
+                with_alias: false,
+            };
+            Some((*c.term_type(&term)).clone())
+        })
     }
 
     fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Rc<Type>> {
         if let Some(var) = self.node_var_map.get(&id) {
-            let mut c = TermToTypeConverter {
-                type_map: self,
-                var_map: BTreeMap::new(),
-                with_alias,
-            };
             let term = self
                 .var_term_map
                 .get(var)
@@ -148,7 +147,15 @@ impl TypeMap {
             } else {
                 term
             };
-            let type_ = c.term_type(&term);
+            let type_ = LIBRARY.with(|lib| {
+                let mut c = TermToTypeConverter {
+                    type_map: self,
+                    lib,
+                    var_map: BTreeMap::new(),
+                    with_alias,
+                };
+                c.term_type(&term)
+            });
             // Check if this node's var has a top-level alias.
             if with_alias {
                 if let Some(alias_name) = self.var_alias_map.get(var) {
@@ -353,6 +360,7 @@ impl Triple {
 
 struct TermToTypeConverter<'a> {
     type_map: &'a TypeMap,
+    lib: &'a Lib,
     var_map: BTreeMap<i32, Rc<Type>>,
     /// When true, check each variable for a type alias annotation
     /// and wrap the result in `Type::Alias`.
@@ -371,23 +379,23 @@ impl<'a> TermToTypeConverter<'a> {
                     "bag" => {
                         assert_eq!(sequence.terms.len(), 1);
                         let type_ = self.term_type(&sequence.terms[0]);
-                        Rc::new(Type::Bag(type_))
+                        self.lib.intern(Type::Bag(type_))
                     }
                     "bool" | "char" | "int" | "real" | "string" | "unit" => {
                         let primitive_type =
                             PrimitiveType::parse_name(op_name).unwrap();
-                        Rc::new(Type::Primitive(primitive_type))
+                        self.lib.intern(Type::Primitive(primitive_type))
                     }
                     "fn" => {
                         assert_eq!(sequence.terms.len(), 2);
                         let param_type = self.term_type(&sequence.terms[0]);
                         let result_type = self.term_type(&sequence.terms[1]);
-                        Rc::new(Type::Fn(param_type, result_type))
+                        self.lib.intern(Type::Fn(param_type, result_type))
                     }
                     "list" => {
                         assert_eq!(sequence.terms.len(), 1);
                         let type_ = self.term_type(&sequence.terms[0]);
-                        Rc::new(Type::List(type_))
+                        self.lib.intern(Type::List(type_))
                     }
                     "tuple" => {
                         let types: Vec<Rc<Type>> = sequence
@@ -395,7 +403,7 @@ impl<'a> TermToTypeConverter<'a> {
                             .iter()
                             .map(|t| self.term_type(t))
                             .collect();
-                        Rc::new(Type::Tuple(types))
+                        self.lib.intern(Type::Tuple(types))
                     }
                     s if s.starts_with("record") => {
                         let labels = TypeResolver::field_list(
@@ -411,7 +419,7 @@ impl<'a> TermToTypeConverter<'a> {
                                 self.term_type(term),
                             );
                         }
-                        Rc::new(Type::Record(false, fields))
+                        self.lib.intern(Type::Record(false, fields))
                     }
                     _ => {
                         // Every other named type — built-in
@@ -425,7 +433,7 @@ impl<'a> TermToTypeConverter<'a> {
                             .iter()
                             .map(|t| self.term_type(t))
                             .collect();
-                        Rc::new(Type::Data(op_name.to_string(), args))
+                        self.lib.intern(Type::Data(op_name.to_string(), args))
                     }
                 }
             }
@@ -438,20 +446,21 @@ impl<'a> TermToTypeConverter<'a> {
                 } else {
                     None
                 };
-                let inner =
-                    if let Some(term) = self.type_map.var_term_map.get(v) {
-                        self.term_type(term)
-                    } else {
-                        let id = self.var_map.len();
-                        self.var_map
-                            .entry(v.id)
-                            .or_insert_with(|| {
-                                Rc::new(Type::Variable(TypeVariable { id }))
-                            })
-                            .clone()
-                    };
+                let inner = if let Some(term) =
+                    self.type_map.var_term_map.get(v)
+                {
+                    self.term_type(term)
+                } else {
+                    let id = self.var_map.len();
+                    self.var_map
+                        .entry(v.id)
+                        .or_insert_with(|| {
+                            self.lib.intern(Type::Variable(TypeVariable { id }))
+                        })
+                        .clone()
+                };
                 if let Some(name) = alias_name {
-                    Rc::new(Type::Alias(name, inner, vec![]))
+                    self.lib.intern(Type::Alias(name, inner, vec![]))
                 } else {
                     inner
                 }
@@ -1613,7 +1622,7 @@ impl TypeResolver {
                 let e2 = self.deduce_expr_type(&*step_env.env, e, &v_e)?;
                 // f has type: collection(type_of_e) -> v.
                 // Determine the collection kind from the aggregate
-                // function's declared type (per morel#271, d751e565):
+                // function's declared type:
                 //  - list-only (e.g. count: 'a list -> int): list_term
                 //  - bag-only: bag_term
                 //  - overloaded: match input ordering
@@ -1961,8 +1970,8 @@ impl TypeResolver {
             ExprKind::Literal(lit) => {
                 if let LiteralKind::Fn(builtin) = &lit.kind {
                     // Built-in function literal (inserted by the
-                    // postfix-call rewrite, hydromatic/morel#346).
-                    // Its type is the built-in's declared type;
+                    // postfix-call rewrite). Its type is the
+                    // built-in's declared type;
                     // instantiate fresh unification variables for any
                     // Forall-quantified type variables.
                     let builtin_type = builtin.get_type();
@@ -3157,7 +3166,7 @@ impl TypeResolver {
         // The function must have type: collection -> result.
         // Use collectionKind to determine whether the function's
         // parameter should match the input or be independent.
-        // Per morel#271, `into` adapts collection kinds.
+        // `into` adapts collection kinds.
         let c_param = self.variable();
         let kind = self.aggregate_collection_kind(&*p.env, expr);
         match kind {
@@ -3350,7 +3359,7 @@ impl TypeResolver {
         arg: &Expr,
         v_result: &Var,
     ) -> Result<(Expr, Expr), Error> {
-        // Postfix method-call pattern (hydromatic/morel#346):
+        // Postfix method-call pattern:
         //   Apply(Apply(RecordSelector(name), recv), arg)
         // If the receiver's type resolves to a non-record for which a
         // postfix method `name` is defined, rewrite the call into a
@@ -3436,7 +3445,7 @@ impl TypeResolver {
         self.deduce_expr_type(env, fun, v_fun)
     }
 
-    /// Attempts the postfix method-call rewrite (hydromatic/morel#346).
+    /// Attempts the postfix method-call rewrite.
     /// Called from `deduce_apply_type` when the outer Apply has a
     /// `RecordSelector` in its inner-function slot.
     ///
@@ -4177,7 +4186,7 @@ impl TypeResolver {
     }
 
     /// Inspects the aggregate function's declared type to determine
-    /// its collection kind. Per morel#271 (d751e565):
+    /// its collection kind:
     /// - Identifier with list param → List
     /// - Identifier with bag param → Bag
     /// - Overloaded identifier → MatchInput

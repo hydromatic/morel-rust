@@ -55,8 +55,8 @@ fn parse_args(args: &[String]) -> CliAction {
         match first.as_str() {
             "-h" | "--help" => return CliAction::Help,
             "test" => return CliAction::Test(args[1..].to_vec()),
-            // `-e EXPR` / `--eval EXPR` (morel#333, matching morel-java)
-            // evaluates a single expression and exits.
+            // `-e EXPR` / `--eval EXPR` (matching morel-java) evaluates
+            // a single expression and exits.
             "-e" | "--eval" => {
                 return match args.get(1) {
                     Some(cmd) => CliAction::Command(cmd.clone()),
@@ -66,7 +66,7 @@ fn parse_args(args: &[String]) -> CliAction {
                     )),
                 };
             }
-            // `--eval=EXPR` form (morel#333).
+            // `--eval=EXPR` form.
             s if s.starts_with("--eval=") => {
                 return CliAction::Command(
                     s.strip_prefix("--eval=").unwrap().to_string(),
@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn test_parse_args_dash_c_is_treated_as_a_filename() {
         // morel-rust used to accept `-c COMMAND`, but morel-java has no
-        // such flag; it was removed in favour of the morel#333 form
+        // such flag; it was removed in favour of
         // `-e EXPR` / `--eval EXPR` / `--eval=EXPR`. A bare `-c` is
         // now treated as a (probably non-existent) file name; the
         // shell will report a runtime error when it tries to open it.

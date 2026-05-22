@@ -144,16 +144,6 @@ impl Type {
     }
 }
 
-/// Boolean is used as a placeholder in several cases where we don't print the
-/// type but print (say) a raw string ":".
-///
-/// A function rather than a `static` so the pretty printer doesn't
-/// constrain `Type` to be `Sync`. The value is cheap to construct
-/// (no allocation; a single inline enum variant).
-fn bool_type() -> Type {
-    Type::Primitive(PrimitiveType::Bool)
-}
-
 impl Pretty {
     pub fn new(
         line_width: i32,
@@ -237,16 +227,103 @@ impl Pretty {
         depth: i32,
         value: &str,
     ) -> Result<(), fmt::Error> {
-        self.pretty1(
+        self.pretty1_typeless(
             buf,
             indent,
             line_end,
             depth,
-            &bool_type(),
             &Val::Raw(value.to_string()),
             0,
             0,
         )
+    }
+
+    /// Like [`Self::pretty1`] for `Val` variants that don't need an
+    /// external type: `Val::Raw` carries a literal string, `Val::Type`
+    /// carries its own type, `Val::Labeled` carries a (label, type)
+    /// pair.
+    fn pretty1_typeless(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        value: &Val,
+        left: u8,
+        right: u8,
+    ) -> Result<(), fmt::Error> {
+        let start = buf.len();
+        let end = line_end[0];
+
+        self.pretty2_typeless(
+            buf, indent, line_end, depth, value, left, right,
+        )?;
+
+        if end >= 0 && buf.len() as i32 > end {
+            buf.truncate(start);
+            while !buf.is_empty()
+                && (buf.ends_with(' ') || buf.ends_with(self.newline))
+            {
+                buf.pop();
+            }
+            if !buf.is_empty() {
+                buf.push(self.newline);
+            }
+            line_end[0] = if self.line_width < 0 {
+                -1
+            } else {
+                buf.len() as i32 + self.line_width
+            };
+            self.indent(buf, indent);
+            self.pretty2_typeless(
+                buf, indent, line_end, depth, value, left, right,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn pretty2_typeless(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        value: &Val,
+        left: u8,
+        right: u8,
+    ) -> Result<(), fmt::Error> {
+        match value {
+            Val::Raw(s) => {
+                buf.push_str(s);
+                Ok(())
+            }
+            Val::Type(b) => {
+                let (prefix, type_, suffix) = &**b;
+                self.pretty_type(
+                    buf, indent, line_end, depth, prefix, type_, left, right,
+                )?;
+                buf.push_str(suffix);
+                Ok(())
+            }
+            Val::Labeled(b) => {
+                let (label, type_) = &**b;
+                let mut prefix = String::new();
+                append_id(&mut prefix, &label.to_string());
+                prefix.push(':');
+                self.pretty1_typeless(
+                    buf,
+                    indent,
+                    line_end,
+                    depth,
+                    &Val::new_type(&prefix, type_),
+                    0,
+                    0,
+                )
+            }
+            _ => {
+                panic!("pretty1_typeless: variant {:?} requires a type", value)
+            }
+        }
     }
 
     /// Prints a value to a buffer. If the first attempt goes beyond line_end,
@@ -352,12 +429,11 @@ impl Pretty {
                     }
                     _ => (t2.renumbered(), ""),
                 };
-                self.pretty1(
+                self.pretty1_typeless(
                     buf,
                     indent + 2,
                     line_end,
                     depth,
-                    &bool_type(),
                     &Val::new_type_with_suffix(
                         ": ",
                         &display_type,
@@ -389,12 +465,11 @@ impl Pretty {
                 let mut prefix = String::new();
                 append_id(&mut prefix, &label.to_string());
                 prefix.push(':');
-                self.pretty1(
+                self.pretty1_typeless(
                     buf,
                     indent,
                     line_end,
                     depth,
-                    current_type,
                     &Val::new_type(&prefix, type_),
                     0,
                     0,
@@ -1009,26 +1084,12 @@ impl Pretty {
             Type::Fn(param_type, result_type) => {
                 const OP: Op = Op::FN;
                 let v_param = Val::new_type("", param_type);
-                self.pretty1(
-                    buf,
-                    indent2,
-                    line_end,
-                    depth,
-                    &bool_type(),
-                    &v_param,
-                    left,
-                    OP.left,
+                self.pretty1_typeless(
+                    buf, indent2, line_end, depth, &v_param, left, OP.left,
                 )?;
                 let v_result = Val::new_type(" -> ", result_type);
-                self.pretty1(
-                    buf,
-                    indent2,
-                    line_end,
-                    depth,
-                    &bool_type(),
-                    &v_result,
-                    OP.right,
-                    right,
+                self.pretty1_typeless(
+                    buf, indent2, line_end, depth, &v_result, OP.right, right,
                 )
             }
             Type::List(element_type) => self.pretty_collection_type(
@@ -1048,14 +1109,8 @@ impl Pretty {
                     0 => {}
                     1 => {
                         let v_arg = Val::new_type("", &args[0]);
-                        self.pretty1(
-                            buf,
-                            indent2,
-                            line_end,
-                            depth,
-                            &bool_type(),
-                            &v_arg,
-                            left,
+                        self.pretty1_typeless(
+                            buf, indent2, line_end, depth, &v_arg, left,
                             OP.right,
                         )?;
                         buf.push(' ');
@@ -1067,15 +1122,8 @@ impl Pretty {
                                 buf.push(',');
                             }
                             let v_arg = Val::new_type("", arg);
-                            self.pretty1(
-                                buf,
-                                indent2,
-                                line_end,
-                                depth,
-                                &bool_type(),
-                                &v_arg,
-                                0,
-                                0,
+                            self.pretty1_typeless(
+                                buf, indent2, line_end, depth, &v_arg, 0, 0,
                             )?;
                         }
                         buf.push_str(") ");
@@ -1093,12 +1141,11 @@ impl Pretty {
                     if buf.len() > start {
                         buf.push_str(", ");
                     }
-                    self.pretty1(
+                    self.pretty1_typeless(
                         buf,
                         indent2 + 1,
                         line_end,
                         depth,
-                        &bool_type(),
                         &Val::new_labeled(name, element_type),
                         0,
                         0,
@@ -1127,24 +1174,22 @@ impl Pretty {
                     let wrap = matches!(&**arg_type, Type::Tuple(_));
                     if wrap {
                         self.pretty_raw(buf, indent2, line_end, depth, "(")?;
-                        self.pretty1(
+                        self.pretty1_typeless(
                             buf,
                             indent2,
                             line_end,
                             depth,
-                            &bool_type(),
                             &Val::new_type("", arg_type),
                             0,
                             0,
                         )?;
                         self.pretty_raw(buf, indent2, line_end, depth, ")")?;
                     } else {
-                        self.pretty1(
+                        self.pretty1_typeless(
                             buf,
                             indent2,
                             line_end,
                             depth,
-                            &bool_type(),
                             &Val::new_type("", arg_type),
                             if i == 0 { left } else { OP.right },
                             if i == arg_types.len() - 1 {

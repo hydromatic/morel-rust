@@ -16,7 +16,7 @@
 // License.
 
 //! Postfix method-call dispatch tables, shared between type
-//! resolution and core resolution. See hydromatic/morel#346.
+//! resolution and core resolution.
 //!
 //! The dispatch table is built once at startup by inspecting each
 //! `BuiltInFunction`'s declared type signature. For every function

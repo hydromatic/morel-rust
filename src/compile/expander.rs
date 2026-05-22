@@ -15,8 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-//! Two-phase predicate-inversion pipeline. Phase 1 of
-//! hydromatic/morel#217.
+//! Two-phase predicate-inversion pipeline. Phase 1.
 //!
 //! `expand_from(from_expr)` analyses `where`-conjuncts to derive a
 //! generator for each unbounded pattern (i.e. each Scan over an
@@ -167,7 +166,7 @@ pub fn expand_decl(decl: Decl, datatypes: &DatatypeMap) -> Decl {
 /// with cross-statement function bindings the session has
 /// accumulated from earlier `fun` / `val` decls. Lets predicate
 /// inversion inline a function declared in a previous shell
-/// statement (hydromatic/morel#223).
+/// statement.
 pub fn expand_decl_with_session(
     decl: Decl,
     datatypes: &DatatypeMap,

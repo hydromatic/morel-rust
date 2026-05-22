@@ -639,7 +639,7 @@ impl FromBuilder {
         self.atom = self.bindings.len() == 1;
 
         // Output is ordered only if the previous state is ordered AND
-        // this scan's input is a list (not bag). Per morel#273.
+        // this scan's input is a list (not bag).
         let mut env = self.step_env();
         env.ordered = env.ordered && exp.type_().is_list();
         let step = Step::new(
@@ -709,8 +709,8 @@ impl FromBuilder {
             Type::Record(false, fields)
         };
 
-        // Wrap in List or Bag based on ordering. Per morel#273,
-        // output is ordered (list) iff all scan inputs are ordered.
+        // Wrap in List or Bag based on ordering: output is ordered
+        // (list) iff all scan inputs are ordered.
         if env.ordered {
             Ok(Type::List(Rc::new(element_type)))
         } else {

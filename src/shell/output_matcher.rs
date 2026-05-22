@@ -19,8 +19,7 @@
 //! bag values as unordered (multisets) and ignoring insignificant
 //! whitespace differences.
 //!
-//! Ported from morel-java's `OutputMatcher`
-//! (hydromatic/morel#334, commit 9430af3f).
+//! Ported from morel-java's `OutputMatcher`.
 //!
 //! Output strings have the form `val name = value : type` or
 //! `value : type`. The type suffix tells us which brackets

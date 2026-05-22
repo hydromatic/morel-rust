@@ -16,8 +16,7 @@
 // License.
 
 //! Analyzer for Datalog programs: declaration / safety / stratification
-//! checks. Mirrors morel-java's `DatalogAnalyzer`
-//! (hydromatic/morel#323).
+//! checks. Mirrors morel-java's `DatalogAnalyzer`.
 //!
 //! The analyzer reports the first error it finds via `DatalogError`.
 

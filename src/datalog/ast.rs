@@ -16,7 +16,7 @@
 // License.
 
 //! Abstract syntax tree for Datalog programs. Mirrors the morel-java
-//! `DatalogAst` (hydromatic/morel#323).
+//! `DatalogAst`.
 //!
 //! A Datalog program consists of declarations, facts, rules, and
 //! directives. See `docs/datalog.md` for the surface syntax.

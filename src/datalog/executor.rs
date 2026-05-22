@@ -16,7 +16,7 @@
 // License.
 
 //! Orchestrator for `Datalog.execute`. Mirrors morel-java's
-//! `DatalogEvaluator` (hydromatic/morel#323).
+//! `DatalogEvaluator`.
 //!
 //! Pipeline: parse → analyze → translate → run translated Morel source
 //! in a fresh `Shell` → wrap last binding's value as `Val::Variant`.

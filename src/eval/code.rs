@@ -53,6 +53,7 @@ use crate::eval::variant;
 use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
 use crate::shell::prop::{Configurable, Prop};
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -4294,8 +4295,8 @@ fn camel_to_dotted(s: &str) -> String {
 }
 
 pub struct Lib {
-    pub fn_map: BTreeMap<BuiltInFunction, (Type, Impl)>,
-    pub structure_map: BTreeMap<BuiltInRecord, (Type, Val)>,
+    pub fn_map: BTreeMap<BuiltInFunction, (Rc<Type>, Impl)>,
+    pub structure_map: BTreeMap<BuiltInRecord, (Rc<Type>, Val)>,
     pub name_to_built_in: HashMap<String, BuiltIn>,
     /// Set of `EagerF1` variants whose corresponding `BuiltInFunction`
     /// has a `throws` strum prop; populated once at startup so
@@ -4303,6 +4304,60 @@ pub struct Lib {
     pub eager_f1_throws: HashSet<EagerF1>,
     pub eager_f2_throws: HashSet<EagerF2>,
     pub eager_f3_throws: HashSet<EagerF3>,
+    /// Pool of canonical interned `Rc<Type>` values; see `intern`
+    /// and `intern_rc`.
+    pool: RefCell<HashSet<Rc<Type>>>,
+}
+
+impl Lib {
+    /// Looks up a name (function or structure).
+    pub fn lookup(&self, name: &str) -> Option<BuiltIn> {
+        self.name_to_built_in.get(name).copied()
+    }
+
+    /// Returns the declared type of a built-in function.
+    pub fn fn_type(&self, f: BuiltInFunction) -> &Rc<Type> {
+        &self.fn_map.get(&f).expect("fn type").0
+    }
+
+    /// Returns the implementation of a built-in function.
+    pub fn fn_impl(&self, f: BuiltInFunction) -> Impl {
+        self.fn_map.get(&f).expect("fn impl").1
+    }
+
+    /// Returns the type of a built-in structure (record), if any.
+    pub fn structure_type(&self, r: BuiltInRecord) -> Option<&Rc<Type>> {
+        self.structure_map.get(&r).map(|(t, _)| t)
+    }
+
+    /// Returns the value of a built-in structure (record), if any.
+    pub fn structure_val(&self, r: BuiltInRecord) -> Option<&Val> {
+        self.structure_map.get(&r).map(|(_, v)| v)
+    }
+
+    /// Interns a `Type`, returning the canonical `Rc<Type>`.
+    pub fn intern(&self, t: Type) -> Rc<Type> {
+        let mut pool = self.pool.borrow_mut();
+        if let Some(existing) = pool.get(&t) {
+            return Rc::clone(existing);
+        }
+        let rc = Rc::new(t);
+        pool.insert(Rc::clone(&rc));
+        rc
+    }
+
+    /// Interns an `Rc<Type>`. Returns the existing canonical `Rc`
+    /// when one is already pooled; otherwise inserts and returns
+    /// the caller's `Rc` (so an already-canonical input is a no-op).
+    pub fn intern_rc(&self, rc: Rc<Type>) -> Rc<Type> {
+        let mut pool = self.pool.borrow_mut();
+        if let Some(existing) = pool.get(rc.as_ref()) {
+            return Rc::clone(existing);
+        }
+        let copy = Rc::clone(&rc);
+        pool.insert(rc);
+        copy
+    }
 }
 
 #[derive(Default)]
@@ -4311,11 +4366,6 @@ struct LibBuilder {
 }
 
 thread_local! {
-    /// Thread-local rather than `static` so we don't constrain `Lib`
-    /// (or the `Type`s it transitively holds) to be `Sync`. The
-    /// initialiser runs lazily on first access per thread; in
-    /// practice morel-rust is single-threaded so there's one
-    /// instance per process.
     pub static LIBRARY: Lib = build_library();
 }
 
@@ -4811,12 +4861,32 @@ fn exn_from_val(value: &Val) -> (BuiltInExn, Option<String>) {
 
 impl LibBuilder {
     fn build(&mut self) -> Lib {
+        let pool: RefCell<HashSet<Rc<Type>>> = RefCell::new(HashSet::new());
+        let intern_rc = |rc: Rc<Type>| -> Rc<Type> {
+            let mut p = pool.borrow_mut();
+            if let Some(existing) = p.get(rc.as_ref()) {
+                return Rc::clone(existing);
+            }
+            let copy = Rc::clone(&rc);
+            p.insert(rc);
+            copy
+        };
+        let intern = |t: Type| -> Rc<Type> {
+            let mut p = pool.borrow_mut();
+            if let Some(existing) = p.get(&t) {
+                return Rc::clone(existing);
+            }
+            let rc = Rc::new(t);
+            p.insert(Rc::clone(&rc));
+            rc
+        };
+
         // Populate a table of functions and structures that are in the global
         // namespace.
         let mut name_to_built_in: HashMap<String, BuiltIn> = HashMap::new();
 
         // Populate a table of functions and their types.
-        let mut fn_map: BTreeMap<BuiltInFunction, (Type, Impl)> =
+        let mut fn_map: BTreeMap<BuiltInFunction, (Rc<Type>, Impl)> =
             BTreeMap::new();
 
         // Populate a table of structures and the functions that belong to them.
@@ -4829,9 +4899,9 @@ impl LibBuilder {
             let name = f.get_str("name").expect("name");
             let global = f.is_global();
 
-            let t = type_parser::string_to_type(type_code);
+            let t = intern_rc(type_parser::string_to_type(type_code));
             if let Some(fn_impl) = self.fn_impls.remove(&f) {
-                fn_map.insert(f, ((*t).clone(), fn_impl));
+                fn_map.insert(f, (t, fn_impl));
             } else {
                 panic!("missing implementation for {:?}", f);
             }
@@ -4875,9 +4945,9 @@ impl LibBuilder {
                 } else {
                     panic!("missing implementation for {:?}", f);
                 }
-                name_types.insert(Label::String(n.clone()), Rc::new(t.clone()));
+                name_types.insert(Label::String(n.clone()), Rc::clone(t));
             }
-            let t = Type::Record(false, name_types.clone());
+            let t = intern(Type::Record(false, name_types.clone()));
             structure_map.insert(*r, (t, Val::List(vals)));
         }
 
@@ -4885,7 +4955,8 @@ impl LibBuilder {
         // with fields `bonuses`, `depts`, `emps`, `salgrades`, each a
         // bag of records.
         let (scott_type, scott_val) = build_scott();
-        structure_map.insert(BuiltInRecord::Scott, (scott_type, scott_val));
+        structure_map
+            .insert(BuiltInRecord::Scott, (intern(scott_type), scott_val));
 
         for r in BuiltInRecord::iter() {
             let name = r.get_str("name").expect("name");
@@ -4921,6 +4992,7 @@ impl LibBuilder {
             eager_f1_throws,
             eager_f2_throws,
             eager_f3_throws,
+            pool,
         }
     }
 }

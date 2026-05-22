@@ -16,7 +16,7 @@
 // License.
 
 //! Translates Datalog programs to Morel source code. Mirrors
-//! morel-java's `DatalogTranslator` (hydromatic/morel#323).
+//! morel-java's `DatalogTranslator`.
 //!
 //! Translation strategy:
 //! - Facts-only relations → list literals (`val rel = [...]`).

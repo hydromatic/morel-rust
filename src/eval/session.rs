@@ -87,14 +87,12 @@ pub struct Session {
     pub overloads: HashMap<String, Vec<Type>>,
     /// Core function bodies of single-arm `fn p => body` value
     /// bindings from earlier statements. Lets predicate inversion
-    /// inline a function declared in a previous shell statement
-    /// (hydromatic/morel#223).
+    /// inline a function declared in a previous shell statement.
     pub fn_bindings: HashMap<String, (CorePat, CoreExpr)>,
-    /// Pre-expander variant of [`Self::fn_bindings`]. Phase 2 of
-    /// recursive predicate inversion (hydromatic/morel#217)
-    /// reads bodies from this map so the original step
-    /// predicates are still visible as conjuncts of the inner
-    /// `where`.
+    /// Pre-expander variant of [`Self::fn_bindings`]. Recursive
+    /// predicate inversion reads bodies from this map so the
+    /// original step predicates are still visible as conjuncts of
+    /// the inner `where`.
     pub rec_fn_bindings: HashMap<String, (CorePat, CoreExpr)>,
     /// Cached inliner `Env` populated with all built-in functions
     /// and structures. Built lazily on first access and reused

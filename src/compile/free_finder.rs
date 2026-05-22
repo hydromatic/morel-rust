@@ -19,8 +19,8 @@
 //!
 //! "Free" means not bound by a surrounding pattern (in a `fn`,
 //! `case`, `let`, or query `Scan`/`Yield`). Used by the predicate-
-//! inversion pipeline (hydromatic/morel#217) to populate
-//! `Generator::free_pats` and to drive scan ordering.
+//! inversion pipeline to populate `Generator::free_pats` and to
+//! drive scan ordering.
 //!
 //! Mirrors morel-java's `compile.FreeFinder`.
 

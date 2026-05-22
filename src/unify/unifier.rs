@@ -318,6 +318,15 @@ pub struct Sequence {
 
 impl Sequence {
     fn sub1(&self, variable: &Var, term: &Term) -> Self {
+        // Skip the per-child walk if the variable doesn't appear
+        // anywhere in this sequence: no child changes, return the
+        // shared Rc<[Term]> directly.
+        if !self.terms.iter().any(|t| t.contains(variable)) {
+            return Self {
+                op: self.op,
+                terms: Rc::clone(&self.terms),
+            };
+        }
         // Find the index of the first change.
         for (i, t) in self.terms.iter().enumerate() {
             let new_term = t.apply1(variable, term);

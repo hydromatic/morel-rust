@@ -52,8 +52,7 @@ pub fn resolve(resolved: &Resolved) -> (CoreDecl, Vec<(String, Span)>) {
 }
 
 /// Same as `resolve`, but seeds the predicate-inversion pass
-/// with session-level function bindings from earlier statements
-/// (hydromatic/morel#223).
+/// with session-level function bindings from earlier statements.
 pub fn resolve_with_session_fns(
     resolved: &Resolved,
     session_fns: &expander::FnEnv,
@@ -254,8 +253,7 @@ pub struct Resolver<'a> {
     errors: RefCell<Vec<(String, Span)>>,
     /// Names of user-defined functions whose first parameter is
     /// (or contains) `self`, so the postfix dispatcher can rewrite
-    /// `x.name arg` into a direct application to `name`. See
-    /// hydromatic/morel#346.
+    /// `x.name arg` into a direct application to `name`.
     self_fns: RefCell<HashSet<String>>,
 }
 
@@ -458,12 +456,12 @@ impl<'a> Resolver<'a> {
                 // Use the expression's type for the val binding.
                 // For query expressions (From), the FromBuilder
                 // computes the authoritative collection type
-                // (List vs Bag) via the `ordered` flag (morel#273).
+                // (List vs Bag) via the `ordered` flag.
                 let to_val_bind = |pe: &PatExpr| {
                     // For query expressions (From) whose type is a
                     // collection (List or Bag), use the expr's type
                     // which has the correct collection kind from
-                    // FromBuilder's `ordered` flag (morel#273).
+                    // FromBuilder's `ordered` flag.
                     // For other expressions (including exists/forall
                     // which return bool), use the pat's type which
                     // preserves type aliases.
@@ -486,7 +484,6 @@ impl<'a> Resolver<'a> {
                     // is a postfix method call that the inference pass
                     // couldn't recognize) but the resolved expression
                     // has a concrete type, prefer the expression type.
-                    // See hydromatic/morel#346.
                     let t = match (expr_type.as_ref(), pat_type.as_ref()) {
                         (Type::Bag(_), Type::List(_)) => {
                             expr_type.as_ref().clone()
@@ -593,8 +590,8 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
-                // Try postfix method-call rewriting
-                // (hydromatic/morel#346). Pattern: outer Apply wraps an
+                // Try postfix method-call rewriting. Pattern: outer
+                // Apply wraps an
                 // inner `Apply(RecordSelector(name), recv)` that
                 // couldn't be a field projection on `recv`.
                 if let Some(core) = self.try_postfix_call(&t, func, arg, &span)
@@ -1072,7 +1069,7 @@ impl<'a> Resolver<'a> {
     /// Detects the postfix method-call pattern
     /// `Apply(Apply(RecordSelector(name), recv), arg)` and, if the
     /// receiver isn't a record with that field, rewrites it to a call
-    /// to the appropriate built-in. See hydromatic/morel#346.
+    /// to the appropriate built-in.
     fn try_postfix_call(
         &self,
         t: &Type,
@@ -1122,7 +1119,7 @@ impl<'a> Resolver<'a> {
             );
         }
         // Not a built-in postfix. Try a user-defined function whose
-        // first parameter is `self` (hydromatic/morel#346). The
+        // first parameter is `self`. The
         // function must be in scope, which we track via self_fns
         // populated from enclosing `let fun name self = …` decls.
         if self.self_fns.borrow().contains(&method_name) {

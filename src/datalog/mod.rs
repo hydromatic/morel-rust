@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-//! Datalog frontend (hydromatic/morel#323).
+//! Datalog frontend.
 //!
 //! Phase 1: AST + parser only. Later phases add the analyzer
 //! (safety + stratification), translator (Datalog → Morel source),

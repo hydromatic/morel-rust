@@ -18,8 +18,8 @@
 //! Capture-aware substitution of free identifiers in a Core
 //! expression.
 //!
-//! Used by the predicate-inversion pipeline (hydromatic/morel#217)
-//! to inline function bodies and rewrite case-arm conditions.
+//! Used by the predicate-inversion pipeline to inline function
+//! bodies and rewrite case-arm conditions.
 //! Mirrors morel-java's `compile.Replacer`.
 //!
 //! The current implementation is the minimum needed for Phase 1+

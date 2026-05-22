@@ -21,7 +21,7 @@ use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
 /// Represents a resolved type in the system.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Type {
     Primitive(PrimitiveType),
     Fn(Rc<Type>, Rc<Type>),
@@ -305,7 +305,7 @@ impl Display for Type {
 }
 
 /// Primitive types in the ML-like language.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum PrimitiveType {
     Unit,
     Bool,

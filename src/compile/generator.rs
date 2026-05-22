@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-//! Generator data type for predicate inversion (hydromatic/morel#217).
+//! Generator data type for predicate inversion.
 //!
 //! A `Generator` is an expression that produces all values satisfying
 //! some predicate, attached to the pattern that consumes them. The
