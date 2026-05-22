@@ -38,6 +38,7 @@ use crate::compile::span::Span;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::val::Val;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
 
 /// Map of let-bound function name → (parameter pattern, body
 /// expression). Populated as `expand_decl` walks down through
@@ -1016,7 +1017,7 @@ fn build_iterate_for_recursive_v2(
         // 0/1-param Phase 5; binary closure handled by Phase 1.
         return None;
     }
-    let mut params: Vec<(String, Box<Type>)> = Vec::new();
+    let mut params: Vec<(String, Rc<Type>)> = Vec::new();
     for sp in sub_pats {
         match sp {
             Pat::Identifier(t, n) => params.push((n.clone(), t.clone())),
@@ -1036,7 +1037,7 @@ fn build_iterate_for_recursive_v2(
     }
     // Collect intermediate vars from leading Scan(_, Extent(_), None)
     // steps. They must be plain identifier patterns.
-    let mut intermediates: Vec<(String, Box<Type>)> = Vec::new();
+    let mut intermediates: Vec<(String, Rc<Type>)> = Vec::new();
     let mut where_cond: Option<&Expr> = None;
     for step in inner_steps {
         match &step.kind {
@@ -1095,7 +1096,7 @@ fn build_iterate_for_recursive_v2(
     if rc_items.len() != params.len() {
         return None;
     }
-    let mut rec_arg_names: Vec<(String, Box<Type>)> = Vec::new();
+    let mut rec_arg_names: Vec<(String, Rc<Type>)> = Vec::new();
     let known: BTreeSet<&str> = params
         .iter()
         .chain(intermediates.iter())
@@ -1111,13 +1112,14 @@ fn build_iterate_for_recursive_v2(
         rec_arg_names.push((n.clone(), t.clone()));
     }
     // Result tuple type is (param_t1, ..., param_tN).
-    let elem_t =
-        Type::Tuple(params.iter().map(|(_, t)| (**t).clone()).collect());
-    let coll_t = Type::Bag(Box::new(elem_t.clone()));
-    let elem_t_box = Box::new(elem_t.clone());
+    let elem_t = Type::Tuple(
+        params.iter().map(|(_, t)| Rc::new((**t).clone())).collect(),
+    );
+    let coll_t = Type::Bag(Rc::new(elem_t.clone()));
+    let elem_t_box = Rc::new(elem_t.clone());
     // Helper: build a step env containing the given bindings.
     let mk_env = |bs: Vec<Binding>| StepEnv::new(bs, false, false);
-    let bs_for = |names: &[(String, Box<Type>)]| -> Vec<Binding> {
+    let bs_for = |names: &[(String, Rc<Type>)]| -> Vec<Binding> {
         names
             .iter()
             .map(|(n, t)| Binding::new(Id::new(n, 0), t.clone()))
@@ -1125,7 +1127,7 @@ fn build_iterate_for_recursive_v2(
     };
     // ----- Seed: `from p1, p2, ... where base yield (p1,p2,...)` -----
     let mut seed_steps: Vec<Step> = Vec::new();
-    let mut bound: Vec<(String, Box<Type>)> = Vec::new();
+    let mut bound: Vec<(String, Rc<Type>)> = Vec::new();
     for (n, t) in &params {
         bound.push((n.clone(), t.clone()));
         seed_steps.push(Step::new(
@@ -1157,7 +1159,7 @@ fn build_iterate_for_recursive_v2(
         StepKind::Yield(Box::new(yield_tuple.clone())),
         yield_env.clone(),
     ));
-    let seed_from = Expr::From(Box::new(coll_t.clone()), seed_steps);
+    let seed_from = Expr::From(Rc::new(coll_t.clone()), seed_steps);
     let seed_expanded = expand_from_with_scope_rec(
         seed_from,
         fn_env,
@@ -1187,7 +1189,7 @@ fn build_iterate_for_recursive_v2(
     // param scans we destructure into fresh names and equate.
     let new_name = "__tc_new";
     let new_id =
-        Expr::Identifier(Box::new(coll_t.clone()), new_name.to_string());
+        Expr::Identifier(Rc::new(coll_t.clone()), new_name.to_string());
     // Build fresh-name destructuring pattern for the newF scan.
     // For each rc_arg, use a fresh name `__tc_v{i}`.
     let mut fresh_pats: Vec<Pat> = Vec::new();
@@ -1205,29 +1207,35 @@ fn build_iterate_for_recursive_v2(
             Type::Primitive(PrimitiveType::Bool) => BuiltInFunction::BoolEq,
             _ => BuiltInFunction::GEq,
         };
-        let pair_t =
-            Box::new(Type::Tuple(vec![(**orig_t).clone(), (**orig_t).clone()]));
-        let fn_t = Box::new(Type::Fn(
+        let pair_t = Rc::new(Type::Tuple(vec![
+            Rc::new((**orig_t).clone()),
+            Rc::new((**orig_t).clone()),
+        ]));
+        let fn_t = Rc::new(Type::Fn(
             pair_t.clone(),
-            Box::new(Type::Primitive(PrimitiveType::Bool)),
+            Rc::new(Type::Primitive(PrimitiveType::Bool)),
         ));
         let eq_lit = Expr::Literal(fn_t, Val::Fn(eq_op));
         let lhs = Expr::Identifier(orig_t.clone(), orig_name.clone());
         let rhs = Expr::Identifier(orig_t.clone(), fresh);
         let arg = Expr::Tuple(pair_t, vec![lhs, rhs]);
         fresh_eqs.push(Expr::Apply(
-            Box::new(Type::Primitive(PrimitiveType::Bool)),
+            Rc::new(Type::Primitive(PrimitiveType::Bool)),
             Box::new(eq_lit),
             Box::new(arg),
             Span::new(""),
         ));
     }
-    let rec_args_t =
-        Type::Tuple(rec_arg_names.iter().map(|(_, t)| (**t).clone()).collect());
-    let rec_args_pat = Pat::Tuple(Box::new(rec_args_t.clone()), fresh_pats);
+    let rec_args_t = Type::Tuple(
+        rec_arg_names
+            .iter()
+            .map(|(_, t)| Rc::new((**t).clone()))
+            .collect(),
+    );
+    let rec_args_pat = Pat::Tuple(Rc::new(rec_args_t.clone()), fresh_pats);
     // Build update-body steps.
     let mut update_steps: Vec<Step> = Vec::new();
-    let mut bound2: Vec<(String, Box<Type>)> = Vec::new();
+    let mut bound2: Vec<(String, Rc<Type>)> = Vec::new();
     for (n, t) in &params {
         bound2.push((n.clone(), t.clone()));
         update_steps.push(Step::new(
@@ -1271,7 +1279,7 @@ fn build_iterate_for_recursive_v2(
         StepKind::Yield(Box::new(yield_tuple.clone())),
         yield_env,
     ));
-    let update_body = Expr::From(Box::new(coll_t.clone()), update_steps);
+    let update_body = Expr::From(Rc::new(coll_t.clone()), update_steps);
     // Recursively expand the update body so step_preds invert
     // the param/intermediate Extent scans.
     let mut update_outer_scope: BTreeSet<String> = outer_scope.clone();
@@ -1288,17 +1296,23 @@ fn build_iterate_for_recursive_v2(
     }
     // Wrap update body in `fn (allF, newF) => ...`.
     let all_name = "__tc_all";
-    let coll_t_box = Box::new(coll_t.clone());
+    let coll_t_box = Rc::new(coll_t.clone());
     let pair_pat = Pat::Tuple(
-        Box::new(Type::Tuple(vec![coll_t.clone(), coll_t.clone()])),
+        Rc::new(Type::Tuple(vec![
+            Rc::new(coll_t.clone()),
+            Rc::new(coll_t.clone()),
+        ])),
         vec![
             Pat::Identifier(coll_t_box.clone(), all_name.to_string()),
             Pat::Identifier(coll_t_box.clone(), new_name.to_string()),
         ],
     );
-    let fn_t = Box::new(Type::Fn(
-        Box::new(Type::Tuple(vec![coll_t.clone(), coll_t.clone()])),
-        Box::new(coll_t.clone()),
+    let fn_t = Rc::new(Type::Fn(
+        Rc::new(Type::Tuple(vec![
+            Rc::new(coll_t.clone()),
+            Rc::new(coll_t.clone()),
+        ])),
+        Rc::new(coll_t.clone()),
     ));
     let update_fn = Expr::Fn(
         fn_t.clone(),
@@ -1309,18 +1323,18 @@ fn build_iterate_for_recursive_v2(
         Span::new(""),
     );
     // Build `Relational.iterate seed updateFn`.
-    let iter_t = Box::new(Type::Fn(
-        Box::new(coll_t.clone()),
-        Box::new(Type::Fn(
-            Box::new(fn_t.as_ref().clone()),
-            Box::new(coll_t.clone()),
+    let iter_t = Rc::new(Type::Fn(
+        Rc::new(coll_t.clone()),
+        Rc::new(Type::Fn(
+            Rc::new(fn_t.as_ref().clone()),
+            Rc::new(coll_t.clone()),
         )),
     ));
     let iter_lit =
         Expr::Literal(iter_t, Val::Fn(BuiltInFunction::RelationalIterate));
-    let after_seed_t = Box::new(Type::Fn(
-        Box::new(fn_t.as_ref().clone()),
-        Box::new(coll_t.clone()),
+    let after_seed_t = Rc::new(Type::Fn(
+        Rc::new(fn_t.as_ref().clone()),
+        Rc::new(coll_t.clone()),
     ));
     let with_seed = Expr::Apply(
         after_seed_t,
@@ -1329,7 +1343,7 @@ fn build_iterate_for_recursive_v2(
         Span::new(""),
     );
     Some(Expr::Apply(
-        Box::new(coll_t.clone()),
+        Rc::new(coll_t.clone()),
         Box::new(with_seed),
         Box::new(update_fn),
         Span::new(""),
@@ -1546,12 +1560,12 @@ fn normalize_tuple_id_param(pat: &Pat, body: &Expr) -> (Pat, Expr) {
     let comp_pats: Vec<Pat> = elem_types
         .iter()
         .zip(comp_names.iter())
-        .map(|(et, cn)| Pat::Identifier(Box::new(et.clone()), cn.clone()))
+        .map(|(et, cn)| Pat::Identifier((*et).clone(), cn.clone()))
         .collect();
     let comp_idents: Vec<Expr> = elem_types
         .iter()
         .zip(comp_names.iter())
-        .map(|(et, cn)| Expr::Identifier(Box::new(et.clone()), cn.clone()))
+        .map(|(et, cn)| Expr::Identifier((*et).clone(), cn.clone()))
         .collect();
     let new_pat = Pat::Tuple(t.clone(), comp_pats);
     let tuple_replacement = Expr::Tuple(t.clone(), comp_idents);
@@ -1802,10 +1816,12 @@ fn remove_recursive_branches(body: &Expr, name: &str) -> Option<Expr> {
     let mut iter = kept.into_iter();
     let first = iter.next().unwrap();
     Some(iter.fold(first, |a, b| {
-        let bool_t = Box::new(Type::Primitive(PrimitiveType::Bool));
-        let pair_t =
-            Box::new(Type::Tuple(vec![(*bool_t).clone(), (*bool_t).clone()]));
-        let fn_t = Box::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+        let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+        let pair_t = Rc::new(Type::Tuple(vec![
+            Rc::new((*bool_t).clone()),
+            Rc::new((*bool_t).clone()),
+        ]));
+        let fn_t = Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
         let fn_lit = Expr::Literal(fn_t, Val::Fn(BuiltInFunction::BoolOrElse));
         Expr::Apply(
             bool_t,
@@ -1944,12 +1960,12 @@ fn build_iterate_ast(
 ) -> Expr {
     use crate::compile::type_env::Id;
     // Result element type: (x_t, y_t).
-    let elem_t = Type::Tuple(vec![x_t.clone(), y_t.clone()]);
+    let elem_t = Type::Tuple(vec![Rc::new(x_t.clone()), Rc::new(y_t.clone())]);
     let bool_t = Type::Primitive(PrimitiveType::Bool);
     // Result collection type: Bag(elem_t). (We don't preserve list
     // ordering in Phase 1; iterate's runtime uses Val::List as its
     // representation regardless.)
-    let coll_t = Type::Bag(Box::new(elem_t.clone()));
+    let coll_t = Type::Bag(Rc::new(elem_t.clone()));
     // Convert seed from records to tuples if needed.
     let typed_seed: Expr = match seed_label_order {
         None => {
@@ -1964,12 +1980,12 @@ fn build_iterate_ast(
             let seed_t = seed_expr.type_();
             let seed_elem_t = match seed_t.as_ref() {
                 Type::List(t) | Type::Bag(t) => (**t).clone(),
-                _ => return Expr::List(Box::new(coll_t), Vec::new()),
+                _ => return Expr::List(Rc::new(coll_t), Vec::new()),
             };
             let r_pat =
-                Pat::Identifier(Box::new(seed_elem_t.clone()), r_name.into());
+                Pat::Identifier(Rc::new(seed_elem_t.clone()), r_name.into());
             let r_id =
-                Expr::Identifier(Box::new(seed_elem_t.clone()), r_name.into());
+                Expr::Identifier(Rc::new(seed_elem_t.clone()), r_name.into());
             let mut tuple_items: Vec<Expr> = Vec::new();
             for (i, lbl) in labels.iter().enumerate() {
                 let field_t = match &seed_elem_t {
@@ -1978,36 +1994,33 @@ fn build_iterate_ast(
                         match fs.get(&key) {
                             Some(t) => t.clone(),
                             None => {
-                                return Expr::List(
-                                    Box::new(coll_t),
-                                    Vec::new(),
-                                );
+                                return Expr::List(Rc::new(coll_t), Vec::new());
                             }
                         }
                     }
-                    _ => return Expr::List(Box::new(coll_t), Vec::new()),
+                    _ => return Expr::List(Rc::new(coll_t), Vec::new()),
                 };
-                let sel_t = Box::new(Type::Fn(
-                    Box::new(seed_elem_t.clone()),
-                    Box::new(field_t.clone()),
+                let sel_t = Rc::new(Type::Fn(
+                    Rc::new(seed_elem_t.clone()),
+                    field_t.clone(),
                 ));
                 let sel = Expr::RecordSelector(sel_t, i);
                 tuple_items.push(Expr::Apply(
-                    Box::new(field_t),
+                    field_t.clone(),
                     Box::new(sel),
                     Box::new(r_id.clone()),
                     Span::new(""),
                 ));
             }
-            let tuple_expr = Expr::Tuple(Box::new(elem_t.clone()), tuple_items);
+            let tuple_expr = Expr::Tuple(Rc::new(elem_t.clone()), tuple_items);
             let r_binding =
-                Binding::new(Id::new(r_name, 0), Box::new(seed_elem_t.clone()));
+                Binding::new(Id::new(r_name, 0), Rc::new(seed_elem_t.clone()));
             let scan_env =
                 StepEnv::new(vec![r_binding.clone()], true, seed_t.is_list());
             let yield_env = StepEnv::new(
                 vec![Binding::new(
                     Id::new("current", 0),
-                    Box::new(elem_t.clone()),
+                    Rc::new(elem_t.clone()),
                 )],
                 true,
                 seed_t.is_list(),
@@ -2024,11 +2037,11 @@ fn build_iterate_ast(
                 Step::new(StepKind::Yield(Box::new(tuple_expr)), yield_env),
             ];
             let inner_t = if seed_t.is_list() {
-                Type::List(Box::new(elem_t.clone()))
+                Type::List(Rc::new(elem_t.clone()))
             } else {
-                Type::Bag(Box::new(elem_t.clone()))
+                Type::Bag(Rc::new(elem_t.clone()))
             };
-            Expr::From(Box::new(inner_t), inner_steps)
+            Expr::From(Rc::new(inner_t), inner_steps)
         }
     };
     // Build the update fn: `fn (allP, newP) =>
@@ -2040,32 +2053,38 @@ fn build_iterate_ast(
     let pz_name = "__tc_pz";
     let sz_name = "__tc_sz";
     let sy_name = "__tc_sy";
-    let coll_t_box = Box::new(coll_t.clone());
+    let coll_t_box = Rc::new(coll_t.clone());
     let all_pat = Pat::Identifier(coll_t_box.clone(), all_name.to_string());
     let new_pat = Pat::Identifier(coll_t_box.clone(), new_name.to_string());
     let pair_pat = Pat::Tuple(
-        Box::new(Type::Tuple(vec![coll_t.clone(), coll_t.clone()])),
+        Rc::new(Type::Tuple(vec![
+            Rc::new(coll_t.clone()),
+            Rc::new(coll_t.clone()),
+        ])),
         vec![all_pat, new_pat.clone()],
     );
     let new_id = Expr::Identifier(coll_t_box.clone(), new_name.into());
     // (px, pz) in newP
     let prev_pat = Pat::Tuple(
-        Box::new(elem_t.clone()),
+        Rc::new(elem_t.clone()),
         vec![
-            Pat::Identifier(Box::new(x_t.clone()), px_name.into()),
-            Pat::Identifier(Box::new(y_t.clone()), pz_name.into()),
+            Pat::Identifier(Rc::new(x_t.clone()), px_name.into()),
+            Pat::Identifier(Rc::new(y_t.clone()), pz_name.into()),
         ],
     );
     // (sz, sy) in typed_seed
     let step_pat = Pat::Tuple(
-        Box::new(elem_t.clone()),
+        Rc::new(elem_t.clone()),
         vec![
-            Pat::Identifier(Box::new(x_t.clone()), sz_name.into()),
-            Pat::Identifier(Box::new(y_t.clone()), sy_name.into()),
+            Pat::Identifier(Rc::new(x_t.clone()), sz_name.into()),
+            Pat::Identifier(Rc::new(y_t.clone()), sy_name.into()),
         ],
     );
     // Where pz = sz
-    let pair_int_t = Box::new(Type::Tuple(vec![y_t.clone(), x_t.clone()]));
+    let pair_int_t = Rc::new(Type::Tuple(vec![
+        Rc::new(y_t.clone()),
+        Rc::new(x_t.clone()),
+    ]));
     let eq_op = match y_t {
         Type::Primitive(PrimitiveType::Int) => BuiltInFunction::IntEq,
         Type::Primitive(PrimitiveType::String) => BuiltInFunction::StringEq,
@@ -2074,40 +2093,37 @@ fn build_iterate_ast(
         _ => BuiltInFunction::GEq,
     };
     let eq_fn_t =
-        Box::new(Type::Fn(pair_int_t.clone(), Box::new(bool_t.clone())));
+        Rc::new(Type::Fn(pair_int_t.clone(), Rc::new(bool_t.clone())));
     let eq_lit = Expr::Literal(eq_fn_t, Val::Fn(eq_op));
-    let pz_id = Expr::Identifier(Box::new(y_t.clone()), pz_name.into());
-    let sz_id = Expr::Identifier(Box::new(x_t.clone()), sz_name.into());
+    let pz_id = Expr::Identifier(Rc::new(y_t.clone()), pz_name.into());
+    let sz_id = Expr::Identifier(Rc::new(x_t.clone()), sz_name.into());
     let eq_arg = Expr::Tuple(pair_int_t, vec![pz_id, sz_id]);
     let where_cond = Expr::Apply(
-        Box::new(bool_t.clone()),
+        Rc::new(bool_t.clone()),
         Box::new(eq_lit),
         Box::new(eq_arg),
         Span::new(""),
     );
     // Yield (px, sy)
-    let px_id = Expr::Identifier(Box::new(x_t.clone()), px_name.into());
-    let sy_id = Expr::Identifier(Box::new(y_t.clone()), sy_name.into());
-    let yield_tuple = Expr::Tuple(Box::new(elem_t.clone()), vec![px_id, sy_id]);
+    let px_id = Expr::Identifier(Rc::new(x_t.clone()), px_name.into());
+    let sy_id = Expr::Identifier(Rc::new(y_t.clone()), sy_name.into());
+    let yield_tuple = Expr::Tuple(Rc::new(elem_t.clone()), vec![px_id, sy_id]);
     // Build inner from steps with their environments.
     let scan1_bindings = vec![
-        Binding::new(Id::new(px_name, 0), Box::new(x_t.clone())),
-        Binding::new(Id::new(pz_name, 0), Box::new(y_t.clone())),
+        Binding::new(Id::new(px_name, 0), Rc::new(x_t.clone())),
+        Binding::new(Id::new(pz_name, 0), Rc::new(y_t.clone())),
     ];
     let scan1_env = StepEnv::new(scan1_bindings.clone(), false, false);
     let scan2_bindings = {
         let mut b = scan1_bindings.clone();
-        b.push(Binding::new(Id::new(sz_name, 0), Box::new(x_t.clone())));
-        b.push(Binding::new(Id::new(sy_name, 0), Box::new(y_t.clone())));
+        b.push(Binding::new(Id::new(sz_name, 0), Rc::new(x_t.clone())));
+        b.push(Binding::new(Id::new(sy_name, 0), Rc::new(y_t.clone())));
         b
     };
     let scan2_env = StepEnv::new(scan2_bindings.clone(), false, false);
     let where_env = scan2_env.clone();
     let yield_env = StepEnv::new(
-        vec![Binding::new(
-            Id::new("current", 0),
-            Box::new(elem_t.clone()),
-        )],
+        vec![Binding::new(Id::new("current", 0), Rc::new(elem_t.clone()))],
         true,
         false,
     );
@@ -2127,10 +2143,13 @@ fn build_iterate_ast(
         Step::new(StepKind::Where(Box::new(where_cond)), where_env),
         Step::new(StepKind::Yield(Box::new(yield_tuple)), yield_env),
     ];
-    let inner_from = Expr::From(Box::new(coll_t.clone()), inner_steps);
-    let update_fn_t = Box::new(Type::Fn(
-        Box::new(Type::Tuple(vec![coll_t.clone(), coll_t.clone()])),
-        Box::new(coll_t.clone()),
+    let inner_from = Expr::From(Rc::new(coll_t.clone()), inner_steps);
+    let update_fn_t = Rc::new(Type::Fn(
+        Rc::new(Type::Tuple(vec![
+            Rc::new(coll_t.clone()),
+            Rc::new(coll_t.clone()),
+        ])),
+        Rc::new(coll_t.clone()),
     ));
     let update_fn = Expr::Fn(
         update_fn_t.clone(),
@@ -2141,18 +2160,18 @@ fn build_iterate_ast(
         Span::new(""),
     );
     // Build `Relational.iterate seed updateFn`.
-    let iter_t = Box::new(Type::Fn(
-        Box::new(coll_t.clone()),
-        Box::new(Type::Fn(
-            Box::new(update_fn_t.as_ref().clone()),
-            Box::new(coll_t.clone()),
+    let iter_t = Rc::new(Type::Fn(
+        Rc::new(coll_t.clone()),
+        Rc::new(Type::Fn(
+            Rc::new(update_fn_t.as_ref().clone()),
+            Rc::new(coll_t.clone()),
         )),
     ));
     let iter_lit =
         Expr::Literal(iter_t, Val::Fn(BuiltInFunction::RelationalIterate));
-    let after_seed_t = Box::new(Type::Fn(
-        Box::new(update_fn_t.as_ref().clone()),
-        Box::new(coll_t.clone()),
+    let after_seed_t = Rc::new(Type::Fn(
+        Rc::new(update_fn_t.as_ref().clone()),
+        Rc::new(coll_t.clone()),
     ));
     let with_seed = Expr::Apply(
         after_seed_t,
@@ -2161,7 +2180,7 @@ fn build_iterate_ast(
         Span::new(""),
     );
     Expr::Apply(
-        Box::new(coll_t.clone()),
+        Rc::new(coll_t.clone()),
         Box::new(with_seed),
         Box::new(update_fn),
         Span::new(""),
@@ -2184,20 +2203,24 @@ fn wrap_diagonal_projection(
         return None;
     }
     // The iterate's type is Bag(Tuple([elem_t; arity])).
-    let tuple_t = Type::Tuple(vec![elem_t.clone(); arity]);
-    let bag_t = Box::new(Type::Bag(Box::new(elem_t.clone())));
+    let tuple_t = {
+        let rc = Rc::new(elem_t.clone());
+        Type::Tuple((0..arity).map(|_| rc.clone()).collect())
+    };
+    let bag_t = Rc::new(Type::Bag(Rc::new(elem_t.clone())));
     // Fresh names for the tuple components.
     let names: Vec<String> =
         (0..arity).map(|i| format!("__dg_{}", i)).collect();
     let scan_pat = Pat::Tuple(
-        Box::new(tuple_t.clone()),
+        Rc::new(tuple_t.clone()),
         names
             .iter()
-            .map(|n| Pat::Identifier(Box::new(elem_t.clone()), n.clone()))
+            .map(|n| Pat::Identifier(Rc::new(elem_t.clone()), n.clone()))
             .collect(),
     );
     let bool_t = Type::Primitive(PrimitiveType::Bool);
-    let pair_t = Type::Tuple(vec![elem_t.clone(), elem_t.clone()]);
+    let pair_t =
+        Type::Tuple(vec![Rc::new(elem_t.clone()), Rc::new(elem_t.clone())]);
     let eq_op = match elem_t {
         Type::Primitive(PrimitiveType::Int) => BuiltInFunction::IntEq,
         Type::Primitive(PrimitiveType::String) => BuiltInFunction::StringEq,
@@ -2206,14 +2229,14 @@ fn wrap_diagonal_projection(
         _ => BuiltInFunction::GEq,
     };
     let eq_fn_t =
-        Box::new(Type::Fn(Box::new(pair_t.clone()), Box::new(bool_t.clone())));
+        Rc::new(Type::Fn(Rc::new(pair_t.clone()), Rc::new(bool_t.clone())));
     // Build conjuncts: __dg_0 = __dg_1 andalso __dg_0 = __dg_2 ...
     let mk_eq = |a: &str, b: &str| -> Expr {
-        let lhs = Expr::Identifier(Box::new(elem_t.clone()), a.to_string());
-        let rhs = Expr::Identifier(Box::new(elem_t.clone()), b.to_string());
-        let arg = Expr::Tuple(Box::new(pair_t.clone()), vec![lhs, rhs]);
+        let lhs = Expr::Identifier(Rc::new(elem_t.clone()), a.to_string());
+        let rhs = Expr::Identifier(Rc::new(elem_t.clone()), b.to_string());
+        let arg = Expr::Tuple(Rc::new(pair_t.clone()), vec![lhs, rhs]);
         Expr::Apply(
-            Box::new(bool_t.clone()),
+            Rc::new(bool_t.clone()),
             Box::new(Expr::Literal(eq_fn_t.clone(), Val::Fn(eq_op))),
             Box::new(arg),
             Span::new(""),
@@ -2224,17 +2247,14 @@ fn wrap_diagonal_projection(
         eqs.push(mk_eq(&names[0], &names[i]));
     }
     let where_cond = and_all(eqs);
-    let yield_id = Expr::Identifier(Box::new(elem_t.clone()), names[0].clone());
+    let yield_id = Expr::Identifier(Rc::new(elem_t.clone()), names[0].clone());
     let scan_bindings: Vec<Binding> = names
         .iter()
-        .map(|n| Binding::new(Id::new(n, 0), Box::new(elem_t.clone())))
+        .map(|n| Binding::new(Id::new(n, 0), Rc::new(elem_t.clone())))
         .collect();
     let scan_env = StepEnv::new(scan_bindings.clone(), false, false);
     let yield_env = StepEnv::new(
-        vec![Binding::new(
-            Id::new("current", 0),
-            Box::new(elem_t.clone()),
-        )],
+        vec![Binding::new(Id::new("current", 0), Rc::new(elem_t.clone()))],
         true,
         false,
     );
@@ -2339,9 +2359,9 @@ fn rewrite_steps_for_iterate_tuple(
             // into its sibling bindings.
             let sub_pats: Vec<Pat> = components
                 .iter()
-                .map(|(n, t)| Pat::Identifier(Box::new(t.clone()), n.clone()))
+                .map(|(n, t)| Pat::Identifier(Rc::new(t.clone()), n.clone()))
                 .collect();
-            let new_pat = Pat::Tuple(Box::new(tuple_type.clone()), sub_pats);
+            let new_pat = Pat::Tuple(Rc::new(tuple_type.clone()), sub_pats);
             let iter = iterate_opt.take().expect("primary visited once");
             out.push(Step::new(
                 StepKind::Scan(Box::new(new_pat), Box::new(iter), cond),
@@ -2400,7 +2420,7 @@ fn destructure_tuple_extents_for_fn_calls(
         return steps;
     }
     // Find tuple-typed scan-extent bindings.
-    let mut targets: Vec<(usize, String, Vec<Type>, Span)> = Vec::new();
+    let mut targets: Vec<(usize, String, Vec<Rc<Type>>, Span)> = Vec::new();
     for (i, s) in steps.iter().enumerate() {
         let StepKind::Scan(p, source, cond) = &s.kind else {
             continue;
@@ -2461,31 +2481,26 @@ fn destructure_tuple_extents_for_fn_calls(
         let mut new_bindings: Vec<Binding> = Vec::with_capacity(elems.len());
         for (i, t) in elems.iter().enumerate() {
             let fresh_name = format!("{}__{}", name, i + 1);
-            let pat = Pat::Identifier(Box::new(t.clone()), fresh_name.clone());
+            let pat = Pat::Identifier((*t).clone(), fresh_name.clone());
             // Carry the original `from p` span onto each
             // destructured component's Extent so a downstream
             // "pattern not grounded" error points at the user's
             // source location, not an empty span.
-            let source = Expr::Extent(Box::new(t.clone()), span.clone());
+            let source = Expr::Extent((*t).clone(), span.clone());
             new_kinds.push(StepKind::Scan(
                 Box::new(pat),
                 Box::new(source),
                 None,
             ));
-            new_bindings.push(Binding::new(
-                Id::new(&fresh_name, 0),
-                Box::new(t.clone()),
-            ));
+            new_bindings
+                .push(Binding::new(Id::new(&fresh_name, 0), (*t).clone()));
         }
-        let tuple_t = Box::new(Type::Tuple(elems.clone()));
+        let tuple_t = Rc::new(Type::Tuple(elems.clone()));
         let tuple_expr_items: Vec<Expr> = elems
             .iter()
             .enumerate()
             .map(|(i, t)| {
-                Expr::Identifier(
-                    Box::new(t.clone()),
-                    format!("{}__{}", name, i + 1),
-                )
+                Expr::Identifier((*t).clone(), format!("{}__{}", name, i + 1))
             })
             .collect();
         let tuple_expr = Expr::Tuple(tuple_t, tuple_expr_items);
@@ -2648,9 +2663,11 @@ fn unground_outer_point_scan(
     let extent = Expr::Extent(pat_t.clone(), Span::new(""));
     let extent_step =
         StepKind::Scan(Box::new(pat.clone()), Box::new(extent), None);
-    let bool_t = Box::new(Type::Primitive(PrimitiveType::Bool));
-    let pair_t =
-        Box::new(Type::Tuple(vec![(**pat_t).clone(), (**pat_t).clone()]));
+    let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+    let pair_t = Rc::new(Type::Tuple(vec![
+        Rc::new((**pat_t).clone()),
+        Rc::new((**pat_t).clone()),
+    ]));
     let eq_op = match pat_t.as_ref() {
         Type::Primitive(PrimitiveType::Int) => BuiltInFunction::IntEq,
         Type::Primitive(PrimitiveType::Real) => BuiltInFunction::RealEq,
@@ -2659,7 +2676,7 @@ fn unground_outer_point_scan(
         Type::Primitive(PrimitiveType::Bool) => BuiltInFunction::BoolEq,
         _ => BuiltInFunction::GEq,
     };
-    let fn_t = Box::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+    let fn_t = Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
     let fn_lit = Expr::Literal(fn_t, Val::Fn(eq_op));
     let arg = Expr::Tuple(
         pair_t,
@@ -2846,27 +2863,24 @@ fn lift_nested_exists_in_where(steps: Vec<Step>) -> Vec<Step> {
         if !outer_bindings.is_empty() && !already_has_yield {
             let yield_expr = if outer_bindings.len() == 1 {
                 Expr::Identifier(
-                    Box::new((*outer_bindings[0].type_).clone()),
+                    outer_bindings[0].type_.clone(),
                     outer_bindings[0].id.name.clone(),
                 )
             } else {
                 use std::collections::BTreeMap;
-                let fields: BTreeMap<Label, Type> = outer_bindings
+                let fields: BTreeMap<Label, Rc<Type>> = outer_bindings
                     .iter()
                     .map(|b| {
-                        (Label::String(b.id.name.clone()), (*b.type_).clone())
+                        (Label::String(b.id.name.clone()), b.type_.clone())
                     })
                     .collect();
-                let rec_t = Box::new(Type::Record(false, fields));
+                let rec_t = Rc::new(Type::Record(false, fields));
                 let mut sorted = outer_bindings.clone();
                 sorted.sort_by(|a, b| a.id.name.cmp(&b.id.name));
                 let items: Vec<Expr> = sorted
                     .iter()
                     .map(|b| {
-                        Expr::Identifier(
-                            Box::new((*b.type_).clone()),
-                            b.id.name.clone(),
-                        )
+                        Expr::Identifier(b.type_.clone(), b.id.name.clone())
                     })
                     .collect();
                 Expr::Tuple(rec_t, items)
@@ -3316,7 +3330,7 @@ fn decompose_tuple_elems_once(steps: Vec<Step>) -> Vec<Step> {
             // matching synthesised binding-names for already-
             // bound tuple components against the original
             // identifiers.
-            let mut post_filters: Vec<(String, Box<Type>, Expr)> = Vec::new();
+            let mut post_filters: Vec<(String, Rc<Type>, Expr)> = Vec::new();
             let mut ok = true;
             for id in ids {
                 match id {
@@ -3380,15 +3394,15 @@ fn decompose_tuple_elems_once(steps: Vec<Step>) -> Vec<Step> {
             let cond = if post_filters.is_empty() {
                 None
             } else {
-                let bool_t = Box::new(Type::Primitive(PrimitiveType::Bool));
+                let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
                 let mut conjuncts: Vec<Expr> = Vec::new();
                 for (fresh, t, orig) in &post_filters {
-                    let pair_t = Box::new(Type::Tuple(vec![
-                        (**t).clone(),
-                        (**t).clone(),
+                    let pair_t = Rc::new(Type::Tuple(vec![
+                        Rc::new((**t).clone()),
+                        Rc::new((**t).clone()),
                     ]));
                     let fn_t =
-                        Box::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+                        Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
                     let eq_op = match t.as_ref() {
                         Type::Primitive(PrimitiveType::Int) => {
                             BuiltInFunction::IntEq
@@ -4007,10 +4021,12 @@ pub(crate) fn and_all(conjuncts: Vec<Expr>) -> Expr {
     let mut iter = conjuncts.into_iter();
     let first = iter.next().expect("at least one conjunct");
     iter.fold(first, |lhs, rhs| {
-        let bool_t = Box::new(Type::Primitive(PrimitiveType::Bool));
-        let pair_t =
-            Box::new(Type::Tuple(vec![(*bool_t).clone(), (*bool_t).clone()]));
-        let fn_t = Box::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+        let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+        let pair_t = Rc::new(Type::Tuple(vec![
+            Rc::new((*bool_t).clone()),
+            Rc::new((*bool_t).clone()),
+        ]));
+        let fn_t = Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
         let fn_expr =
             Expr::Literal(fn_t, Val::Fn(BuiltInFunction::BoolAndAlso));
         let arg = Expr::Tuple(pair_t, vec![lhs, rhs]);

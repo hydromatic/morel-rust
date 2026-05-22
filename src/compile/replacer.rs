@@ -253,9 +253,10 @@ mod tests {
     use crate::compile::span::Span;
     use crate::compile::types::{PrimitiveType, Type};
     use crate::eval::val::Val;
+    use std::rc::Rc;
 
-    fn t_int() -> Box<Type> {
-        Box::new(Type::Primitive(PrimitiveType::Int))
+    fn t_int() -> Rc<Type> {
+        Rc::new(Type::Primitive(PrimitiveType::Int))
     }
 
     fn id(name: &str) -> Expr {

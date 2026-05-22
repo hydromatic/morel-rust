@@ -30,6 +30,7 @@ use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::shell::error::Error;
 use std::fmt;
+use std::rc::Rc;
 
 /// Checks if the type is a list type.
 fn is_list_type(type_: &Type) -> bool {
@@ -387,10 +388,7 @@ impl FromBuilder {
                     .iter()
                     .filter_map(|(label, t)| {
                         if let Label::String(name) = label {
-                            Some(Binding::new(
-                                Id::new(name, 0),
-                                Box::new(t.clone()),
-                            ))
+                            Some(Binding::new(Id::new(name, 0), t.clone()))
                         } else {
                             None
                         }
@@ -514,7 +512,7 @@ impl FromBuilder {
                             if let Label::String(name) = label {
                                 new_bindings.push(Binding::new(
                                     Id::new(name, 0),
-                                    Box::new(t.clone()),
+                                    t.clone(),
                                 ));
                                 has_key_bindings = true;
                                 has_record_key = true;
@@ -543,7 +541,7 @@ impl FromBuilder {
                             if let Label::String(name) = label {
                                 new_bindings.push(Binding::new(
                                     Id::new(name, 0),
-                                    Box::new(t.clone()),
+                                    t.clone(),
                                 ));
                             }
                         }
@@ -687,7 +685,7 @@ impl FromBuilder {
 
         // Build the From expression.
         let result_type = self.compute_result_type()?;
-        Ok(Expr::From(Box::new(result_type), self.steps.clone()))
+        Ok(Expr::From(Rc::new(result_type), self.steps.clone()))
     }
 
     fn compute_result_type(&self) -> Result<Type, Error> {
@@ -701,12 +699,12 @@ impl FromBuilder {
         let element_type = if env.bindings.is_empty() {
             Type::Primitive(PrimitiveType::Unit)
         } else if env.bindings.len() == 1 && env.atom {
-            *env.bindings[0].type_.clone()
+            (*env.bindings[0].type_).clone()
         } else {
-            let fields: BTreeMap<Label, Type> = env
+            let fields: BTreeMap<Label, Rc<Type>> = env
                 .bindings
                 .iter()
-                .map(|b| (Label::String(b.id.name.clone()), *b.type_.clone()))
+                .map(|b| (Label::String(b.id.name.clone()), b.type_.clone()))
                 .collect();
             Type::Record(false, fields)
         };
@@ -714,9 +712,9 @@ impl FromBuilder {
         // Wrap in List or Bag based on ordering. Per morel#273,
         // output is ordered (list) iff all scan inputs are ordered.
         if env.ordered {
-            Ok(Type::List(Box::new(element_type)))
+            Ok(Type::List(Rc::new(element_type)))
         } else {
-            Ok(Type::Bag(Box::new(element_type)))
+            Ok(Type::Bag(Rc::new(element_type)))
         }
     }
 }
@@ -762,7 +760,7 @@ mod tests {
         let mut builder = FromBuilder::new();
         let initial_len = builder.steps.len();
         builder.where_(Expr::Literal(
-            Box::new(Type::Primitive(PrimitiveType::Bool)),
+            Rc::new(Type::Primitive(PrimitiveType::Bool)),
             Val::Bool(true),
         ));
         // "where true" should be skipped
@@ -774,7 +772,7 @@ mod tests {
         let mut builder = FromBuilder::new();
         let initial_len = builder.steps.len();
         builder.skip(Expr::Literal(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             Val::Int(0),
         ));
         // "skip 0" should be skipped
@@ -798,11 +796,11 @@ mod tests {
         use crate::compile::type_env::Id;
         let mut builder = FromBuilder::new();
         let pat = Pat::Identifier(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             "x".to_string(),
         );
         let exp = Expr::List(
-            Box::new(Type::List(Box::new(Type::Primitive(PrimitiveType::Int)))),
+            Rc::new(Type::List(Rc::new(Type::Primitive(PrimitiveType::Int)))),
             vec![],
         );
         builder.scan(pat, exp);
@@ -816,7 +814,7 @@ mod tests {
     fn test_group_added() {
         let mut builder = FromBuilder::new();
         let key_expr = Expr::Literal(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             Val::Int(1),
         );
         let initial_len = builder.steps.len();
@@ -846,11 +844,11 @@ mod tests {
 
         // Add a binding first via scan
         let pat = Pat::Identifier(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             "x".to_string(),
         );
         let exp = Expr::List(
-            Box::new(Type::List(Box::new(Type::Primitive(PrimitiveType::Int)))),
+            Rc::new(Type::List(Rc::new(Type::Primitive(PrimitiveType::Int)))),
             vec![],
         );
         builder.scan(pat, exp);
@@ -858,7 +856,7 @@ mod tests {
         // Now try to yield x (should be skipped as trivial)
         let initial_len = builder.steps.len();
         builder.yield_(Expr::Identifier(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             "x".to_string(),
         ));
 
@@ -874,16 +872,16 @@ mod tests {
         // Add two bindings
         builder.bindings.push(Binding::new(
             Id::new("x", 0),
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
         ));
         builder.bindings.push(Binding::new(
             Id::new("y", 0),
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
         ));
 
         // Yield {x=x, y=y} should be skipped as identity
         let initial_len = builder.steps.len();
-        let int_type = Type::Primitive(PrimitiveType::Int);
+        let int_type = Rc::new(Type::Primitive(PrimitiveType::Int));
         let record_type = Type::Record(
             false,
             BTreeMap::from([
@@ -892,10 +890,10 @@ mod tests {
             ]),
         );
         builder.yield_(Expr::Tuple(
-            Box::new(record_type),
+            Rc::new(record_type),
             vec![
-                Expr::Identifier(Box::new(int_type.clone()), "x".to_string()),
-                Expr::Identifier(Box::new(int_type.clone()), "y".to_string()),
+                Expr::Identifier(int_type.clone(), "x".to_string()),
+                Expr::Identifier(int_type.clone(), "y".to_string()),
             ],
         ));
 
@@ -919,7 +917,7 @@ mod tests {
     fn test_order_adds_step() {
         let mut builder = FromBuilder::new();
         let expr = Expr::Literal(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             Val::Int(1),
         );
         let initial_len = builder.steps.len();
@@ -935,7 +933,7 @@ mod tests {
     fn test_take_adds_step() {
         let mut builder = FromBuilder::new();
         let count = Expr::Literal(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             Val::Int(10),
         );
         let initial_len = builder.steps.len();
@@ -952,11 +950,11 @@ mod tests {
         let mut builder = FromBuilder::new();
         // Add a scan step first (which sets ordered=true by default)
         let pat = Pat::Identifier(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             "x".to_string(),
         );
         let exp = Expr::List(
-            Box::new(Type::List(Box::new(Type::Primitive(PrimitiveType::Int)))),
+            Rc::new(Type::List(Rc::new(Type::Primitive(PrimitiveType::Int)))),
             vec![],
         );
         builder.scan(pat, exp);
@@ -975,21 +973,21 @@ mod tests {
 
         // Test that methods can be chained
         let pat = Pat::Identifier(
-            Box::new(Type::Primitive(PrimitiveType::Int)),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
             "x".to_string(),
         );
         let exp = Expr::List(
-            Box::new(Type::List(Box::new(Type::Primitive(PrimitiveType::Int)))),
+            Rc::new(Type::List(Rc::new(Type::Primitive(PrimitiveType::Int)))),
             vec![],
         );
         let condition = Expr::Literal(
-            Box::new(Type::Primitive(PrimitiveType::Bool)),
+            Rc::new(Type::Primitive(PrimitiveType::Bool)),
             Val::Bool(true),
         );
 
         builder.scan(pat, exp).where_(condition).distinct().take(
             Expr::Literal(
-                Box::new(Type::Primitive(PrimitiveType::Int)),
+                Rc::new(Type::Primitive(PrimitiveType::Int)),
                 Val::Int(5),
             ),
         );

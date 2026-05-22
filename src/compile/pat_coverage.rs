@@ -105,7 +105,7 @@ impl<'a> CoverageChecker<'a> {
     /// the input value matches the pattern.
     fn pat_formula(&mut self, pat: &Pat, path: &mut Vec<usize>) -> Formula {
         let type_ = match pat.id.and_then(|id| self.type_map.get_type(id)) {
-            Some(t) => *t,
+            Some(t) => (*t).clone(),
             None => return Formula::True,
         };
         self.pat_formula_typed(pat, path, &type_)
@@ -142,7 +142,7 @@ impl<'a> CoverageChecker<'a> {
                             .id
                             .and_then(|id| self.type_map.get_type(id))
                         {
-                            Some(t) => *t,
+                            Some(t) => (*t).clone(),
                             None => return Formula::Var(var),
                         };
                         path.push(0);
@@ -190,7 +190,7 @@ impl<'a> CoverageChecker<'a> {
             PatKind::List(pats) => {
                 // [a, b, c] desugars to a :: b :: c :: [].
                 let elem_type = match type_ {
-                    Type::List(t) => *t.clone(),
+                    Type::List(t) => (**t).clone(),
                     _ => return Formula::True,
                 };
                 self.list_pats_formula(pats, 0, path, type_, &elem_type)
@@ -199,7 +199,7 @@ impl<'a> CoverageChecker<'a> {
             PatKind::Cons(head, tail) => {
                 // head :: tail
                 let elem_type = match type_ {
-                    Type::List(t) => *t.clone(),
+                    Type::List(t) => (**t).clone(),
                     _ => return Formula::True,
                 };
                 let cons_var =
@@ -240,7 +240,9 @@ impl<'a> CoverageChecker<'a> {
                     _ => return Formula::True,
                 };
                 let field_types: Vec<Type> = match type_ {
-                    Type::Record(_, fs) => fs.values().cloned().collect(),
+                    Type::Record(_, fs) => {
+                        fs.values().map(|t| (**t).clone()).collect()
+                    }
                     _ => return Formula::True,
                 };
                 let mut conjuncts: Vec<Formula> = Vec::new();
@@ -630,7 +632,7 @@ fn check_matches(
     // Determine the argument type from the first pattern's type.
     let arg_type = match matches[0].pat.id.and_then(|id| type_map.get_type(id))
     {
-        Some(t) => *t,
+        Some(t) => (*t).clone(),
         None => return Ok(()), // Unknown type; skip.
     };
 

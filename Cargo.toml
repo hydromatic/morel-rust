@@ -84,6 +84,7 @@ private_intra_doc_links = "deny"        # Links to private items
 
 [lints.clippy]
 # lint: sort until '^$' where '^[a-z]'
+arc_with_non_send_sync = "allow"
 borrowed_box = "deny"
 box_collection = "deny"
 boxed_local = "deny"

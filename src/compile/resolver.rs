@@ -43,6 +43,7 @@ use crate::syntax::parser;
 use crate::unify::unifier::Var;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 
 /// Converts an AST to a Core tree.
 pub fn resolve(resolved: &Resolved) -> (CoreDecl, Vec<(String, Span)>) {
@@ -290,7 +291,7 @@ impl ResolvedValDecl {
                 .iter()
                 .map(|pat_exp| CoreValBind {
                     pat: pat_exp.pat.clone(),
-                    t: *pat_exp.pat.type_(),
+                    t: (*pat_exp.pat.type_()).clone(),
                     expr: pat_exp.expr.clone(),
                     overload_pat: None,
                     span: pat_exp.span.clone(),
@@ -309,7 +310,7 @@ impl ResolvedValDecl {
             if let CorePat::Identifier(_, _) = pat_exp.pat {
                 let val_bind = CoreValBind {
                     pat: pat_exp.pat.clone(),
-                    t: *pat_exp.pat.type_(),
+                    t: (*pat_exp.pat.type_()).clone(),
                     expr: pat_exp.expr.clone(),
                     overload_pat: None,
                     span: pat_exp.span.clone(),
@@ -337,7 +338,7 @@ impl ResolvedValDecl {
         // Create the intermediate binding.
         let temp_val_bind = CoreValBind {
             pat: temp_pat.clone(),
-            t: *expr_type.clone(),
+            t: (*expr_type).clone(),
             expr: self.expr.clone(),
             overload_pat: None,
             span: None,
@@ -435,10 +436,10 @@ impl<'a> Resolver<'a> {
                 // binding.
                 // TODO: Implement signature resolution once structures are
                 // added.
-                let unit_type = Box::new(Type::Primitive(PrimitiveType::Unit));
+                let unit_type = Rc::new(Type::Primitive(PrimitiveType::Unit));
                 CoreDecl::NonRecVal(Box::new(CoreValBind {
                     pat: CorePat::Tuple(unit_type.clone(), vec![]),
-                    t: *unit_type.clone(),
+                    t: (*unit_type).clone(),
                     expr: CoreExpr::Tuple(unit_type, vec![]),
                     overload_pat: None,
                     span: None,
@@ -505,10 +506,10 @@ impl<'a> Resolver<'a> {
                             expr_type.as_ref().clone()
                         }
                         (_, Type::Variable(_)) => expr_type.as_ref().clone(),
-                        _ => *pat_type,
+                        _ => (*pat_type).clone(),
                     };
                     CoreValBind {
-                        pat: pe.pat.clone().with_type(Box::new(t.clone())),
+                        pat: pe.pat.clone().with_type(Rc::new(t.clone())),
                         t,
                         expr: pe.expr.clone(),
                         overload_pat: None,
@@ -792,7 +793,7 @@ impl<'a> Resolver<'a> {
                 let then_core = self.resolve_expr(then_expr);
                 let else_core = self.resolve_expr(else_expr);
 
-                let bool_type = Box::new(Type::Primitive(PrimitiveType::Bool));
+                let bool_type = Rc::new(Type::Primitive(PrimitiveType::Bool));
                 let true_match = CoreMatch {
                     pat: CorePat::Literal(bool_type.clone(), Val::Bool(true)),
                     expr: then_core,
@@ -974,16 +975,16 @@ impl<'a> Resolver<'a> {
                                     self.resolve_expr(&ov.expr)
                                 } else {
                                     // Project this field from the base.
-                                    let selector_type = Box::new(Type::Fn(
+                                    let selector_type = Rc::new(Type::Fn(
                                         base_type.clone(),
-                                        Box::new(field_type.clone()),
+                                        field_type.clone(),
                                     ));
                                     let selector = CoreExpr::RecordSelector(
                                         selector_type,
                                         slot,
                                     );
                                     CoreExpr::Apply(
-                                        Box::new(field_type.clone()),
+                                        field_type.clone(),
                                         Box::new(selector),
                                         Box::new(resolved_base.clone()),
                                         span.clone(),
@@ -1041,7 +1042,7 @@ impl<'a> Resolver<'a> {
 
     fn call1(
         &self,
-        t: Box<Type>,
+        t: Rc<Type>,
         f: BuiltInFunction,
         a0: &Expr,
         span: &Span,
@@ -1054,7 +1055,7 @@ impl<'a> Resolver<'a> {
 
     fn call2(
         &self,
-        t: Box<Type>,
+        t: Rc<Type>,
         f: BuiltInFunction,
         span: &Span,
         a0: &Expr,
@@ -1153,7 +1154,7 @@ impl<'a> Resolver<'a> {
     ) -> CoreExpr {
         let c_recv = self.resolve_expr(recv);
         let c_arg = self.resolve_expr(arg);
-        let t_box = Box::new(t.clone());
+        let t_box = Rc::new(t.clone());
         let name_expr = CoreExpr::Identifier(t_box.clone(), name.to_string());
         let is_unit = matches!(
             &arg.kind,
@@ -1188,7 +1189,7 @@ impl<'a> Resolver<'a> {
     /// expressions whose type inference was left unresolved because
     /// the expression is itself a postfix call that the type
     /// resolver couldn't recognize as such.
-    fn effective_type(&self, expr: &Expr) -> Option<Box<Type>> {
+    fn effective_type(&self, expr: &Expr) -> Option<Rc<Type>> {
         if let Some(t) = expr.get_type(self.type_map)
             && !is_unresolved_type(&t)
         {
@@ -1234,7 +1235,7 @@ impl<'a> Resolver<'a> {
     /// built-in and its calling convention.
     fn build_postfix_call(
         &self,
-        t: Box<Type>,
+        t: Rc<Type>,
         f: BuiltInFunction,
         kind: PostfixKind,
         recv: &Expr,
@@ -1291,7 +1292,7 @@ impl<'a> Resolver<'a> {
                 let c_arg = self.resolve_expr(arg);
                 let arg_t = c_arg.type_();
                 let intermediate_t =
-                    Box::new(Type::Fn(arg_t.clone(), t.clone()));
+                    Rc::new(Type::Fn(arg_t.clone(), t.clone()));
                 let inner = CoreExpr::Apply(
                     intermediate_t,
                     Box::new(fn_literal),
@@ -1313,7 +1314,7 @@ impl<'a> Resolver<'a> {
                 let c_arg = self.resolve_expr(arg);
                 let recv_t = c_recv.type_();
                 let intermediate_t =
-                    Box::new(Type::Fn(recv_t.clone(), t.clone()));
+                    Rc::new(Type::Fn(recv_t.clone(), t.clone()));
                 let inner = CoreExpr::Apply(
                     intermediate_t,
                     Box::new(fn_literal),
@@ -1375,7 +1376,7 @@ impl<'a> Resolver<'a> {
                     let var = Var { id: ann_id };
                     if self.type_map.var_alias_map.contains_key(&var) {
                         let inner_type = resolved.type_().clone();
-                        let alias_type = Box::new(Type::Alias(
+                        let alias_type = Rc::new(Type::Alias(
                             name.clone(),
                             inner_type,
                             vec![],
@@ -1474,7 +1475,7 @@ impl<'a> Resolver<'a> {
                     if self.type_map.var_alias_map.contains_key(&var)
                         && let Type::List(elem_type) = &*pat.type_()
                     {
-                        return Some(Type::List(Box::new(Type::Alias(
+                        return Some(Type::List(Rc::new(Type::Alias(
                             name.clone(),
                             elem_type.clone(),
                             vec![],
@@ -1492,19 +1493,19 @@ impl<'a> Resolver<'a> {
         let expr = self.resolve_expr(&val_bind.expr);
         // Get type from type annotation if present, otherwise from type map.
         let type_ = if let Some(type_annotation) = &val_bind.type_annotation {
-            Box::new(self.resolve_ast_type(type_annotation))
+            Rc::new(self.resolve_ast_type(type_annotation))
         } else {
             // Try to get type from the pattern or expression ID.
             if let Some(id) = val_bind.pat.id {
                 self.type_map.get_type(id).unwrap_or_else(|| {
-                    Box::new(Type::Primitive(PrimitiveType::Unit))
+                    Rc::new(Type::Primitive(PrimitiveType::Unit))
                 })
             } else if let Some(id) = val_bind.expr.id {
                 self.type_map.get_type(id).unwrap_or_else(|| {
-                    Box::new(Type::Primitive(PrimitiveType::Unit))
+                    Rc::new(Type::Primitive(PrimitiveType::Unit))
                 })
             } else {
-                Box::new(Type::Primitive(PrimitiveType::Unit))
+                Rc::new(Type::Primitive(PrimitiveType::Unit))
             }
         };
 
@@ -1514,7 +1515,7 @@ impl<'a> Resolver<'a> {
         ));
         CoreValBind {
             pat,
-            t: *type_,
+            t: (*type_).clone(),
             expr,
             overload_pat: None,
             span,
@@ -1694,7 +1695,7 @@ impl<'a> Resolver<'a> {
                     self.base_line,
                 );
                 let negated = CoreExpr::Apply(
-                    Box::new(bool_type),
+                    Rc::new(bool_type),
                     Box::new(fn_literal),
                     Box::new(resolved_expr),
                     span,
@@ -1724,7 +1725,7 @@ impl<'a> Resolver<'a> {
                 let resolved_expr = self.resolve_expr(expr);
                 let elem_type = resolved_expr.type_();
                 let list_type =
-                    Box::new(Type::List(Box::new(elem_type.as_ref().clone())));
+                    Rc::new(Type::List(Rc::new(elem_type.as_ref().clone())));
                 let singleton = CoreExpr::List(list_type, vec![resolved_expr]);
                 builder.scan_with_condition(resolved_pat, singleton, None);
             }
@@ -1745,7 +1746,7 @@ impl<'a> Resolver<'a> {
                 let resolved_pat = self.resolve_pat(pat);
                 let elem_type = resolved_pat.type_();
                 let extent_type =
-                    Box::new(Type::Bag(Box::new(elem_type.as_ref().clone())));
+                    Rc::new(Type::Bag(Rc::new(elem_type.as_ref().clone())));
                 let span = Span::from_pest_span(
                     &pat.span.to_pest_span(),
                     self.base_line,
@@ -1771,7 +1772,7 @@ impl<'a> Resolver<'a> {
                 let fn_expr = self.resolve_expr(expr);
                 let resolved_pat = self.resolve_pat(pat);
                 let result_type = match fn_expr.type_().as_ref() {
-                    Type::Fn(_, result) => Box::new(result.as_ref().clone()),
+                    Type::Fn(_, result) => result.clone(),
                     t => panic!(
                         "through expression must be a function, got {:?}",
                         t
@@ -1850,7 +1851,7 @@ impl<'a> Resolver<'a> {
             if let Some(alias_type) =
                 self.expr_alias_for_pat(&val_bind.expr, &core_pat)
             {
-                core_pat = core_pat.with_type(Box::new(alias_type));
+                core_pat = core_pat.with_type(Rc::new(alias_type));
             }
             let core_expr = self.resolve_expr(&val_bind.expr);
             let span = Some(Span::from_pest_span(
@@ -1940,7 +1941,7 @@ impl<'a> Resolver<'a> {
             // Simple case - create direct let binding.
             let val_bind = CoreValBind {
                 pat: pat.clone(),
-                t: *pat.type_(),
+                t: (*pat.type_()).clone(),
                 expr: expr.clone(),
                 overload_pat: None,
                 span: None,
@@ -1965,7 +1966,7 @@ impl<'a> Resolver<'a> {
         // Create intermediate binding.
         let temp_val_bind = CoreValBind {
             pat: temp_pat.clone(),
-            t: *expr_type.clone(),
+            t: (*expr_type).clone(),
             expr: expr.clone(),
             overload_pat: None,
             span: None,
@@ -2019,7 +2020,7 @@ impl<'a> Resolver<'a> {
                     }
                     Type::Tuple(args) if args.len() == 2 => {
                         // Binary operator
-                        match &args[0] {
+                        match &*args[0] {
                             Type::Variable(_) => {
                                 self.multi_op_to_builtin(op_name)
                             }
@@ -2193,11 +2194,11 @@ fn postfix_return_type(
     kind: PostfixKind,
     recv_type: &Type,
     arg_type: Option<&Type>,
-) -> Box<Type> {
+) -> Rc<Type> {
     let ty = builtin.get_type();
     let stripped = strip_forall(&ty);
     let Type::Fn(arg, ret) = stripped else {
-        return Box::new(recv_type.clone());
+        return Rc::new(recv_type.clone());
     };
     // Locate the declared type of the receiver position and the
     // declared return type, depending on the dispatch kind.
@@ -2212,7 +2213,7 @@ fn postfix_return_type(
             (PostfixKind::Curried2, a, Type::Fn(_, r)) => (a, r),
             (PostfixKind::Curried2Rev, _, Type::Fn(a2, r)) => (a2, r),
             (PostfixKind::Unary, a, _) => (a, ret),
-            _ => return Box::new(recv_type.clone()),
+            _ => return Rc::new(recv_type.clone()),
         };
     // Bind type variables by matching declared_recv against the
     // actual receiver type.
@@ -2229,7 +2230,7 @@ fn postfix_return_type(
     {
         out = at.clone();
     }
-    Box::new(out)
+    Rc::new(out)
 }
 
 /// Strips `Type::Forall` wrappers, returning the inner type.
@@ -2300,19 +2301,19 @@ fn substitute(t: &Type, subst: &HashMap<usize, Type>) -> Type {
         Type::Variable(tv) => {
             subst.get(&tv.id).cloned().unwrap_or_else(|| t.clone())
         }
-        Type::List(inner) => Type::List(Box::new(substitute(inner, subst))),
-        Type::Bag(inner) => Type::Bag(Box::new(substitute(inner, subst))),
+        Type::List(inner) => Type::List(Rc::new(substitute(inner, subst))),
+        Type::Bag(inner) => Type::Bag(Rc::new(substitute(inner, subst))),
         Type::Fn(a, r) => Type::Fn(
-            Box::new(substitute(a, subst)),
-            Box::new(substitute(r, subst)),
+            Rc::new(substitute(a, subst)),
+            Rc::new(substitute(r, subst)),
         ),
         Type::Data(n, args) => Type::Data(
             n.clone(),
-            args.iter().map(|a| substitute(a, subst)).collect(),
+            args.iter().map(|a| Rc::new(substitute(a, subst))).collect(),
         ),
         Type::Named(args, n) => {
-            let new_args: Vec<Type> =
-                args.iter().map(|a| substitute(a, subst)).collect();
+            let new_args: Vec<Rc<Type>> =
+                args.iter().map(|a| Rc::new(substitute(a, subst))).collect();
             // The type parser produces `Type::Named([], name)` for
             // every datatype; normalise the ones the pretty printer
             // expects as `Type::Data` so that postfix call results
@@ -2321,18 +2322,18 @@ fn substitute(t: &Type, subst: &HashMap<usize, Type>) -> Type {
             // other built-in named type (entries in `BuiltInDatatype`
             // and `BuiltInEqtype`) lowers to `Type::Data`.
             if n == "bag" && new_args.len() == 1 {
-                Type::Bag(Box::new(new_args.into_iter().next().unwrap()))
+                Type::Bag(new_args.into_iter().next().unwrap())
             } else if n == "list" && new_args.len() == 1 {
-                Type::List(Box::new(new_args.into_iter().next().unwrap()))
+                Type::List(new_args.into_iter().next().unwrap())
             } else if library::builtin_type_arity(n.as_str()).is_some() {
                 Type::Data(n.clone(), new_args)
             } else {
                 Type::Named(new_args, n.clone())
             }
         }
-        Type::Tuple(fs) => {
-            Type::Tuple(fs.iter().map(|a| substitute(a, subst)).collect())
-        }
+        Type::Tuple(fs) => Type::Tuple(
+            fs.iter().map(|a| Rc::new(substitute(a, subst))).collect(),
+        ),
         _ => t.clone(),
     }
 }

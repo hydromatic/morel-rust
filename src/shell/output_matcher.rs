@@ -32,6 +32,7 @@
 use crate::compile::type_parser;
 use crate::compile::types::{Label, Type};
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 use std::str::from_utf8;
 
 /// Compares two output strings modulo whitespace and bag reordering.
@@ -260,7 +261,7 @@ fn try_parse_tabular(value: &str, type_: &Type) -> Option<Parsed> {
         let idx = field_names.iter().position(|f| f == col)?;
         col_to_field_idx.push(idx);
     }
-    let field_types: Vec<&Type> = fields.values().collect();
+    let field_types: Vec<&Type> = fields.values().map(AsRef::as_ref).collect();
     // Parse data rows.
     let mut records: Vec<Parsed> = Vec::new();
     for line in &lines[2..] {
@@ -542,7 +543,7 @@ fn parse_list_elements(sc: &mut Scanner, elem_type: &Type) -> Option<Parsed> {
 
 fn parse_tuple_elements(
     sc: &mut Scanner,
-    elem_types: &[Type],
+    elem_types: &[Rc<Type>],
 ) -> Option<Parsed> {
     sc.consume_str("(")?;
     if sc.peek() == Some(')') {
@@ -564,7 +565,7 @@ fn parse_tuple_elements(
 /// into the field-name order of the given type.
 fn parse_record_to_tuple(
     sc: &mut Scanner,
-    fields: &BTreeMap<Label, Type>,
+    fields: &BTreeMap<Label, Rc<Type>>,
 ) -> Option<Parsed> {
     sc.consume_str("{")?;
     let mut field_map: HashMap<String, Parsed> = HashMap::new();
@@ -607,7 +608,7 @@ fn parse_record_to_tuple(
 fn parse_datatype_value(
     sc: &mut Scanner,
     name: &str,
-    args: &[Type],
+    args: &[Rc<Type>],
 ) -> Option<Parsed> {
     let constructor = sc.consume_word()?;
     let at_end = match sc.peek() {
@@ -629,15 +630,15 @@ fn parse_datatype_value(
 /// Returns the argument type for a datatype's constructor, if known.
 fn constructor_arg_type(
     name: &str,
-    args: &[Type],
+    args: &[Rc<Type>],
     constructor: &str,
 ) -> Option<Type> {
     match (name, constructor, args) {
-        ("option", "SOME", [t]) => Some(t.clone()),
+        ("option", "SOME", [t]) => Some((**t).clone()),
         ("option", "NONE", _) => None,
-        ("descending", "DESC", [t]) => Some(t.clone()),
-        ("either", "INL", [l, _]) => Some(l.clone()),
-        ("either", "INR", [_, r]) => Some(r.clone()),
+        ("descending", "DESC", [t]) => Some((**t).clone()),
+        ("either", "INL", [l, _]) => Some((**l).clone()),
+        ("either", "INR", [_, r]) => Some((**r).clone()),
         // User-defined datatypes are not handled yet; fall through
         // to atom parsing.
         _ => None,
@@ -677,7 +678,7 @@ fn values_equal(type_: &Type, a: &Parsed, b: &Parsed) -> bool {
         }
         Type::Tuple(elem_types) => tuple_equal(elem_types, a, b),
         Type::Record(_, fields) => {
-            let types: Vec<Type> = fields.values().cloned().collect();
+            let types: Vec<Rc<Type>> = fields.values().cloned().collect();
             tuple_equal(&types, a, b)
         }
         Type::Data(name, args) => datatype_equal(name, args, a, b),
@@ -704,7 +705,7 @@ fn list_equal(elem_type: &Type, a: &Parsed, b: &Parsed) -> bool {
         .all(|(x, y)| values_equal(elem_type, x, y))
 }
 
-fn tuple_equal(field_types: &[Type], a: &Parsed, b: &Parsed) -> bool {
+fn tuple_equal(field_types: &[Rc<Type>], a: &Parsed, b: &Parsed) -> bool {
     let (ea, eb) = match (a, b) {
         (Parsed::Seq(ea), Parsed::Seq(eb)) => (ea, eb),
         _ => return a == b,
@@ -718,7 +719,12 @@ fn tuple_equal(field_types: &[Type], a: &Parsed, b: &Parsed) -> bool {
         .all(|((x, y), t)| values_equal(t, x, y))
 }
 
-fn datatype_equal(name: &str, args: &[Type], a: &Parsed, b: &Parsed) -> bool {
+fn datatype_equal(
+    name: &str,
+    args: &[Rc<Type>],
+    a: &Parsed,
+    b: &Parsed,
+) -> bool {
     let (ea, eb) = match (a, b) {
         (Parsed::Seq(ea), Parsed::Seq(eb)) => (ea, eb),
         _ => return a == b,
@@ -899,6 +905,7 @@ impl<'a> Scanner<'a> {
 mod tests {
     use super::*;
     use crate::compile::types::PrimitiveType;
+    use std::rc::Rc;
 
     fn int() -> Type {
         Type::Primitive(PrimitiveType::Int)
@@ -907,10 +914,10 @@ mod tests {
         Type::Primitive(PrimitiveType::String)
     }
     fn int_bag() -> Type {
-        Type::Bag(Box::new(int()))
+        Type::Bag(Rc::new(int()))
     }
     fn int_list() -> Type {
-        Type::List(Box::new(int()))
+        Type::List(Rc::new(int()))
     }
 
     #[test]
@@ -964,7 +971,8 @@ mod tests {
 
     #[test]
     fn tuple_containing_bag() {
-        let tuple_type = Type::Tuple(vec![int_bag(), string()]);
+        let tuple_type =
+            Type::Tuple(vec![Rc::new(int_bag()), Rc::new(string())]);
         let a = "val it = ([1,2],\"hello\") : int bag * string";
         let b = "val it = ([2,1],\"hello\") : int bag * string";
         assert!(equivalent_with_type(&tuple_type, a, b));
@@ -973,8 +981,8 @@ mod tests {
     #[test]
     fn record_with_bag_field() {
         let mut fields = BTreeMap::new();
-        fields.insert(Label::from("name"), string());
-        fields.insert(Label::from("values"), int_bag());
+        fields.insert(Label::from("name"), Rc::new(string()));
+        fields.insert(Label::from("values"), Rc::new(int_bag()));
         let rec = Type::Record(false, fields);
         let a = "val r = {name=\"test\",values=[30,10,20]} \
                  : {name:string, values:int bag}";
@@ -985,7 +993,7 @@ mod tests {
 
     #[test]
     fn option_of_bag() {
-        let t = Type::Data("option".into(), vec![int_bag()]);
+        let t = Type::Data("option".into(), vec![Rc::new(int_bag())]);
         let a = "val it = SOME [5,10] : int bag option";
         let b = "val it = SOME [10,5] : int bag option";
         assert!(equivalent_with_type(&t, a, b));
@@ -1001,10 +1009,10 @@ mod tests {
         // matcher also treats hand-written `-N` as equivalent to the
         // printer's `~N`.
         let mut fields = BTreeMap::new();
-        fields.insert(Label::from("count"), int());
-        fields.insert(Label::from("y"), int());
+        fields.insert(Label::from("count"), Rc::new(int()));
+        fields.insert(Label::from("y"), Rc::new(int()));
         let row = Type::Record(false, fields);
-        let t = Type::Bag(Box::new(row));
+        let t = Type::Bag(Rc::new(row));
         let actual = "count y\n----- --\n\
                       1     ~1\n1     0\n2     1\n2     2\n\n\
                       val it : {count:int, y:int} bag";
@@ -1017,10 +1025,10 @@ mod tests {
     #[test]
     fn tabular_bag_wrong_row_not_equivalent() {
         let mut fields = BTreeMap::new();
-        fields.insert(Label::from("count"), int());
-        fields.insert(Label::from("y"), int());
+        fields.insert(Label::from("count"), Rc::new(int()));
+        fields.insert(Label::from("y"), Rc::new(int()));
         let row = Type::Record(false, fields);
-        let t = Type::Bag(Box::new(row));
+        let t = Type::Bag(Rc::new(row));
         let actual = "count y\n----- --\n1     ~1\n2     1\n\n\
                       val it : {count:int, y:int} bag";
         let expected = "count y\n----- --\n1     ~2\n2     1\n\n\
@@ -1030,7 +1038,7 @@ mod tests {
 
     #[test]
     fn bag_of_bags() {
-        let t = Type::Bag(Box::new(int_bag()));
+        let t = Type::Bag(Rc::new(int_bag()));
         let a = "val it = [[3],[1, 2]] : int bag bag";
         let b = "val it = [[2,1],[3]] : int bag bag";
         assert!(equivalent_with_type(&t, a, b));

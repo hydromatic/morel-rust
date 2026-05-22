@@ -19,11 +19,12 @@ use crate::compile::library;
 use crate::compile::types::{PrimitiveType, Type, TypeVariable};
 use crate::syntax::ast::{Type as AstType, TypeKind, TypeScheme};
 use crate::syntax::parser;
+use std::rc::Rc;
 
 /// Converts a type string to a type. Panics on any parse or
 /// conversion failure; callers that need to recover from malformed
 /// input should use [`try_string_to_type`] instead.
-pub fn string_to_type(code: &str) -> Box<Type> {
+pub fn string_to_type(code: &str) -> Rc<Type> {
     try_string_to_type(code)
         .unwrap_or_else(|e| panic!("failed to parse type {:?}: {}", code, e))
 }
@@ -31,7 +32,7 @@ pub fn string_to_type(code: &str) -> Box<Type> {
 /// Like [`string_to_type`] but returns the parse/conversion error
 /// instead of panicking. The error string is human-readable and not
 /// stable.
-pub fn try_string_to_type(code: &str) -> Result<Box<Type>, String> {
+pub fn try_string_to_type(code: &str) -> Result<Rc<Type>, String> {
     let type_scheme = parser::parse_type_scheme(code)
         .map_err(|e| format!("parse error: {}", e))?;
     let mut type_builder = TypeBuilder::new();
@@ -44,7 +45,7 @@ pub fn try_string_to_type(code: &str) -> Result<Box<Type>, String> {
 /// `('a, bool * int) either bag` whose `'a` has no enclosing
 /// `forall` quantifier — `try_string_to_type` would reject such
 /// inputs.
-pub fn try_string_to_type_permissive(code: &str) -> Result<Box<Type>, String> {
+pub fn try_string_to_type_permissive(code: &str) -> Result<Rc<Type>, String> {
     let type_scheme = parser::parse_type_scheme(code)
         .map_err(|e| format!("parse error: {}", e))?;
     let mut type_builder = TypeBuilder::new();
@@ -72,7 +73,7 @@ impl TypeBuilder {
     fn ast_to_type_scheme(
         &mut self,
         type_scheme: &TypeScheme,
-    ) -> Result<Box<Type>, String> {
+    ) -> Result<Rc<Type>, String> {
         for i in 0..type_scheme.var_count {
             self.ty_vars.push(TypeVariable::new(i));
         }
@@ -80,18 +81,18 @@ impl TypeBuilder {
         Ok(if type_scheme.var_count == 0 {
             type_
         } else {
-            Type::Forall(type_, type_scheme.var_count).into()
+            Rc::new(Type::Forall(type_, type_scheme.var_count))
         })
     }
 
-    fn ast_to_type(&mut self, t: &AstType) -> Result<Box<Type>, String> {
-        Ok(Box::new(match &t.kind {
+    fn ast_to_type(&mut self, t: &AstType) -> Result<Rc<Type>, String> {
+        Ok(Rc::new(match &t.kind {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, base_type) => {
                 let flat_args = AstType::flatten(args);
-                let arg_types: Vec<Type> = flat_args
+                let arg_types: Vec<Rc<Type>> = flat_args
                     .iter()
-                    .map(|t| self.ast_to_type(t).map(|b| *b))
+                    .map(|t| self.ast_to_type(t))
                     .collect::<Result<_, _>>()?;
                 let base = self.ast_to_type(base_type)?;
 
@@ -119,13 +120,13 @@ impl TypeBuilder {
                             arg_types.into_iter().next().ok_or_else(|| {
                                 "list type application with no arg".to_string()
                             })?;
-                        Type::List(Box::new(arg))
+                        Type::List(arg)
                     } else if name == "bag" && arity == 1 {
                         let arg =
                             arg_types.into_iter().next().ok_or_else(|| {
                                 "bag type application with no arg".to_string()
                             })?;
-                        Type::Bag(Box::new(arg))
+                        Type::Bag(arg)
                     } else if let Some(expected) =
                         library::builtin_type_arity(name)
                         && expected == arity
@@ -160,18 +161,18 @@ impl TypeBuilder {
                 use crate::compile::types::Label;
                 use std::collections::BTreeMap;
 
-                let mut field_map = BTreeMap::new();
+                let mut field_map: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
                 for field in fields {
                     let label = Label::String(field.label.name.clone());
-                    let field_type = *self.ast_to_type(&field.type_)?;
+                    let field_type = self.ast_to_type(&field.type_)?;
                     field_map.insert(label, field_type);
                 }
                 Type::Record(false, field_map)
             }
             TypeKind::Tuple(types) => {
-                let type_args: Vec<Type> = types
+                let type_args: Vec<Rc<Type>> = types
                     .iter()
-                    .map(|t| self.ast_to_type(t).map(|b| *b))
+                    .map(|t| self.ast_to_type(t))
                     .collect::<Result<_, _>>()?;
                 Type::Tuple(type_args)
             }
@@ -222,8 +223,8 @@ mod tests {
         assert_eq!(
             *t,
             Type::Fn(
-                Box::new(Type::Primitive(PrimitiveType::Int)),
-                Box::new(Type::Primitive(PrimitiveType::Bool))
+                Rc::new(Type::Primitive(PrimitiveType::Int)),
+                Rc::new(Type::Primitive(PrimitiveType::Bool))
             )
         );
     }
@@ -232,14 +233,14 @@ mod tests {
     fn test_parse_record_type() {
         let t = string_to_type("{exp:int, man:real}");
 
-        let mut expected_fields = BTreeMap::new();
+        let mut expected_fields: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
         expected_fields.insert(
             Label::String("exp".to_string()),
-            Type::Primitive(PrimitiveType::Int),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
         );
         expected_fields.insert(
             Label::String("man".to_string()),
-            Type::Primitive(PrimitiveType::Real),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
         );
 
         assert_eq!(*t, Type::Record(false, expected_fields));

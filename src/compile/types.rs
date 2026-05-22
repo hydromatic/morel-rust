@@ -18,45 +18,46 @@
 use crate::unify::unifier::Term;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
+use std::rc::Rc;
 
 /// Represents a resolved type in the system.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Type {
     Primitive(PrimitiveType),
-    Fn(Box<Type>, Box<Type>),
+    Fn(Rc<Type>, Rc<Type>),
 
     /// `Record(progressive, arg_name_types)` represents the type
     /// `{name0: arg0, ... nameN: argN}`. If `progressive`, the
     /// arguments may grow over time.
-    Record(bool, BTreeMap<Label, Type>),
+    Record(bool, BTreeMap<Label, Rc<Type>>),
 
     /// `List(element_type)` represents the type `element_type list`.
-    List(Box<Type>),
+    List(Rc<Type>),
 
     /// `Bag(element_type)` represents the type `element_type bag`.
-    Bag(Box<Type>),
+    Bag(Rc<Type>),
 
     /// `Tuple(args)` represents the type `arg0 * ... * argN`.
-    Tuple(Vec<Type>),
+    Tuple(Vec<Rc<Type>>),
     Variable(TypeVariable),
     /// `Named(types, name)` represents a reference to a built-in or named type
     /// if `types` are empty, or a specialization of a parameterized type.
     /// For example, `order` or `int option`.
-    Named(Vec<Type>, String),
+    Named(Vec<Rc<Type>>, String),
 
     /// `Alias(name, type_, args)` represents the declaration
     /// `type name = args type_`; for example,
     /// `type int_pair_list = (int * int) list`.
-    Alias(String, Box<Type>, Vec<Type>),
-    Data(String, Vec<Type>),
+    Alias(String, Rc<Type>, Vec<Rc<Type>>),
+    Data(String, Vec<Rc<Type>>),
 
     /// `Forall(type_, parameter_count)` represents the type
     /// `forall tyVars ... type_`, where there are parameter_count
     /// type variables `'a`, `'b`, etc.
-    Forall(Box<Type>, usize),
+    Forall(Rc<Type>, usize),
 
     /// `Multi(types)` represents an overloaded type `type0 or ... typeN`.
-    Multi(Vec<Type>),
+    Multi(Vec<Rc<Type>>),
 }
 
 impl Type {
@@ -70,7 +71,7 @@ impl Type {
 
     /// Returns the definition of a record type. Panics on any other type,
     /// including a tuple type.
-    pub fn expect_record(&self) -> (bool, &BTreeMap<Label, Type>) {
+    pub fn expect_record(&self) -> (bool, &BTreeMap<Label, Rc<Type>>) {
         match self {
             Type::Record(progressive, fields) => (*progressive, fields),
             _ => panic!("Expected record type"),
@@ -82,9 +83,11 @@ impl Type {
     pub fn field_types(&self) -> Vec<Type> {
         match self {
             Type::Record(_, fields) => {
-                fields.values().cloned().collect::<Vec<_>>()
+                fields.values().map(|t| (**t).clone()).collect()
             }
-            Type::Tuple(field_types) => field_types.to_vec(),
+            Type::Tuple(field_types) => {
+                field_types.iter().map(|t| (**t).clone()).collect()
+            }
             _ => panic!("Expected record type"),
         }
     }
@@ -130,7 +133,7 @@ impl Type {
     /// Describes a list of types, with given left and right precedence
     /// and given opening, separator, and closing strings.
     fn describe_list(
-        types: &[Type],
+        types: &[Rc<Type>],
         f: &mut Formatter,
         op: &Op,
         mut left: u8,
@@ -267,7 +270,7 @@ impl Type {
                     if i > 0 {
                         f.write_str(" * ")?;
                     }
-                    let wrap = matches!(t, Type::Tuple(_));
+                    let wrap = matches!(&**t, Type::Tuple(_));
                     if wrap {
                         f.write_str("(")?;
                         t.describe(f, 0, 0)?;

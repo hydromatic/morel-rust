@@ -26,6 +26,7 @@ use crate::eval::real::Real;
 use crate::eval::val::Val;
 use crate::syntax::parser::string_to_string_append;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 /// Wraps a value with its inner type into a `Val::Variant`.
 pub(crate) fn variant_of(inner_type: Type, value: Val) -> Val {
@@ -51,7 +52,7 @@ pub(crate) fn none() -> Val {
     variant_of(
         Type::Data(
             "option".to_string(),
-            vec![Type::Data("variant".to_string(), vec![])],
+            vec![Rc::new(Type::Data("variant".to_string(), vec![]))],
         ),
         Val::Unit,
     )
@@ -66,7 +67,7 @@ pub(crate) fn some(arg: Val) -> Val {
         _ => panic!("Expected variant, got {:?}", arg),
     };
     variant_of(
-        Type::Data("option".to_string(), vec![inner_type]),
+        Type::Data("option".to_string(), vec![Rc::new(inner_type)]),
         Val::Some(Box::new(inner_val)),
     )
 }
@@ -75,12 +76,12 @@ pub(crate) fn some(arg: Val) -> Val {
 /// `T list` where `T` is the common inner type if all elements share one,
 /// otherwise `variant`. The unwrapped element values become the contents.
 pub(crate) fn list(arg: Val) -> Val {
-    collection(arg, |t| Type::List(Box::new(t)))
+    collection(arg, |t| Type::List(Rc::new(t)))
 }
 
 /// `Variant.BAG xs`: like [`list`] but produces a bag.
 pub(crate) fn bag(arg: Val) -> Val {
-    collection(arg, |t| Type::Bag(Box::new(t)))
+    collection(arg, |t| Type::Bag(Rc::new(t)))
 }
 
 /// `Variant.VECTOR xs`: like [`list`] but produces a vector. (Vectors
@@ -88,7 +89,7 @@ pub(crate) fn bag(arg: Val) -> Val {
 pub(crate) fn vector(arg: Val) -> Val {
     // Vectors use Type::Data("vector", [elem]) since there is no
     // dedicated Type::Vector variant.
-    collection(arg, |t| Type::Data("vector".to_string(), vec![t]))
+    collection(arg, |t| Type::Data("vector".to_string(), vec![Rc::new(t)]))
 }
 
 fn collection(arg: Val, wrap_type: impl FnOnce(Type) -> Type) -> Val {
@@ -158,18 +159,18 @@ fn unify_types(t1: &Type, t2: &Type) -> Option<Type> {
     }
     match (t1, t2) {
         (Type::List(a), Type::List(b)) => {
-            unify_types(a, b).map(|t| Type::List(Box::new(t)))
+            unify_types(a, b).map(|t| Type::List(Rc::new(t)))
         }
         (Type::Bag(a), Type::Bag(b)) => {
-            unify_types(a, b).map(|t| Type::Bag(Box::new(t)))
+            unify_types(a, b).map(|t| Type::Bag(Rc::new(t)))
         }
         (Type::Data(n1, a1), Type::Data(n2, a2))
             if n1 == n2 && a1.len() == a2.len() =>
         {
-            let unified: Option<Vec<Type>> = a1
+            let unified: Option<Vec<Rc<Type>>> = a1
                 .iter()
                 .zip(a2.iter())
-                .map(|(x, y)| unify_types(x, y))
+                .map(|(x, y)| unify_types(x, y).map(Rc::new))
                 .collect();
             unified.map(|args| Type::Data(n1.clone(), args))
         }
@@ -190,7 +191,7 @@ pub(crate) fn record(arg: Val) -> Val {
         // An empty record is `unit` — matching morel-java.
         return unit();
     }
-    let mut fields: BTreeMap<Label, Type> = BTreeMap::new();
+    let mut fields: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
     let mut values: Vec<(Label, Val)> = Vec::with_capacity(pairs.len());
     for pair in pairs {
         let (label, variant_val) = match pair {
@@ -206,7 +207,7 @@ pub(crate) fn record(arg: Val) -> Val {
         };
         let label = Label::from(label_str);
         let (inner_type, inner_val) = expect_variant(&variant_val);
-        fields.insert(label.clone(), inner_type.clone());
+        fields.insert(label.clone(), Rc::new(inner_type.clone()));
         values.push((label, inner_val.clone()));
     }
     // Records are stored at runtime as a list of values in the order of
@@ -250,7 +251,7 @@ pub(crate) fn constant(arg: Val) -> Val {
         // as the element type (matching `LIST []`) so a round-trip via
         // `Variant.print`/`parse` compares equal.
         "NIL" => variant_of(
-            Type::List(Box::new(Type::Data("variant".to_string(), vec![]))),
+            Type::List(Rc::new(Type::Data("variant".to_string(), vec![]))),
             Val::List(vec![]),
         ),
         // Unknown constructor: store the name in `Type::Named` and use
@@ -286,25 +287,28 @@ pub(crate) fn construct(arg: Val) -> Val {
             };
             match name.as_str() {
                 "SOME" => variant_of(
-                    Type::Data("option".to_string(), vec![inner_type]),
+                    Type::Data("option".to_string(), vec![Rc::new(inner_type)]),
                     Val::Some(Box::new(inner_val)),
                 ),
                 "INL" => variant_of(
                     Type::Data(
                         "either".to_string(),
-                        vec![inner_type, fresh_var()],
+                        vec![Rc::new(inner_type), Rc::new(fresh_var())],
                     ),
                     Val::Inl(Box::new(inner_val)),
                 ),
                 "INR" => variant_of(
                     Type::Data(
                         "either".to_string(),
-                        vec![fresh_var(), inner_type],
+                        vec![Rc::new(fresh_var()), Rc::new(inner_type)],
                     ),
                     Val::Inr(Box::new(inner_val)),
                 ),
                 "DESC" => variant_of(
-                    Type::Data("descending".to_string(), vec![inner_type]),
+                    Type::Data(
+                        "descending".to_string(),
+                        vec![Rc::new(inner_type)],
+                    ),
                     Val::Constructor(
                         BuiltInFunction::DescendingDesc.runtime_tag(),
                         Box::new(inner_val),
@@ -340,9 +344,9 @@ fn cons(payload: Val) -> Val {
     let head = iter.next().unwrap();
     let tail = iter.next().unwrap();
     let head_type = match &payload_type {
-        Type::Tuple(ts) if ts.len() == 2 => ts[0].clone(),
+        Type::Tuple(ts) if ts.len() == 2 => (*ts[0]).clone(),
         Type::Record(_, fields) if fields.len() == 2 => {
-            fields.values().next().unwrap().clone()
+            (**fields.values().next().unwrap()).clone()
         }
         _ => panic!(
             "CONS payload must be a 2-tuple or 2-field record, got {:?}",
@@ -356,7 +360,7 @@ fn cons(payload: Val) -> Val {
     let mut new_items = Vec::with_capacity(tail_items.len() + 1);
     new_items.push(head);
     new_items.extend(tail_items);
-    variant_of(Type::List(Box::new(head_type)), Val::List(new_items))
+    variant_of(Type::List(Rc::new(head_type)), Val::List(new_items))
 }
 
 fn expect_variant(v: &Val) -> (&Type, &Val) {

@@ -35,12 +35,13 @@ use crate::eval::val;
 use crate::eval::val::Val;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use val::DESCENDING_DESC;
 
 /// Represents a discrete ordered type: each value (except the max) has
 /// a unique successor. Analogous to Guava's `DiscreteDomain`.
-pub trait Discrete: Send + Sync {
+pub trait Discrete {
     /// Returns the successor of `v`, or `None` if `v` is the maximum
     /// value of this type.
     fn next(&self, v: &Val) -> Option<Val>;
@@ -442,31 +443,31 @@ impl Discrete for DataDiscrete {
 /// Substitutes type variables in `type_` using `args` (where
 /// `Type::Variable(i)` is replaced with `args[i]`). Mirrors
 /// `comparator::instantiate`.
-fn instantiate(type_: &Type, args: &[Type]) -> Type {
+fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
     match type_ {
-        Type::Bag(t) => Type::Bag(Box::new(instantiate(t, args))),
+        Type::Bag(t) => Type::Bag(Rc::new(instantiate(t, args))),
         Type::Data(name, ts) => Type::Data(
             name.clone(),
-            ts.iter().map(|t| instantiate(t, args)).collect(),
+            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
         ),
         Type::Fn(a, b) => Type::Fn(
-            Box::new(instantiate(a, args)),
-            Box::new(instantiate(b, args)),
+            Rc::new(instantiate(a, args)),
+            Rc::new(instantiate(b, args)),
         ),
-        Type::List(t) => Type::List(Box::new(instantiate(t, args))),
+        Type::List(t) => Type::List(Rc::new(instantiate(t, args))),
         Type::Record(p, fields) => Type::Record(
             *p,
             fields
                 .iter()
-                .map(|(k, v): (&Label, &Type)| {
-                    (k.clone(), instantiate(v, args))
+                .map(|(k, v): (&Label, &Rc<Type>)| {
+                    (k.clone(), Rc::new(instantiate(v, args)))
                 })
                 .collect(),
         ),
-        Type::Tuple(ts) => {
-            Type::Tuple(ts.iter().map(|t| instantiate(t, args)).collect())
-        }
-        Type::Variable(tv) if tv.id < args.len() => args[tv.id].clone(),
+        Type::Tuple(ts) => Type::Tuple(
+            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
+        ),
+        Type::Variable(tv) if tv.id < args.len() => (*args[tv.id]).clone(),
         _ => type_.clone(),
     }
 }
@@ -502,14 +503,14 @@ pub fn discrete_for_with(
         },
         Type::Tuple(ts) => {
             let components: Result<Vec<_>, _> =
-                ts.iter().map(recurse).collect();
+                ts.iter().map(|t| recurse(t)).collect();
             Ok(Arc::new(TupleDiscrete {
                 components: components?,
             }))
         }
         Type::Record(_, fields) => {
             let components: Result<Vec<_>, _> =
-                fields.values().map(recurse).collect();
+                fields.values().map(|t| recurse(t)).collect();
             Ok(Arc::new(TupleDiscrete {
                 components: components?,
             }))

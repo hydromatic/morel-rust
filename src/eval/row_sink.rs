@@ -42,12 +42,10 @@ use std::sync::Arc;
 ///
 /// Wraps a function pointer to allow [Clone]/[PartialEq]/[Debug] on the
 /// [Code] enum.
-pub struct RowSinkFactory(Arc<dyn Fn() -> Box<dyn RowSink> + Send + Sync>);
+pub struct RowSinkFactory(Arc<dyn Fn() -> Box<dyn RowSink>>);
 
 impl RowSinkFactory {
-    pub fn new(
-        f: impl Fn() -> Box<dyn RowSink> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn new(f: impl Fn() -> Box<dyn RowSink> + 'static) -> Self {
         Self(Arc::new(f))
     }
 

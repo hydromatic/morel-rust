@@ -128,7 +128,7 @@ impl Session {
             overloads
                 .entry(name.to_string())
                 .or_default()
-                .push(*f.get_type());
+                .push((*f.get_type()).clone());
         }
         // Seed the datatype constructor map with the built-in datatypes
         // (`bool`, `either`, `list`, `option`, `order`, ...); user-

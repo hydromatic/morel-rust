@@ -22,6 +22,7 @@ use crate::compile::types::{Label, Type};
 use crate::eval::val::Val;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
+use std::rc::Rc;
 
 /// Core tree of a statement (expression or declaration).
 #[derive(Clone, Debug)]
@@ -48,38 +49,38 @@ impl Display for StatementKind {
 /// Expression.
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Literal(Box<Type>, Val),
-    Identifier(Box<Type>, String),
+    Literal(Rc<Type>, Val),
+    Identifier(Rc<Type>, String),
 
     /// `RecordSelector(type, slot)` is a function that returns the `slot`th
     /// field of a record or tuple. `type` is a function type, `record_type`
     /// -> `field_type`.
-    RecordSelector(Box<Type>, usize),
-    Current(Box<Type>),
-    Ordinal(Box<Type>),
-    Aggregate(Box<Type>, Box<Expr>, Box<Expr>), // 'over'
+    RecordSelector(Rc<Type>, usize),
+    Current(Rc<Type>),
+    Ordinal(Rc<Type>),
+    Aggregate(Rc<Type>, Box<Expr>, Box<Expr>), // 'over'
 
     /// `Apply(f, a)` represents `f a`, applying a function to an argument.
-    Apply(Box<Type>, Box<Expr>, Box<Expr>, Span),
+    Apply(Rc<Type>, Box<Expr>, Box<Expr>, Span),
 
     // Control structures. (There is no 'If'; use 'Case' instead.)
-    Case(Box<Type>, Box<Expr>, Vec<Match>, Span),
-    Let(Box<Type>, Vec<Decl>, Box<Expr>),
-    Fn(Box<Type>, Vec<Match>, Span),
+    Case(Rc<Type>, Box<Expr>, Vec<Match>, Span),
+    Let(Rc<Type>, Vec<Decl>, Box<Expr>),
+    Fn(Rc<Type>, Vec<Match>, Span),
 
     /// `raise e` — evaluates `e` to an `exn` value, then throws.
     /// `type` is the type of the surrounding context (since `raise`
     /// never returns).
-    Raise(Box<Type>, Box<Expr>, Span),
+    Raise(Rc<Type>, Box<Expr>, Span),
 
     // Constructors for data structures
-    Tuple(Box<Type>, Vec<Expr>), // e.g. `(x, y, z)`
-    List(Box<Type>, Vec<Expr>),  // e.g. `[x, y, z]`
+    Tuple(Rc<Type>, Vec<Expr>), // e.g. `(x, y, z)`
+    List(Rc<Type>, Vec<Expr>),  // e.g. `[x, y, z]`
 
     // Relational expressions
-    From(Box<Type>, Vec<Step>),
-    Exists(Box<Type>, Vec<Step>),
-    Forall(Box<Type>, Vec<Step>),
+    From(Rc<Type>, Vec<Step>),
+    Exists(Rc<Type>, Vec<Step>),
+    Forall(Rc<Type>, Vec<Step>),
 
     /// Placeholder for "all values of type `t`" — produced by lowering
     /// `from p` (no `in`) when the variable's source has not yet been
@@ -90,15 +91,15 @@ pub enum Expr {
     /// `span` points at the source `from p` step so the runtime
     /// "pattern not grounded" error can pinpoint the offending
     /// site.
-    Extent(Box<Type>, Span),
+    Extent(Rc<Type>, Span),
 }
 
 impl Expr {
     /// Creates a tuple expression.
     pub(crate) fn new_tuple(args: &[Expr]) -> Self {
-        let types = args.iter().map(|e| *e.type_()).collect::<Vec<_>>();
+        let types = args.iter().map(Expr::type_).collect::<Vec<_>>();
         let arg_type = Type::Tuple(types);
-        Expr::Tuple(Box::new(arg_type), args.to_vec())
+        Expr::Tuple(Rc::new(arg_type), args.to_vec())
     }
 
     /// Returns the implicit label for this expression, if any.
@@ -120,7 +121,7 @@ impl Expr {
     }
 
     /// Returns this expression's type.
-    pub fn type_(&self) -> Box<Type> {
+    pub fn type_(&self) -> Rc<Type> {
         match self {
             // lint: sort until '#}' where '##Expr::'
             Expr::Aggregate(t, _, _) => t.clone(),
@@ -272,11 +273,11 @@ impl Display for Match {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Binding {
     pub id: Id,
-    pub type_: Box<Type>,
+    pub type_: Rc<Type>,
 }
 
 impl Binding {
-    pub fn new(id: Id, type_: Box<Type>) -> Self {
+    pub fn new(id: Id, type_: Rc<Type>) -> Self {
         Binding { id, type_ }
     }
 
@@ -427,34 +428,34 @@ pub enum StepKind {
 /// Pattern in core representation.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Pat {
-    Wildcard(Box<Type>),
+    Wildcard(Rc<Type>),
     /// `Identifier(t, name)` is a pattern that matches any expression and
     /// binds it to an identifier. For example, `x`.
-    Identifier(Box<Type>, String),
+    Identifier(Rc<Type>, String),
     /// `As(t, name, pat)` is a pattern that matches if its subpattern matches,
     /// and if so, binds the identifier. For example, `(x, y) as z`.
-    As(Box<Type>, String, Box<Pat>),
+    As(Rc<Type>, String, Box<Pat>),
     /// `Constructor(t, name, pat)` is a pattern that matches a constructor
     /// (with or without an argument). For example, `EMPTY` or `LEAF x` or
     /// `NODE (left, right)`.
-    Constructor(Box<Type>, String, Option<Box<Pat>>),
+    Constructor(Rc<Type>, String, Option<Box<Pat>>),
     /// `Literal(t, val)` is a pattern that matches a literal, e.g. `1` or
     /// `"foo"`. It does not bind any values.
-    Literal(Box<Type>, Val),
+    Literal(Rc<Type>, Val),
     /// `Tuple(t, pats)` is a pattern that matches a tuple. The match succeeds
     /// if all elements of a tuple match, e.g. `(x, y, z)` or `(1, _, z)`.
-    Tuple(Box<Type>, Vec<Pat>),
+    Tuple(Rc<Type>, Vec<Pat>),
     /// `Tuple(t, pats)` is a pattern that matches a list. The match succeeds
     /// if all elements of a list match, e.g. `[x, y, z]` or `[1, _, z]`. It
     /// can also be written `x :: y :: z :: nil`.
-    List(Box<Type>, Vec<Pat>),
+    List(Rc<Type>, Vec<Pat>),
     /// `Record(t, fields, ellipsis)` is a pattern that matches a record. The
     /// match succeeds if all fields match. For example, `{a = 1, b = (p, q),
     /// ...}` bind `p` and `q` if successful.
-    Record(Box<Type>, Vec<PatField>, bool),
+    Record(Rc<Type>, Vec<PatField>, bool),
     /// `Cons(t, head, tail)` is a pattern that matches a list. For example,
     /// `1 :: rest`.
-    Cons(Box<Type>, Box<Pat>, Box<Pat>),
+    Cons(Rc<Type>, Box<Pat>, Box<Pat>),
 }
 
 impl Pat {
@@ -470,7 +471,7 @@ impl Pat {
     }
 
     /// Returns this pattern's type.
-    pub fn type_(&self) -> Box<Type> {
+    pub fn type_(&self) -> Rc<Type> {
         match self {
             // lint: sort until '#}' where '##Pat::'
             Pat::As(t, _, _) => t.clone(),
@@ -486,7 +487,7 @@ impl Pat {
     }
 
     /// Returns a copy of this pattern with a different type.
-    pub fn with_type(self, t: Box<Type>) -> Self {
+    pub fn with_type(self, t: Rc<Type>) -> Self {
         match self {
             Pat::As(_, n, p) => Pat::As(t, n, p),
             Pat::Cons(_, h, tl) => Pat::Cons(t, h, tl),
@@ -1016,7 +1017,7 @@ impl Display for FunBind {
 pub struct FunMatch {
     pub name: String,
     pub pats: Vec<Pat>,
-    pub type_: Option<Box<Type>>,
+    pub type_: Option<Rc<Type>>,
     pub expr: Expr,
 }
 

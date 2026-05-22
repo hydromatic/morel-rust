@@ -59,8 +59,9 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::iter::{repeat_n, zip};
 use std::ops::Deref;
+use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use strum::{EnumProperty, IntoEnumIterator};
 use val::{
     RANGE_ALL, RANGE_AT_LEAST, RANGE_AT_MOST, RANGE_CLOSED, RANGE_CLOSED_OPEN,
@@ -220,7 +221,7 @@ pub enum Code {
 
     /// `Constant(type, val)` returns the value `val`. The type lets us display
     /// the value more intelligently.
-    Constant(Box<Type>, Val),
+    Constant(Rc<Type>, Val),
 
     /// `ConstructorWrap(tag)` is a function that, when applied to a
     /// value via `eval_f1`, wraps it in
@@ -315,7 +316,7 @@ pub enum Code {
     ),
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
-    Nth(Box<Type>, usize),
+    Nth(Rc<Type>, usize),
     /// `Raise(exp_code, span)` — evaluates `exp_code` to a value of
     /// type `exn`, then throws it as a runtime error. The span
     /// points at the `raise` keyword's source location, used to
@@ -507,7 +508,7 @@ impl Code {
     }
 
     pub(crate) fn new_constant(type_: &Type, v: Val) -> Code {
-        Code::Constant(Box::new(type_.clone()), v)
+        Code::Constant(Rc::new(type_.clone()), v)
     }
 
     pub(crate) fn new_create_closure(
@@ -656,7 +657,7 @@ impl Code {
 
     pub fn new_nth(type_: &Type, slot: usize) -> Code {
         assert!(slot < type_.field_types().len());
-        Code::Nth(Box::new(type_.clone()), slot)
+        Code::Nth(Rc::new(type_.clone()), slot)
     }
 
     pub fn new_tuple(codes: &[Code]) -> Code {
@@ -1643,9 +1644,10 @@ fn wrap_record_pairs(inner_type: &Type, value: &Val) -> Option<Val> {
             .map(|((label, field_type), v)| {
                 let inner = match v {
                     Val::Variant(_) => v.clone(),
-                    _ => {
-                        Val::Variant(Box::new((field_type.clone(), v.clone())))
-                    }
+                    _ => Val::Variant(Box::new((
+                        (**field_type).clone(),
+                        v.clone(),
+                    ))),
                 };
                 Val::List(vec![Val::String(label.to_string()), inner])
             })
@@ -1657,9 +1659,10 @@ fn wrap_record_pairs(inner_type: &Type, value: &Val) -> Option<Val> {
             .map(|(i, (field_type, v))| {
                 let inner = match v {
                     Val::Variant(_) => v.clone(),
-                    _ => {
-                        Val::Variant(Box::new((field_type.clone(), v.clone())))
-                    }
+                    _ => Val::Variant(Box::new((
+                        (**field_type).clone(),
+                        v.clone(),
+                    ))),
                 };
                 Val::List(vec![Val::String((i + 1).to_string()), inner])
             })
@@ -2508,7 +2511,7 @@ impl EagerF1 {
     /// path can construct a `MorelError` without allocating on the
     /// happy path.
     fn is_throwing(&self) -> bool {
-        LIBRARY.eager_f1_throws.contains(self)
+        LIBRARY.with(|lib| lib.eager_f1_throws.contains(self))
     }
 
     // Passing Val by value is OK because it is small.
@@ -3576,7 +3579,7 @@ impl EagerF2 {
 
     /// See [`EagerF1::is_throwing`].
     fn is_throwing(&self) -> bool {
-        LIBRARY.eager_f2_throws.contains(self)
+        LIBRARY.with(|lib| lib.eager_f2_throws.contains(self))
     }
 
     // Passing Val by value is OK because it is small.
@@ -4307,7 +4310,16 @@ struct LibBuilder {
     fn_impls: BTreeMap<BuiltInFunction, Impl>,
 }
 
-pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
+thread_local! {
+    /// Thread-local rather than `static` so we don't constrain `Lib`
+    /// (or the `Type`s it transitively holds) to be `Sync`. The
+    /// initialiser runs lazily on first access per thread; in
+    /// practice morel-rust is single-threaded so there's one
+    /// instance per process.
+    pub static LIBRARY: Lib = build_library();
+}
+
+fn build_library() -> Lib {
     #[allow(clippy::enum_glob_use)]
     use crate::compile::library::BuiltInFunction::*;
 
@@ -4760,7 +4772,7 @@ pub static LIBRARY: LazyLock<Lib> = LazyLock::new(|| {
     Eager0::WeekdayWed.implements(&mut b, WeekdayWed);
 
     b.build()
-});
+}
 
 /// Returns true for functions that are ML-style datatype constructors
 /// (e.g. `DESC`, `POINT`, `NONE`, `SOME`) and should be omitted from the
@@ -4819,7 +4831,7 @@ impl LibBuilder {
 
             let t = type_parser::string_to_type(type_code);
             if let Some(fn_impl) = self.fn_impls.remove(&f) {
-                fn_map.insert(f, (*t, fn_impl));
+                fn_map.insert(f, ((*t).clone(), fn_impl));
             } else {
                 panic!("missing implementation for {:?}", f);
             }
@@ -4852,7 +4864,7 @@ impl LibBuilder {
         let mut structure_map = BTreeMap::new();
         for (r, names_fns) in &mut structure_names_fns {
             let mut vals = Vec::new();
-            let mut name_types: BTreeMap<Label, Type> = BTreeMap::new();
+            let mut name_types: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
             for (n, f) in names_fns {
                 let t = &fn_map.get(f).unwrap().0;
                 if matches!(t.unqualified_quick(), Type::Fn(_, _)) {
@@ -4863,7 +4875,7 @@ impl LibBuilder {
                 } else {
                     panic!("missing implementation for {:?}", f);
                 }
-                name_types.insert(Label::String(n.clone()), t.clone());
+                name_types.insert(Label::String(n.clone()), Rc::new(t.clone()));
             }
             let t = Type::Record(false, name_types.clone());
             structure_map.insert(*r, (t, Val::List(vals)));
@@ -4923,27 +4935,42 @@ fn build_scott() -> (Type, Val) {
 
     // Schema for one row of `bonuses`: {comm:real, ename:string, job:string,
     // sal:real}
-    let bonus_fields: BTreeMap<Label, Type> = [
-        (S("comm".to_string()), Type::Primitive(PrimitiveType::Real)),
+    let bonus_fields: BTreeMap<Label, Rc<Type>> = [
+        (
+            S("comm".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
+        ),
         (
             S("ename".to_string()),
-            Type::Primitive(PrimitiveType::String),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
         ),
-        (S("job".to_string()), Type::Primitive(PrimitiveType::String)),
-        (S("sal".to_string()), Type::Primitive(PrimitiveType::Real)),
+        (
+            S("job".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
+        ),
+        (
+            S("sal".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
+        ),
     ]
     .into_iter()
     .collect();
     let bonus_row_type = Type::Record(false, bonus_fields);
 
     // Schema for one row of `depts`: {deptno:int, dname:string, loc:string}
-    let dept_fields: BTreeMap<Label, Type> = [
-        (S("deptno".to_string()), Type::Primitive(PrimitiveType::Int)),
+    let dept_fields: BTreeMap<Label, Rc<Type>> = [
+        (
+            S("deptno".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
+        ),
         (
             S("dname".to_string()),
-            Type::Primitive(PrimitiveType::String),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
         ),
-        (S("loc".to_string()), Type::Primitive(PrimitiveType::String)),
+        (
+            S("loc".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
+        ),
     ]
     .into_iter()
     .collect();
@@ -4966,21 +4993,39 @@ fn build_scott() -> (Type, Val) {
 
     // Schema for one row of `emps`: {comm:real, deptno:int, empno:int,
     // ename:string, hiredate:string, job:string, mgr:int, sal:real}
-    let emp_fields: BTreeMap<Label, Type> = [
-        (S("comm".to_string()), Type::Primitive(PrimitiveType::Real)),
-        (S("deptno".to_string()), Type::Primitive(PrimitiveType::Int)),
-        (S("empno".to_string()), Type::Primitive(PrimitiveType::Int)),
+    let emp_fields: BTreeMap<Label, Rc<Type>> = [
+        (
+            S("comm".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
+        ),
+        (
+            S("deptno".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
+        ),
+        (
+            S("empno".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
+        ),
         (
             S("ename".to_string()),
-            Type::Primitive(PrimitiveType::String),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
         ),
         (
             S("hiredate".to_string()),
-            Type::Primitive(PrimitiveType::String),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
         ),
-        (S("job".to_string()), Type::Primitive(PrimitiveType::String)),
-        (S("mgr".to_string()), Type::Primitive(PrimitiveType::Int)),
-        (S("sal".to_string()), Type::Primitive(PrimitiveType::Real)),
+        (
+            S("job".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::String)),
+        ),
+        (
+            S("mgr".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
+        ),
+        (
+            S("sal".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
+        ),
     ]
     .into_iter()
     .collect();
@@ -5098,10 +5143,19 @@ fn build_scott() -> (Type, Val) {
     ]);
 
     // Schema for one row of `salgrades`: {grade:int, hisal:real, losal:real}
-    let salgrade_fields: BTreeMap<Label, Type> = [
-        (S("grade".to_string()), Type::Primitive(PrimitiveType::Int)),
-        (S("hisal".to_string()), Type::Primitive(PrimitiveType::Real)),
-        (S("losal".to_string()), Type::Primitive(PrimitiveType::Real)),
+    let salgrade_fields: BTreeMap<Label, Rc<Type>> = [
+        (
+            S("grade".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Int)),
+        ),
+        (
+            S("hisal".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
+        ),
+        (
+            S("losal".to_string()),
+            Rc::new(Type::Primitive(PrimitiveType::Real)),
+        ),
     ]
     .into_iter()
     .collect();
@@ -5119,16 +5173,22 @@ fn build_scott() -> (Type, Val) {
 
     // The outer record. Field order must be alphabetical: bonuses, depts,
     // emps, salgrades.
-    let scott_fields: BTreeMap<Label, Type> = [
+    let scott_fields: BTreeMap<Label, Rc<Type>> = [
         (
             S("bonuses".to_string()),
-            Type::Bag(Box::new(bonus_row_type)),
+            Rc::new(Type::Bag(Rc::new(bonus_row_type))),
         ),
-        (S("depts".to_string()), Type::Bag(Box::new(dept_row_type))),
-        (S("emps".to_string()), Type::Bag(Box::new(emp_row_type))),
+        (
+            S("depts".to_string()),
+            Rc::new(Type::Bag(Rc::new(dept_row_type))),
+        ),
+        (
+            S("emps".to_string()),
+            Rc::new(Type::Bag(Rc::new(emp_row_type))),
+        ),
         (
             S("salgrades".to_string()),
-            Type::Bag(Box::new(salgrade_row_type)),
+            Rc::new(Type::Bag(Rc::new(salgrade_row_type))),
         ),
     ]
     .into_iter()

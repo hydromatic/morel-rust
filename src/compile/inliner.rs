@@ -563,7 +563,7 @@ impl Transformer for Inliner {
                 {
                     let v2 = v.get_field(*slot).unwrap();
                     return Expr::Literal(
-                        Box::new(field_type.clone()),
+                        Rc::new(field_type.clone()),
                         v2.clone(),
                     );
                 }
@@ -578,7 +578,7 @@ impl Transformer for Inliner {
                     let pat_t = m.pat.type_();
                     let val_bind = ValBind {
                         pat: m.pat.clone(),
-                        t: *pat_t,
+                        t: (*pat_t).clone(),
                         expr: (**a).clone(),
                         overload_pat: None,
                         span: Some(span.clone()),
@@ -613,7 +613,7 @@ impl Transformer for Inliner {
                             let lit = Expr::Literal(pat_t.clone(), v.clone());
                             let val_bind = ValBind {
                                 pat: *pat,
-                                t: *pat_t,
+                                t: (*pat_t).clone(),
                                 expr: lit,
                                 overload_pat: None,
                                 span: None,
@@ -648,7 +648,7 @@ impl Transformer for Inliner {
                                     Expr::Literal(pat_t.clone(), v.clone());
                                 let val_bind = ValBind {
                                     pat: *pat,
-                                    t: *pat_t,
+                                    t: (*pat_t).clone(),
                                     expr: lit,
                                     overload_pat: None,
                                     span: None,

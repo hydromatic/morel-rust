@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Write};
 use std::iter::zip;
 use std::ptr;
+use std::rc::Rc;
 
 /// Prints values prettily.
 pub struct Pretty {
@@ -68,7 +69,7 @@ impl Type {
         match self {
             Type::List(inner) if index == 0 => Some(inner),
             Type::Bag(inner) if index == 0 => Some(inner),
-            Type::Data(_name, args) => args.get(index),
+            Type::Data(_name, args) => args.get(index).map(AsRef::as_ref),
             _ => None,
         }
     }
@@ -145,7 +146,13 @@ impl Type {
 
 /// Boolean is used as a placeholder in several cases where we don't print the
 /// type but print (say) a raw string ":".
-static BOOL: Type = Type::Primitive(PrimitiveType::Bool);
+///
+/// A function rather than a `static` so the pretty printer doesn't
+/// constrain `Type` to be `Sync`. The value is cheap to construct
+/// (no allocation; a single inline enum variant).
+fn bool_type() -> Type {
+    Type::Primitive(PrimitiveType::Bool)
+}
 
 impl Pretty {
     pub fn new(
@@ -185,30 +192,36 @@ impl Pretty {
     }
 
     /// Substitutes `Type::Variable(i)` with `args[i]` throughout a type.
-    fn instantiate(type_: &Type, args: &[Type]) -> Type {
+    fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
         match type_ {
             // lint: sort until '#}' where '##Type::'
-            Type::Bag(t) => Type::Bag(Box::new(Self::instantiate(t, args))),
+            Type::Bag(t) => Type::Bag(Rc::new(Self::instantiate(t, args))),
             Type::Data(name, ts) => Type::Data(
                 name.clone(),
-                ts.iter().map(|t| Self::instantiate(t, args)).collect(),
+                ts.iter()
+                    .map(|t| Rc::new(Self::instantiate(t, args)))
+                    .collect(),
             ),
             Type::Fn(a, b) => Type::Fn(
-                Box::new(Self::instantiate(a, args)),
-                Box::new(Self::instantiate(b, args)),
+                Rc::new(Self::instantiate(a, args)),
+                Rc::new(Self::instantiate(b, args)),
             ),
-            Type::List(t) => Type::List(Box::new(Self::instantiate(t, args))),
+            Type::List(t) => Type::List(Rc::new(Self::instantiate(t, args))),
             Type::Record(p, fields) => Type::Record(
                 *p,
                 fields
                     .iter()
-                    .map(|(k, v)| (k.clone(), Self::instantiate(v, args)))
+                    .map(|(k, v)| {
+                        (k.clone(), Rc::new(Self::instantiate(v, args)))
+                    })
                     .collect(),
             ),
             Type::Tuple(ts) => Type::Tuple(
-                ts.iter().map(|t| Self::instantiate(t, args)).collect(),
+                ts.iter()
+                    .map(|t| Rc::new(Self::instantiate(t, args)))
+                    .collect(),
             ),
-            Type::Variable(tv) if tv.id < args.len() => args[tv.id].clone(),
+            Type::Variable(tv) if tv.id < args.len() => (*args[tv.id]).clone(),
             // #}
             _ => type_.clone(),
         }
@@ -229,7 +242,7 @@ impl Pretty {
             indent,
             line_end,
             depth,
-            &BOOL,
+            &bool_type(),
             &Val::Raw(value.to_string()),
             0,
             0,
@@ -344,7 +357,7 @@ impl Pretty {
                     indent + 2,
                     line_end,
                     depth,
-                    &BOOL,
+                    &bool_type(),
                     &Val::new_type_with_suffix(
                         ": ",
                         &display_type,
@@ -625,7 +638,7 @@ impl Pretty {
         if let Type::Record(_, arg_name_types) = type_ref {
             arg_name_types
                 .values()
-                .all(|t| matches!(t, Type::Primitive(_)))
+                .all(|t| matches!(&**t, Type::Primitive(_)))
         } else {
             false
         }
@@ -750,7 +763,7 @@ impl Pretty {
         line_end: &mut [i32],
         depth: i32,
         name: &str,
-        args: &[Type],
+        args: &[Rc<Type>],
         value: &Val,
     ) -> Result<(), fmt::Error> {
         if name == "descending" {
@@ -808,11 +821,11 @@ impl Pretty {
                     library::BuiltInDatatype::ContinuousSet
                     | library::BuiltInDatatype::DiscreteSet,
                     _,
-                ) => Type::List(Box::new(Type::Data(
+                ) => Type::List(Rc::new(Type::Data(
                     "range".to_string(),
                     vec![args[0].clone()],
                 ))),
-                _ => args[0].clone(),
+                _ => (*args[0]).clone(),
             };
             return self.pretty1(
                 buf,
@@ -997,12 +1010,24 @@ impl Pretty {
                 const OP: Op = Op::FN;
                 let v_param = Val::new_type("", param_type);
                 self.pretty1(
-                    buf, indent2, line_end, depth, &BOOL, &v_param, left,
+                    buf,
+                    indent2,
+                    line_end,
+                    depth,
+                    &bool_type(),
+                    &v_param,
+                    left,
                     OP.left,
                 )?;
                 let v_result = Val::new_type(" -> ", result_type);
                 self.pretty1(
-                    buf, indent2, line_end, depth, &BOOL, &v_result, OP.right,
+                    buf,
+                    indent2,
+                    line_end,
+                    depth,
+                    &bool_type(),
+                    &v_result,
+                    OP.right,
                     right,
                 )
             }
@@ -1024,7 +1049,13 @@ impl Pretty {
                     1 => {
                         let v_arg = Val::new_type("", &args[0]);
                         self.pretty1(
-                            buf, indent2, line_end, depth, &BOOL, &v_arg, left,
+                            buf,
+                            indent2,
+                            line_end,
+                            depth,
+                            &bool_type(),
+                            &v_arg,
+                            left,
                             OP.right,
                         )?;
                         buf.push(' ');
@@ -1037,8 +1068,14 @@ impl Pretty {
                             }
                             let v_arg = Val::new_type("", arg);
                             self.pretty1(
-                                buf, indent2, line_end, depth, &BOOL, &v_arg,
-                                0, 0,
+                                buf,
+                                indent2,
+                                line_end,
+                                depth,
+                                &bool_type(),
+                                &v_arg,
+                                0,
+                                0,
                             )?;
                         }
                         buf.push_str(") ");
@@ -1061,7 +1098,7 @@ impl Pretty {
                         indent2 + 1,
                         line_end,
                         depth,
-                        &BOOL,
+                        &bool_type(),
                         &Val::new_labeled(name, element_type),
                         0,
                         0,
@@ -1087,7 +1124,7 @@ impl Pretty {
                     if buf.len() > start {
                         self.pretty_raw(buf, indent2, line_end, depth, " * ")?;
                     }
-                    let wrap = matches!(arg_type, Type::Tuple(_));
+                    let wrap = matches!(&**arg_type, Type::Tuple(_));
                     if wrap {
                         self.pretty_raw(buf, indent2, line_end, depth, "(")?;
                         self.pretty1(
@@ -1095,7 +1132,7 @@ impl Pretty {
                             indent2,
                             line_end,
                             depth,
-                            &BOOL,
+                            &bool_type(),
                             &Val::new_type("", arg_type),
                             0,
                             0,
@@ -1107,7 +1144,7 @@ impl Pretty {
                             indent2,
                             line_end,
                             depth,
-                            &BOOL,
+                            &bool_type(),
                             &Val::new_type("", arg_type),
                             if i == 0 { left } else { OP.right },
                             if i == arg_types.len() - 1 {
@@ -1223,8 +1260,8 @@ impl TypeVarRenumberer {
         }
     }
 
-    fn visit_list(&mut self, types: &[Type]) -> Vec<Type> {
-        types.iter().map(|t| self.visit(t)).collect()
+    fn visit_list(&mut self, types: &[Rc<Type>]) -> Vec<Rc<Type>> {
+        types.iter().map(|t| Rc::new(self.visit(t))).collect()
     }
 
     fn visit(&mut self, type_ref: &Type) -> Type {
@@ -1232,21 +1269,21 @@ impl TypeVarRenumberer {
             // lint: sort until '#}' where '##Type::'
             Type::Alias(name, type_, args) => Type::Alias(
                 name.clone(),
-                Box::new(self.visit(type_)),
+                Rc::new(self.visit(type_)),
                 self.visit_list(args.as_slice()),
             ),
-            Type::Bag(inner) => Type::Bag(Box::new(self.visit(inner))),
+            Type::Bag(inner) => Type::Bag(Rc::new(self.visit(inner))),
             Type::Data(name, args) => {
                 Type::Data(name.clone(), self.visit_list(args.as_slice()))
             }
             Type::Fn(param_type, result_type) => Type::Fn(
-                Box::new(self.visit(param_type)),
-                Box::new(self.visit(result_type)),
+                Rc::new(self.visit(param_type)),
+                Rc::new(self.visit(result_type)),
             ),
             Type::Forall(type_, size) => {
-                Type::Forall(Box::new(self.visit(type_)), *size)
+                Type::Forall(Rc::new(self.visit(type_)), *size)
             }
-            Type::List(inner) => Type::List(Box::new(self.visit(inner))),
+            Type::List(inner) => Type::List(Rc::new(self.visit(inner))),
             Type::Named(types, name) => {
                 let types2 = self.visit_list(types.as_slice());
                 Type::Named(types2, name.clone())
@@ -1259,12 +1296,12 @@ impl TypeVarRenumberer {
                 *progressive,
                 arg_name_types
                     .iter()
-                    .map(|(name, t)| (name.clone(), self.visit(t)))
+                    .map(|(name, t)| (name.clone(), Rc::new(self.visit(t))))
                     .collect(),
             ),
-            Type::Tuple(arg_types) => {
-                Type::Tuple(self.visit_list(arg_types.as_slice()))
-            }
+            Type::Tuple(arg_types) => Type::Tuple(
+                arg_types.iter().map(|t| Rc::new(self.visit(t))).collect(),
+            ),
             Type::Variable(type_var) => {
                 // Get or create a renumbered type variable
                 let i = self.var_map.len();

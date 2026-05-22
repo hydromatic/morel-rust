@@ -43,6 +43,7 @@ use crate::shell::prop::Prop;
 use library::BuiltInDatatype;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
@@ -831,9 +832,8 @@ impl<'a> Compiler<'a> {
                             || *f == BuiltInFunction::RelationalMin
                         {
                             let elem_type = match a.type_().as_ref() {
-                                Type::List(e) => *e.clone(),
-                                Type::Bag(e) => *e.clone(),
-                                _ => *a.type_(),
+                                Type::List(e) | Type::Bag(e) => (**e).clone(),
+                                _ => (*a.type_()).clone(),
                             };
                             let cmp = CmpRef(comparator::comparator_for_with(
                                 &elem_type,
@@ -858,9 +858,9 @@ impl<'a> Compiler<'a> {
                                     if name == "discrete_set"
                                         && !args.is_empty() =>
                                 {
-                                    args[0].clone()
+                                    (*args[0]).clone()
                                 }
-                                _ => *a.type_(),
+                                _ => (*a.type_()).clone(),
                             };
                             let cmp = CmpRef(comparator::comparator_for_with(
                                 &elem_type,
@@ -921,11 +921,11 @@ impl<'a> Compiler<'a> {
                                         if name == "range"
                                             && !args.is_empty() =>
                                     {
-                                        args[0].clone()
+                                        (*args[0]).clone()
                                     }
-                                    _ => *a.type_(),
+                                    _ => (*a.type_()).clone(),
                                 },
-                                _ => *a.type_(),
+                                _ => (*a.type_()).clone(),
                             };
                             let cmp = CmpRef(comparator::comparator_for_with(
                                 &elem_type,
@@ -1082,8 +1082,10 @@ impl<'a> Compiler<'a> {
                     if *f == BuiltInFunction::RelationalCompare {
                         let args = self.compile_args_boxed(cx, a);
                         let elem_type = match a.type_().as_ref() {
-                            Type::Tuple(ts) if !ts.is_empty() => ts[0].clone(),
-                            _ => *a.type_(),
+                            Type::Tuple(ts) if !ts.is_empty() => {
+                                (*ts[0]).clone()
+                            }
+                            _ => (*a.type_()).clone(),
                         };
                         let cmp = CmpRef(comparator::comparator_for_with(
                             &elem_type,
@@ -1187,7 +1189,7 @@ impl<'a> Compiler<'a> {
                                 | BuiltInFunction::RangeDsContains
                         )
                     {
-                        let elem_type = *a.type_();
+                        let elem_type = (*a.type_()).clone();
                         let cmp = CmpRef(comparator::comparator_for_with(
                             &elem_type,
                             &self.type_map.datatype_constructors,
@@ -1375,7 +1377,7 @@ impl<'a> Compiler<'a> {
                         // closure. We use pcx because it needs to execute in
                         // the caller's environment.
                         // Use a dummy type (until binding has a type).
-                        let type_ = Box::new(UNIT_TYPE);
+                        let type_ = Rc::new(UNIT_TYPE);
                         let id = Expr::Identifier(
                             type_,
                             binding.id.name.to_string(),
@@ -1411,7 +1413,7 @@ impl<'a> Compiler<'a> {
 
                 // Extract element type from the collection type
                 // (Type::List(e) or Type::Bag(e)).
-                let element_type = match collection_type.as_ref() {
+                let element_type: &Type = match collection_type.as_ref() {
                     Type::List(e) | Type::Bag(e) => e,
                     _ => collection_type,
                 };
@@ -1444,11 +1446,14 @@ impl<'a> Compiler<'a> {
                         Code::new_constant(type_, val.clone())
                     }
                 } else if let Some(rec) = name_to_rec(name) {
-                    let (_, val) = code::LIBRARY
-                        .structure_map
-                        .get(&rec)
-                        .expect("structure not in library");
-                    Code::new_constant(type_, val.clone())
+                    let val = code::LIBRARY.with(|lib| {
+                        lib.structure_map
+                            .get(&rec)
+                            .expect("structure not in library")
+                            .1
+                            .clone()
+                    });
+                    Code::new_constant(type_, val)
                 } else {
                     cx.frame_def.var_index(name);
                     unreachable!()
@@ -2273,9 +2278,9 @@ impl<'a> Compiler<'a> {
         let t2 = val_bind.t.clone();
         let param_type = UNIT_TYPE;
         let result_type = val_bind.expr.type_().clone();
-        let fn_type = Type::Fn(Box::new(param_type), result_type);
+        let fn_type = Type::Fn(Rc::new(param_type), result_type);
         let match_ = Match {
-            pat: Pat::Literal(Box::new(UNIT_TYPE), Val::Unit),
+            pat: Pat::Literal(Rc::new(UNIT_TYPE), Val::Unit),
             expr: val_bind.expr.clone(),
         };
         // The lift wraps the original expression as 'fn () => expr'.
@@ -2284,7 +2289,7 @@ impl<'a> Compiler<'a> {
         // user's source.
         let synth_span =
             val_bind.span.clone().unwrap_or_else(|| Span::new("stdIn"));
-        let expr2 = Expr::Fn(Box::new(fn_type), vec![match_], synth_span);
+        let expr2 = Expr::Fn(Rc::new(fn_type), vec![match_], synth_span);
         ValBind {
             pat: pat2,
             t: t2,

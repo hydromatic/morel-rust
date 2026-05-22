@@ -102,13 +102,13 @@ impl TypeMap {
     }
 
     /// Gets the type for an AST node.
-    pub fn get_type(&self, id: i32) -> Option<Box<Type>> {
+    pub fn get_type(&self, id: i32) -> Option<Rc<Type>> {
         self.get_type_inner(id, false)
     }
 
     /// Gets the type for an AST node, optionally wrapping in
     /// `Type::Alias` if the node's variable carries a type alias.
-    pub fn get_type_with_alias(&self, id: i32) -> Option<Box<Type>> {
+    pub fn get_type_with_alias(&self, id: i32) -> Option<Rc<Type>> {
         self.get_type_inner(id, true)
     }
 
@@ -125,10 +125,10 @@ impl TypeMap {
             var_map: BTreeMap::new(),
             with_alias: false,
         };
-        Some(*c.term_type(&term))
+        Some((*c.term_type(&term)).clone())
     }
 
-    fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Box<Type>> {
+    fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Rc<Type>> {
         if let Some(var) = self.node_var_map.get(&id) {
             let mut c = TermToTypeConverter {
                 type_map: self,
@@ -152,7 +152,7 @@ impl TypeMap {
             // Check if this node's var has a top-level alias.
             if with_alias {
                 if let Some(alias_name) = self.var_alias_map.get(var) {
-                    return Some(Box::new(Type::Alias(
+                    return Some(Rc::new(Type::Alias(
                         alias_name.clone(),
                         type_,
                         vec![],
@@ -257,23 +257,23 @@ impl TypeMap {
 }
 
 pub trait Typed {
-    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>>;
+    fn get_type(&self, type_map: &TypeMap) -> Option<Rc<Type>>;
 }
 
 impl Typed for Expr {
-    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>> {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Rc<Type>> {
         type_map.get_type(self.id?)
     }
 }
 
 impl Typed for ValBind {
-    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>> {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Rc<Type>> {
         self.expr.get_type(type_map)
     }
 }
 
 impl Typed for Pat {
-    fn get_type(&self, type_map: &TypeMap) -> Option<Box<Type>> {
+    fn get_type(&self, type_map: &TypeMap) -> Option<Rc<Type>> {
         type_map.get_type(self.id?)
     }
 }
@@ -353,7 +353,7 @@ impl Triple {
 
 struct TermToTypeConverter<'a> {
     type_map: &'a TypeMap,
-    var_map: BTreeMap<i32, Box<Type>>,
+    var_map: BTreeMap<i32, Rc<Type>>,
     /// When true, check each variable for a type alias annotation
     /// and wrap the result in `Type::Alias`.
     with_alias: bool,
@@ -361,7 +361,7 @@ struct TermToTypeConverter<'a> {
 
 impl<'a> TermToTypeConverter<'a> {
     /// Converts a term to a type.
-    fn term_type(&mut self, term: &Term) -> Box<Type> {
+    fn term_type(&mut self, term: &Term) -> Rc<Type> {
         match term {
             Term::Sequence(sequence) => {
                 let op_name =
@@ -371,31 +371,31 @@ impl<'a> TermToTypeConverter<'a> {
                     "bag" => {
                         assert_eq!(sequence.terms.len(), 1);
                         let type_ = self.term_type(&sequence.terms[0]);
-                        Box::new(Type::Bag(type_))
+                        Rc::new(Type::Bag(type_))
                     }
                     "bool" | "char" | "int" | "real" | "string" | "unit" => {
                         let primitive_type =
                             PrimitiveType::parse_name(op_name).unwrap();
-                        Box::new(Type::Primitive(primitive_type))
+                        Rc::new(Type::Primitive(primitive_type))
                     }
                     "fn" => {
                         assert_eq!(sequence.terms.len(), 2);
                         let param_type = self.term_type(&sequence.terms[0]);
                         let result_type = self.term_type(&sequence.terms[1]);
-                        Box::new(Type::Fn(param_type, result_type))
+                        Rc::new(Type::Fn(param_type, result_type))
                     }
                     "list" => {
                         assert_eq!(sequence.terms.len(), 1);
                         let type_ = self.term_type(&sequence.terms[0]);
-                        Box::new(Type::List(type_))
+                        Rc::new(Type::List(type_))
                     }
                     "tuple" => {
-                        let types = sequence
+                        let types: Vec<Rc<Type>> = sequence
                             .terms
                             .iter()
-                            .map(|t| *(self.term_type(t)))
+                            .map(|t| self.term_type(t))
                             .collect();
-                        Box::new(Type::Tuple(types))
+                        Rc::new(Type::Tuple(types))
                     }
                     s if s.starts_with("record") => {
                         let labels = TypeResolver::field_list(
@@ -403,15 +403,15 @@ impl<'a> TermToTypeConverter<'a> {
                             sequence,
                         )
                         .unwrap();
-                        let mut fields = BTreeMap::<Label, Type>::new();
+                        let mut fields = BTreeMap::<Label, Rc<Type>>::new();
                         for (label, term) in zip(labels, sequence.terms.iter())
                         {
                             fields.insert(
                                 Label::from(label),
-                                *self.term_type(term),
+                                self.term_type(term),
                             );
                         }
-                        Box::new(Type::Record(false, fields))
+                        Rc::new(Type::Record(false, fields))
                     }
                     _ => {
                         // Every other named type — built-in
@@ -420,12 +420,12 @@ impl<'a> TermToTypeConverter<'a> {
                         // `Type::Data`. Arity is enforced by the
                         // unifier; assertions here would be
                         // redundant.
-                        let args: Vec<Type> = sequence
+                        let args: Vec<Rc<Type>> = sequence
                             .terms
                             .iter()
-                            .map(|t| *self.term_type(t))
+                            .map(|t| self.term_type(t))
                             .collect();
-                        Box::new(Type::Data(op_name.to_string(), args))
+                        Rc::new(Type::Data(op_name.to_string(), args))
                     }
                 }
             }
@@ -446,12 +446,12 @@ impl<'a> TermToTypeConverter<'a> {
                         self.var_map
                             .entry(v.id)
                             .or_insert_with(|| {
-                                Box::new(Type::Variable(TypeVariable { id }))
+                                Rc::new(Type::Variable(TypeVariable { id }))
                             })
                             .clone()
                     };
                 if let Some(name) = alias_name {
-                    Box::new(Type::Alias(name, inner, vec![]))
+                    Rc::new(Type::Alias(name, inner, vec![]))
                 } else {
                     inner
                 }
@@ -1094,7 +1094,7 @@ impl TypeResolver {
                         type_map.get_type_with_alias(id)
                     } {
                         let resolved_type = if let Some(alias_name) = alias {
-                            Box::new(Type::Alias(
+                            Rc::new(Type::Alias(
                                 alias_name.to_string(),
                                 resolved_type,
                                 vec![],
@@ -1104,7 +1104,7 @@ impl TypeResolver {
                         };
                         bindings.push(TypeBinding {
                             name: name.clone(),
-                            resolved_type: *resolved_type,
+                            resolved_type: (*resolved_type).clone(),
                             kind: BindingKind::Val,
                         });
                     }
@@ -1116,7 +1116,7 @@ impl TypeResolver {
                     if let Some(resolved_type) = type_map.get_type(id) {
                         bindings.push(TypeBinding {
                             name: name.clone(),
-                            resolved_type: *resolved_type,
+                            resolved_type: (*resolved_type).clone(),
                             kind: BindingKind::Val,
                         });
                     }
@@ -1440,8 +1440,8 @@ impl TypeResolver {
         // later annotation is arity-checked. A redeclaration with a
         // new arity overwrites the previous entry.
         for db in datatype_binds {
-            let type_var_types: Vec<Type> = (0..db.type_vars.len())
-                .map(|i| Type::Variable(TypeVariable::new(i)))
+            let type_var_types: Vec<Rc<Type>> = (0..db.type_vars.len())
+                .map(|i| Rc::new(Type::Variable(TypeVariable::new(i))))
                 .collect();
             let data_type = Type::Data(db.name.clone(), type_var_types);
             self.type_aliases.insert(db.name.clone(), data_type);
@@ -1453,8 +1453,8 @@ impl TypeResolver {
         // register them in term_map.
         for db in datatype_binds {
             let param_count = db.type_vars.len();
-            let type_var_types: Vec<Type> = (0..param_count)
-                .map(|i| Type::Variable(TypeVariable::new(i)))
+            let type_var_types: Vec<Rc<Type>> = (0..param_count)
+                .map(|i| Rc::new(Type::Variable(TypeVariable::new(i))))
                 .collect();
             let data_type = Type::Data(db.name.clone(), type_var_types);
 
@@ -1471,7 +1471,7 @@ impl TypeResolver {
                         &db.type_vars,
                     )
                     .unwrap_or(Type::Primitive(PrimitiveType::Unit));
-                    Type::Fn(Box::new(arg_core), Box::new(data_type.clone()))
+                    Type::Fn(Rc::new(arg_core), Rc::new(data_type.clone()))
                 } else {
                     data_type.clone()
                 };
@@ -1480,7 +1480,7 @@ impl TypeResolver {
                 // parameters. This makes the constructor
                 // polymorphic (e.g. `Empty : forall 1 'a tree`).
                 let scheme = if param_count > 0 {
-                    Type::Forall(Box::new(con_type), param_count)
+                    Type::Forall(Rc::new(con_type), param_count)
                 } else {
                     con_type
                 };
@@ -3668,27 +3668,27 @@ impl TypeResolver {
     /// suitable for postfix dispatch. Only needs to handle the
     /// primitive and container constructors that postfix_dispatch
     /// keys on; other shapes return `None` (no dispatch).
-    fn shape_to_type(&self, term: &Option<Term>) -> Option<Box<Type>> {
+    fn shape_to_type(&self, term: &Option<Term>) -> Option<Rc<Type>> {
         let term = term.as_ref()?;
         let Term::Sequence(seq) = term else {
             return None;
         };
         let op_name = self.unifier.op_defs[seq.op.0 as usize].name.clone();
         match op_name.as_str() {
-            "int" => Some(Box::new(Type::Primitive(PrimitiveType::Int))),
-            "real" => Some(Box::new(Type::Primitive(PrimitiveType::Real))),
-            "char" => Some(Box::new(Type::Primitive(PrimitiveType::Char))),
-            "bool" => Some(Box::new(Type::Primitive(PrimitiveType::Bool))),
-            "string" => Some(Box::new(Type::Primitive(PrimitiveType::String))),
-            "unit" => Some(Box::new(Type::Primitive(PrimitiveType::Unit))),
+            "int" => Some(Rc::new(Type::Primitive(PrimitiveType::Int))),
+            "real" => Some(Rc::new(Type::Primitive(PrimitiveType::Real))),
+            "char" => Some(Rc::new(Type::Primitive(PrimitiveType::Char))),
+            "bool" => Some(Rc::new(Type::Primitive(PrimitiveType::Bool))),
+            "string" => Some(Rc::new(Type::Primitive(PrimitiveType::String))),
+            "unit" => Some(Rc::new(Type::Primitive(PrimitiveType::Unit))),
             "list" => {
                 // 'a list; element type is unresolved here but
                 // postfix_dispatch only keys on the list constructor.
-                Some(Box::new(Type::List(Box::new(Type::Primitive(
+                Some(Rc::new(Type::List(Rc::new(Type::Primitive(
                     PrimitiveType::Unit,
                 )))))
             }
-            "bag" => Some(Box::new(Type::Bag(Box::new(Type::Primitive(
+            "bag" => Some(Rc::new(Type::Bag(Rc::new(Type::Primitive(
                 PrimitiveType::Unit,
             ))))),
             s if let Some(arity) = library::builtin_type_arity(s) => {
@@ -3697,9 +3697,9 @@ impl TypeResolver {
                 // on the data-type name, so the element-type slots
                 // are filled with placeholders.
                 let args = (0..arity)
-                    .map(|_| Type::Primitive(PrimitiveType::Unit))
+                    .map(|_| Rc::new(Type::Primitive(PrimitiveType::Unit)))
                     .collect();
-                Some(Box::new(Type::Data(op_name.to_string(), args)))
+                Some(Rc::new(Type::Data(op_name.to_string(), args)))
             }
             _ => None,
         }
@@ -4029,27 +4029,31 @@ impl TypeResolver {
                 Self::max_type_var_count(a).max(Self::max_type_var_count(b))
             }
             Type::List(t) | Type::Bag(t) => Self::max_type_var_count(t),
-            Type::Tuple(ts) | Type::Data(_, ts) | Type::Named(ts, _) => {
-                ts.iter().map(Self::max_type_var_count).max().unwrap_or(0)
-            }
+            Type::Tuple(ts) | Type::Data(_, ts) | Type::Named(ts, _) => ts
+                .iter()
+                .map(|t| Self::max_type_var_count(t))
+                .max()
+                .unwrap_or(0),
             Type::Record(_, fields) => fields
                 .values()
-                .map(Self::max_type_var_count)
+                .map(|t| Self::max_type_var_count(t))
                 .max()
                 .unwrap_or(0),
             Type::Alias(_, inner, args) => {
                 let inner_count = Self::max_type_var_count(inner);
                 let args_count = args
                     .iter()
-                    .map(Self::max_type_var_count)
+                    .map(|t| Self::max_type_var_count(t))
                     .max()
                     .unwrap_or(0);
                 inner_count.max(args_count)
             }
             Type::Forall(inner, _) => Self::max_type_var_count(inner),
-            Type::Multi(ts) => {
-                ts.iter().map(Self::max_type_var_count).max().unwrap_or(0)
-            }
+            Type::Multi(ts) => ts
+                .iter()
+                .map(|t| Self::max_type_var_count(t))
+                .max()
+                .unwrap_or(0),
             Type::Primitive(_) => 0,
         }
     }
@@ -5238,9 +5242,10 @@ pub(crate) fn ast_type_to_core_type_with_vars(
             Some(Type::Variable(TypeVariable::new(index)))
         }
         TypeKind::Tuple(types) => {
-            let cores: Vec<Type> = types
+            let cores: Vec<Rc<Type>> = types
                 .iter()
                 .filter_map(|t| ast_type_to_core_type_with_vars(t, type_vars))
+                .map(Rc::new)
                 .collect();
             if cores.len() == types.len() {
                 Some(Type::Tuple(cores))
@@ -5251,7 +5256,7 @@ pub(crate) fn ast_type_to_core_type_with_vars(
         TypeKind::Fn(t1, t2) => {
             let c1 = ast_type_to_core_type_with_vars(t1, type_vars)?;
             let c2 = ast_type_to_core_type_with_vars(t2, type_vars)?;
-            Some(Type::Fn(Box::new(c1), Box::new(c2)))
+            Some(Type::Fn(Rc::new(c1), Rc::new(c2)))
         }
         TypeKind::App(args, t) => {
             // Flatten Composite args (e.g. `('a, 'b) tree` is parsed
@@ -5264,17 +5269,18 @@ pub(crate) fn ast_type_to_core_type_with_vars(
                 let arg_core =
                     ast_type_to_core_type_with_vars(&flat_args[0], type_vars)?;
                 return Some(match name.as_str() {
-                    "list" => Type::List(Box::new(arg_core)),
-                    "bag" => Type::Bag(Box::new(arg_core)),
-                    _ => Type::Data(name.clone(), vec![arg_core]),
+                    "list" => Type::List(Rc::new(arg_core)),
+                    "bag" => Type::Bag(Rc::new(arg_core)),
+                    _ => Type::Data(name.clone(), vec![Rc::new(arg_core)]),
                 });
             }
             if let TypeKind::Id(name) = &t.kind {
-                let arg_cores: Vec<Type> = flat_args
+                let arg_cores: Vec<Rc<Type>> = flat_args
                     .iter()
                     .filter_map(|a| {
                         ast_type_to_core_type_with_vars(a, type_vars)
                     })
+                    .map(Rc::new)
                     .collect();
                 if arg_cores.len() == flat_args.len() {
                     return Some(Type::Data(name.clone(), arg_cores));
@@ -5306,8 +5312,11 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
                     .map(|_| Type::Data(name.clone(), vec![]))
             }),
         TypeKind::Tuple(types) => {
-            let cores: Vec<Type> =
-                types.iter().filter_map(ast_type_to_core_type).collect();
+            let cores: Vec<Rc<Type>> = types
+                .iter()
+                .filter_map(ast_type_to_core_type)
+                .map(Rc::new)
+                .collect();
             if cores.len() == types.len() {
                 Some(Type::Tuple(cores))
             } else {
@@ -5317,7 +5326,7 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
         TypeKind::Fn(t1, t2) => {
             let c1 = ast_type_to_core_type(t1)?;
             let c2 = ast_type_to_core_type(t2)?;
-            Some(Type::Fn(Box::new(c1), Box::new(c2)))
+            Some(Type::Fn(Rc::new(c1), Rc::new(c2)))
         }
         TypeKind::App(args, t) => {
             // Recognise applications of the parameterised collection
@@ -5327,17 +5336,17 @@ pub(crate) fn ast_type_to_core_type(ast_type: &AstType) -> Option<Type> {
             {
                 let arg_core = ast_type_to_core_type(&args[0])?;
                 return Some(match name.as_str() {
-                    "list" => Type::List(Box::new(arg_core)),
-                    "bag" => Type::Bag(Box::new(arg_core)),
-                    _ => Type::Data(name.clone(), vec![arg_core]),
+                    "list" => Type::List(Rc::new(arg_core)),
+                    "bag" => Type::Bag(Rc::new(arg_core)),
+                    _ => Type::Data(name.clone(), vec![Rc::new(arg_core)]),
                 });
             }
             None
         }
         TypeKind::Record(fields) => {
-            let mut field_map = BTreeMap::new();
+            let mut field_map: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
             for field in fields {
-                let field_type = ast_type_to_core_type(&field.type_)?;
+                let field_type = Rc::new(ast_type_to_core_type(&field.type_)?);
                 field_map
                     .insert(Label::from(field.label.name.clone()), field_type);
             }
@@ -5690,15 +5699,15 @@ mod tests {
         //
         let tv = TypeVariable::new(0);
         let tuple_type = Type::Forall(
-            Box::new(Type::Tuple(vec![
-                Type::Primitive(PrimitiveType::Int),
-                Type::Fn(
-                    Box::new(Type::Tuple(vec![
-                        Type::Variable(tv.clone()),
-                        Type::Variable(tv.clone()),
+            Rc::new(Type::Tuple(vec![
+                Rc::new(Type::Primitive(PrimitiveType::Int)),
+                Rc::new(Type::Fn(
+                    Rc::new(Type::Tuple(vec![
+                        Rc::new(Type::Variable(tv.clone())),
+                        Rc::new(Type::Variable(tv.clone())),
                     ])),
-                    Box::new(Type::Primitive(PrimitiveType::Bool)),
-                ),
+                    Rc::new(Type::Primitive(PrimitiveType::Bool)),
+                )),
             ])),
             1,
         );
