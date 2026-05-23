@@ -154,33 +154,17 @@ pub fn expand_from_with_scope_rec(
 /// Tree-walking pass that re-runs `expand_from_with` on every
 /// `From`/`Exists`/`Forall` it encounters, with a `FnEnv` populated
 /// from enclosing `let val rec ... = fn p => body` bindings. This
-/// is the entry point used after the resolver finishes, so that
+/// Entry point used after the resolver finishes, so that
 /// `maybe_function` can inline let-bound predicates that the
 /// per-query passes inside `resolve_query` couldn't see.
-pub fn expand_decl(decl: Decl, datatypes: &DatatypeMap) -> Decl {
-    let env = FnEnv::new();
-    walk_decl(decl, &env, datatypes)
-}
-
-/// Same as [`expand_decl`], but seeds the inlining environment
-/// with cross-statement function bindings the session has
-/// accumulated from earlier `fun` / `val` decls. Lets predicate
-/// inversion inline a function declared in a previous shell
-/// statement.
-pub fn expand_decl_with_session(
-    decl: Decl,
-    datatypes: &DatatypeMap,
-    session_fns: &FnEnv,
-) -> Decl {
-    let empty_rec = FnEnv::new();
-    walk_decl_rec(decl, session_fns, &empty_rec, datatypes)
-}
-
-/// Same as [`expand_decl_with_session`], but additionally accepts
-/// a "recursive-fn" environment carrying pre-expander function
-/// bodies for Phase 2 of recursive-predicate inversion. The
-/// regular `session_fns` map keeps post-expander bodies for use
-/// by `inline_tuple_fn_calls_in_where`.
+///
+/// Seeds the inlining environment with cross-statement function
+/// bindings the session has accumulated from earlier `fun` / `val`
+/// decls so predicate inversion can inline a function declared in
+/// a previous shell statement. `rec_session_fns` carries the
+/// pre-expander function bodies for recursive-predicate inversion,
+/// while `session_fns` keeps post-expander bodies for use by
+/// `inline_tuple_fn_calls_in_where`.
 pub fn expand_decl_with_session_rec(
     decl: Decl,
     datatypes: &DatatypeMap,
@@ -222,11 +206,6 @@ fn collect_decl_pat_names(decl: &Decl, out: &mut BTreeSet<String>) {
     for b in binds {
         collect_pat_names(&b.pat, out);
     }
-}
-
-fn walk_decl(decl: Decl, env: &FnEnv, datatypes: &DatatypeMap) -> Decl {
-    let empty_rec = FnEnv::new();
-    walk_decl_with_scope(decl, env, &empty_rec, datatypes, &BTreeSet::new())
 }
 
 fn walk_decl_rec(
@@ -273,11 +252,6 @@ fn walk_decl_with_scope(
         }
         other => other,
     }
-}
-
-fn walk_expr(expr: Expr, env: &FnEnv, datatypes: &DatatypeMap) -> Expr {
-    let empty_rec = FnEnv::new();
-    walk_expr_with_scope(expr, env, &empty_rec, datatypes, &BTreeSet::new())
 }
 
 fn walk_expr_with_scope(
@@ -1400,7 +1374,6 @@ fn step_has_extent(s: &Step) -> bool {
     match &s.kind {
         StepKind::Compute(e)
         | StepKind::Order(e)
-        | StepKind::Require(e)
         | StepKind::Skip(e)
         | StepKind::Take(e)
         | StepKind::Where(e)
@@ -1683,9 +1656,6 @@ fn simplify_tuple_projections_in_steps(steps: &[Step]) -> Vec<Step> {
                 StepKind::Order(e) => {
                     StepKind::Order(Box::new(simplify_tuple_projections(e)))
                 }
-                StepKind::Require(e) => {
-                    StepKind::Require(Box::new(simplify_tuple_projections(e)))
-                }
                 StepKind::Scan(p, src, cond) => StepKind::Scan(
                     p.clone(),
                     Box::new(simplify_tuple_projections(src)),
@@ -1778,8 +1748,7 @@ fn contains_self_call(body: &Expr, name: &str) -> bool {
                 | StepKind::Order(c)
                 | StepKind::Compute(c)
                 | StepKind::Skip(c)
-                | StepKind::Take(c)
-                | StepKind::Require(c) => walk(c, name),
+                | StepKind::Take(c) => walk(c, name),
                 StepKind::Group(k, agg) => {
                     walk(k, name) || agg.as_ref().is_some_and(|a| walk(a, name))
                 }
@@ -1884,8 +1853,7 @@ fn contains_self_call_under_negation(body: &Expr, name: &str) -> bool {
                 | StepKind::Order(c)
                 | StepKind::Compute(c)
                 | StepKind::Skip(c)
-                | StepKind::Take(c)
-                | StepKind::Require(c) => walk(c, name, neg),
+                | StepKind::Take(c) => walk(c, name, neg),
                 StepKind::Group(k, agg) => {
                     walk(k, name, neg)
                         || agg.as_ref().is_some_and(|a| walk(a, name, neg))
@@ -3525,15 +3493,6 @@ fn decompose_tuple_elems_once(steps: Vec<Step>) -> Vec<Step> {
         }
     }
     out
-}
-
-fn expand_steps(
-    steps: Vec<Step>,
-    env: &FnEnv,
-    datatypes: &DatatypeMap,
-) -> Vec<Step> {
-    let empty_rec = FnEnv::new();
-    expand_steps_with_scope(steps, env, &empty_rec, datatypes, &BTreeSet::new())
 }
 
 #[allow(clippy::too_many_arguments)]

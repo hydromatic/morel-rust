@@ -1077,21 +1077,6 @@ pub struct YieldRowSink {
 }
 
 impl YieldRowSink {
-    /// Creates a sink that writes a scalar (or whole record) to `current_slot`.
-    pub fn new(
-        yield_code: Code,
-        current_slot: usize,
-        row_sink: Box<dyn RowSink>,
-    ) -> Self {
-        Self {
-            yield_code,
-            field_slots: Vec::new(),
-            current_slot,
-            label_slot: None,
-            row_sink,
-        }
-    }
-
     /// Creates a scalar sink that also writes to a named label slot.
     pub fn new_scalar(
         yield_code: Code,

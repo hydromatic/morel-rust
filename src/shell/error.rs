@@ -24,7 +24,6 @@ use std::io::Error as IoError;
 #[derive(Debug)]
 pub enum Error {
     Io(IoError),
-    Parse(String),
     Compile(String, Span),
     Runtime(String),
     FileNotFound(String),
@@ -42,7 +41,6 @@ impl Display for Error {
             Error::Compile(e, _span) => write!(f, "Compile Error: {}", e),
             Error::FileNotFound(e) => write!(f, "File not found: {}", e),
             Error::Io(e) => write!(f, "IO Error: {}", e),
-            Error::Parse(e) => write!(f, "Parse Error: {}", e),
             Error::Runtime(e) => write!(f, "Runtime Error: {}", e),
         }
     }

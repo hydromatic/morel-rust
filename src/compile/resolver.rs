@@ -15,6 +15,12 @@
 // language governing permissions and limitations under the
 // License.
 
+// Several resolver helpers (resolve_val_bind, resolve_ast_type,
+// val_decl_to_let_expr, etc.) and PatExpr's composite/pat/expr
+// fields remain after the New-1 resolver collapse — kept as
+// future-use surface.
+#![allow(dead_code)]
+
 use crate::compile::core::{
     ConBind as CoreConBind, DatatypeBind as CoreDatatypeBind, Decl as CoreDecl,
     Expr as CoreExpr, Match as CoreMatch, Pat as CorePat,
@@ -182,8 +188,7 @@ fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
             | CoreStepKind::Order(c)
             | CoreStepKind::Compute(c)
             | CoreStepKind::Skip(c)
-            | CoreStepKind::Take(c)
-            | CoreStepKind::Require(c) => check_expr(c, errors),
+            | CoreStepKind::Take(c) => check_expr(c, errors),
             CoreStepKind::Group(k, agg) => {
                 check_expr(k, errors);
                 if let Some(a) = agg {
@@ -1447,7 +1452,6 @@ impl<'a> Resolver<'a> {
             PatField::Anonymous(_, pat) => {
                 CorePatField::Anonymous(Box::new(self.resolve_pat(pat)))
             }
-            PatField::Ellipsis(_) => CorePatField::Ellipsis,
         }
     }
 
@@ -1527,7 +1531,6 @@ impl<'a> Resolver<'a> {
         let core_type = ast_type_to_core_type(&type_bind.type_)
             .unwrap_or(Type::Primitive(PrimitiveType::Unit));
         CoreTypeBind {
-            type_vars: type_bind.type_vars.clone(),
             name: type_bind.name.clone(),
             type_: core_type,
         }
@@ -1995,13 +1998,6 @@ impl<'a> Resolver<'a> {
     /// directly map to the specific built-in function.
     fn op_section_to_literal(&self, fn_type: &Type, op_name: &str) -> CoreExpr {
         match fn_type {
-            Type::Multi(_types) => {
-                // Overloaded function - create GNegate, GPlus, etc.
-                let builtin = self.multi_op_to_builtin(op_name);
-                let fn_val = Val::Fn(builtin);
-                let fn_lit_type = builtin.get_type();
-                CoreExpr::Literal(fn_lit_type, fn_val)
-            }
             Type::Forall(_inner_type, _param_count) => {
                 // Polymorphic function
                 let builtin = self.multi_op_to_builtin(op_name);
@@ -2360,7 +2356,7 @@ fn pat_has_self(pat: &Pat) -> bool {
         PatKind::Annotated(inner, _) => pat_has_self(inner),
         PatKind::Record(fields, _) => fields.iter().any(|f| match f {
             PatField::Labeled(_, name, _) => name == "self",
-            PatField::Anonymous(_, _) | PatField::Ellipsis(_) => false,
+            PatField::Anonymous(_, _) => false,
         }),
         PatKind::Tuple(elts) => elts.iter().any(pat_has_self),
         _ => false,

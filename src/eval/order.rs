@@ -24,28 +24,11 @@ use std::cmp::Ordering;
 pub struct Order(pub Ordering);
 
 impl Order {
-    pub(crate) fn from_i32(i: i32) -> Self {
-        Order(i8_to_ordering(i as i8))
-    }
-
-    pub(crate) const LESS: u8 = Ordering::Less as u8;
-    pub(crate) const EQUAL: u8 = Ordering::Equal as u8;
-    pub(crate) const GREATER: u8 = Ordering::Greater as u8;
-
     pub fn name(&self) -> &'static str {
         match self.0 {
             Ordering::Less => "LESS",
             Ordering::Equal => "EQUAL",
             Ordering::Greater => "GREATER",
         }
-    }
-}
-
-fn i8_to_ordering(value: i8) -> Ordering {
-    match value {
-        -1 => Ordering::Less,
-        0 => Ordering::Equal,
-        1 => Ordering::Greater,
-        _ => panic!("Invalid i8 value for Ordering conversion"),
     }
 }

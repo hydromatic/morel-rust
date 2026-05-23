@@ -15,6 +15,11 @@
 // language governing permissions and limitations under the
 // License.
 
+// Eager3 / EagerF4 are empty-enum placeholders for future
+// arity-3/4 built-ins; their implements/apply impls are intentionally
+// dead until variants land.
+#![allow(dead_code)]
+
 use crate::compile::library;
 use crate::compile::library::{
     BuiltIn, BuiltInExn, BuiltInFunction, BuiltInRecord,
@@ -105,8 +110,6 @@ pub enum Effect {
     EmitCode(Arc<Code>),
     /// Emits an output line.
     EmitLine(String),
-    /// Sets a session property.
-    SetSessionProp(String, Val),
     /// Sets a shell property.
     SetShellProp(String, Val),
     /// Unsets a shell property.
@@ -257,9 +260,6 @@ pub enum Code {
     /// no pattern matches.
     Fn(Arc<FrameDef>, Vec<(Code, Code)>, Option<MorelError>),
 
-    /// `From(steps)` evaluates a query expression with the given steps.
-    From(Vec<QueryStep>),
-
     /// `FromRowSink(factory)` evaluates a query using push-based row sinks.
     /// The factory creates a fresh row sink pipeline for each evaluation.
     /// This matches the Java implementation, `Supplier<RowSink>`.
@@ -307,14 +307,6 @@ pub enum Code {
     NativeF1(EagerF1, Box<Code>, Option<Span>),
     NativeF2(EagerF2, Box<Code>, Box<Code>, Option<Span>),
     NativeF3(EagerF3, Box<Code>, Box<Code>, Box<Code>, Option<Span>),
-    NativeF4(
-        EagerF4,
-        Box<Code>,
-        Box<Code>,
-        Box<Code>,
-        Box<Code>,
-        Option<Span>,
-    ),
     /// `Nth(Type, slot)` returns the `slot`th element of a record.
     /// The type must be a record type.
     Nth(Rc<Type>, usize),
@@ -382,14 +374,6 @@ pub enum Code {
     /// Emitted at tail-position function applications by the compiler.
     TailApply(Box<Code>, Box<Code>),
     Tuple(Vec<Code>),
-}
-
-/// A compiled query step for evaluation.
-#[derive(Clone, PartialEq, Debug)]
-pub enum QueryStep {
-    JoinIn(Code, Code), // pattern, collection
-    Where(Code),        // condition
-    Yield(Code),        // expression
 }
 
 impl Code {
@@ -718,7 +702,6 @@ impl Code {
                 *mode == EvalMode::EagerF0 || *mode == EvalMode::EagerV1
             }
             Code::Fn(_, _, _) => *mode == EvalMode::EagerV1,
-            Code::From(_) => *mode == EvalMode::EagerF0,
             Code::FromRowSink(_) => *mode == EvalMode::EagerF0,
             Code::GetLocal(_, _) => *mode == EvalMode::EagerF0,
             Code::Let(_, _) => *mode == EvalMode::Eager0,
@@ -746,7 +729,6 @@ impl Code {
                 *mode == EvalMode::EagerV2 || *mode == EvalMode::EagerF0
             }
             Code::NativeF3(_, _, _, _, _) => *mode == EvalMode::EagerV3,
-            Code::NativeF4(_, _, _, _, _, _) => *mode == EvalMode::EagerV4,
             Code::Nth(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
@@ -888,10 +870,6 @@ impl Code {
                 // Fn and Nth are practically literals. When evaluated, they
                 // return themselves as Val::Code.
                 Ok(Val::Code(Arc::new(self.clone())))
-            }
-            Code::From(steps) => {
-                // Evaluate a query expression (pull-based with query steps).
-                Self::eval_from(r, f, steps)
             }
             Code::FromRowSink(factory) => {
                 // Evaluate a query expression (push-based with row sinks).
@@ -1072,13 +1050,6 @@ impl Code {
                 let v1 = code1.eval_f0(r, f)?;
                 let v2 = code2.eval_f0(r, f)?;
                 eager.apply(r, f, v0, v1, v2, span.as_ref())
-            }
-            Code::NativeF4(eager, code0, code1, code2, code3, span) => {
-                let v0 = code0.eval_f0(r, f)?;
-                let v1 = code1.eval_f0(r, f)?;
-                let v2 = code2.eval_f0(r, f)?;
-                let v3 = code3.eval_f0(r, f)?;
-                eager.apply(r, f, v0, v1, v2, v3, span.as_ref())
             }
             Code::Raise(exp_code, span) => {
                 let value = exp_code.eval_f0(r, f)?;
@@ -1511,93 +1482,6 @@ impl Code {
         }
         write!(f, "{}", suffix)
     }
-
-    /// Evaluates a query (from) expression by processing steps sequentially.
-    fn eval_from(
-        r: &mut EvalEnv,
-        f: &mut Frame,
-        steps: &[QueryStep],
-    ) -> Result<Val, MorelError> {
-        // Start with a single empty record
-        let mut results: Vec<Vec<Val>> = vec![vec![]];
-
-        for step in steps {
-            match step {
-                QueryStep::JoinIn(pat_code, coll_code) => {
-                    // Evaluate the collection
-                    let collection = coll_code.eval_f0(r, f)?;
-                    let items = collection.expect_list();
-
-                    let mut new_results = Vec::new();
-                    for current_record in &results {
-                        // Restore frame with current bindings
-                        for (i, val) in current_record.iter().enumerate() {
-                            if i < f.vals.len() {
-                                f.vals[i] = val.clone();
-                            }
-                        }
-
-                        // For each item in the collection, bind and extend the
-                        // record.
-                        for item in items {
-                            // Try to bind the pattern to this item
-                            let matched = pat_code.eval_f1(r, f, item)?;
-                            if matched.expect_bool() {
-                                // Pattern matched - collect the new record
-                                // state.
-                                let mut new_record = current_record.clone();
-                                // Extend with new bindings from the frame.
-                                // (This is simplified - in reality we'd track
-                                // which slots were bound.)
-                                for i in current_record.len()..f.vals.len() {
-                                    new_record.push(f.vals[i].clone());
-                                }
-                                new_results.push(new_record);
-                            }
-                        }
-                    }
-                    results = new_results;
-                }
-                QueryStep::Where(cond_code) => {
-                    let mut filtered_results = Vec::new();
-                    for current_record in &results {
-                        // Restore frame with current bindings
-                        for (i, val) in current_record.iter().enumerate() {
-                            if i < f.vals.len() {
-                                f.vals[i] = val.clone();
-                            }
-                        }
-                        // Evaluate condition
-                        let cond_val = cond_code.eval_f0(r, f)?;
-                        if cond_val.expect_bool() {
-                            filtered_results.push(current_record.clone());
-                        }
-                    }
-                    results = filtered_results;
-                }
-                QueryStep::Yield(yield_code) => {
-                    let mut yielded_results = Vec::new();
-                    for current_record in &results {
-                        // Restore frame with current bindings
-                        for (i, val) in current_record.iter().enumerate() {
-                            if i < f.vals.len() {
-                                f.vals[i] = val.clone();
-                            }
-                        }
-                        // Evaluate yield expression
-                        let result_val = yield_code.eval_f0(r, f)?;
-                        yielded_results.push(result_val);
-                    }
-                    return Ok(Val::List(yielded_results));
-                }
-            }
-        }
-
-        // If no explicit yield, return the records as tuples
-        let final_results: Vec<Val> =
-            results.into_iter().map(Val::List).collect();
-        Ok(Val::List(final_results))
-    }
 }
 
 /// Re-wraps the elements of a homogeneous LIST/BAG/VECTOR variant value
@@ -1908,19 +1792,6 @@ impl Display for Code {
                         code2
                     )
                 }
-            }
-            Self::NativeF4(eager, code0, code1, code2, code3, _span) => {
-                // EagerF4 is empty after the reorg; this arm is kept
-                // only for completeness.
-                write!(
-                    f,
-                    "apply(fnValue {}, argCode tuple({}, {}, {}, {}))",
-                    eager.plan(),
-                    code0,
-                    code1,
-                    code2,
-                    code3
-                )
             }
             Self::RecValBindings(items) => {
                 write!(f, "recValBindings(")?;
@@ -4303,9 +4174,7 @@ pub struct Lib {
     /// `EagerF1::is_throwing` is an O(1) hash lookup.
     pub eager_f1_throws: HashSet<EagerF1>,
     pub eager_f2_throws: HashSet<EagerF2>,
-    pub eager_f3_throws: HashSet<EagerF3>,
-    /// Pool of canonical interned `Rc<Type>` values; see `intern`
-    /// and `intern_rc`.
+    /// Pool of canonical interned `Rc<Type>` values; see `intern`.
     pool: RefCell<HashSet<Rc<Type>>>,
 }
 
@@ -4344,19 +4213,6 @@ impl Lib {
         let rc = Rc::new(t);
         pool.insert(Rc::clone(&rc));
         rc
-    }
-
-    /// Interns an `Rc<Type>`. Returns the existing canonical `Rc`
-    /// when one is already pooled; otherwise inserts and returns
-    /// the caller's `Rc` (so an already-canonical input is a no-op).
-    pub fn intern_rc(&self, rc: Rc<Type>) -> Rc<Type> {
-        let mut pool = self.pool.borrow_mut();
-        if let Some(existing) = pool.get(rc.as_ref()) {
-            return Rc::clone(existing);
-        }
-        let copy = Rc::clone(&rc);
-        pool.insert(rc);
-        copy
     }
 }
 
@@ -4964,10 +4820,9 @@ impl LibBuilder {
         }
 
         // Populate the throws sets from the `throws` strum prop on
-        // each BuiltInFunction. Used by Eager F1/F2/F3 is_throwing.
+        // each BuiltInFunction. Used by EagerF1/EagerF2::is_throwing.
         let mut eager_f1_throws = HashSet::new();
         let mut eager_f2_throws = HashSet::new();
-        let mut eager_f3_throws = HashSet::new();
         for (f, (_t, impl_)) in &fn_map {
             if f.throws_name().is_some() {
                 match impl_ {
@@ -4976,9 +4831,6 @@ impl LibBuilder {
                     }
                     Impl::EF2(v) => {
                         eager_f2_throws.insert(*v);
-                    }
-                    Impl::EF3(v) => {
-                        eager_f3_throws.insert(*v);
                     }
                     _ => {}
                 }
@@ -4991,7 +4843,6 @@ impl LibBuilder {
             name_to_built_in,
             eager_f1_throws,
             eager_f2_throws,
-            eager_f3_throws,
             pool,
         }
     }

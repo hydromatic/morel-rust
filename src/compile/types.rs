@@ -55,9 +55,6 @@ pub enum Type {
     /// `forall tyVars ... type_`, where there are parameter_count
     /// type variables `'a`, `'b`, etc.
     Forall(Rc<Type>, usize),
-
-    /// `Multi(types)` represents an overloaded type `type0 or ... typeN`.
-    Multi(Vec<Rc<Type>>),
 }
 
 impl Type {
@@ -289,12 +286,7 @@ impl Type {
                 Ok(())
             }
             Type::Variable(var) => f.write_str(var.name().as_str()),
-            _ => write!(f, "<unknown type>"),
         }
-    }
-
-    pub fn contains_progressive(&self) -> bool {
-        false // TODO
     }
 }
 
@@ -367,23 +359,6 @@ impl TypeVariable {
         }
         s.push('\'');
         s.chars().rev().collect()
-    }
-
-    /// Converts a name to a type variable. The inverse of [Self::name].
-    pub fn from_name(name: &str) -> Option<TypeVariable> {
-        let mut i = 0;
-        if !name.starts_with('\'') {
-            return None;
-        }
-
-        for c in name[1..].chars() {
-            if !c.is_ascii_lowercase() {
-                return None;
-            }
-            i *= 26;
-            i += (c as u8 - b'a') as usize;
-        }
-        Some(TypeVariable::new(i))
     }
 }
 
@@ -597,10 +572,9 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
-    use crate::compile::types;
     use crate::compile::types::TypeVariable;
 
-    /// Tests [TypeVariable::name], [TypeVariable::from_name].
+    /// Tests [TypeVariable::name].
     #[test]
     fn test_type_variable() {
         let a = TypeVariable::new(0);
@@ -608,53 +582,14 @@ mod tests {
         assert_ne!(a, b);
 
         assert_eq!(a.name(), "'a");
-        assert_eq!(TypeVariable::from_name(&a.name()).unwrap(), a);
         assert_eq!(b.name(), "'b");
-        assert_eq!(TypeVariable::from_name(&b.name()).unwrap(), b);
         let v25 = TypeVariable::new(25);
         assert_eq!(v25.name(), "'z");
-        assert_eq!(TypeVariable::from_name(&v25.name()).unwrap(), v25);
         let v26 = TypeVariable::new(26);
         assert_eq!(v26.name(), "'ba");
-        assert_eq!(TypeVariable::from_name(&v26.name()).unwrap(), v26);
         let v27 = TypeVariable::new(27);
         assert_eq!(v27.name(), "'bb");
-        assert_eq!(TypeVariable::from_name(&v27.name()).unwrap(), v27);
     }
-
-    #[test]
-    fn test_are_contiguous_integers() {
-        fn check(strings: &[&str]) -> bool {
-            let owned: Vec<String> =
-                strings.iter().map(ToString::to_string).collect();
-            let refs: Vec<&String> = owned.iter().collect();
-            types::are_contiguous_integers(&refs)
-        }
-
-        assert!(check(&[])); // Empty collection
-        assert!(check(&["1"])); // Single element
-        assert!(check(&["1", "2", "3"])); // Contiguous integers
-        assert!(!check(&["1", "3", "4"])); // Missing "2"
-        assert!(!check(&["0", "1", "2"])); // Wrong start
-        assert!(!check(&["a", "b"])); // Non-numeric
-    }
-}
-
-/// Returns whether the collection is `["1", "2", ... n]`.
-///
-/// See also: [ordinal_names].
-pub(crate) fn are_contiguous_integers<I, S>(strings: I) -> bool
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    for (i, string) in strings.into_iter().enumerate() {
-        let expected = (i + 1).to_string();
-        if string.as_ref() != expected {
-            return false;
-        }
-    }
-    true
 }
 
 /// Returns a list of strings ["1", ..., n].

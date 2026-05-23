@@ -27,8 +27,6 @@ use std::fmt::{self, Display, Formatter};
 pub enum DatalogError {
     Parse(String),
     Analysis(String),
-    Translation(String),
-    Evaluation(String),
 }
 
 impl DatalogError {
@@ -42,12 +40,6 @@ impl Display for DatalogError {
         match self {
             DatalogError::Parse(s) => write!(f, "Parse error: {}", s),
             DatalogError::Analysis(s) => write!(f, "Analysis error: {}", s),
-            DatalogError::Translation(s) => {
-                write!(f, "Translation error: {}", s)
-            }
-            DatalogError::Evaluation(s) => {
-                write!(f, "Evaluation error: {}", s)
-            }
         }
     }
 }

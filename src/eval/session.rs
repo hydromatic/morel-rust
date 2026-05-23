@@ -29,16 +29,13 @@ use crate::compile::type_resolver::{BindingKind, Resolved, TypeResolver};
 use crate::compile::types::Type;
 use crate::eval::code::Code;
 use crate::eval::val::Val;
-use crate::shell::ShellResult;
 use crate::shell::error::Error;
-use crate::shell::main::MorelError;
 use crate::shell::prop::{Configurable, Output, Prop, PropVal};
 use crate::syntax::ast::Statement;
 use crate::unify::unifier::Term;
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -53,8 +50,6 @@ pub struct Session {
     /// Core declaration of the previous command, after inlining. Used by
     /// `Sys.planEx` to show the plan after all optimization passes.
     pub post_inline_decl: Option<Decl>,
-    /// The output lines of the previous command.
-    pub out: Option<Vec<String>>,
     /// The accumulated type environment (bindings from previous statements).
     pub type_env: Rc<dyn TypeEnv>,
     /// Accumulated type bindings from all statements. When a name is
@@ -138,7 +133,6 @@ impl Session {
             code: None,
             pre_inline_decl: None,
             post_inline_decl: None,
-            out: None,
             type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
             type_bindings: HashMap::new(),
             type_aliases: HashMap::new(),
@@ -162,56 +156,6 @@ impl Session {
             library::populate_env(&mut map);
             Env::empty().multi(&map)
         })
-    }
-
-    pub(crate) fn set_prop(
-        &mut self,
-        prop: &str,
-        val: &Val,
-    ) -> Result<(), Error> {
-        match prop {
-            "hybrid" => {
-                self.config.hybrid = Some(val.expect_bool());
-                Ok(())
-            }
-            _ => todo!(),
-        }
-    }
-
-    pub(crate) fn handle_exception(&self, _p0: MorelError, _p1: &mut str) {
-        todo!()
-    }
-
-    /// Executes a `use` command (load a file).
-    pub fn use_file<P: AsRef<Path>, W: Write>(
-        &mut self,
-        file_path: P,
-        silent: bool,
-        _output: W,
-    ) -> ShellResult<()> {
-        let path = file_path.as_ref();
-
-        if !silent {
-            // TODO: Write opening message to output
-        }
-
-        // Check if file exists
-        if !path.exists() {
-            return Err(Error::FileNotFound(format!(
-                "use failed: File not found: {}",
-                path.display(),
-            )));
-        }
-
-        // TODO: Run the file
-        // For now, just write a placeholder
-        todo!("Implement use_file without shell dependency")
-    }
-
-    /// Clears the environment.
-    pub fn clear_env(&mut self) {
-        // TODO: Implement clear_env without shell dependency
-        todo!("Implement clear_env without shell dependency");
     }
 
     /// Deduces a statement's type. The statement is represented by an AST node.

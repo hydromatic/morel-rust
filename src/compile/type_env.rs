@@ -17,11 +17,9 @@
 
 use crate::compile::library::BuiltIn;
 use crate::compile::type_resolver::TypeResolver;
-use crate::compile::types::Type;
-use crate::eval::code::{Code, LIBRARY};
+use crate::eval::code::LIBRARY;
 use crate::eval::val::Val;
-use crate::syntax::ast::{Expr, Pat, PatKind, TypeScheme};
-use crate::unify::unifier::{Term, Var};
+use crate::unify::unifier::Term;
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
@@ -191,20 +189,11 @@ impl SimpleTypeEnv {
     }
 }
 
-/// Type alias for the resolver function to reduce complexity.
-pub type ResolverFn =
-    Rc<dyn Fn(&str, &mut dyn TypeSchemeResolver) -> Option<Term>>;
-
 /// Simple type environment backed by a function from names to terms.
 /// Delegates to a parent.
 #[derive(Clone)]
 pub struct FunTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
-}
-
-pub trait TypeSchemeResolver {
-    /// Converts a type scheme AST to a term.
-    fn deduce_type_scheme(&mut self, type_scheme: &TypeScheme) -> Var;
 }
 
 /// Holds a type environment while it is mutated.
@@ -225,7 +214,7 @@ impl TypeEnvBuilder {
 }
 
 /// Identifier. A pattern that just consists of a name. It maps to
-/// a [PatKind::Identifier] or [PatKind::As].
+/// a `PatKind::Identifier` or `PatKind::As`.
 ///
 /// The following declaration binds patterns `w`, `x`, `y`, and `z`:
 ///
@@ -259,25 +248,7 @@ pub struct Binding {
     pub value: Option<Val>,
 }
 
-impl Binding {}
-
 impl Binding {
-    pub(crate) fn get_type(&self) -> Rc<Type> {
-        todo!()
-    }
-
-    pub(crate) fn of_code(_p0: &PatKind, _p1: Code) -> Binding {
-        todo!()
-    }
-
-    pub(crate) fn inst_of(_x1: &Pat, _x10: &Expr) -> Self {
-        todo!()
-    }
-
-    pub(crate) fn inst_of_val(_x1: Pat, _x2: Pat, _x10: &Val) -> Self {
-        todo!()
-    }
-
     pub(crate) fn of_name(name: &str) -> Self {
         Self::of_name_value(name, &None)
     }
@@ -288,23 +259,6 @@ impl Binding {
             value: value.clone(),
             overload_id: None,
         }
-    }
-
-    pub(crate) fn of(pat: &Pat, val: &Val) -> Self {
-        let name1 = match pat.kind.clone() {
-            PatKind::Identifier(name) => name,
-            PatKind::As(name, _pat) => name,
-            _ => panic!("Not an identifier or as pattern"),
-        };
-        Binding {
-            id: Id::new(&name1, 0),
-            value: Some(val.clone()),
-            overload_id: None,
-        }
-    }
-
-    pub(crate) fn inst(_p0: Pat, _p1: Option<&str>, _p2: Expr) -> Self {
-        todo!()
     }
 }
 

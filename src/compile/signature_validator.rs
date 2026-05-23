@@ -15,6 +15,9 @@
 // language governing permissions and limitations under the
 // License.
 
+// Used by tests/lint.rs but not by the main shell.
+#![allow(dead_code)]
+
 //! Validates signature files against built-in function and record definitions.
 //!
 //! This module provides the [`SignatureValidator`] which ensures that

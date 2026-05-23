@@ -16,6 +16,10 @@
 // License.
 
 #![allow(clippy::result_large_err)]
+// The pest-driven unifier parser is exercised by the integration tests
+// in this crate, not by the main shell; the compiler can't see those
+// uses from the binary build.
+#![allow(dead_code)]
 
 use crate::unify::unifier;
 use crate::unify::unifier::{

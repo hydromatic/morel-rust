@@ -15,7 +15,6 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::inliner::Env;
 use crate::compile::span::Span;
 use crate::compile::type_env::Id;
 use crate::compile::types::{Label, Type};
@@ -23,28 +22,6 @@ use crate::eval::val::Val;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::rc::Rc;
-
-/// Core tree of a statement (expression or declaration).
-#[derive(Clone, Debug)]
-pub struct Statement {
-    pub kind: StatementKind,
-}
-
-/// Kind of statement.
-#[derive(Clone, Debug)]
-pub enum StatementKind {
-    Expr(Expr),
-    Decl(Decl),
-}
-
-impl Display for StatementKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match &self {
-            StatementKind::Expr(e) => write!(f, "{}", e),
-            StatementKind::Decl(d) => write!(f, "{}", d),
-        }
-    }
-}
 
 /// Expression.
 #[derive(Clone, Debug)]
@@ -281,15 +258,6 @@ impl Binding {
         Binding { id, type_ }
     }
 
-    pub fn of(pat: &Pat) -> Self {
-        match pat {
-            Pat::Identifier(t, name) => {
-                Binding::new(Id::new(name, 0), t.clone())
-            }
-            _ => panic!("Expected identifier pattern"),
-        }
-    }
-
     /// Collects all bindings from a pattern, recursively.
     /// For tuple patterns like `(i,j)`, this returns multiple bindings.
     pub fn collect_bindings(pat: &Pat, bindings: &mut Vec<Binding>) {
@@ -325,7 +293,6 @@ impl Binding {
                         PatField::Labeled(_, p) | PatField::Anonymous(p) => {
                             Binding::collect_bindings(p, bindings);
                         }
-                        PatField::Ellipsis => {}
                     }
                 }
             }
@@ -381,14 +348,6 @@ impl StepEnv {
             ordered,
         }
     }
-
-    pub fn with_bindings(&self, bindings: Vec<Binding>) -> Self {
-        StepEnv {
-            bindings,
-            atom: self.atom,
-            ordered: self.ordered,
-        }
-    }
 }
 
 /// Abstract syntax tree (AST) of a step in a query.
@@ -415,7 +374,6 @@ pub enum StepKind {
     Group(Box<Expr>, Option<Box<Expr>>),
     Intersect(bool, Vec<Expr>),
     Order(Box<Expr>),
-    Require(Box<Expr>),
     Scan(Box<Pat>, Box<Expr>, Option<Box<Expr>>),
     Skip(Box<Expr>),
     Take(Box<Expr>),
@@ -632,7 +590,6 @@ impl Pat {
                                 (Some(name.clone()), p.as_ref())
                             }
                             PatField::Anonymous(p) => (p.name(), p.as_ref()),
-                            PatField::Ellipsis => continue,
                         };
                         if let Some(name) = name_opt
                             && let Some(i) = find(&name)
@@ -699,7 +656,6 @@ impl Pat {
                     match field {
                         PatField::Labeled(_, p) => p.for_each_id_pat(consumer),
                         PatField::Anonymous(p) => p.for_each_id_pat(consumer),
-                        PatField::Ellipsis => {}
                     }
                 }
             }
@@ -762,7 +718,6 @@ impl Display for Pat {
                                     explicit.insert(name, format!("{}", pat));
                                 }
                             }
-                            PatField::Ellipsis => {}
                         }
                     }
                     let parts: Vec<String> = labels
@@ -788,7 +743,6 @@ impl Display for Pat {
                             format!("{} = {}", name, pat)
                         }
                         PatField::Anonymous(pat) => format!("{}", pat),
-                        PatField::Ellipsis => "...".to_string(),
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -818,7 +772,6 @@ impl Display for Pat {
 pub enum PatField {
     Labeled(String, Box<Pat>), // e.g. `named = x`
     Anonymous(Box<Pat>),       // e.g. `y`
-    Ellipsis,                  // e.g. `...`
 }
 
 /// Declaration.
@@ -896,40 +849,6 @@ impl Decl {
             Decl::Over(_) | Decl::Type(_) | Decl::Datatype(_) => {}
         }
     }
-
-    pub fn from_statement(statement: &Statement) -> Self {
-        match &statement.kind {
-            StatementKind::Decl(d) => d.clone(),
-            _ => panic!("expected declaration"),
-        }
-    }
-
-    pub(crate) fn transform_env(&self, envs: &mut Vec<Env>) {
-        match self {
-            Decl::NonRecVal(val_bind) => {
-                let mut to_add = Vec::new();
-                val_bind.pat.for_each_id_pat(&mut |(t, name)| {
-                    to_add.push((t.clone(), name.to_string()));
-                });
-
-                let base_idx = envs.len() - 1;
-                for (i, (t, name)) in to_add.into_iter().enumerate() {
-                    let idx = base_idx + i;
-                    // Get a reference through index to avoid borrowing the
-                    // entire vec
-                    let env_ptr = &envs[idx] as *const Env;
-                    unsafe {
-                        let next_env = (*env_ptr).child_none(&name, &t);
-                        envs.push(next_env);
-                    }
-                }
-            }
-            Decl::RecVal(_) => todo!(".transform_env() for RecVal"),
-            Decl::Over(_) => {}
-            Decl::Type(_) => {}
-            Decl::Datatype(_) => {}
-        }
-    }
 }
 
 impl Display for Decl {
@@ -967,76 +886,15 @@ pub struct ValBind {
     pub span: Option<Span>,
 }
 
-impl ValBind {
-    /// Creates a value binding with the given pattern, type annotation, and
-    /// expression.
-    pub fn of(pat: &Pat, t: &Type, expr: &Expr) -> Self {
-        ValBind {
-            pat: pat.clone(),
-            t: t.clone(),
-            expr: expr.clone(),
-            overload_pat: None,
-            span: None,
-        }
-    }
-}
-
 impl Display for ValBind {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} = {}", self.pat, self.expr)
     }
 }
 
-/// Function binding.
-///
-/// E.g. `fun f 0 = 1 | f n = n * f (n - 1)`
-/// is a function binding with name `f` and two matches.
-#[derive(Clone, Debug)]
-pub struct FunBind {
-    pub name: String,
-    pub matches: Vec<FunMatch>,
-}
-
-impl Display for FunBind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "fun {} {}",
-            self.name,
-            self.matches
-                .iter()
-                .map(|m| format!("{}", m))
-                .collect::<Vec<_>>()
-                .join(" | ")
-        )
-    }
-}
-
-/// A single clause within a function binding.
-#[derive(Clone, Debug)]
-pub struct FunMatch {
-    pub name: String,
-    pub pats: Vec<Pat>,
-    pub type_: Option<Rc<Type>>,
-    pub expr: Expr,
-}
-
-impl Display for FunMatch {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let pats_str = self
-            .pats
-            .iter()
-            .map(|p| format!("{}", p))
-            .collect::<Vec<_>>()
-            .join(", ");
-        write!(f, "{}: {} = {}", self.name, pats_str, self.expr)
-    }
-}
-
 /// Type binding.
 #[derive(Clone, Debug)]
 pub struct TypeBind {
-    pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
 }

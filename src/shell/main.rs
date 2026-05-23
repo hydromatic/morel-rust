@@ -184,7 +184,6 @@ fn type_contains_var(t: &Type) -> bool {
         Type::Alias(_, t, args) => {
             type_contains_var(t) || args.iter().any(|t| type_contains_var(t))
         }
-        Type::Multi(ts) => ts.iter().any(|t| type_contains_var(t)),
     }
 }
 
@@ -461,15 +460,6 @@ impl Environment {
 
     pub fn get(&self, name: &str) -> Option<&Val> {
         self.bindings.get(name)
-    }
-
-    pub fn get_expr(&self, name: &str) -> Option<&Expr> {
-        self.exprs.get(name)
-    }
-
-    pub fn clear(&mut self) {
-        self.bindings.clear();
-        self.exprs.clear();
     }
 }
 
@@ -1157,10 +1147,6 @@ impl Shell {
                     result.push_str(&line);
                     result.push('\n');
                 }
-                Effect::SetSessionProp(prop, val) => {
-                    let mut session = self.session.borrow_mut();
-                    let _ = session.set_prop(&prop, &val);
-                }
                 Effect::SetShellProp(prop, val) => {
                     if let Err(e) = self.set_prop(&prop, &val) {
                         return Ok(format!("{}\n", e));
@@ -1340,16 +1326,6 @@ impl Shell {
         self.config.mode = saved_mode;
         Ok(output)
     }
-
-    /// Returns the current environment.
-    pub fn environment(&self) -> &Environment {
-        &self.environment
-    }
-
-    /// Returns the environment, mutable.
-    pub fn environment_mut(&mut self) -> &mut Environment {
-        &mut self.environment
-    }
 }
 
 /// Returns the level comment nesting the end of the string.
@@ -1436,8 +1412,6 @@ pub enum MorelError {
     /// need more rows. Producers may honor this for performance or safely
     /// ignore it. Sinks returning EarlyReturn must be idempotent.
     EarlyReturn,
-
-    Other,
 }
 
 impl Display for MorelError {
@@ -1473,7 +1447,6 @@ impl Display for MorelError {
             MorelError::EarlyReturn => {
                 write!(f, "EarlyReturn (internal signal)")
             }
-            MorelError::Other => write!(f, "Other error"),
         }
     }
 }

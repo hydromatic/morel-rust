@@ -15,6 +15,10 @@
 // language governing permissions and limitations under the
 // License.
 
+// Properties are configuration plumbing; many accessors exist for
+// completeness even when the current shell doesn't call them.
+#![allow(dead_code)]
+
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::path::PathBuf;

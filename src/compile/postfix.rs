@@ -33,7 +33,7 @@
 use crate::compile::library;
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{PrimitiveType, Type};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 
@@ -219,22 +219,6 @@ static POSTFIX_TABLE: LazyLock<HashMap<DispatchKey, DispatchValue>> =
         table
     });
 
-/// Set of method names that appear under more than one receiver type
-/// in the postfix dispatch table; built once from the same metadata.
-static OVERLOADED_NAMES: LazyLock<HashSet<&'static str>> =
-    LazyLock::new(|| {
-        let mut by_method: HashMap<&'static str, HashSet<&'static str>> =
-            HashMap::new();
-        for ((method, recv), _) in POSTFIX_TABLE.iter() {
-            by_method.entry(*method).or_default().insert(*recv);
-        }
-        by_method
-            .into_iter()
-            .filter(|(_, recvs)| recvs.len() > 1)
-            .map(|(m, _)| m)
-            .collect()
-    });
-
 /// Maps a postfix method name + receiver type to the corresponding
 /// built-in function. Returns `None` if no postfix method is defined
 /// for this receiver type / method-name combination.
@@ -244,15 +228,6 @@ pub fn postfix_dispatch(
 ) -> Option<(BuiltInFunction, PostfixKind)> {
     let recv_key = type_recv_key(recv_type)?;
     POSTFIX_TABLE.get(&(method, recv_key)).copied()
-}
-
-/// Returns true if `method` is a known overloaded postfix method —
-/// that is, more than one receiver type supports it. Used by the
-/// type-resolver's pre-inference rewrite to decide whether the
-/// receiver's concrete type must already be known before we can
-/// dispatch.
-pub fn is_overloaded_name(method: &str) -> bool {
-    OVERLOADED_NAMES.contains(method)
 }
 
 #[cfg(test)]
@@ -285,12 +260,5 @@ mod tests {
                 recv
             );
         }
-    }
-
-    #[test]
-    fn overloaded_names_includes_compare() {
-        assert!(is_overloaded_name("compare"));
-        assert!(is_overloaded_name("toString"));
-        assert!(!is_overloaded_name("explode"));
     }
 }

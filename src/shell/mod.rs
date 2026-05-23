@@ -27,53 +27,14 @@ pub use main::Shell;
 pub use script_test::ScriptTest;
 
 use error::Error;
-use std::io::{Read, Result as IoResult};
-
 /// Result type for shell operations.
 pub type ShellResult<T> = Result<T, Error>;
-
-/// Buffer for capturing output that can be flushed.
-pub struct BufferingReader<R: Read> {
-    reader: R,
-    buffer: String,
-}
-
-impl<R: Read> BufferingReader<R> {
-    pub fn new(reader: R) -> Self {
-        Self {
-            reader,
-            buffer: String::new(),
-        }
-    }
-
-    pub fn flush(&mut self) -> String {
-        let result = self.buffer.clone();
-        self.buffer.clear();
-        result
-    }
-}
-
-impl<R: Read> Read for BufferingReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-        let bytes_read = self.reader.read(buf)?;
-        if bytes_read > 0 {
-            let s = String::from_utf8_lossy(&buf[..bytes_read]);
-            self.buffer.push_str(&s);
-        }
-        Ok(bytes_read)
-    }
-}
 
 /// Utility functions for the shell.
 pub mod utils {
     use std::fs;
     use std::io::Result as IoResult;
     use std::path::Path;
-
-    /// Writes content to a file.
-    pub fn write_file<P: AsRef<Path>>(path: P, content: &str) -> IoResult<()> {
-        fs::write(path, content)
-    }
 
     /// Compares two files and returns the difference as a string.
     pub fn diff_files<P: AsRef<Path>>(

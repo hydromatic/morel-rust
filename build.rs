@@ -16,5 +16,8 @@
 // License.
 
 fn main() {
-    lalrpop::process_root().unwrap();
+    // Only walk `src/`; the default `process_root()` walks the
+    // current working dir, which has tripped on unrelated artifacts
+    // under `target/` during `cargo doc` in CI.
+    lalrpop::process_src().unwrap();
 }

@@ -17,8 +17,6 @@
 
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Op;
-use crate::eval::val::Val;
-use crate::syntax::ast;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -70,16 +68,6 @@ impl Span {
         Span { input, start, end }
     }
 
-    /// Merges another span into this.
-    /// Requires that the spans come from the same input.
-    pub fn merge(&mut self, other: &Span) {
-        if self.input != other.input {
-            panic!("Cannot merge spans from different inputs");
-        }
-        self.start = self.start.min(other.start);
-        self.end = self.end.max(other.end);
-    }
-
     /// Returns the start position of the span.
     pub fn start_pos(&self) -> usize {
         self.start
@@ -113,13 +101,6 @@ impl Span {
 pub trait MorelNode {
     /// Returns the span.
     fn span(&self) -> Span;
-
-    /// Returns a copy of the AST node with a new span.
-    fn with_span(&self, span: &Span) -> Self;
-
-    /// Returns the unique id of this node.
-    /// This id is used to retrieve the node's type after unification.
-    fn id(&self) -> Option<i32>;
 }
 
 /// Abstract syntax tree (AST) of a statement (expression or declaration).
@@ -133,17 +114,6 @@ pub struct Statement {
 impl MorelNode for Statement {
     fn span(&self) -> Span {
         self.span.clone()
-    }
-
-    fn with_span(&self, span: &Span) -> Self {
-        Statement {
-            span: span.clone(),
-            ..self.clone()
-        }
-    }
-
-    fn id(&self) -> Option<i32> {
-        self.id
     }
 }
 
@@ -304,39 +274,6 @@ impl ExprKind<Expr> {
             span: span.clone(),
             id: None,
         }
-    }
-
-    pub fn wrap2(self, e1: &Expr, e2: &Expr) -> Expr {
-        self.spanned(&e1.span.union(&e2.span))
-    }
-
-    pub fn wrap3(self, e1: &Expr, e2: &Expr, e3: &Expr) -> Expr {
-        self.spanned(&e1.span.union(&e2.span).union(&e3.span))
-    }
-
-    pub fn wrap_case(self, e: &Expr, arms: Vec<(ast::Pat, ast::Expr)>) -> Expr {
-        self.wrap_matches(&e.span, arms)
-    }
-
-    pub fn wrap_matches(
-        self,
-        span0: &Span,
-        arms: Vec<(ast::Pat, ast::Expr)>,
-    ) -> Expr {
-        let mut span = span0.clone();
-        for arm in arms {
-            span.merge(&arm.0.span);
-            span.merge(&arm.1.span);
-        }
-        self.spanned(&span)
-    }
-
-    pub fn wrap_list(self, e: &Expr, decls: &Vec<Decl>) -> Expr {
-        let mut span = e.span.clone();
-        for decl in decls {
-            span.merge(&decl.span);
-        }
-        self.spanned(&span)
     }
 
     /// Returns the precedence operator for this expression kind, used when
@@ -604,7 +541,6 @@ impl Display for ExprKind<Expr> {
 pub struct Literal {
     pub kind: LiteralKind,
     pub span: Span,
-    pub id: Option<i32>,
 }
 
 impl Display for Literal {
@@ -627,10 +563,10 @@ pub enum LiteralKind {
 
 impl LiteralKind {
     pub fn spanned(&self, span_: &Span) -> Literal {
-        let kind = self.clone();
-        let span = span_.clone();
-        let id = None;
-        Literal { kind, span, id }
+        Literal {
+            kind: self.clone(),
+            span: span_.clone(),
+        }
     }
 }
 
@@ -891,32 +827,6 @@ pub struct Pat {
 }
 
 impl Pat {
-    /// Returns the name of this pattern, if it is an identifier or `as`,
-    /// otherwise None.
-    pub fn name(&self) -> Option<String> {
-        match &self.kind {
-            PatKind::Identifier(name) | PatKind::As(name, _) => {
-                Some(name.clone())
-            }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn bind_recurse(
-        &self,
-        val: &Val,
-        consumer: &mut dyn FnMut(Box<Pat>, &Val),
-    ) {
-        match &self.kind {
-            PatKind::Identifier(_name) => {
-                consumer(Box::new(self.clone()), val);
-            }
-            _ => {
-                todo!("{}", self.kind);
-            }
-        }
-    }
-
     /// Calls a given function for each atomic identifier in this pattern.
     pub(crate) fn for_each_id_pat(&self, consumer: &mut impl FnMut(i32, &str)) {
         match &self.kind {
@@ -934,7 +844,6 @@ impl Pat {
                         PatField::Anonymous(_, p) => {
                             p.for_each_id_pat(consumer)
                         }
-                        PatField::Ellipsis(_) => {}
                     }
                 }
             }
@@ -988,14 +897,6 @@ impl PatKind {
         let id = None;
         Pat { kind, span, id }
     }
-
-    pub fn wrap2(self, e1: &Expr, e2: &Expr) -> Pat {
-        self.spanned(&e1.span.union(&e2.span))
-    }
-
-    pub fn wrap3(self, e1: &Expr, e2: &Expr, e3: &Expr) -> Pat {
-        self.spanned(&e1.span.union(&e2.span).union(&e3.span))
-    }
 }
 
 impl Display for PatKind {
@@ -1034,7 +935,6 @@ impl Display for PatKind {
                             write!(f, "{} = {}", name, pat)?
                         }
                         PatField::Anonymous(_, pat) => write!(f, "{}", pat)?,
-                        PatField::Ellipsis(_) => f.write_str("...")?,
                     }
                 }
                 if *ellipsis {
@@ -1067,7 +967,6 @@ impl Display for PatKind {
 pub enum PatField {
     Labeled(Span, String, Pat), // e.g. `named = x`
     Anonymous(Span, Pat),       // e.g. `y`
-    Ellipsis(Span),             // e.g. `...`
 }
 
 /// Abstract syntax tree (AST) of a declaration.
@@ -1181,10 +1080,6 @@ impl ValBind {
             expr: expr.clone(),
         }
     }
-
-    pub fn span(&self) -> Span {
-        self.pat.span.union(&self.expr.span)
-    }
 }
 
 impl Display for ValBind {
@@ -1247,8 +1142,6 @@ impl Display for FunMatch {
 /// Type binding.
 #[derive(Clone, Debug)]
 pub struct TypeBind {
-    pub span: Span,
-    pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
 }
@@ -1262,7 +1155,6 @@ impl Display for TypeBind {
 /// Datatype binding.
 #[derive(Clone, Debug)]
 pub struct DatatypeBind {
-    pub span: Span,
     pub type_vars: Vec<String>,
     pub name: String,
     pub constructors: Vec<ConBind>,
@@ -1283,7 +1175,6 @@ impl Display for DatatypeBind {
 /// Constructor binding.
 #[derive(Clone, Debug)]
 pub struct ConBind {
-    pub span: Span,
     pub name: String,
     pub type_: Option<Type>,
 }
@@ -1306,7 +1197,6 @@ impl Display for ConBind {
 /// For example, `signature STACK = sig ... end`.
 #[derive(Clone, Debug)]
 pub struct SigBind {
-    pub span: Span,
     pub name: String,
     pub specs: Vec<Spec>,
 }
@@ -1325,7 +1215,6 @@ impl Display for SigBind {
 #[derive(Clone, Debug)]
 pub struct Spec {
     pub kind: SpecKind,
-    pub span: Span,
 }
 
 impl Display for Spec {
@@ -1348,11 +1237,8 @@ pub enum SpecKind {
 }
 
 impl SpecKind {
-    pub fn spanned(&self, span: &Span) -> Spec {
-        Spec {
-            kind: self.clone(),
-            span: span.clone(),
-        }
+    pub fn spanned(&self, _span: &Span) -> Spec {
+        Spec { kind: self.clone() }
     }
 }
 
@@ -1383,7 +1269,6 @@ impl Display for SpecKind {
 /// For example, `empty : 'a stack`.
 #[derive(Clone, Debug)]
 pub struct ValDesc {
-    pub span: Span,
     pub name: String,
     pub type_: Type,
 }
@@ -1398,7 +1283,6 @@ impl Display for ValDesc {
 /// For example, `type 'a stack` or `type int_pair = int * int`.
 #[derive(Clone, Debug)]
 pub struct TypeDesc {
-    pub span: Span,
     pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Option<Type>,
@@ -1427,7 +1311,6 @@ impl Display for TypeDesc {
 /// For example, `datatype 'a tree = Leaf | Node of 'a * 'a tree * 'a tree`.
 #[derive(Clone, Debug)]
 pub struct DatatypeDesc {
-    pub span: Span,
     pub type_vars: Vec<String>,
     pub name: String,
     pub constructors: Vec<ConDesc>,
@@ -1452,7 +1335,6 @@ impl Display for DatatypeDesc {
 /// Constructor description in a datatype specification.
 #[derive(Clone, Debug)]
 pub struct ConDesc {
-    pub span: Span,
     pub name: String,
     pub type_: Option<Type>,
 }
@@ -1471,7 +1353,6 @@ impl Display for ConDesc {
 /// For example, `exception Empty` or `exception Error of string`.
 #[derive(Clone, Debug)]
 pub struct ExnDesc {
-    pub span: Span,
     pub name: String,
     pub type_: Option<Type>,
 }
@@ -1615,50 +1496,17 @@ impl MorelNode for Expr {
     fn span(&self) -> Span {
         self.span.clone()
     }
-
-    fn with_span(&self, span: &Span) -> Self {
-        Expr {
-            span: span.clone(),
-            ..self.clone()
-        }
-    }
-
-    fn id(&self) -> Option<i32> {
-        self.id
-    }
 }
 
 impl MorelNode for Literal {
     fn span(&self) -> Span {
         self.span.clone()
     }
-
-    fn with_span(&self, span: &Span) -> Self {
-        Literal {
-            span: span.clone(),
-            ..self.clone()
-        }
-    }
-
-    fn id(&self) -> Option<i32> {
-        self.id
-    }
 }
 
 impl MorelNode for Decl {
-    fn with_span(&self, span: &Span) -> Self {
-        Decl {
-            span: span.clone(),
-            ..self.clone()
-        }
-    }
-
     fn span(&self) -> Span {
         self.span.clone()
-    }
-
-    fn id(&self) -> Option<i32> {
-        self.id
     }
 }
 
@@ -1666,20 +1514,10 @@ impl MorelNode for Pat {
     fn span(&self) -> Span {
         self.span.clone()
     }
-
-    fn with_span(&self, span: &Span) -> Self {
-        Pat {
-            span: span.clone(),
-            ..self.clone()
-        }
-    }
-
-    fn id(&self) -> Option<i32> {
-        self.id
-    }
 }
 
 impl Type {
+    /// Returns a copy of this type with a new span.
     pub fn with_span(&self, span: &Span) -> Type {
         if span.eq(&self.span) {
             return self.clone();
@@ -1715,14 +1553,6 @@ impl Type {
 impl MorelNode for Type {
     fn span(&self) -> Span {
         self.span.clone()
-    }
-
-    fn with_span(&self, span: &Span) -> Self {
-        self.with_span(span)
-    }
-
-    fn id(&self) -> Option<i32> {
-        self.id
     }
 }
 

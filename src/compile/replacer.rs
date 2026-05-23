@@ -174,9 +174,6 @@ fn visit_step(
         StepKind::Order(e) => {
             StepKind::Order(Box::new(visit_expr(e, map, shadow)))
         }
-        StepKind::Require(e) => {
-            StepKind::Require(Box::new(visit_expr(e, map, shadow)))
-        }
         StepKind::Scan(pat, source, cond) => {
             // Substitute in the source first (it doesn't see the
             // pattern's bindings), then bring the pattern's names into
@@ -240,7 +237,6 @@ fn collect_pat_bindings(pat: &Pat, bound: &mut Vec<String>) {
                     PatField::Labeled(_, p) | PatField::Anonymous(p) => {
                         collect_pat_bindings(p, bound);
                     }
-                    PatField::Ellipsis => {}
                 }
             }
         }

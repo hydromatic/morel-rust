@@ -472,19 +472,11 @@ fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
     }
 }
 
-/// Returns a `Discrete` for the given type, or an error describing why
-/// the type is not discrete. Convenience wrapper around
-/// [`discrete_for_with`] for callers without datatype context (only
-/// built-in types will resolve).
-pub fn discrete_for(type_: &Type) -> Result<Arc<dyn Discrete>, String> {
-    let empty = HashMap::new();
-    let empty2 = HashMap::new();
-    discrete_for_with(type_, &empty, &empty2)
-}
-
-/// Like [`discrete_for`] but with access to the type system's user-
-/// defined datatype constructor tables, so user-defined sum types
-/// resolve as well.
+/// Returns a `Discrete` for the given type, or an error describing
+/// why the type is not discrete. Walks the type structure, recursing
+/// through tuples and records and consulting the type system's
+/// user-defined datatype constructor tables so user-defined sum
+/// types resolve as well.
 pub fn discrete_for_with(
     type_: &Type,
     datatype_constructors: &HashMap<String, Vec<String>>,
@@ -624,7 +616,13 @@ mod tests {
 
     #[test]
     fn real_is_not_discrete() {
-        match discrete_for(&Type::Primitive(PrimitiveType::Real)) {
+        let empty = HashMap::new();
+        let empty2 = HashMap::new();
+        match discrete_for_with(
+            &Type::Primitive(PrimitiveType::Real),
+            &empty,
+            &empty2,
+        ) {
             Err(msg) => assert_eq!(msg, "not a discrete type: real"),
             Ok(_) => panic!("expected error"),
         }
@@ -632,7 +630,13 @@ mod tests {
 
     #[test]
     fn string_is_not_discrete() {
-        match discrete_for(&Type::Primitive(PrimitiveType::String)) {
+        let empty = HashMap::new();
+        let empty2 = HashMap::new();
+        match discrete_for_with(
+            &Type::Primitive(PrimitiveType::String),
+            &empty,
+            &empty2,
+        ) {
             Err(msg) => assert_eq!(msg, "not a discrete type: string"),
             Ok(_) => panic!("expected error"),
         }

@@ -34,8 +34,6 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 pub enum Formula {
     /// The constant true. Written `true`, also the empty conjunction.
     True,
-    /// The constant false. Written `false`, also the empty disjunction.
-    False,
     /// A boolean variable, identified by its index.
     Var(usize),
     /// Negation. Written `¬f`.
@@ -53,7 +51,6 @@ impl Formula {
     pub fn eval(&self, assignment: &[bool]) -> bool {
         match self {
             Formula::True => true,
-            Formula::False => false,
             Formula::Var(v) => assignment[*v],
             Formula::Not(f) => !f.eval(assignment),
             Formula::And(fs) => fs.iter().all(|f| f.eval(assignment)),
@@ -66,7 +63,6 @@ impl Display for Formula {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Formula::True => write!(f, "true"),
-            Formula::False => write!(f, "false"),
             Formula::Var(v) => write!(f, "x{}", v),
             Formula::Not(inner) => write!(f, "¬{}", inner),
             Formula::And(fs) => {
@@ -157,9 +153,11 @@ impl Sat {
     }
 
     /// Returns a satisfying assignment for `formula` (combined with background
-    /// constraints), or `None` if the formula is unsatisfiable.
+    /// constraints), or `None` if the formula is unsatisfiable. Exercised
+    /// by the tests in this file.
     ///
     /// The returned vector maps each variable index to its truth value.
+    #[allow(dead_code)]
     pub fn solve(&self, formula: &Formula) -> Option<Vec<bool>> {
         let n = self.num_vars;
         if n > 20 {

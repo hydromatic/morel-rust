@@ -42,7 +42,7 @@ jobs:
     - name: Build WASM with wasm-pack
       run: wasm-pack build --target web --out-dir web/pkg
     - name: Clippy
-      run: cargo clippy --message-format=short -- -D warnings -A dead_code
+      run: cargo clippy --message-format=short -- -D warnings
     - name: Check formatting
       run: cargo fmt --all -- --check
     - name: Doc

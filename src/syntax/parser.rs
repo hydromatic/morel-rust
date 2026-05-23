@@ -55,7 +55,8 @@ pub fn parse_statement(input: &str) -> ParseResult<Statement> {
 }
 
 /// Parses a statement (with no whitespace, comments or semicolon)
-/// and returns its AST.
+/// and returns its AST. Used by `tests/unparse.rs`.
+#[allow(dead_code)]
 pub fn parse_unadorned_statement(input: &str) -> ParseResult<Statement> {
     let rc_input_str = input.to_string().into();
     let nodes =
@@ -1222,14 +1223,12 @@ impl MorelParser {
     fn type_bind(input: ParseInput) -> ParseResult<TypeBind> {
         Ok(match_nodes!(input.children();
             [identifier(i), type_(t)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
-                TypeBind {span, type_vars: vec![], name, type_: t}
+                TypeBind {name, type_: t}
             },
-            [type_vars(vars), identifier(i), type_(t)] => {
-                let span = input_to_span(&input);
+            [type_vars(_vars), identifier(i), type_(t)] => {
                 let name = i.to_string();
-                TypeBind {span, type_vars: vars, name, type_: t}
+                TypeBind {name, type_: t}
             },
         ))
     }
@@ -1251,16 +1250,14 @@ impl MorelParser {
     fn datatype_bind(input: ParseInput) -> ParseResult<DatatypeBind> {
         Ok(match_nodes!(input.children();
             [identifier(i), con_bind(cons)..] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
                 let constructors = cons.collect();
-                DatatypeBind {span, type_vars: vec![], name, constructors}
+                DatatypeBind {type_vars: vec![], name, constructors}
             },
             [type_vars(vars), identifier(i), con_bind(cons)..] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
                 let constructors = cons.collect();
-                DatatypeBind {span, type_vars: vars, name, constructors}
+                DatatypeBind {type_vars: vars, name, constructors}
             },
         ))
     }
@@ -1268,12 +1265,10 @@ impl MorelParser {
     fn con_bind(input: ParseInput) -> ParseResult<ConBind> {
         Ok(match_nodes!(input.children();
             [identifier(i)] => {
-                let span = input_to_span(&input);
-                ConBind {span, name: i.to_string(), type_: None}
+                ConBind {name: i.to_string(), type_: None}
             },
             [identifier(i), _of(_), type_(t)] => {
-                let span = input_to_span(&input);
-                ConBind {span, name: i.to_string(), type_: Some(t)}
+                ConBind {name: i.to_string(), type_: Some(t)}
             },
         ))
     }
@@ -1292,10 +1287,9 @@ impl MorelParser {
     fn sig_bind(input: ParseInput) -> ParseResult<SigBind> {
         Ok(match_nodes!(input.children();
             [identifier(i), _sig(_), spec(specs).., _end(_)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
                 let specs = specs.collect();
-                SigBind {span, name, specs}
+                SigBind {name, specs}
             },
         ))
     }
@@ -1323,9 +1317,8 @@ impl MorelParser {
     fn val_desc(input: ParseInput) -> ParseResult<ValDesc> {
         Ok(match_nodes!(input.children();
             [identifier(i), type_(t)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
-                ValDesc {span, name, type_: t}
+                ValDesc {name, type_: t}
             },
         ))
     }
@@ -1344,24 +1337,20 @@ impl MorelParser {
     fn type_desc(input: ParseInput) -> ParseResult<TypeDesc> {
         Ok(match_nodes!(input.children();
             [identifier(i)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
-                TypeDesc {span, type_vars: vec![], name, type_: None}
+                TypeDesc {type_vars: vec![], name, type_: None}
             },
             [identifier(i), type_(t)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
-                TypeDesc {span, type_vars: vec![], name, type_: Some(t)}
+                TypeDesc {type_vars: vec![], name, type_: Some(t)}
             },
             [type_vars(vars), identifier(i)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
-                TypeDesc {span, type_vars: vars, name, type_: None}
+                TypeDesc {type_vars: vars, name, type_: None}
             },
             [type_vars(vars), identifier(i), type_(t)] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
-                TypeDesc {span, type_vars: vars, name, type_: Some(t)}
+                TypeDesc {type_vars: vars, name, type_: Some(t)}
             },
         ))
     }
@@ -1383,16 +1372,14 @@ impl MorelParser {
     fn datatype_desc(input: ParseInput) -> ParseResult<DatatypeDesc> {
         Ok(match_nodes!(input.children();
             [identifier(i), con_desc(cons)..] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
                 let constructors = cons.collect();
-                DatatypeDesc {span, type_vars: vec![], name, constructors}
+                DatatypeDesc {type_vars: vec![], name, constructors}
             },
             [type_vars(vars), identifier(i), con_desc(cons)..] => {
-                let span = input_to_span(&input);
                 let name = i.to_string();
                 let constructors = cons.collect();
-                DatatypeDesc {span, type_vars: vars, name, constructors}
+                DatatypeDesc {type_vars: vars, name, constructors}
             },
         ))
     }
@@ -1400,12 +1387,10 @@ impl MorelParser {
     fn con_desc(input: ParseInput) -> ParseResult<ConDesc> {
         Ok(match_nodes!(input.children();
             [identifier(i)] => {
-                let span = input_to_span(&input);
-                ConDesc {span, name: i.to_string(), type_: None}
+                ConDesc {name: i.to_string(), type_: None}
             },
             [identifier(i), _of(_), type_(t)] => {
-                let span = input_to_span(&input);
-                ConDesc {span, name: i.to_string(), type_: Some(t)}
+                ConDesc {name: i.to_string(), type_: Some(t)}
             },
         ))
     }
@@ -1424,12 +1409,10 @@ impl MorelParser {
     fn exn_desc(input: ParseInput) -> ParseResult<ExnDesc> {
         Ok(match_nodes!(input.children();
             [identifier(i)] => {
-                let span = input_to_span(&input);
-                ExnDesc {span, name: i.to_string(), type_: None}
+                ExnDesc {name: i.to_string(), type_: None}
             },
             [identifier(i), _of(_), type_(t)] => {
-                let span = input_to_span(&input);
-                ExnDesc {span, name: i.to_string(), type_: Some(t)}
+                ExnDesc {name: i.to_string(), type_: Some(t)}
             },
         ))
     }
@@ -1936,6 +1919,7 @@ fn fold_heterogeneous(
 /// Given quoted identifier `abc` returns abc. Converts any
 /// doubled back-ticks to a single back-tick. Assumes there are no single
 /// back-ticks.
+#[allow(dead_code)]
 pub fn unquote_identifier(s: &str) -> Result<String, &'static str> {
     if s.len() < 2 {
         return Err("String must be at least 2 characters long");
@@ -1994,6 +1978,7 @@ pub fn unquote_char_literal(s: &str) -> Result<char, String> {
 }
 
 /// Given string "a" returns a.
+#[allow(dead_code)]
 pub fn from_string(s: &str) -> Option<char> {
     if s.is_empty() {
         return None;

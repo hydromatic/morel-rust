@@ -143,10 +143,6 @@ pub struct LinkTable {
 /// by a runtime `Code::Link` lookup — it is always `Some`.
 #[derive(Debug)]
 pub struct LinkEntry {
-    /// The bound name. Carried for diagnostics and for the
-    /// shell-name fallback in `Code::GetLocal`. The slot index
-    /// is what the runtime actually uses to dispatch.
-    pub name: String,
     /// The compiled body of the recursive binding. `None` only
     /// during the reserve/fill window.
     pub code: Option<Arc<Code>>,
@@ -166,12 +162,9 @@ impl LinkTable {
     /// call [`fill`](Self::fill) on this slot before any code
     /// path that can be evaluated at runtime references it; a
     /// `None` slot observed at evaluation time is a compiler bug.
-    pub fn reserve(&mut self, name: &str) -> usize {
+    pub fn reserve(&mut self, _name: &str) -> usize {
         let i = self.entries.len();
-        self.entries.push(LinkEntry {
-            name: name.to_string(),
-            code: None,
-        });
+        self.entries.push(LinkEntry { code: None });
         i
     }
 
@@ -192,12 +185,6 @@ impl LinkTable {
         self.entries.get(slot).and_then(|e| e.code.clone())
     }
 
-    /// Returns the binding name recorded for `slot`, if the slot
-    /// is in range. Used for diagnostics.
-    pub fn name(&self, slot: usize) -> Option<&str> {
-        self.entries.get(slot).map(|e| e.name.as_str())
-    }
-
     /// Number of slots in the table. Mainly useful for
     /// diagnostics. User code should not depend on slot indices
     /// being contiguous between statements.
@@ -206,6 +193,7 @@ impl LinkTable {
     }
 
     /// Returns whether the table is empty.
+    #[allow(dead_code)] // satisfies clippy::len_without_is_empty
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

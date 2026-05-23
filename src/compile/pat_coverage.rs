@@ -101,16 +101,6 @@ impl<'a> CoverageChecker<'a> {
         self.slots.get(&key).copied()
     }
 
-    /// Converts a pattern to a propositional formula that is true when
-    /// the input value matches the pattern.
-    fn pat_formula(&mut self, pat: &Pat, path: &mut Vec<usize>) -> Formula {
-        let type_ = match pat.id.and_then(|id| self.type_map.get_type(id)) {
-            Some(t) => (*t).clone(),
-            None => return Formula::True,
-        };
-        self.pat_formula_typed(pat, path, &type_)
-    }
-
     fn pat_formula_typed(
         &mut self,
         pat: &Pat,
@@ -259,7 +249,6 @@ impl<'a> CoverageChecker<'a> {
                             };
                             (name, p)
                         }
-                        PatField::Ellipsis(_) => continue,
                     };
                     let Some(name) = name_opt else { continue };
                     let Some(idx) = labels.iter().position(

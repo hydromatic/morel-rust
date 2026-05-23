@@ -27,7 +27,7 @@ use crate::compile::type_resolver::TypeMap;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
 use crate::eval::code::{
-    self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl, QueryStep,
+    self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl,
 };
 use crate::eval::comparator::{self, comparator_for};
 use crate::eval::discrete::discrete_for_with;
@@ -73,24 +73,6 @@ struct Compiler<'a> {
     /// across statement boundaries, allowing recursive functions
     /// to be invoked from a later statement.
     link_table: &'a mut LinkTable,
-}
-
-struct Closure;
-
-impl Closure {
-    fn bind_recurse(
-        pat: &Pat,
-        value: &Val,
-        mut f: impl FnMut(&Pat, &Val),
-    ) -> bool {
-        match pat {
-            Pat::Identifier(_, _name) => {
-                f(pat, value);
-                true
-            }
-            _ => false,
-        }
-    }
 }
 
 const UNIT_TYPE: Type = Type::Primitive(PrimitiveType::Unit);
@@ -174,18 +156,7 @@ impl<'a> Compiler<'a> {
             Some(&mut actions),
         );
 
-        let type_ = match decl {
-            Decl::NonRecVal(val_bind) => val_bind.t.clone(),
-            _ => UNIT_TYPE.clone(),
-        };
-
-        let context = self.create_context(env);
-
-        Box::new(CompiledStatementImpl {
-            type_,
-            context,
-            actions,
-        })
+        Box::new(CompiledStatementImpl { actions })
     }
 
     #[allow(clippy::mutable_key_type)] // HashSet<Expr> never holds RecCell
@@ -504,23 +475,6 @@ impl<'a> Compiler<'a> {
     }
 
     /// Creates a context.
-    ///
-    /// The whole way we provide compilation environments (including
-    /// [Environment]) to generated code is a mess:
-    ///
-    /// - This method is protected so that CalciteCompiler can override and get
-    ///   a Calcite type factory.
-    /// - User-defined functions should have a 'prepare' phase, where they use
-    ///   a type factory and environment, that is distinct from the 'eval'
-    ///   phase.
-    /// - We should pass compile and runtime environments via parameters, not
-    ///   thread-locals.
-    /// - The fake session is there because a session is mandatory, but we have
-    ///   not created a session yet. Lifecycle confusion.
-    fn create_context(&self, env: &Environment) -> Context {
-        Context::new(env.clone())
-    }
-
     /// Compiles a pattern. Returns a code that returns whether the pattern
     /// matched, and if it matched, makes assignments to the current frame.
     #[allow(clippy::only_used_in_recursion)]
@@ -575,7 +529,6 @@ impl<'a> Compiler<'a> {
                                 field_map.insert(name, sub_pat);
                             }
                         }
-                        PatField::Ellipsis => {}
                     }
                 }
                 // For each field in the record type (alphabetical order),
@@ -2135,7 +2088,6 @@ impl<'a> Compiler<'a> {
                     }
                 }
             }
-            _ => todo!("create_row_sink_factory: {:?}", first_step.kind),
         }
     }
 
@@ -2206,25 +2158,6 @@ impl<'a> Compiler<'a> {
                 exprs.iter().any(Self::expr_uses_ordinal)
             }
             _ => false,
-        }
-    }
-
-    fn compile_step(&mut self, cx: &Context, step: &Step) -> QueryStep {
-        match &step.kind {
-            StepKind::Scan(pat, expr, _cond) => {
-                let pat_code = self.compile_pat(cx, pat);
-                let expr_code = self.compile_expr(cx, None, expr);
-                QueryStep::JoinIn(pat_code, expr_code)
-            }
-            StepKind::Where(expr) => {
-                let expr_code = self.compile_expr(cx, None, expr);
-                QueryStep::Where(expr_code)
-            }
-            StepKind::Yield(expr) => {
-                let expr_code = self.compile_expr(cx, None, expr);
-                QueryStep::Yield(expr_code)
-            }
-            _ => todo!("compile_step: {:?}", step.kind),
         }
     }
 
@@ -2585,9 +2518,7 @@ pub trait CompiledStatement {
 }
 
 struct CompiledStatementImpl {
-    type_: Type,
     actions: Vec<Box<dyn Action>>,
-    context: Context,
 }
 
 impl CompiledStatement for CompiledStatementImpl {
@@ -2611,22 +2542,6 @@ impl CompiledStatement for CompiledStatementImpl {
         };
         for action in &self.actions {
             action.apply(&mut eval_env, &mut frame);
-        }
-    }
-}
-
-mod calcite_functions {
-    use crate::eval::session::Session;
-    use crate::shell::main::Environment;
-
-    pub struct Context;
-
-    impl Context {
-        pub(crate) fn new(
-            _session: Session,
-            _environment: Environment,
-        ) -> Context {
-            todo!()
         }
     }
 }

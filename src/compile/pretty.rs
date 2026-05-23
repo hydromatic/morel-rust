@@ -28,7 +28,6 @@ use crate::syntax::parser::{
 use std::collections::HashMap;
 use std::fmt::{self, Write};
 use std::iter::zip;
-use std::ptr;
 use std::rc::Rc;
 
 /// Prints values prettily.
@@ -58,13 +57,6 @@ impl Type {
         }
     }
 
-    fn is_progressive(&self) -> bool {
-        match self {
-            Type::Record(progressive, _) => *progressive,
-            _ => false,
-        }
-    }
-
     fn arg(&self, index: usize) -> Option<&Type> {
         match self {
             Type::List(inner) if index == 0 => Some(inner),
@@ -74,50 +66,8 @@ impl Type {
         }
     }
 
-    fn moniker(&self) -> String {
-        match &self {
-            // lint: sort until '#}' where '##Type::'
-            Type::Alias(_, _, _) => "alias".to_string(),
-            Type::Bag(_) => "bag".to_string(),
-            Type::Data(name, _) => name.clone(),
-            Type::Fn(_, _) => "function".to_string(),
-            Type::Forall(_, _) => "forall".to_string(),
-            Type::List(_) => "list".to_string(),
-            Type::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
-            Type::Record(_, _) => "record".to_string(),
-            Type::Tuple(_) => "tuple".to_string(),
-            _ => todo!("{:?}", self),
-        }
-    }
-
-    /// Removes any "forall" qualifier of a type and renumbers the remaining
-    /// type variables.
-    ///
-    /// Examples:
-    /// - `forall 'a. 'a list` → `'a list`
-    /// - `forall 'a 'b. 'b list` → `'a list`
-    /// - `forall 'a 'b 'c. 'c * 'a -> {x:'a, y:'c}` → `'a * 'b -> {x:'b,
-    ///   y:'a}`
-    pub fn unqualified(&self) -> Type {
-        let mut current_type = self;
-
-        // Strip all forall qualifiers
-        while let Type::Forall(inner_type, _size) = current_type {
-            current_type = inner_type;
-        }
-
-        // If no forall was stripped, return the original
-        if ptr::eq(current_type, self) {
-            return self.clone();
-        }
-
-        self.renumbered()
-    }
-
-    /// Removes any "forall" qualifier of a type.
-    ///
-    /// Unlike [Type::unqualified], does not renumber the remaining
-    /// type variables, and therefore can avoid cloning.
+    /// Removes any "forall" qualifier of a type. Does not renumber
+    /// the remaining type variables, and therefore can avoid cloning.
     ///
     /// Examples:
     /// - `forall 'a. 'a list` → `'a list`
@@ -807,30 +757,6 @@ impl Pretty {
         Ok(())
     }
 
-    /// Pretty-prints a Val using constructor-aware formatting.
-    fn pretty_val(
-        &self,
-        buf: &mut String,
-        val: &Val,
-    ) -> Result<(), fmt::Error> {
-        match val {
-            Val::Constructor(_, _) => write!(buf, "{}", val),
-            Val::List(items) if items.len() != 1 => {
-                buf.push('(');
-                let start = buf.len();
-                for item in items {
-                    if buf.len() > start {
-                        buf.push(',');
-                    }
-                    self.pretty_val(buf, item)?;
-                }
-                buf.push(')');
-                Ok(())
-            }
-            _ => write!(buf, "{}", val),
-        }
-    }
-
     fn pretty_data_type(
         &self,
         buf: &mut String,
@@ -1355,7 +1281,6 @@ impl TypeVarRenumberer {
                     .or_insert_with(|| Type::Variable(TypeVariable::new(i)))
                     .clone()
             }
-            _ => todo!("{:?}", type_ref),
         }
     }
 }

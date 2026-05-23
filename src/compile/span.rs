@@ -56,10 +56,6 @@ impl Span {
             }
         }
     }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
 impl Display for Span {

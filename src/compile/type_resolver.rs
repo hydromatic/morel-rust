@@ -18,13 +18,15 @@
 #![allow(clippy::ptr_arg)]
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::collapsible_if)]
+// Several helper methods (deduce_field_type, is_list_if_all_are_lists,
+// etc.) and a Type variant remain after porting from morel-java; keep
+// as future-use surface.
+#![allow(dead_code)]
 
 use crate::compile::library;
 use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
-use crate::compile::type_env::{
-    BindType, EmptyTypeEnv, TypeEnv, TypeSchemeResolver,
-};
+use crate::compile::type_env::{BindType, TypeEnv};
 use crate::compile::types;
 use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
@@ -1162,7 +1164,6 @@ impl TypeResolver {
                                 p, type_map, bindings, None,
                             );
                         }
-                        PatField::Ellipsis(_span) => {}
                     }
                 }
             }
@@ -3542,7 +3543,6 @@ impl TypeResolver {
         let fn_literal = Literal {
             kind: LiteralKind::Fn(builtin),
             span: span.clone(),
-            id: None,
         };
         let new_fun = Expr {
             kind: ExprKind::Literal(fn_literal),
@@ -4058,11 +4058,6 @@ impl TypeResolver {
                 inner_count.max(args_count)
             }
             Type::Forall(inner, _) => Self::max_type_var_count(inner),
-            Type::Multi(ts) => ts
-                .iter()
-                .map(|t| Self::max_type_var_count(t))
-                .max()
-                .unwrap_or(0),
             Type::Primitive(_) => 0,
         }
     }
@@ -4539,14 +4534,6 @@ impl TypeResolver {
                 self.type_term(element_type, subst, &v2);
                 self.list_term(Term::Variable(v2), v);
             }
-            Type::Multi(types) => {
-                // We cannot convert an overloaded type into a term; it would
-                // have to be a term plus constraint(s). Luckily, this method is
-                // called only to generate a plausible type for a record such as
-                // the Relational structure, so it works if we just return the
-                // first type.
-                self.type_term(&types[0], subst, v);
-            }
             Type::Named(arguments, name) => {
                 let mut terms = Vec::new();
                 for argument in arguments {
@@ -4973,9 +4960,6 @@ impl TypeResolver {
                                 Term::Variable(v2),
                             );
                         }
-                        PatField::Ellipsis(_span) => {
-                            // ignore
-                        }
                     };
                 }
                 if *ellipsis {
@@ -5219,15 +5203,6 @@ impl TypeResolver {
                 )
             })
             .collect()
-    }
-}
-
-impl TypeSchemeResolver for TypeResolver {
-    fn deduce_type_scheme(&mut self, type_scheme: &TypeScheme) -> Var {
-        let env = EmptyTypeEnv;
-        let v = self.variable();
-        self.deduce_type_scheme(&env, &type_scheme, &v);
-        v
     }
 }
 

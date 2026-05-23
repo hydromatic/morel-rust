@@ -134,7 +134,6 @@ fn visit_step(
         // lint: sort until '#}' where '##StepKind::'
         StepKind::Compute(e)
         | StepKind::Order(e)
-        | StepKind::Require(e)
         | StepKind::Skip(e)
         | StepKind::Take(e)
         | StepKind::Where(e)
@@ -194,7 +193,6 @@ fn collect_pat_bindings(pat: &Pat, bound: &mut Vec<String>) {
                     PatField::Labeled(_, p) | PatField::Anonymous(p) => {
                         collect_pat_bindings(p, bound);
                     }
-                    PatField::Ellipsis => {}
                 }
             }
         }

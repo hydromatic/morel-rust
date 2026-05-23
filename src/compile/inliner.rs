@@ -25,8 +25,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 /// Can transform any expression, declaration, or pattern in a tree.
-/// Combined with [Decl::visit], [Expr::visit], and [Pat::visit], this
-/// can reshape a whole tree.
+/// Combined with `Decl::visit` and `Expr::visit`, this can reshape a
+/// whole tree.
 trait Transformer {
     fn transform_decl(&self, env: &Env, decl: &Decl) -> Decl;
     fn transform_expr(&self, env: &Env, expr: &Expr) -> Expr;
@@ -51,9 +51,6 @@ trait Transformer {
 /// which causes the inliner to leave the let in place.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Use {
-    /// Reserved for recursive-bindings that participate in a cycle.
-    /// Currently morel-rust never produces this.
-    LoopBreaker,
     /// Binding is not referenced. The let can be discarded.
     Dead,
     /// Binding occurs exactly once, not inside a lambda. Inlining is
@@ -65,8 +62,6 @@ pub enum Use {
     /// Binding occurs at most once in each of several distinct case
     /// branches. Inlining may duplicate code but not work.
     MultiSafe,
-    /// Binding occurs exactly once, inside a lambda. Reserved.
-    OnceUnsafe,
     /// Binding may occur many times, including inside lambdas; do not
     /// inline.
     MultiUnsafe,
@@ -250,7 +245,6 @@ impl Analyzer {
             | StepKind::Order(e)
             | StepKind::Where(e)
             | StepKind::Yield(e)
-            | StepKind::Require(e)
             | StepKind::Skip(e)
             | StepKind::Take(e) => self.visit_expr(e),
             StepKind::Group(e, opt) => {
@@ -349,166 +343,6 @@ fn expr_to_val(expr: &Expr) -> Option<Val> {
             }
         }
         _ => None,
-    }
-}
-
-/// Returns true if `expr` has no side effects and can be safely eliminated
-/// when its value is not used. Constant expressions (those for which
-/// [`expr_to_val`] succeeds) are pure; we additionally accept identifiers
-/// and record selectors.
-fn is_pure(expr: &Expr) -> bool {
-    if expr_to_val(expr).is_some() {
-        return true;
-    }
-    match expr {
-        Expr::Identifier(_, _) | Expr::RecordSelector(_, _) => true,
-        Expr::Tuple(_, args) => args.iter().all(is_pure),
-        _ => false,
-    }
-}
-
-fn decl_is_pure(decl: &Decl) -> bool {
-    match decl {
-        Decl::NonRecVal(vb) => is_pure(&vb.expr),
-        Decl::RecVal(_) => false,
-        Decl::Type(_) | Decl::Datatype(_) | Decl::Over(_) => true,
-    }
-}
-
-/// Returns true if the named identifier is referenced anywhere in `expr`.
-/// Used for dead-code elimination of unused let bindings. This walks
-/// through binding constructs (fn, case, let, from-scan) and stops the
-/// search if a sub-binding shadows the name.
-fn references_var(expr: &Expr, name: &str) -> bool {
-    match expr {
-        Expr::Identifier(_, id) => id == name,
-        Expr::Literal(_, _)
-        | Expr::Current(_)
-        | Expr::Ordinal(_)
-        | Expr::RecordSelector(_, _) => false,
-        Expr::Aggregate(_, a, b) => {
-            references_var(a, name) || references_var(b, name)
-        }
-        Expr::Apply(_, f, a, _) => {
-            references_var(f, name) || references_var(a, name)
-        }
-        Expr::Case(_, scrutinee, matches, _) => {
-            if references_var(scrutinee, name) {
-                return true;
-            }
-            matches.iter().any(|m| {
-                !pat_binds(&m.pat, name) && references_var(&m.expr, name)
-            })
-        }
-        Expr::Fn(_, matches, _) => matches
-            .iter()
-            .any(|m| !pat_binds(&m.pat, name) && references_var(&m.expr, name)),
-        Expr::Let(_, decls, body) => {
-            for d in decls {
-                if decl_references_var(d, name) {
-                    return true;
-                }
-                if decl_binds(d, name) {
-                    return false;
-                }
-            }
-            references_var(body, name)
-        }
-        Expr::Tuple(_, args) | Expr::List(_, args) => {
-            args.iter().any(|e| references_var(e, name))
-        }
-        Expr::From(_, steps)
-        | Expr::Exists(_, steps)
-        | Expr::Forall(_, steps) => {
-            for s in steps {
-                let (refs, shadows) = step_refs(&s.kind, name);
-                if refs {
-                    return true;
-                }
-                if shadows {
-                    return false;
-                }
-            }
-            false
-        }
-        Expr::Raise(_, e, _) => references_var(e, name),
-        Expr::Extent(_, _) => false,
-    }
-}
-
-fn pat_binds(pat: &Pat, name: &str) -> bool {
-    let mut found = false;
-    pat.for_each_id_pat(&mut |(_, n)| {
-        if n == name {
-            found = true;
-        }
-    });
-    found
-}
-
-/// Returns true if no variable bound by `pat` is referenced in `body`.
-fn pat_unused(pat: &Pat, body: &Expr) -> bool {
-    let mut names: Vec<String> = Vec::new();
-    pat.for_each_id_pat(&mut |(_, n)| names.push(n.to_string()));
-    names.iter().all(|n| !references_var(body, n))
-}
-
-fn decl_binds(decl: &Decl, name: &str) -> bool {
-    let mut found = false;
-    decl.for_each_id_pat(|(_, n)| {
-        if n == name {
-            found = true;
-        }
-    });
-    found
-}
-
-fn decl_references_var(decl: &Decl, name: &str) -> bool {
-    match decl {
-        Decl::NonRecVal(vb) => references_var(&vb.expr, name),
-        Decl::RecVal(vbs) => {
-            // Check whether any binding pattern shadows `name`. If so, the
-            // let-rec scope is closed and references inside don't count.
-            let shadows = vbs.iter().any(|vb| pat_binds(&vb.pat, name));
-            if shadows {
-                false
-            } else {
-                vbs.iter().any(|vb| references_var(&vb.expr, name))
-            }
-        }
-        Decl::Over(_) | Decl::Type(_) | Decl::Datatype(_) => false,
-    }
-}
-
-/// Returns `(references, shadows)`: whether `name` is referenced in this
-/// step, and whether the step binds `name` (shadowing later steps).
-fn step_refs(kind: &StepKind, name: &str) -> (bool, bool) {
-    match kind {
-        StepKind::Compute(e)
-        | StepKind::Order(e)
-        | StepKind::Where(e)
-        | StepKind::Yield(e)
-        | StepKind::Require(e)
-        | StepKind::Skip(e)
-        | StepKind::Take(e) => (references_var(e, name), false),
-        StepKind::Group(e, opt) => {
-            let r = references_var(e, name)
-                || opt.as_deref().is_some_and(|o| references_var(o, name));
-            (r, false)
-        }
-        StepKind::Scan(pat, expr, cond) => {
-            let r = references_var(expr, name)
-                || cond.as_deref().is_some_and(|c| references_var(c, name));
-            (r, pat_binds(pat, name))
-        }
-        StepKind::Except(_, exprs)
-        | StepKind::Intersect(_, exprs)
-        | StepKind::Union(_, exprs) => {
-            (exprs.iter().any(|e| references_var(e, name)), false)
-        }
-        StepKind::Distinct | StepKind::Exists | StepKind::Unorder => {
-            (false, false)
-        }
     }
 }
 
@@ -719,12 +553,6 @@ impl Transformer for Inliner {
     }
 }
 
-impl Pat {
-    fn visit(&self, _env: &Env, _x: &dyn Transformer) -> Pat {
-        self.clone()
-    }
-}
-
 impl Expr {
     fn visit(&self, env: &Env, x: &dyn Transformer) -> Expr {
         match &self {
@@ -922,10 +750,6 @@ impl Expr {
                 let expr2 = x.transform_expr(env, expr);
                 (StepKind::Order(Box::new(expr2)), env.clone())
             }
-            StepKind::Require(expr) => {
-                let expr2 = x.transform_expr(env, expr);
-                (StepKind::Require(Box::new(expr2)), env.clone())
-            }
             StepKind::Scan(pat, expr, condition) => {
                 let pat2 = x.transform_pat(env, pat);
                 let expr2 = x.transform_expr(env, expr);
@@ -1056,17 +880,6 @@ impl Env {
             inner: Rc::new(EnvFrame {
                 parent: None,
                 map: HashMap::new(),
-                exprs: HashMap::new(),
-            }),
-        }
-    }
-
-    /// Returns an environment whose root frame is `map`.
-    pub fn with(map: HashMap<String, (Type, Option<Val>)>) -> Env {
-        Env {
-            inner: Rc::new(EnvFrame {
-                parent: None,
-                map,
                 exprs: HashMap::new(),
             }),
         }

@@ -63,11 +63,6 @@ enum TupleType {
     Other,
 }
 
-/// Returns whether the tuple is something like "{i = i, j = j}".
-fn is_trivial(tuple: &Expr, env: &StepEnv, env2: Option<&StepEnv>) -> bool {
-    tuple_type(tuple, env, env2) == TupleType::Identity
-}
-
 /// Classifies a tuple expression for yield optimization.
 ///
 /// Determines if the tuple is:
@@ -651,11 +646,6 @@ impl FromBuilder {
             env,
         );
         self.add_step(step)
-    }
-
-    /// Builds the From expression.
-    pub fn build(&mut self) -> Result<Expr, Error> {
-        self.build_internal(false)
     }
 
     /// Builds the From expression with simplification.

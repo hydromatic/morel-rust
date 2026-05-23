@@ -21,20 +21,8 @@ use crate::eval::val::Val;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::LazyLock;
-use strum::{EnumCount, EnumProperty, IntoEnumIterator};
+use strum::{EnumProperty, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter, EnumProperty, EnumString, FromRepr};
-
-/// Returns the datatype of a built-in function or record.
-pub fn name_to_type(id: &str) -> Option<Rc<Type>> {
-    if let Some(b) = BY_NAME.get(id) {
-        match b {
-            BuiltIn::Fn(f) => Some(f.get_type()),
-            BuiltIn::Record(r) => r.get_type(),
-        }
-    } else {
-        None
-    }
-}
 
 /// Looks up a built-in function by name.
 pub fn name_to_fn(id: &str) -> Option<BuiltInFunction> {
@@ -1731,10 +1719,6 @@ impl BuiltInExn {
     pub(crate) fn explain(&self) -> Option<&'static str> {
         self.get_str("explain")
     }
-
-    pub(crate) fn package(&self) -> &'static str {
-        self.get_str("p").unwrap()
-    }
 }
 
 /*
@@ -1916,16 +1900,6 @@ impl BuiltInType {
         }
     }
 
-    /// Parameter count (arity): always 0 for primitives, the
-    /// declared `varCount` for datatypes/eqtypes.
-    pub fn var_count(&self) -> usize {
-        match self {
-            BuiltInType::Primitive(_) => 0,
-            BuiltInType::Datatype(d) => d.var_count(),
-            BuiltInType::Eqtype(e) => e.var_count(),
-        }
-    }
-
     /// Looks up a built-in type by ML-level name. Tries primitives,
     /// then datatypes, then eqtypes — the three namespaces are
     /// disjoint, so the order doesn't change the answer.
@@ -1958,13 +1932,6 @@ pub enum BuiltIn {
 }
 
 impl BuiltIn {
-    pub fn get_type(&self) -> Option<&str> {
-        match self {
-            BuiltIn::Fn(f) => f.get_str("type"),
-            BuiltIn::Record(r) => r.get_str("type"),
-        }
-    }
-
     /// If the built-in belongs to a record, returns the path of the parent
     /// record and the name of the built-in within its parent.
     pub(crate) fn heritage(&self) -> Option<(&str, &str)> {
@@ -1987,13 +1954,6 @@ impl BuiltIn {
                     None
                 }
             }
-        }
-    }
-
-    pub(crate) fn key(&self) -> u16 {
-        match self {
-            BuiltIn::Fn(f) => (*f as u16) + (BuiltInRecord::COUNT as u16),
-            BuiltIn::Record(r) => *r as u16,
         }
     }
 }

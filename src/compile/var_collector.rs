@@ -160,7 +160,6 @@ impl Pat {
                         PatField::Labeled(_, p) | PatField::Anonymous(p) => {
                             p.collect_vars(collector);
                         }
-                        PatField::Ellipsis => {}
                     }
                 }
             }

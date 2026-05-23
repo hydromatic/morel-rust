@@ -38,20 +38,18 @@ pub enum Cardinality {
     Single,
     /// A bounded number of values (e.g. `x elem [1, 2, 3]`).
     Finite,
-    /// Unbounded — the generator hasn't (yet) been derived. We carry
-    /// this only as a placeholder for in-progress derivations; a
-    /// generator with `Cardinality::Infinite` is not usable.
-    Infinite,
 }
 
 /// A generator expression bound to an unbounded pattern.
 #[derive(Clone, Debug)]
 pub struct Generator {
     /// Pattern this generator scans into.
+    #[allow(dead_code)]
     pub pat: Pat,
     /// Expression to scan — a list, bag, or other collection.
     pub exp: Expr,
     /// Cardinality bucket.
+    #[allow(dead_code)]
     pub cardinality: Cardinality,
     /// Names of patterns the generator depends on. Drives ordering
     /// of scans in the rewritten `from`.
@@ -124,16 +122,6 @@ impl Cache {
     /// `None` if none has been added.
     pub fn best(&self, name: &str) -> Option<&Generator> {
         self.by_pat.get(name).and_then(|v| v.last())
-    }
-
-    /// Returns `true` if any generator has been added for `name`.
-    pub fn has(&self, name: &str) -> bool {
-        self.by_pat.get(name).is_some_and(|v| !v.is_empty())
-    }
-
-    /// Returns the names of all patterns with at least one generator.
-    pub fn pat_names(&self) -> impl Iterator<Item = &str> {
-        self.by_pat.keys().map(String::as_str)
     }
 
     /// Returns every generator's provenance combined. Used by the
