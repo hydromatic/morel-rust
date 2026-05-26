@@ -88,15 +88,14 @@ Fn.repeat 0 (fn i => i + 1);
 > val it = fn : int -> int
 it 8;
 > val it = 8 : int
-(* TODO(hydromatic/morel#354): morel-java raises Domain eagerly when
-   n < 0 at the 2-arg partial application step. morel-rust treats this
-   as a normal partial application returning a closure, and only raises
-   Domain if the closure is fully applied. Re-enable when Fn.repeat is
-   reimplemented with eager Domain semantics.
 Fn.repeat ~2 (fn i => i + 1);
-> uncaught exception Domain
->   raised at: stdIn:1.1-1.28
-*)
+> uncaught exception Domain [domain error]
+>   raised at: stdIn:1.1-1.29
+(* Partial application with a negative count should raise immediately,
+ * before the second argument arrives. *)
+Fn.repeat ~5;
+> uncaught exception Domain [domain error]
+>   raised at: stdIn:1.1-1.13
 Fn.equal;
 > val it = fn : 'a -> 'a -> bool
 (* ^ SML/NJ gives

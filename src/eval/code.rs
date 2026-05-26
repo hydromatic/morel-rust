@@ -376,6 +376,13 @@ pub enum Code {
     /// Emitted at tail-position function applications by the compiler.
     TailApply(Box<Code>, Box<Code>),
     Tuple(Vec<Code>),
+    /// `ValidatePartialArg1(eager, code, span)` evaluates `code`, runs
+    /// the eager function's first-argument validator (e.g. `Fn.repeat`
+    /// rejecting a negative count), and returns the value unchanged.
+    /// Wrapped around the first captured argument of a partial
+    /// application so the check fires when the closure is built — not
+    /// when the closure is later applied.
+    ValidatePartialArg1(EagerF3, Box<Code>, Span),
 }
 
 impl Code {
@@ -747,6 +754,7 @@ impl Code {
             Code::SelfRef => *mode == EvalMode::EagerF0,
             Code::TailApply(_, _) => *mode == EvalMode::EagerF0,
             Code::Tuple(_) => *mode == EvalMode::EagerF0,
+            Code::ValidatePartialArg1(_, _, _) => *mode == EvalMode::EagerF0,
         }
     }
 
@@ -1182,6 +1190,11 @@ impl Code {
                     values.push(code.eval_f0(r, f)?);
                 }
                 Ok(Val::List(values))
+            }
+            Code::ValidatePartialArg1(eager, code, span) => {
+                let v = code.eval_f0(r, f)?;
+                eager.validate_partial_arg1(&v, span)?;
+                Ok(v)
             }
             _ => {
                 todo!("eval_f0: {:?}", self)
@@ -1807,6 +1820,9 @@ impl Display for Code {
             }
             Self::SelfRef => write!(f, "self"),
             Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
+            Self::ValidatePartialArg1(eager, code, _span) => {
+                write!(f, "validate({}, {})", eager.plan(), code)
+            }
             _ => todo!("fmt: {:?}", self),
         }
     }
@@ -3832,6 +3848,34 @@ impl EagerF3 {
                 | StringSubstring
                 | VectorUpdate
         )
+    }
+
+    /// Returns true if this function checks its first argument as
+    /// soon as it arrives, before later arguments. Used by the
+    /// compiler to wrap the first-arg code of a partial application
+    /// so the check fires when the closure is built, not when it is
+    /// fully applied.
+    pub(crate) fn validates_partial_arg1(&self) -> bool {
+        matches!(self, EagerF3::FnRepeat)
+    }
+
+    fn validate_partial_arg1(
+        &self,
+        a0: &Val,
+        span: &Span,
+    ) -> Result<(), MorelError> {
+        match self {
+            EagerF3::FnRepeat => {
+                if a0.expect_int() < 0 {
+                    return Err(MorelError::Runtime(
+                        BuiltInExn::Domain,
+                        span.clone(),
+                    ));
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     // Passing Val by value is OK because it is small.

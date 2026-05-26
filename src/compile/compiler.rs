@@ -934,7 +934,16 @@ impl<'a> Compiler<'a> {
                     if matches!(impl_, Impl::E3(_) | Impl::EF3(_))
                         && matches!(result_type.as_ref(), Type::Fn(_, _))
                     {
-                        let cap_code = self.compile_arg(cx, a);
+                        let mut cap_code = self.compile_arg(cx, a);
+                        if let Impl::EF3(ef3) = impl_
+                            && ef3.validates_partial_arg1()
+                        {
+                            cap_code = Code::ValidatePartialArg1(
+                                ef3,
+                                Box::new(cap_code),
+                                span.clone(),
+                            );
+                        }
                         let outer_frame = Arc::new(FrameDef::new(
                             &[Binding::of_name("__cap1")],
                             &[Binding::of_name("__arg1")],
@@ -1183,7 +1192,16 @@ impl<'a> Compiler<'a> {
                         && matches!(func.get_impl(), Impl::EF3(_) | Impl::E3(_))
                         && matches!(result_type.as_ref(), Type::Fn(_, _))
                     {
-                        let cap1_code = self.compile_arg(cx, second_arg);
+                        let mut cap1_code = self.compile_arg(cx, second_arg);
+                        if let Impl::EF3(ef3) = func.get_impl()
+                            && ef3.validates_partial_arg1()
+                        {
+                            cap1_code = Code::ValidatePartialArg1(
+                                ef3,
+                                Box::new(cap1_code),
+                                span.clone(),
+                            );
+                        }
                         let cap2_code = self.compile_arg(cx, a);
                         let frame_def = Arc::new(FrameDef::new(
                             &[
