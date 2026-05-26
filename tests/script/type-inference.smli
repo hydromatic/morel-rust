@@ -309,8 +309,8 @@ end;
 :t {c=1, b=true};
 > val it : {b:bool, c:int}
 :t {a=1, b=true, a=3};
-> stdIn:1.17 Error: duplicate field 'a' in record
->   raised at: stdIn:1.17
+> stdIn:1.15 Error: duplicate field 'a' in record
+>   raised at: stdIn:1.15
 
 (*) Incomplete record type
 (* TODO
@@ -996,8 +996,8 @@ forall d in [{a=1,b=true}];
 
 :t from (i,j) in [(1,2),(3,4)]
   group j compute {j = length elements};
-> stdIn:2.19-2.40 Error: Duplicate field name 'j' in group
->   raised at: stdIn:2.19-2.40
+> stdIn:2.20 Error: duplicate field name 'j' in group
+>   raised at: stdIn:2.20
 
 :t from i in [1, 2, 3]
   group {} compute elements;
@@ -1616,8 +1616,8 @@ forall d in [{a=1,b=true}];
 
 :t from (i,j) in [(1,2),(3,4)]
   group j compute {j = length elements};
-> stdIn:2.19-2.40 Error: Duplicate field name 'j' in group
->   raised at: stdIn:2.19-2.40
+> stdIn:2.20 Error: duplicate field name 'j' in group
+>   raised at: stdIn:2.20
 
 :t from i in [1, 2, 3]
   group {} compute elements;

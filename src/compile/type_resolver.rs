@@ -2794,55 +2794,69 @@ impl TypeResolver {
     }
 
     /// Checks for duplicate field names between key and compute expressions.
+    ///
+    /// On the first duplicate, reports the offending label's source
+    /// position (the label's span when it is explicit, or the field
+    /// expression's span when the label is implicit). A duplicate within
+    /// a single record (e.g. `group {a = e.x, a = e.y}`) is reported as
+    /// "in record"; a duplicate that straddles the key and the compute
+    /// (e.g. `group {sum = e.x} compute sum over e.y`) is reported as
+    /// "in group". The within-record duplicate is caught during record
+    /// typing and the cross-record duplicate is caught by the
+    /// group-level check.
     fn check_duplicate_field_names(
         key_expr: &Expr,
         compute_expr: Option<&Expr>,
     ) -> Result<(), Error> {
-        let mut names = HashSet::new();
-
-        // Collect field names from the key expression.
-        Self::collect_field_names(key_expr, &mut names);
-
-        // Check for duplicate field names in the compute expression.
+        let mut seen: HashSet<String> = HashSet::new();
+        Self::check_record_duplicates(key_expr, &mut seen)?;
         if let Some(compute) = compute_expr {
-            if let ExprKind::Record(_, labeled_exprs) = &compute.kind {
-                for labeled_expr in labeled_exprs {
-                    if let Some(label) = labeled_expr.get_label() {
-                        if !names.insert(label.clone()) {
-                            return Err(Error::Compile(
-                                format!(
-                                    "Duplicate field name '{}' in group",
-                                    label
-                                ),
-                                compute.span.clone(),
-                            ));
-                        }
-                    }
-                }
-            }
+            Self::check_record_duplicates(compute, &mut seen)?;
         }
-
         Ok(())
     }
 
-    /// Collects field names from an expression into the given set.
-    fn collect_field_names(expr: &Expr, names: &mut HashSet<String>) {
+    /// Visits each labeled field of `expr` (or the single implicit-label
+    /// field if `expr` is not a record). Reports duplicates within the
+    /// same record as "in record", and duplicates against the already-seen
+    /// set as "in group". The offending span is the label's span when the
+    /// label is explicit, or the expression's span when the label is
+    /// implicit.
+    fn check_record_duplicates(
+        expr: &Expr,
+        seen: &mut HashSet<String>,
+    ) -> Result<(), Error> {
+        let mut local: HashSet<String> = HashSet::new();
+        let mut visit = |name: String, span: &Span| -> Result<(), Error> {
+            if !local.insert(name.clone()) {
+                return Err(Error::Compile(
+                    format!("duplicate field '{}' in record", name),
+                    span.clone(),
+                ));
+            }
+            if !seen.insert(name.clone()) {
+                return Err(Error::Compile(
+                    format!("duplicate field name '{}' in group", name),
+                    span.clone(),
+                ));
+            }
+            Ok(())
+        };
         match &expr.kind {
             ExprKind::Record(_, labeled_exprs) => {
                 for labeled_expr in labeled_exprs {
                     if let Some(label) = labeled_expr.get_label() {
-                        names.insert(label);
+                        visit(label, labeled_expr.label_span())?;
                     }
                 }
             }
             _ => {
-                // For non-record expressions, use the implicit label if
-                // available.
                 if let Some(label) = expr.implicit_label_opt() {
-                    names.insert(label);
+                    visit(label, &expr.span)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Returns the number of fields in an expression.
@@ -3845,7 +3859,7 @@ impl TypeResolver {
             if label_expr_map.contains_key(&label) {
                 return Err(Error::Compile(
                     format!("duplicate field '{}' in record", label),
-                    labeled_expr.expr.span.clone(),
+                    labeled_expr.label_span().clone(),
                 ));
             }
             label_expr_map.insert(label, labeled_expr.clone());
@@ -5621,6 +5635,13 @@ impl LabeledExpr {
             .as_ref()
             .map(|label| label.name.clone())
             .or_else(|| self.expr.implicit_label_opt())
+    }
+
+    /// Returns the source position to use when reporting errors about
+    /// this field's label. Uses the label's span if it is explicit, or
+    /// the expression's span when the label is derived implicitly.
+    pub fn label_span(&self) -> &Span {
+        self.label.as_ref().map_or(&self.expr.span, |l| &l.span)
     }
 }
 
