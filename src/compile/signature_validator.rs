@@ -26,11 +26,18 @@
 //!
 //! This is the Rust equivalent of Java's `SignatureChecker` class.
 
+use crate::compile::library::BuiltInFunction;
+use crate::syntax::ast::{
+    DeclKind, SigBind, SpecKind, Statement, StatementKind,
+};
+use crate::syntax::parser::{ParseError, parse_statement};
+use std::collections::HashSet;
 use std::error;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use strum::IntoEnumIterator;
 
 /// Validates signature files against built-in definitions.
 ///
@@ -88,8 +95,21 @@ impl SignatureValidator {
             ));
         }
 
+        let mut all_missing: Vec<(PathBuf, String, String)> = Vec::new();
         for path in entries {
-            self.validate_file(&path)?;
+            match self.validate_file(&path) {
+                Ok(()) => {}
+                Err(ValidationError::SpecMissingInStrum { file, missing }) => {
+                    for (s, n) in missing {
+                        all_missing.push((file.clone(), s, n));
+                    }
+                }
+                Err(other) => return Err(other),
+            }
+        }
+
+        if !all_missing.is_empty() {
+            return Err(ValidationError::AllSpecsMissingInStrum(all_missing));
         }
 
         Ok(())
@@ -115,56 +135,200 @@ impl SignatureValidator {
 
     /// Validates a single signature file.
     ///
-    /// Currently validates that:
-    /// - The file can be read
-    /// - The file has proper formatting
+    /// Reads the file, then parses it as a Morel statement to confirm
+    /// the source is syntactically well-formed (including any attribute
+    /// or doc-comment annotations on the contained specs).
     ///
-    /// Future enhancements could include:
-    /// - Parsing the signature as AST
-    /// - Comparing declarations against BuiltInFunction/BuiltInRecord enums
-    /// - Validating type signatures match
+    /// Future enhancements:
+    /// - Walk the parse tree to compare each val/exception/datatype
+    ///   spec against the strum-tagged `BuiltInFunction` /
+    ///   `BuiltInExn` / `BuiltInDatatype` enums.
+    /// - Validate that the type signatures match.
     fn validate_file(&self, path: &Path) -> Result<(), ValidationError> {
-        // Verify that the file can be read
-        let _contents = fs::read_to_string(path).map_err(|e| {
+        let contents = fs::read_to_string(path).map_err(|e| {
             ValidationError::FileReadError(path.to_path_buf(), e)
         })?;
-
-        // Additional validation could be added here:
-        // - Parse as signature declaration
-        // - Check that values match BuiltInFunction entries
-        // - Check that exceptions match BuiltInExn entries
-        // - Check that datatypes match BuiltIn types
-
+        let stmt = parse_statement(&contents).map_err(|e| {
+            ValidationError::ParseError(path.to_path_buf(), Box::new(e))
+        })?;
+        self.check_strum_consistency(&stmt, path)?;
         Ok(())
     }
+
+    /// Cross-checks each `val name : ...` spec in the parsed signature
+    /// against the strum-tagged [`BuiltInFunction`] entries. Reports any
+    /// spec name that has no matching `(structure, name)` pair in strum.
+    fn check_strum_consistency(
+        &self,
+        stmt: &Statement,
+        path: &Path,
+    ) -> Result<(), ValidationError> {
+        let Some(structure) = structure_from_sig_file_name(path) else {
+            // Unknown file name; no strum coverage expected.
+            return Ok(());
+        };
+        let strum_names = strum_names_for_structure(&structure);
+        let binds = collect_sig_binds(stmt);
+        let mut missing: Vec<(String, String)> = Vec::new();
+        for bind in binds {
+            for spec in &bind.specs {
+                let sig_names: Vec<String> = match &spec.kind {
+                    SpecKind::Val(descs) => {
+                        descs.iter().map(|d| d.name.clone()).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                for name in sig_names {
+                    if strum_names.contains(&name) {
+                        continue;
+                    }
+                    if SKIP_SPEC_PAIRS
+                        .contains(&(structure.as_str(), name.as_str()))
+                    {
+                        continue;
+                    }
+                    missing.push((structure.clone(), name));
+                }
+            }
+        }
+        if !missing.is_empty() {
+            return Err(ValidationError::SpecMissingInStrum {
+                file: path.to_path_buf(),
+                missing,
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Specific `(structure, name)` pairs to skip in the strum-consistency
+/// check. Each entry documents a known gap between the `.sig` source
+/// and the `BuiltInFunction` strum entries; entries should be retired
+/// as the gaps close.
+const SKIP_SPEC_PAIRS: &[(&str, &str)] = &[
+    // lint: sort until '#}' where '##\('
+    ("Bag", "nth"),            // exposed as List.nth
+    ("General", "before"),     // not yet implemented
+    ("General", "exnMessage"), // not yet implemented
+    ("General", "exnName"),    // not yet implemented
+    ("Int", "fmt"),            // not yet implemented
+    ("Range", "complement"),   // not yet implemented
+    ("Range", "ranges"),       // not yet implemented
+    ("Real", "fmt"),           // not yet implemented
+    ("Relational", "only"),    // exposed as Bag.only overload
+    ("StringCvt", "padLeft"),  // not yet implemented
+    ("StringCvt", "padRight"), // not yet implemented
+    ("Sys", "file"),           // not yet implemented
+];
+
+/// Walks a parsed `.sig` statement and returns the contained signature
+/// bindings (one per `signature X = sig ... end` inside the file).
+fn collect_sig_binds(stmt: &Statement) -> Vec<SigBind> {
+    if let StatementKind::Decl(DeclKind::Signature(binds)) = &stmt.kind {
+        return binds.clone();
+    }
+    Vec::new()
+}
+
+/// Maps a `.sig` file name (e.g. `bool.sig`, `int.sig`, `string-cvt.sig`)
+/// to the corresponding structure name as it appears in
+/// `BuiltInFunction`'s `p` strum prop. Returns `None` only if the path
+/// has no stem; the kebab-case stem is converted by [`from_kebab`].
+fn structure_from_sig_file_name(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let name = from_kebab(stem);
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// Title-cases a kebab-cased identifier. Splits at hyphens and
+/// upper-cases the first character of each segment, with the single
+/// exception of `"ieee"`, which uppercases to `"IEEE"`.
+///
+/// Examples:
+/// - `"ieee-real"` → `"IEEEReal"`
+/// - `"list-pair"` → `"ListPair"`
+/// - `"string-cvt"` → `"StringCvt"`
+/// - `"bool"` → `"Bool"`
+fn from_kebab(kebab: &str) -> String {
+    let mut s = String::with_capacity(kebab.len());
+    for segment in kebab.split('-') {
+        if segment.is_empty() {
+            continue;
+        }
+        if segment == "ieee" {
+            s.push_str("IEEE");
+        } else {
+            let mut chars = segment.chars();
+            if let Some(c) = chars.next() {
+                s.extend(c.to_uppercase());
+                s.push_str(chars.as_str());
+            }
+        }
+    }
+    s
+}
+
+/// Returns the set of `name`s declared in `BuiltInFunction` strum
+/// entries whose `p` prop matches the given structure.
+fn strum_names_for_structure(structure: &str) -> HashSet<String> {
+    BuiltInFunction::iter()
+        .filter(|f| f.parent() == Some(structure))
+        .map(|f| f.name().to_string())
+        .collect()
 }
 
 /// Errors that can occur during signature validation.
 #[derive(Debug)]
 pub enum ValidationError {
+    // lint: sort until '#}' where '##[A-Z]'
+    /// Aggregated form: all (file, structure, name) tuples missing
+    /// from strum across every signature file checked.
+    AllSpecsMissingInStrum(Vec<(PathBuf, String, String)>),
     /// The library directory was not found.
     DirectoryNotFound(PathBuf),
-    /// The path exists but is not a directory.
-    NotADirectory(PathBuf),
-    /// No signature files were found in the directory.
-    NoSignatureFiles(PathBuf),
     /// Failed to read the directory.
     DirectoryReadError(PathBuf, io::Error),
     /// Failed to read a signature file.
     FileReadError(PathBuf, io::Error),
+    /// No signature files were found in the directory.
+    NoSignatureFiles(PathBuf),
+    /// The path exists but is not a directory.
+    NotADirectory(PathBuf),
+    /// A signature file did not parse as a Morel statement.
+    ParseError(PathBuf, Box<ParseError>),
+    /// A `.sig` file declares one or more `val structure.name : ...`
+    /// specs for which no matching [`BuiltInFunction`] strum entry
+    /// exists.
+    SpecMissingInStrum {
+        file: PathBuf,
+        missing: Vec<(String, String)>,
+    },
 }
 
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            // lint: sort until '#}' where '##ValidationError::'
+            ValidationError::AllSpecsMissingInStrum(entries) => {
+                write!(
+                    f,
+                    "{} spec(s) without matching BuiltInFunction strum \
+                     entry across all signature files:",
+                    entries.len(),
+                )?;
+                for (file, structure, name) in entries {
+                    write!(
+                        f,
+                        "\n  {}: val {}.{}",
+                        file.display(),
+                        structure,
+                        name
+                    )?;
+                }
+                Ok(())
+            }
             ValidationError::DirectoryNotFound(path) => {
                 write!(f, "Library directory not found: {}", path.display())
-            }
-            ValidationError::NotADirectory(path) => {
-                write!(f, "Path is not a directory: {}", path.display())
-            }
-            ValidationError::NoSignatureFiles(path) => {
-                write!(f, "No signature files found in: {}", path.display())
             }
             ValidationError::DirectoryReadError(path, err) => {
                 write!(
@@ -182,6 +346,33 @@ impl fmt::Display for ValidationError {
                     err
                 )
             }
+            ValidationError::NoSignatureFiles(path) => {
+                write!(f, "No signature files found in: {}", path.display())
+            }
+            ValidationError::NotADirectory(path) => {
+                write!(f, "Path is not a directory: {}", path.display())
+            }
+            ValidationError::ParseError(path, err) => {
+                write!(
+                    f,
+                    "Failed to parse signature file {}: {}",
+                    path.display(),
+                    err
+                )
+            }
+            ValidationError::SpecMissingInStrum { file, missing } => {
+                write!(
+                    f,
+                    "{}: {} spec(s) without matching BuiltInFunction \
+                     strum entry:",
+                    file.display(),
+                    missing.len(),
+                )?;
+                for (structure, name) in missing {
+                    write!(f, "\n  val {}.{}", structure, name)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -191,6 +382,7 @@ impl error::Error for ValidationError {
         match self {
             ValidationError::DirectoryReadError(_, err)
             | ValidationError::FileReadError(_, err) => Some(err),
+            ValidationError::ParseError(_, err) => Some(err.as_ref()),
             _ => None,
         }
     }

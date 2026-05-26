@@ -242,4 +242,41 @@ triple 7;
 "a" ^ (***) "b";
 > val it = "ab" : string
 
+(* --- Attributes on signature specs ------------------------------ *)
+(*) Baseline: signature with no attributes.
+Sys.parseTree "signature S = sig val x : int end";
+> val it = "(signature_decl signature S = sig val x : int end)" : string
+
+(*) Trailing [@@id] on a val spec.
+Sys.parseTree "signature S = sig val x : int [@@a] end";
+> val it = "(signature_decl signature S = sig val x : int [@@a] end)" : string
+
+(*) Doc-comment immediately above a spec desugars to [@@doc].
+Sys.parseTree "signature S = sig (** doc *) val x : int end";
+> val it = "(signature_decl signature S = sig val x : int [@@doc \" doc \"] end)"
+>   : string
+
+(*) Multiple attributes (including doc) can stack on a spec.
+Sys.parseTree
+  "signature S = sig (** d *) val x : int [@@a] [@@b] end";
+> val it =
+>   "(signature_decl signature S = sig val x : int [@@doc \" d \"] [@@a] [@@b] end)"
+>   : string
+
+(*) Attributes on type and exception specs.
+Sys.parseTree "signature S = sig type t [@@a] exception E [@@b] end";
+> val it =
+>   "(signature_decl signature S = sig type t [@@a] exception E [@@b] end)"
+>   : string
+
+(*) Floating [@@@id] inside sig...end carries structure-level metadata.
+Sys.parseTree "signature S = sig [@@@a] val x : int end";
+> val it = "(signature_decl signature S = sig [@@@a] val x : int end)" : string
+
+(*) Floating attribute with payload.
+Sys.parseTree "signature S = sig [@@@description \"doc\"] val x : int end";
+> val it =
+>   "(signature_decl signature S = sig [@@@description \"doc\"] val x : int end)"
+>   : string
+
 (*) End attribute.smli

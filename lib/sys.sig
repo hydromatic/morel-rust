@@ -16,36 +16,67 @@
  * language governing permissions and limitations under the
  * License.
  *
- * The SYS signature for system interaction and configuration.
+ * The SYS signature, a Morel extension.
+ *)
+(**
+ * The `Sys` structure provides functions for interacting with the Morel
+ * execution environment, such as reading properties and managing the
+ * environment.
  *)
 signature SYS =
 sig
-  (* Restores the environment to the initial environment. *)
-  val clearEnv : unit -> unit
 
-  (* Returns the current environment as a list of variable names. *)
-  val env : unit -> string list
+  (** restores the environment to the initial environment. *)
+  val clearEnv : unit -> unit [@@prototype "clearEnv ()"]
 
-  (* Returns the plan of the most recently executed expression. *)
-  val plan : unit -> string
+  (** prints the environment. *)
+  val env : unit -> (string * string) list [@@prototype "env ()"]
 
-  (* Sets the value of a property.
-   * Example: set ("hybrid", true) *)
+  (**
+   * is a view of the file system as a record. The fields of the record
+   * depend on the files and directories under the configured directory.
+   *)
+  val file : {} [@@prototype "file"]
+
+  (**
+   * parses `s` as a top-level Morel statement and returns a parenthesized
+   * S-expression-style dump of the resulting abstract syntax tree. Useful for
+   * testing parser behavior (e.g. operator precedence and attribute attachment)
+   * from `.smli` scripts. Raises `Error` if the string does not parse.
+   *)
+  val parseTree : string -> string [@@prototype "parseTree s"]
+
+  (** prints the plan of the most recently executed expression. *)
+  val plan : unit -> string [@@prototype "plan ()"]
+
+  (**
+   * re-plans the most recently executed expression and returns the Core
+   * representation at the specified phase. The phase argument can be "0" (initial),
+   * "-1" (final), or a specific pass number.
+   *)
+  val planEx : string -> string [@@prototype "planEx phase"]
+
+  (** sets the value of `property` to `value`. *)
   val set : string * 'a -> unit
+      [@@prototype "set (property, value)"]
+      [@@extra "(See [Properties](#properties) below.)"]
 
-  (* Returns the current value of a property as a string option.
-   * Returns NONE if the property is unset.
-   * Example: show "hybrid" *)
-  val show : string -> string option
+  (**
+   * returns the current the value of `property`, as a
+   * string, or `NONE` if unset.
+   *)
+  val show : string -> string option [@@prototype "show property"]
 
-  (* Returns a list of all properties and their current values.
-   * Each property is paired with SOME(value) if set, or NONE if unset.
-   * Example: showAll () *)
-  val showAll : unit -> (string * string option) list
+  (**
+   * returns a list of all properties and their current value
+   * as a string, or `NONE` if unset.
+   *)
+  val showAll : unit -> (string * string option) list [@@prototype "showAll ()"]
 
-  (* Clears the current value of a property, restoring it to default.
-   * Example: unset "hybrid" *)
-  val unset : string -> unit
+  (** clears the current the value of `property`. *)
+  val unset : string -> unit [@@prototype "unset property"]
 end
+[@@description "System interface utilities."]
+[@@specified "morel"]
 
 (*) End sys.sig

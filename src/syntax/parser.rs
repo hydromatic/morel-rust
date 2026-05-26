@@ -126,13 +126,6 @@ impl StepKind {
     }
 }
 
-impl SpecKind {
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn wrap(&self, input: ParseInput) -> Spec {
-        self.spanned(&input_to_span(&input))
-    }
-}
-
 #[pest_consume::parser(parser = MorelParser)]
 impl MorelParser {
     fn statement_plus(input: ParseInput) -> ParseResult<Statement> {
@@ -1451,11 +1444,56 @@ impl MorelParser {
     }
 
     fn spec(input: ParseInput) -> ParseResult<Spec> {
+        // `spec = floating_spec | (doc_comment | decl_attr)* inner_spec
+        //         decl_attr*`. pest_consume can't mix the various rule
+        // types in one match_nodes arm, so we walk children manually.
+        let mut attributes = Vec::new();
+        let mut spec_kind: Option<SpecKind> = None;
+        for child in input.children() {
+            match child.as_rule() {
+                Rule::doc_comment => {
+                    attributes.push(Self::doc_comment(child)?);
+                }
+                Rule::decl_attr => {
+                    attributes.push(Self::decl_attr(child)?);
+                }
+                Rule::floating_spec => {
+                    spec_kind = Some(Self::floating_spec(child)?);
+                }
+                Rule::inner_spec => {
+                    spec_kind = Some(Self::inner_spec(child)?);
+                }
+                _ => {}
+            }
+        }
+        let kind = spec_kind.expect("spec missing inner");
+        Ok(Spec { kind, attributes })
+    }
+
+    fn inner_spec(input: ParseInput) -> ParseResult<SpecKind> {
         Ok(match_nodes!(input.children();
-            [val_spec(s)] => s.wrap(input),
-            [type_spec(s)] => s.wrap(input),
-            [datatype_spec(s)] => s.wrap(input),
-            [exception_spec(s)] => s.wrap(input),
+            [val_spec(s)] => s,
+            [type_spec(s)] => s,
+            [eqtype_spec(s)] => s,
+            [datatype_spec(s)] => s,
+            [exception_spec(s)] => s,
+        ))
+    }
+
+    fn floating_spec(input: ParseInput) -> ParseResult<SpecKind> {
+        Ok(match_nodes!(input.children();
+            [attr_name(name)] => SpecKind::FloatingAttr(Attribute {
+                kind: AttributeKind::Floating,
+                name,
+                payload: None,
+            }),
+            [attr_name(name), attr_payload(payload)] => {
+                SpecKind::FloatingAttr(Attribute {
+                    kind: AttributeKind::Floating,
+                    name,
+                    payload: Some(payload),
+                })
+            },
         ))
     }
 
@@ -1472,11 +1510,26 @@ impl MorelParser {
 
     fn val_desc(input: ParseInput) -> ParseResult<ValDesc> {
         Ok(match_nodes!(input.children();
-            [identifier(i), type_(t)] => {
-                let name = i.to_string();
-                ValDesc {name, type_: t}
-            },
+            [val_name(name), type_(t)] => ValDesc { name, type_: t },
         ))
+    }
+
+    fn val_name(input: ParseInput) -> ParseResult<String> {
+        // `val_name = op_name`. For identifier alternatives we drill
+        // through to strip backticks from quoted identifiers (e.g.
+        // `` `take` `` becomes `"take"`). For operator alternatives we
+        // use the raw matched text directly.
+        for child in input.children() {
+            if child.as_rule() == Rule::op_name {
+                for grand in child.children() {
+                    if grand.as_rule() == Rule::identifier {
+                        return Self::identifier(grand).map(|s| s.to_string());
+                    }
+                }
+                return Ok(child.as_str().to_string());
+            }
+        }
+        Ok(input.as_str().to_string())
     }
 
     fn type_spec(input: ParseInput) -> ParseResult<SpecKind> {
@@ -1507,6 +1560,32 @@ impl MorelParser {
             [type_vars(vars), identifier(i), type_(t)] => {
                 let name = i.to_string();
                 TypeDesc {type_vars: vars, name, type_: Some(t)}
+            },
+        ))
+    }
+
+    fn eqtype_spec(input: ParseInput) -> ParseResult<SpecKind> {
+        Ok(match_nodes!(input.children();
+            [_eqtype(_), eqtype_desc(desc), _and(_), eqtype_desc(rest)..] => {
+                let mut descs = vec![desc];
+                descs.extend(rest.collect::<Vec<_>>());
+                SpecKind::Eqtype(descs)
+            },
+            [_eqtype(_), eqtype_desc(desc)] => {
+                SpecKind::Eqtype(vec![desc])
+            },
+        ))
+    }
+
+    fn eqtype_desc(input: ParseInput) -> ParseResult<TypeDesc> {
+        Ok(match_nodes!(input.children();
+            [identifier(i)] => {
+                let name = i.to_string();
+                TypeDesc {type_vars: vec![], name, type_: None}
+            },
+            [type_vars(vars), identifier(i)] => {
+                let name = i.to_string();
+                TypeDesc {type_vars: vars, name, type_: None}
             },
         ))
     }
@@ -1869,6 +1948,10 @@ impl MorelParser {
     }
 
     fn _end(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _eqtype(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
@@ -2644,7 +2727,7 @@ mod test {
 
         // Test signature with value spec
         ml("signature STACK = sig val empty : 'a stack end").assert_statement(
-            is("signature STACK = sig val empty : stack<'a>; end"),
+            is("signature STACK = sig val empty : stack<'a> end"),
         );
 
         // Test the full STACK signature from the example
@@ -2673,11 +2756,11 @@ mod test {
 
         // Test signature with type spec
         ml("signature S = sig type t end")
-            .assert_statement(is("signature S = sig type t; end"));
+            .assert_statement(is("signature S = sig type t end"));
         ml("signature S = sig type t = int end")
-            .assert_statement(is("signature S = sig type t = int; end"));
+            .assert_statement(is("signature S = sig type t = int end"));
         ml("signature S = sig type 'a t end")
-            .assert_statement(is("signature S = sig type 'a t; end"));
+            .assert_statement(is("signature S = sig type 'a t end"));
 
         // Test signature with datatype spec
         ml("signature S = sig datatype t = A | B end").assert_statement(|s| {
@@ -2692,7 +2775,7 @@ mod test {
 
         // Test signature with exception spec
         ml("signature S = sig exception Empty end")
-            .assert_statement(is("signature S = sig exception Empty; end"));
+            .assert_statement(is("signature S = sig exception Empty end"));
         ml("signature S = sig exception Error of string end").assert_statement(
             |s| {
                 assert!(s.contains("exception Error of"));
@@ -2711,12 +2794,12 @@ mod test {
         // Test that we can parse a complete signature as a statement
         // Note: Type applications are printed as 'stack<'a>' not ''a stack'
         ml("signature STACK = sig val empty : 'a stack end").assert_statement(
-            is("signature STACK = sig val empty : stack<'a>; end"),
+            is("signature STACK = sig val empty : stack<'a> end"),
         );
 
         // Test signature with multiple specs
         ml("signature S = sig type t val x : t end")
-            .assert_statement(is("signature S = sig type t; val x : t; end"));
+            .assert_statement(is("signature S = sig type t val x : t end"));
     }
 
     #[test]

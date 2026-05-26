@@ -469,7 +469,7 @@ fn dump_decl_kind(b: &mut String, d: &DeclKind) {
             b.push_str(name);
             b.push(')');
         }
-        DeclKind::Signature(_) => dump_decl_source(b, "signature", d),
+        DeclKind::Signature(_) => dump_decl_source(b, "signature_decl", d),
         DeclKind::Type(_) => dump_decl_source(b, "type_decl", d),
         DeclKind::Val(rec, inst, binds) => {
             b.push_str("(val");

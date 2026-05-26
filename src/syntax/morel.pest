@@ -56,6 +56,7 @@ keywords = {
   | _elements
   | _else
   | _end
+  | _eqtype
   | _except
   | _exception
   | _exists
@@ -115,6 +116,7 @@ _elem = @{ "elem" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _elements = @{ "elements" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _else = @{ "else" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _end = @{ "end" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_eqtype = @{ "eqtype" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _except = @{ "except" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _exception = @{ "exception" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _exists = @{ "exists" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -504,18 +506,38 @@ con_bind = { identifier ~ (_of ~ type_)? }
 sig_decl = { _signature ~ sig_bind ~ (_and ~ sig_bind)* }
 sig_bind = { identifier ~ "=" ~ _sig ~ spec* ~ _end }
 
+// A spec inside `sig ... end`. May carry leading `(** doc *)` doc
+// comments and leading/trailing `[@@id]` attributes (same machinery
+// as `attributed_decl`). A bare `[@@@id]` is a floating spec.
 spec = {
+    floating_spec
+  | (doc_comment | decl_attr)* ~ inner_spec ~ decl_attr*
+}
+
+floating_spec = { "[@@@" ~ attr_name ~ attr_payload? ~ "]" }
+
+inner_spec = {
     val_spec
   | type_spec
+  | eqtype_spec
   | datatype_spec
   | exception_spec
 }
 
 val_spec = { _val ~ val_desc ~ (_and ~ val_desc)* }
-val_desc = { identifier ~ ":" ~ type_ }
+// In a signature, a val spec may name a regular identifier or any of
+// the operator symbols and keyword-operators accepted by `op_name`
+// (e.g. `val + : ...`, `val @ : ...`, `val div : ...`).
+val_desc = { val_name ~ ":" ~ type_ }
+val_name = { op_name }
 
 type_spec = { _type ~ type_desc ~ (_and ~ type_desc)* }
 type_desc = { type_vars? ~ identifier ~ ("=" ~ type_)? }
+
+// An equality-type specification: like `type` but only the head form
+// (no `= ...` body); declares that the type admits structural equality.
+eqtype_spec = { _eqtype ~ eqtype_desc ~ (_and ~ eqtype_desc)* }
+eqtype_desc = { type_vars? ~ identifier }
 
 datatype_spec = { _datatype ~ datatype_desc ~ (_and ~ datatype_desc)* }
 datatype_desc = { type_vars? ~ identifier ~ "=" ~ con_desc ~ ("|" ~ con_desc)* }
