@@ -17,4 +17,5 @@
 
 // lint: sort until '^$' erase 'pub '
 pub mod ast;
+pub mod ast_dumper;
 pub mod parser;

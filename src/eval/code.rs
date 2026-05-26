@@ -58,6 +58,8 @@ use crate::eval::variant;
 use crate::eval::vector::Vector;
 use crate::shell::main::{MorelError, Shell};
 use crate::shell::prop::{Configurable, Prop};
+use crate::syntax::ast_dumper::dump as ast_dumper_dump;
+use crate::syntax::parser::parse_statement;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -2357,6 +2359,7 @@ pub enum EagerF1 {
     RealTrunc,
     RelationalMax,
     RelationalMin,
+    SysParseTree,
     SysPlanEx,
     SysShow,
     SysUnset,
@@ -2472,6 +2475,23 @@ impl EagerF1 {
             RealTrunc => Real::trunc(a0.expect_real(), span.unwrap()),
             RelationalMax => Relational::max(a0.expect_list(), span.unwrap()),
             RelationalMin => Relational::min(a0.expect_list(), span.unwrap()),
+            SysParseTree => {
+                // Parse the argument as a top-level Morel statement and
+                // return an S-expression dump of the resulting AST. Empty
+                // input round-trips to "()". A parse error raises `Fail`.
+                let source = a0.expect_string();
+                if source.trim().is_empty() {
+                    Ok(Val::String("()".to_string()))
+                } else {
+                    match parse_statement(&source) {
+                        Ok(stmt) => Ok(Val::String(ast_dumper_dump(&stmt))),
+                        Err(_) => Err(MorelError::Runtime(
+                            BuiltInExn::Fail,
+                            span.unwrap().clone(),
+                        )),
+                    }
+                }
+            }
             SysPlanEx => {
                 // Re-plan the most recently executed expression at the
                 // requested optimizer phase. The phase string is parsed
@@ -4604,6 +4624,7 @@ fn build_library() -> Lib {
     EagerF2::StringTranslate.implements(&mut b, StringTranslate);
     EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
     EagerF0::SysEnv.implements(&mut b, SysEnv);
+    EagerF1::SysParseTree.implements(&mut b, SysParseTree);
     EagerF0::SysPlan.implements(&mut b, SysPlan);
     EagerF1::SysPlanEx.implements(&mut b, SysPlanEx);
     EagerF2::SysSet.implements(&mut b, SysSet);

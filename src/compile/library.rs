@@ -1205,6 +1205,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "env", global = true))]
     #[strum(props(type = "unit -> (string * string) list"))]
     SysEnv,
+    #[strum(props(p = "Sys", name = "parseTree"))]
+    #[strum(props(type = "string -> string"))]
+    SysParseTree,
     #[strum(props(p = "Sys", name = "plan", global = true))]
     #[strum(props(type = "unit -> string"))]
     SysPlan,
