@@ -429,6 +429,19 @@ impl<'a> Resolver<'a> {
                     .map(|db| self.resolve_datatype_bind(db))
                     .collect(),
             ),
+            DeclKind::FloatingAttr(_) => {
+                // Floating attributes carry no runtime semantics; emit a
+                // unit no-op binding so the rest of the pipeline can
+                // ignore them.
+                let unit_type = Rc::new(Type::Primitive(PrimitiveType::Unit));
+                CoreDecl::NonRecVal(Box::new(CoreValBind {
+                    pat: CorePat::Tuple(unit_type.clone(), vec![]),
+                    t: (*unit_type).clone(),
+                    expr: CoreExpr::Tuple(unit_type, vec![]),
+                    overload_pat: None,
+                    span: None,
+                }))
+            }
             DeclKind::Fun(_) => {
                 unreachable!("Should have been desugared already")
             }

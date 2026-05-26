@@ -19,7 +19,26 @@
 WHITESPACE = _{ " " | NEWLINE }
 COMMENT = _{ line_comment | block_comment }
 line_comment = _{ "(*)" ~ (!NEWLINE ~ ANY)* ~ (NEWLINE | EOI) }
-block_comment = _{ "(*" ~ (line_comment | block_comment | (!"*)" ~ ANY))* ~ "*)" }
+// A block comment that is NOT a doc comment:
+//   - `(**)`, `(***)`, `(****)` etc. — `(*` followed by stars then `)`
+//   - `(* ... *)` whose body starts with anything other than `*`
+// The first arm intentionally precedes the second so that `(**)` is
+// recognized as the empty form rather than as the start of a doc.
+block_comment = _{
+    "(*" ~ "*"+ ~ ")"
+  | "(*" ~ !"*" ~ block_body ~ "*)"
+}
+block_body = _{ (line_comment | nested_block_comment | (!"*)" ~ ANY))* }
+nested_block_comment = _{ "(*" ~ block_body ~ "*)" }
+
+// Doc comment, captured as a non-silent rule so its body survives
+// parsing. Matches `(**` followed by content that is not just stars
+// and a closing `)` (those forms remain plain block comments). The
+// body allows nested block comments and the `(*)` line-comment
+// triplet as inert text.
+doc_comment = ${ "(**" ~ doc_body ~ "*)" }
+doc_body = @{ ( "(*)" | doc_nested_block | (!"*)" ~ ANY) )* }
+doc_nested_block = _{ "(*" ~ ( "(*)" | doc_nested_block | (!"*)" ~ ANY) )* ~ "*)" }
 
 // Keywords
 // lint: sort until '}' where '\|'
@@ -144,7 +163,7 @@ _yield = @{ "yield" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 program = { SOI ~ (WHITE_SPACE | COMMENT)* ~ statement_semicolon+ ~ EOI }
 statement_plus = { (WHITESPACE | COMMENT)* ~ statement ~ EOI }
 statement_semicolon = { statement ~ ";" }
-statement = { decl | expr }
+statement = { attributed_decl | expr }
 
 // -- Expressions -----------------------------------------
 
@@ -232,7 +251,7 @@ expr_unary_arg = { expr_unary_op* ~ expr_postfix_arg }
 // tail. Other atoms (parens, literals, list/tuple, etc.) match
 // without a tail; any trailing `.label(args)` becomes a
 // trailing_method_call on the whole application.
-expr_postfix_arg = { id_postfix_chain | atom }
+expr_postfix_arg = { id_postfix_chain ~ expr_attr* | atom ~ expr_attr* }
 id_postfix_chain = { identifier_expr ~ postfix_tail+ }
 // Trailing-method args may be a parenthesized list (`.drop(2)`) or
 // a single atom (`.drop 1`). Mirrors morel-java's `arg = atom()` in
@@ -255,7 +274,7 @@ expr_unary_op = { !literal ~ "~" }
 // whitespace at the boundaries of the postfix_tail's own tokens, but
 // sub-rules such as 'postfix_args' remain non-atomic internally so
 // whitespace inside the argument list is still allowed.
-expr_postfix = { atom ~ postfix_tail* }
+expr_postfix = { atom ~ postfix_tail* ~ expr_attr* }
 postfix_tail = ${ "." ~ WHITESPACE* ~ label }
 postfix_args = !{ "(" ~ postfix_arg_list? ~ ")" }
 postfix_arg_list = !{ expr ~ ("," ~ expr)* }
@@ -422,13 +441,43 @@ ellipsis = { "..." }
 // -- Declarations ----------------------------------------
 
 decl = {
-    val_decl
+    floating_attr_decl
+  | val_decl
   | fun_decl
   | type_decl
   | over_decl
   | datatype_decl
   | sig_decl
 }
+
+// === Attributes (OCaml-style metadata on declarations) ===
+
+// Possibly dotted attribute name: `a`, `foo.bar`, `a.b.c`.
+// Atomic: no whitespace between name segments and the dots.
+attr_name = ${ unquoted_identifier ~ ("." ~ unquoted_identifier)* }
+
+// An attribute payload is either an expression (after a space) or, after
+// `:`, a type. The closing `]` terminates the payload.
+attr_payload = { (":" ~ type_) | expr }
+
+// `[@@@id payload?]` — a floating attribute standing alone as a
+// declaration.
+floating_attr_decl = { "[@@@" ~ attr_name ~ attr_payload? ~ "]" }
+
+// `[@@id payload?]` — a declaration-level attribute. The `!"@"`
+// lookahead keeps `[@@@` reserved for the floating form.
+decl_attr = { "[@@" ~ !"@" ~ attr_name ~ attr_payload? ~ "]" }
+
+// `[@id payload?]` — an atom-level attribute that attaches to the
+// preceding expression atom. The `!"@"` lookahead distinguishes it
+// from `[@@`.
+expr_attr = { "[@" ~ !"@" ~ attr_name ~ attr_payload? ~ "]" }
+
+// A declaration optionally preceded or followed by one or more
+// `[@@id]` attributes. Leading and trailing attrs are merged in source
+// order on the resulting `Statement`. A leading `(** ... *)` doc
+// comment is also accepted and desugared to `[@@doc "..."]`.
+attributed_decl = { (doc_comment | decl_attr)* ~ decl ~ decl_attr* }
 
 val_decl = { _val ~ _inst? ~ _rec? ~ val_bind ~ and_val_bind* }
 and_val_bind = { _and ~ val_bind }
@@ -480,7 +529,7 @@ exn_desc = { identifier ~ (_of ~ type_)? }
 type_ = { fn_type }
 fn_type = { tuple_type ~ ("->" ~ fn_type)? }
 tuple_type = { apply_type ~ ("*" ~ apply_type)* }
-apply_type = { atomic_type ~ named_type* }
+apply_type = { atomic_type ~ named_type* ~ expr_attr* }
 atomic_type = {
     named_type
   | type_var

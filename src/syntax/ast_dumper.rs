@@ -27,22 +27,57 @@
 //! (literals, identifiers, type variables) are rendered atomically.
 
 use crate::syntax::ast::{
-    Decl, DeclKind, Expr, ExprKind, LabeledExpr, Literal, LiteralKind, Match,
-    Pat, PatField, PatKind, Statement, StatementKind, Type, TypeKind, ValBind,
+    Attribute, AttributePayload, Decl, DeclKind, Expr, ExprKind, LabeledExpr,
+    Literal, LiteralKind, Match, Pat, PatField, PatKind, Statement,
+    StatementKind, Type, TypeKind, ValBind,
 };
 
-/// Returns an S-expression dump of the statement.
+/// Returns an S-expression dump of the statement. Wraps with
+/// `(attributedExp ...)` when the outer expression has `[@id]`
+/// attributes, or `(attributedDecl ...)` when the outer declaration
+/// has `[@@id]` attributes; attribute-less statements dump as before.
 pub fn dump(stmt: &Statement) -> String {
     let mut b = String::new();
+    let has_attrs = !stmt.attributes.is_empty();
+    let wrapper = if has_attrs {
+        match &stmt.kind {
+            StatementKind::Expr(_) => "attributedExp",
+            StatementKind::Decl(_) => "attributedDecl",
+        }
+    } else {
+        ""
+    };
+    if has_attrs {
+        b.push('(');
+        b.push_str(wrapper);
+        b.push(' ');
+    }
     match &stmt.kind {
         StatementKind::Expr(e) => dump_expr_kind(&mut b, e),
         StatementKind::Decl(d) => dump_decl_kind(&mut b, d),
+    }
+    if has_attrs {
+        for attr in &stmt.attributes {
+            b.push(' ');
+            dump_attribute(&mut b, attr);
+        }
+        b.push(')');
     }
     b
 }
 
 fn dump_expr(b: &mut String, e: &Expr) {
-    dump_expr_kind(b, &e.kind);
+    if e.attributes.is_empty() {
+        dump_expr_kind(b, &e.kind);
+    } else {
+        b.push_str("(attributedExp ");
+        dump_expr_kind(b, &e.kind);
+        for attr in &e.attributes {
+            b.push(' ');
+            dump_attribute(b, attr);
+        }
+        b.push(')');
+    }
 }
 
 fn dump_expr_kind(b: &mut String, e: &ExprKind<Expr>) {
@@ -299,6 +334,20 @@ fn dump_pat(b: &mut String, p: &Pat) {
 }
 
 fn dump_type(b: &mut String, t: &Type) {
+    if !t.attributes.is_empty() {
+        b.push_str("(attributedType ");
+        dump_type_kind(b, t);
+        for attr in &t.attributes {
+            b.push(' ');
+            dump_attribute(b, attr);
+        }
+        b.push(')');
+        return;
+    }
+    dump_type_kind(b, t);
+}
+
+fn dump_type_kind(b: &mut String, t: &Type) {
     match &t.kind {
         // lint: sort until '#}' where '##TypeKind::'
         TypeKind::App(args, head) => {
@@ -359,19 +408,46 @@ fn dump_decl(b: &mut String, d: &Decl) {
     dump_decl_kind(b, &d.kind);
 }
 
+fn dump_attribute(b: &mut String, attr: &Attribute) {
+    b.push_str("(attribute ");
+    b.push_str(attr.kind.prefix());
+    b.push_str(&attr.name);
+    if let Some(payload) = &attr.payload {
+        match payload {
+            AttributePayload::Expr(e) => {
+                b.push(' ');
+                dump_expr(b, e);
+            }
+            AttributePayload::Type(t) => {
+                b.push_str(" : ");
+                dump_type(b, t);
+            }
+        }
+    }
+    b.push(')');
+}
+
 fn dump_decl_kind(b: &mut String, d: &DeclKind) {
     match d {
         // lint: sort until '#}' where '##DeclKind::'
         DeclKind::Datatype(_) => dump_decl_source(b, "datatype", d),
+        DeclKind::FloatingAttr(attr) => {
+            b.push_str("(floatingAttrDecl ");
+            dump_attribute(b, attr);
+            b.push(')');
+        }
         DeclKind::Fun(funs) => {
+            // Render as `(funBind (funMatch name ...))`: the name lives
+            // on `FunBind` in the AST (every match in a funBind shares
+            // it), but the dump form attaches it to each `funMatch`.
             b.push_str("(fun");
             for fb in funs {
                 b.push(' ');
-                b.push_str("(funBind ");
-                b.push_str(&fb.name);
+                b.push_str("(funBind");
                 for fm in &fb.matches {
                     b.push(' ');
-                    b.push_str("(funMatch");
+                    b.push_str("(funMatch ");
+                    b.push_str(&fb.name);
                     for p in &fm.pats {
                         b.push(' ');
                         dump_pat(b, p);
@@ -394,7 +470,7 @@ fn dump_decl_kind(b: &mut String, d: &DeclKind) {
             b.push(')');
         }
         DeclKind::Signature(_) => dump_decl_source(b, "signature", d),
-        DeclKind::Type(_) => dump_decl_source(b, "type", d),
+        DeclKind::Type(_) => dump_decl_source(b, "type_decl", d),
         DeclKind::Val(rec, inst, binds) => {
             b.push_str("(val");
             if *rec {

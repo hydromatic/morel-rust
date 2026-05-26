@@ -18,11 +18,12 @@
 #![allow(clippy::result_large_err)]
 
 use crate::syntax::ast::{
-    ConBind, ConDesc, DatatypeBind, DatatypeDesc, Decl, DeclKind, ExnDesc,
-    Expr, ExprKind, FunBind, FunMatch, Label, LabeledExpr, Literal,
-    LiteralKind, Match, Pat, PatField, PatKind, SigBind, Span, Spec, SpecKind,
-    Statement, StatementKind, Step, StepKind, Type, TypeBind, TypeDesc,
-    TypeField, TypeKind, TypeScheme, ValBind, ValDesc,
+    Attribute, AttributeKind, AttributePayload, ConBind, ConDesc, DatatypeBind,
+    DatatypeDesc, Decl, DeclKind, ExnDesc, Expr, ExprKind, FunBind, FunMatch,
+    Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField, PatKind,
+    SigBind, Span, Spec, SpecKind, Statement, StatementKind, Step, StepKind,
+    Type, TypeBind, TypeDesc, TypeField, TypeKind, TypeScheme, ValBind,
+    ValDesc,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
@@ -92,30 +93,12 @@ impl LiteralKind {
 
 impl ExprKind<Expr> {
     #[allow(clippy::needless_pass_by_value)]
-    pub fn as_statement(&self, input: ParseInput) -> Statement {
-        Statement {
-            kind: StatementKind::Expr(self.clone()),
-            span: input_to_span(&input),
-            id: None,
-        }
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Expr {
         self.spanned(&input_to_span(&input))
     }
 }
 
 impl DeclKind {
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn as_statement(&self, input: ParseInput) -> Statement {
-        Statement {
-            kind: StatementKind::Decl(self.clone()),
-            span: input_to_span(&input),
-            id: None,
-        }
-    }
-
     #[allow(clippy::needless_pass_by_value)]
     pub fn wrap(&self, input: ParseInput) -> Decl {
         self.spanned(&input_to_span(&input))
@@ -159,10 +142,99 @@ impl MorelParser {
     }
 
     fn statement(input: ParseInput) -> ParseResult<Statement> {
+        let span = input_to_span(&input);
         Ok(match_nodes!(input.children();
-            [expr(e)] => e.kind.as_statement(input),
-            [decl(d)] => d.kind.as_statement(input),
+            [expr(e)] => Statement {
+                kind: StatementKind::Expr(e.kind.clone()),
+                span,
+                id: None,
+                attributes: e.attributes,
+            },
+            [attributed_decl(s)] => s,
         ))
+    }
+
+    fn attributed_decl(input: ParseInput) -> ParseResult<Statement> {
+        // Collect leading and trailing `[@@id]` attributes (in source
+        // order) and the wrapped decl. pest_consume's match_nodes can't
+        // mix a rest pattern around a named middle element here, so walk
+        // children manually.
+        let span = input_to_span(&input);
+        let mut attributes = Vec::new();
+        let mut decl_kind: Option<DeclKind> = None;
+        for child in input.children() {
+            match child.as_rule() {
+                Rule::doc_comment => {
+                    attributes.push(Self::doc_comment(child)?);
+                }
+                Rule::decl_attr => {
+                    attributes.push(Self::decl_attr(child)?);
+                }
+                Rule::decl => {
+                    decl_kind = Some(Self::decl(child)?.kind);
+                }
+                _ => {}
+            }
+        }
+        let kind = decl_kind.expect("attributed_decl missing inner decl");
+        Ok(Statement {
+            kind: StatementKind::Decl(kind),
+            span,
+            id: None,
+            attributes,
+        })
+    }
+
+    fn decl_attr(input: ParseInput) -> ParseResult<Attribute> {
+        Ok(match_nodes!(input.children();
+            [attr_name(name)] => Attribute {
+                kind: AttributeKind::Decl,
+                name,
+                payload: None,
+            },
+            [attr_name(name), attr_payload(payload)] => Attribute {
+                kind: AttributeKind::Decl,
+                name,
+                payload: Some(payload),
+            },
+        ))
+    }
+
+    /// `(** body *)` desugars to `[@@doc "body"]`. The body's source
+    /// text becomes a string-literal payload, preserving any embedded
+    /// newlines and nested-comment characters verbatim.
+    fn doc_comment(input: ParseInput) -> ParseResult<Attribute> {
+        let span = input_to_span(&input);
+        let body_text = match_nodes!(input.children(); [doc_body(s)] => s);
+        // Wrap the body in quotes to form a Morel string-literal source.
+        // Newlines stay as raw newlines so the resulting Val::String,
+        // when shell-displayed, escapes them back to `\n` for multi-line
+        // doc bodies. Embedded `"` and `\` characters are escape-sanitized
+        // so the source stays a valid string literal.
+        let mut quoted = String::with_capacity(body_text.len() + 2);
+        quoted.push('"');
+        for c in body_text.chars() {
+            match c {
+                '"' => quoted.push_str("\\\""),
+                '\\' => quoted.push_str("\\\\"),
+                _ => quoted.push(c),
+            }
+        }
+        quoted.push('"');
+        let literal = Literal {
+            kind: LiteralKind::String(quoted),
+            span: span.clone(),
+        };
+        let expr = ExprKind::Literal(literal).spanned(&span);
+        Ok(Attribute {
+            kind: AttributeKind::Decl,
+            name: "doc".to_string(),
+            payload: Some(AttributePayload::Expr(Box::new(expr))),
+        })
+    }
+
+    fn doc_body(input: ParseInput) -> ParseResult<String> {
+        Ok(input.as_str().to_string())
     }
 
     fn expr(input: ParseInput) -> ParseResult<Expr> {
@@ -429,10 +501,30 @@ impl MorelParser {
     }
 
     fn expr_postfix_arg(input: ParseInput) -> ParseResult<Expr> {
-        Ok(match_nodes!(input.children();
-            [id_postfix_chain(e)] => e,
-            [atom(e)] => e,
-        ))
+        // Allow optional trailing `[@id]` attributes after the inner
+        // atom or id_postfix_chain so that `f x [@a]` parses as
+        // `f` applied to `(x [@a])`.
+        let mut e: Option<Expr> = None;
+        let mut attrs: Vec<Attribute> = Vec::new();
+        for child in input.children() {
+            match child.as_rule() {
+                Rule::id_postfix_chain => {
+                    e = Some(Self::id_postfix_chain(child)?);
+                }
+                Rule::atom => {
+                    e = Some(Self::atom(child)?);
+                }
+                Rule::expr_attr => {
+                    attrs.push(Self::expr_attr(child)?);
+                }
+                _ => {}
+            }
+        }
+        let mut e = e.expect("expr_postfix_arg missing inner");
+        if !attrs.is_empty() {
+            e.attributes.extend(attrs);
+        }
+        Ok(e)
     }
 
     fn id_postfix_chain(input: ParseInput) -> ParseResult<Expr> {
@@ -467,16 +559,51 @@ impl MorelParser {
     }
 
     fn expr_postfix(input: ParseInput) -> ParseResult<Expr> {
+        // `expr_postfix = atom postfix_tail* expr_attr*`. The grammar
+        // can't mix a rest pattern with another rest pattern of a
+        // different rule in match_nodes, so we walk children manually.
+        let mut atom_expr: Option<Expr> = None;
+        let mut tails: Vec<Label> = Vec::new();
+        let mut attrs: Vec<Attribute> = Vec::new();
+        for child in input.children() {
+            match child.as_rule() {
+                Rule::atom => {
+                    atom_expr = Some(Self::atom(child)?);
+                }
+                Rule::postfix_tail => {
+                    tails.push(Self::postfix_tail(child)?);
+                }
+                Rule::expr_attr => {
+                    attrs.push(Self::expr_attr(child)?);
+                }
+                _ => {}
+            }
+        }
+        let mut e = atom_expr.expect("expr_postfix missing atom");
+        for label in tails {
+            let selector = ExprKind::RecordSelector(label.name.to_string())
+                .spanned(&label.span);
+            let sel_span = e.span.union(&label.span);
+            e = ExprKind::Apply(Box::new(selector), Box::new(e))
+                .spanned(&sel_span);
+        }
+        if !attrs.is_empty() {
+            e.attributes.extend(attrs);
+        }
+        Ok(e)
+    }
+
+    fn expr_attr(input: ParseInput) -> ParseResult<Attribute> {
         Ok(match_nodes!(input.children();
-            [atom(e), postfix_tail(labels)..] => {
-                labels.fold(e, |acc, label| {
-                    let selector =
-                        ExprKind::RecordSelector(label.name.to_string())
-                            .spanned(&label.span);
-                    let sel_span = acc.span.union(&label.span);
-                    ExprKind::Apply(Box::new(selector), Box::new(acc))
-                        .spanned(&sel_span)
-                })
+            [attr_name(name)] => Attribute {
+                kind: AttributeKind::Exp,
+                name,
+                payload: None,
+            },
+            [attr_name(name), attr_payload(payload)] => Attribute {
+                kind: AttributeKind::Exp,
+                name,
+                payload: Some(payload),
             },
         ))
     }
@@ -1110,12 +1237,41 @@ impl MorelParser {
 
     fn decl(input: ParseInput) -> ParseResult<Decl> {
         Ok(match_nodes!(input.children();
+            [floating_attr_decl(d)] => d.wrap(input),
             [val_decl(d)] => d.wrap(input),
             [fun_decl(d)] => d.wrap(input),
             [over_decl(d)] => d.wrap(input),
             [type_decl(d)] => d.wrap(input),
             [datatype_decl(d)] => d.wrap(input),
             [sig_decl(d)] => d.wrap(input),
+        ))
+    }
+
+    fn floating_attr_decl(input: ParseInput) -> ParseResult<DeclKind> {
+        Ok(match_nodes!(input.children();
+            [attr_name(name)] => DeclKind::FloatingAttr(Attribute {
+                kind: AttributeKind::Floating,
+                name,
+                payload: None,
+            }),
+            [attr_name(name), attr_payload(payload)] => {
+                DeclKind::FloatingAttr(Attribute {
+                    kind: AttributeKind::Floating,
+                    name,
+                    payload: Some(payload),
+                })
+            },
+        ))
+    }
+
+    fn attr_name(input: ParseInput) -> ParseResult<String> {
+        Ok(input.as_str().to_string())
+    }
+
+    fn attr_payload(input: ParseInput) -> ParseResult<AttributePayload> {
+        Ok(match_nodes!(input.children();
+            [type_(t)] => AttributePayload::Type(Box::new(t)),
+            [expr(e)] => AttributePayload::Expr(Box::new(e)),
         ))
     }
 
@@ -1463,23 +1619,40 @@ impl MorelParser {
     }
 
     fn apply_type(input: ParseInput) -> ParseResult<Type> {
-        Ok(match_nodes!(input.children();
-            [atomic_type(t), named_type(types)..] => {
-                let type_vec: Vec<_> = types.collect();
-                if type_vec.is_empty() {
-                    t.with_span(&input_to_span(&input))
-                } else {
-                    type_vec.iter().fold(
-                        t,
-                        |acc, t2| {
-                            let span = acc.span.union(&t2.span);
-                            let type_args = vec![acc.clone()];
-                        TypeKind::App(type_args, Box::new(t2.clone()))
-                            .spanned(&span)
-                    }
-                )}
-            },
-        ))
+        // `apply_type = atomic_type named_type* expr_attr*`.
+        // pest_consume can't mix two `..` rest patterns of different
+        // rules, so walk children manually.
+        let mut base: Option<Type> = None;
+        let mut named_types: Vec<Type> = Vec::new();
+        let mut attrs: Vec<Attribute> = Vec::new();
+        for child in input.children() {
+            match child.as_rule() {
+                Rule::atomic_type => {
+                    base = Some(Self::atomic_type(child)?);
+                }
+                Rule::named_type => {
+                    named_types.push(Self::named_type(child)?);
+                }
+                Rule::expr_attr => {
+                    attrs.push(Self::expr_attr(child)?);
+                }
+                _ => {}
+            }
+        }
+        let mut t = base.expect("apply_type missing atomic_type");
+        if named_types.is_empty() {
+            t = t.with_span(&input_to_span(&input));
+        } else {
+            t = named_types.into_iter().fold(t, |acc, t2| {
+                let span = acc.span.union(&t2.span);
+                let type_args = vec![acc];
+                TypeKind::App(type_args, Box::new(t2)).spanned(&span)
+            });
+        }
+        if !attrs.is_empty() {
+            t.attributes.extend(attrs);
+        }
+        Ok(t)
     }
 
     fn atomic_type(input: ParseInput) -> ParseResult<Type> {

@@ -32,6 +32,7 @@ fn parse_expr(input: &str) -> Expr {
             kind,
             span: stmt.span,
             id: stmt.id,
+            attributes: stmt.attributes,
         },
         other => panic!("expected an expression, got {:?}", other),
     }
