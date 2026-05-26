@@ -71,27 +71,17 @@ impl<'a> CoverageChecker<'a> {
             return Some(v);
         }
 
-        // Create SAT variables for all constructors of this type.
+        // Create SAT variables for all constructors of this type, and
+        // register them as a one-hot slot. The slot enforces exactly-one
+        // semantics by enumeration, replacing the manual at-least-one
+        // disjunction and `O(N^2)` pairwise-exclusion constraints that an
+        // earlier implementation added — both redundant once the solver
+        // enumerates one assignment per constructor.
         let names =
             closed_constructors(type_, &self.type_map.datatype_constructors)?;
         let vars: Vec<usize> =
             names.iter().map(|_| self.sat.new_var()).collect();
-
-        // At least one constructor must be active.
-        let at_least_one =
-            Formula::Or(vars.iter().map(|&v| Formula::Var(v)).collect());
-        self.sat.add_constraint(at_least_one);
-
-        // At most one constructor is active (pairwise exclusion).
-        for i in 0..vars.len() {
-            for j in (i + 1)..vars.len() {
-                let not_both = Formula::Not(Box::new(Formula::And(vec![
-                    Formula::Var(vars[i]),
-                    Formula::Var(vars[j]),
-                ])));
-                self.sat.add_constraint(not_both);
-            }
-        }
+        self.sat.slot(vars.clone());
 
         // Store all variables.
         for (name, &var) in names.iter().zip(vars.iter()) {

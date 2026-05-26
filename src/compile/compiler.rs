@@ -2397,12 +2397,26 @@ impl Action for DatatypeDeclAction {
                 }
             })
             .collect();
-        r.emit_effect(Effect::EmitLine(format!(
-            "datatype {}{} = {}",
-            type_vars,
-            db.name,
-            cons.join(" | ")
-        )));
+        let single_line =
+            format!("datatype {}{} = {}", type_vars, db.name, cons.join(" | "));
+        let line_width = r
+            .shell
+            .config
+            .line_width
+            .unwrap_or_else(|| Prop::LineWidth.default_value().as_int());
+        let line = if line_width >= 0 && single_line.len() > line_width as usize
+        {
+            // Wrap to one constructor per line, in the style of SML/NJ.
+            let mut out = format!("datatype {}{}", type_vars, db.name);
+            for (i, con) in cons.iter().enumerate() {
+                out.push_str(if i == 0 { "\n  = " } else { "\n  | " });
+                out.push_str(con);
+            }
+            out
+        } else {
+            single_line
+        };
+        r.emit_effect(Effect::EmitLine(line));
 
         // Register each constructor as a runtime binding. The
         // user-defined tag is the constructor's 0-based position

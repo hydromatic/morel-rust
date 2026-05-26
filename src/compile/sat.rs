@@ -40,8 +40,6 @@ pub enum Formula {
     Not(Box<Formula>),
     /// Conjunction of zero or more formulas. Written `f0 ∧ f1 ∧ ...`.
     And(Vec<Formula>),
-    /// Disjunction of zero or more formulas. Written `f0 ∨ f1 ∨ ...`.
-    Or(Vec<Formula>),
 }
 
 impl Formula {
@@ -54,7 +52,6 @@ impl Formula {
             Formula::Var(v) => assignment[*v],
             Formula::Not(f) => !f.eval(assignment),
             Formula::And(fs) => fs.iter().all(|f| f.eval(assignment)),
-            Formula::Or(fs) => fs.iter().any(|f| f.eval(assignment)),
         }
     }
 }
@@ -76,17 +73,6 @@ impl Display for Formula {
                     write!(f, "{}", parts.join(" ∧ "))
                 }
             }
-            Formula::Or(fs) => {
-                if fs.is_empty() {
-                    write!(f, "false")
-                } else if fs.len() == 1 {
-                    write!(f, "{}", fs[0])
-                } else {
-                    let parts: Vec<String> =
-                        fs.iter().map(|g| format!("{}", g)).collect();
-                    write!(f, "({})", parts.join(" ∨ "))
-                }
-            }
         }
     }
 }
@@ -97,21 +83,25 @@ impl Display for Formula {
 
 /// Brute-force propositional satisfiability solver.
 ///
-/// Variables are anonymous integers allocated by [`Sat::new_var`]. Background
-/// constraints (type exclusivity, etc.) are added via [`Sat::add_constraint`]
-/// and are implicitly conjoined with every formula tested by [`Sat::is_sat`].
+/// Variables are anonymous integers allocated by [`Sat::new_var`]. A *slot*
+/// (declared via [`Sat::slot`]) is a group of variables of which exactly
+/// one is true. Slots let the solver enumerate `N` one-hot assignments per
+/// slot rather than `2^N`, which is essential for datatypes with many
+/// constructors (the pattern-coverage check uses one boolean per
+/// constructor). Variables not in any slot are searched by brute force.
 pub struct Sat {
     pub num_vars: usize,
-    /// Background constraints that always hold.
-    pub constraints: Vec<Formula>,
+    /// Groups of variables of which exactly one is true. Disjoint by
+    /// construction.
+    slots: Vec<Vec<usize>>,
 }
 
 impl Sat {
-    /// Creates an empty solver with no variables and no constraints.
+    /// Creates an empty solver with no variables.
     pub fn new() -> Self {
         Sat {
             num_vars: 0,
-            constraints: Vec::new(),
+            slots: Vec::new(),
         }
     }
 
@@ -122,58 +112,97 @@ impl Sat {
         v
     }
 
-    /// Adds a background constraint that must hold in every solution.
-    pub fn add_constraint(&mut self, f: Formula) {
-        self.constraints.push(f);
+    /// Declares that `vars` is a slot: exactly one of them is true in any
+    /// satisfying assignment. Allows [`Self::solve`] to enumerate `N`
+    /// candidates (one per variable in the slot) rather than `2^N`.
+    pub fn slot(&mut self, vars: Vec<usize>) {
+        self.slots.push(vars);
     }
 
-    /// Returns `true` if `formula` (combined with all background constraints)
-    /// is satisfiable, i.e. there exists an assignment of variables that makes
-    /// it true.
-    ///
-    /// Uses brute-force enumeration of all 2^n assignments. Treats `n > 20`
-    /// as satisfiable to avoid exponential blowup.
+    /// Returns `true` if `formula` is satisfiable, i.e. there exists an
+    /// assignment of variables that makes it true.
     pub fn is_sat(&self, formula: &Formula) -> bool {
-        let n = self.num_vars;
-        if n > 20 {
-            // Safety limit: assume satisfiable rather than hang.
-            return true;
-        }
-        let mut all = self.constraints.clone();
-        all.push(formula.clone());
-        let combined = Formula::And(all);
-        for mask in 0u64..(1u64 << n) {
-            let assignment: Vec<bool> =
-                (0..n).map(|i| (mask >> i) & 1 == 1).collect();
-            if combined.eval(&assignment) {
-                return true;
-            }
-        }
-        false
+        self.solve(formula).is_some()
     }
 
-    /// Returns a satisfying assignment for `formula` (combined with background
-    /// constraints), or `None` if the formula is unsatisfiable. Exercised
-    /// by the tests in this file.
+    /// Returns a satisfying assignment for `formula`, or `None` if the
+    /// formula is unsatisfiable.
     ///
-    /// The returned vector maps each variable index to its truth value.
-    #[allow(dead_code)]
+    /// Enumerates candidates as the Cartesian product of `2^F` settings of
+    /// the `F` "free" variables (those not in any slot) and `N_i` one-hot
+    /// settings per slot of size `N_i`. To avoid pathological blow-up when
+    /// many free variables are present, treats `F > 20` as satisfiable.
     pub fn solve(&self, formula: &Formula) -> Option<Vec<bool>> {
         let n = self.num_vars;
-        if n > 20 {
-            return Some(vec![false; n]);
-        }
-        let mut all = self.constraints.clone();
-        all.push(formula.clone());
-        let combined = Formula::And(all);
-        for mask in 0u64..(1u64 << n) {
-            let assignment: Vec<bool> =
-                (0..n).map(|i| (mask >> i) & 1 == 1).collect();
-            if combined.eval(&assignment) {
-                return Some(assignment);
+
+        let mut in_slot = vec![false; n];
+        for slot in &self.slots {
+            for &v in slot {
+                in_slot[v] = true;
             }
         }
-        None
+        let free_vars: Vec<usize> = (0..n).filter(|&i| !in_slot[i]).collect();
+
+        if free_vars.len() > 20 {
+            // Safety limit on the brute-force portion.
+            return Some(vec![false; n]);
+        }
+
+        let mut env = vec![false; n];
+        if Self::enumerate_free(&mut env, &free_vars, 0, &self.slots, formula) {
+            Some(env)
+        } else {
+            None
+        }
+    }
+
+    fn enumerate_free(
+        env: &mut [bool],
+        free_vars: &[usize],
+        free_idx: usize,
+        slots: &[Vec<usize>],
+        formula: &Formula,
+    ) -> bool {
+        if free_idx < free_vars.len() {
+            let v = free_vars[free_idx];
+            for value in [false, true] {
+                env[v] = value;
+                if Self::enumerate_free(
+                    env,
+                    free_vars,
+                    free_idx + 1,
+                    slots,
+                    formula,
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        Self::enumerate_slots(env, slots, 0, formula)
+    }
+
+    fn enumerate_slots(
+        env: &mut [bool],
+        slots: &[Vec<usize>],
+        slot_idx: usize,
+        formula: &Formula,
+    ) -> bool {
+        if slot_idx == slots.len() {
+            return formula.eval(env);
+        }
+        let slot = &slots[slot_idx];
+        for &v in slot {
+            env[v] = false;
+        }
+        for &true_var in slot {
+            env[true_var] = true;
+            if Self::enumerate_slots(env, slots, slot_idx + 1, formula) {
+                return true;
+            }
+            env[true_var] = false;
+        }
+        false
     }
 }
 
@@ -184,62 +213,14 @@ impl Default for Sat {
 }
 
 // ---------------------------------------------------------------------------
-// Tests (ported from SatTest.java)
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Tests a formula with two variables.
-    ///
-    /// Port of `SatTest.testBuild`.
-    ///
-    /// Builds and solves a formula with two variables:
-    /// `(x ∨ x ∨ y) ∧ (¬x ∨ ¬y ∨ ¬y) ∧ (¬x ∨ y ∨ y)`.
-    #[test]
-    fn test_build() {
-        let mut sat = Sat::new();
-        let x = sat.new_var(); // x0
-        let y = sat.new_var(); // x1
-
-        // (x ∨ x ∨ y)
-        let clause0 = Formula::Or(vec![
-            Formula::Var(x),
-            Formula::Var(x),
-            Formula::Var(y),
-        ]);
-        // (¬x ∨ ¬y ∨ ¬y)
-        let clause1 = Formula::Or(vec![
-            Formula::Not(Box::new(Formula::Var(x))),
-            Formula::Not(Box::new(Formula::Var(y))),
-            Formula::Not(Box::new(Formula::Var(y))),
-        ]);
-        // (¬x ∨ y ∨ y)
-        let clause2 = Formula::Or(vec![
-            Formula::Not(Box::new(Formula::Var(x))),
-            Formula::Var(y),
-            Formula::Var(y),
-        ]);
-        let formula = Formula::And(vec![clause0, clause1, clause2]);
-
-        assert_eq!(
-            formula.to_string(),
-            "(x0 ∨ x0 ∨ x1) ∧ (¬x0 ∨ ¬x1 ∨ ¬x1) \
-             ∧ (¬x0 ∨ x1 ∨ x1)"
-        );
-
-        let solution = sat.solve(&formula);
-        // Solution exists: x=false (0), y=true (1).
-        assert!(solution.is_some(), "formula is satisfiable");
-        let sol = solution.unwrap();
-        assert_eq!(sol[x], false, "x should be false");
-        assert_eq!(sol[y], true, "y should be true");
-    }
-
     /// Tests `true` (conjunction of zero terms).
-    ///
-    /// Port of `SatTest.testTrue`.
     #[test]
     fn test_true() {
         let sat = Sat::new();
@@ -251,21 +232,20 @@ mod tests {
         assert!(sol.unwrap().is_empty(), "solution is empty (no variables)");
     }
 
-    /// Tests `false` (disjunction of zero terms).
-    ///
-    /// Port of `SatTest.testFalse`.
+    /// Tests that an unsatisfiable formula (`x ∧ ¬x`) returns `None`.
     #[test]
-    fn test_false() {
-        let sat = Sat::new();
-        let false_term = Formula::Or(vec![]);
-        assert_eq!(false_term.to_string(), "false");
-
-        let sol = sat.solve(&false_term);
-        assert!(sol.is_none(), "false is not satisfiable");
+    fn test_unsatisfiable() {
+        let mut sat = Sat::new();
+        let x = sat.new_var();
+        let contradiction = Formula::And(vec![
+            Formula::Var(x),
+            Formula::Not(Box::new(Formula::Var(x))),
+        ]);
+        assert!(sat.solve(&contradiction).is_none());
     }
 
     /// Tests that a single literal is satisfiable and its negation is also
-    /// satisfiable independently, but together they are not.
+    /// satisfiable independently.
     #[test]
     fn test_single_var() {
         let mut sat = Sat::new();
@@ -273,40 +253,26 @@ mod tests {
 
         assert!(sat.is_sat(&Formula::Var(x)));
         assert!(sat.is_sat(&Formula::Not(Box::new(Formula::Var(x)))));
-
-        // x ∧ ¬x is unsatisfiable.
-        let contradiction = Formula::And(vec![
-            Formula::Var(x),
-            Formula::Not(Box::new(Formula::Var(x))),
-        ]);
-        assert!(!sat.is_sat(&contradiction));
     }
 
-    /// Tests at-most-one and at-least-one constraints, as used by the coverage
-    /// checker for closed types (bool, order, option, list).
+    /// Mirrors the workload the pattern-coverage checker generates for a
+    /// datatype with 35 constructors: one boolean variable per constructor,
+    /// declared as a single one-hot slot. The previous brute-force solver
+    /// could not solve this without the slot, because 2^35 exceeds the
+    /// safety cap.
     #[test]
-    fn test_closed_type_constraints() {
+    fn test_big_datatype() {
         let mut sat = Sat::new();
-        let t = sat.new_var(); // "true" constructor
-        let f = sat.new_var(); // "false" constructor
+        let n = 35;
+        let cs: Vec<usize> = (0..n).map(|_| sat.new_var()).collect();
+        sat.slot(cs.clone());
 
-        // At least one must be active.
-        sat.add_constraint(Formula::Or(vec![Formula::Var(t), Formula::Var(f)]));
-        // At most one: ¬(t ∧ f).
-        sat.add_constraint(Formula::Not(Box::new(Formula::And(vec![
-            Formula::Var(t),
-            Formula::Var(f),
-        ]))));
+        // "Is there a value not caught by C01?" — yes, any of C02..C35.
+        let not_c01 = Formula::Not(Box::new(Formula::Var(cs[0])));
+        let solution = sat.solve(&not_c01).expect("satisfiable");
 
-        // Matching only "true" leaves "false" uncovered → non-exhaustive.
-        let not_true = Formula::Not(Box::new(Formula::Var(t)));
-        assert!(sat.is_sat(&not_true), "¬true is satisfiable (false works)");
-
-        // Matching both "true" and "false" → exhaustive.
-        let not_covered = Formula::And(vec![
-            Formula::Not(Box::new(Formula::Var(t))),
-            Formula::Not(Box::new(Formula::Var(f))),
-        ]);
-        assert!(!sat.is_sat(&not_covered), "¬true ∧ ¬false is unsat");
+        let true_count = solution.iter().filter(|&&b| b).count();
+        assert_eq!(true_count, 1, "exactly one is true");
+        assert!(!solution[cs[0]], "C01 is false");
     }
 }
