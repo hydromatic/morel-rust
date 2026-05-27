@@ -40,6 +40,7 @@ use crate::eval::comparator::{Comparator, NaturalComparator};
 use crate::eval::date;
 use crate::eval::discrete::Discrete;
 use crate::eval::either::Either;
+use crate::eval::file::file_as_val;
 use crate::eval::frame::FrameDef;
 use crate::eval::int::Int;
 use crate::eval::list::List;
@@ -1452,7 +1453,43 @@ impl Code {
                 });
                 val.apply_f1(r, f, a0)
             }
-            Code::Nth(_, slot) => Ok(a0.expect_list()[*slot].clone()),
+            Code::Nth(type_, slot) => {
+                // For `Val::File`, the slots are the file's directory
+                // entries — looked up by name (from the field's
+                // `Label` in the static type, which the type-resolver
+                // populated from the file's current state) and
+                // returned as a child `Val::File`. Missing entries
+                // surface as `Val::Unit`, matching morel-java's
+                // behavior for an unknown / not-yet-expanded child.
+                if let Val::File(file) = &a0 {
+                    let field_name = match type_.as_ref() {
+                        Type::Record(_, fields) => {
+                            fields.keys().nth(*slot).map(Label::to_string)
+                        }
+                        _ => None,
+                    };
+                    if let Some(name) = field_name {
+                        use crate::eval::file::FileState;
+                        let child = match &*file.state.borrow() {
+                            FileState::Directory { entries } => {
+                                entries.get(&Label::from(name.clone())).cloned()
+                            }
+                            _ => None,
+                        };
+                        if let Some(c) = child {
+                            // Expand on access so successive field
+                            // accesses see the widened type.
+                            c.expand();
+                            // A data file (CSV / CSV.gz) materialises
+                            // as a `Val::List` of records here; a
+                            // sub-directory stays a `Val::File`.
+                            return Ok(file_as_val(&c));
+                        }
+                        return Ok(Val::Unit);
+                    }
+                }
+                Ok(a0.expect_list()[*slot].clone())
+            }
             _ => {
                 todo!("eval: {:?}", self)
             }
@@ -2236,6 +2273,7 @@ pub enum EagerF0 {
     DateLocalOffset,
     SysClearEnv,
     SysEnv,
+    SysFile,
     SysPlan,
     SysShowAll,
     TimeNow,
@@ -2306,6 +2344,10 @@ impl EagerF0 {
                     .collect();
                 Val::List(vals)
             }
+            // Returns the session's progressive root `File`, cached
+            // so successive references share state and accumulated
+            // expansion.
+            SysFile => Val::File(r.session.file()),
             SysPlan => {
                 let s = if let Some(c) = r.session.code.as_ref() {
                     if let Code::Fn(_, matches, _) = c.deref()
@@ -4669,6 +4711,7 @@ fn build_library() -> Lib {
     EagerF2::StringTranslate.implements(&mut b, StringTranslate);
     EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
     EagerF0::SysEnv.implements(&mut b, SysEnv);
+    EagerF0::SysFile.implements(&mut b, SysFile);
     EagerF1::SysParseTree.implements(&mut b, SysParseTree);
     EagerF0::SysPlan.implements(&mut b, SysPlan);
     EagerF1::SysPlanEx.implements(&mut b, SysPlanEx);
@@ -4891,6 +4934,18 @@ impl LibBuilder {
                 } else if let Some((_t, Impl::E0(eager0))) = fn_map.get(f) {
                     // Built-in is a constant such as Int.maxInt.
                     vals.push(eager0.apply());
+                } else if let Some((_t, Impl::EF0(_))) = fn_map.get(f) {
+                    // Built-in is a session-bound value (e.g.
+                    // `Sys.file`). The actual value cannot be
+                    // computed here without an `EvalEnv`; store a
+                    // placeholder so the `Sys` structure record
+                    // builds cleanly. Direct identifier references
+                    // (the global `file`) take the
+                    // `Code::NativeF0` fast path; explicit
+                    // `Sys.file` selection retrieves this placeholder
+                    // and would need further plumbing to dispatch
+                    // through the session.
+                    vals.push(Val::Fn(*f));
                 } else {
                     panic!("missing implementation for {:?}", f);
                 }

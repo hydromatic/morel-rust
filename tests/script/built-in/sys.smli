@@ -31,9 +31,9 @@ Sys.set ("now", "2024-01-01T00:00:00Z");
 
 Sys;
 > val it =
->   {clearEnv=fn,env=fn,parseTree=fn,plan=fn,planEx=fn,set=fn,show=fn,showAll=fn,
->    unset=fn}
->   : {clearEnv:unit -> unit, env:unit -> (string * string) list,
+>   {clearEnv=fn,env=fn,file=(),parseTree=fn,plan=fn,planEx=fn,set=fn,show=fn,
+>    showAll=fn,unset=fn}
+>   : {clearEnv:unit -> unit, env:unit -> (string * string) list, file:unit,
 >      parseTree:string -> string, plan:unit -> string, planEx:string -> string,
 >      set:string * 'a -> unit, show:string -> string option,
 >      showAll:unit -> (string * string option) list, unset:string -> unit}
@@ -113,7 +113,7 @@ Sys.env ();
 >     "{padLeft:char -> int -> string -> string, padRight:char -> int -> string -> string}"),
 >    ("Subscript","exn"),("Sun","weekday"),
 >    ("Sys",
->     "{clearEnv:unit -> unit, env:unit -> (string * string) list, parseTree:string -> string, plan:unit -> string, planEx:string -> string, set:forall 'a. string * 'a -> unit, show:string -> string option, showAll:unit -> (string * string option) list, unset:string -> unit}"),
+>     "{clearEnv:unit -> unit, env:unit -> (string * string) list, file:{}, parseTree:string -> string, plan:unit -> string, planEx:string -> string, set:forall 'a. string * 'a -> unit, show:string -> string option, showAll:unit -> (string * string option) list, unset:string -> unit}"),
 >    ("Thu","weekday"),
 >    ("Time",
 >     "{+:time * time -> time, -:time * time -> time, <:time * time -> bool, <=:time * time -> bool, >:time * time -> bool, >=:time * time -> bool, compare:time * time -> order, fmt:int -> time -> string, fromMicroseconds:int -> time, fromMilliseconds:int -> time, fromNanoseconds:int -> time, fromReal:real -> time, fromSeconds:int -> time, fromString:string -> time option, now:unit -> time, toMicroseconds:time -> int, toMilliseconds:time -> int, toNanoseconds:time -> int, toReal:time -> real, toSeconds:time -> int, toString:time -> string, zeroTime:time}"),
@@ -203,7 +203,7 @@ env ();
 >     "{padLeft:char -> int -> string -> string, padRight:char -> int -> string -> string}"),
 >    ("Subscript","exn"),("Sun","weekday"),
 >    ("Sys",
->     "{clearEnv:unit -> unit, env:unit -> (string * string) list, parseTree:string -> string, plan:unit -> string, planEx:string -> string, set:forall 'a. string * 'a -> unit, show:string -> string option, showAll:unit -> (string * string option) list, unset:string -> unit}"),
+>     "{clearEnv:unit -> unit, env:unit -> (string * string) list, file:{}, parseTree:string -> string, plan:unit -> string, planEx:string -> string, set:forall 'a. string * 'a -> unit, show:string -> string option, showAll:unit -> (string * string option) list, unset:string -> unit}"),
 >    ("Thu","weekday"),
 >    ("Time",
 >     "{+:time * time -> time, -:time * time -> time, <:time * time -> bool, <=:time * time -> bool, >:time * time -> bool, >=:time * time -> bool, compare:time * time -> order, fmt:int -> time -> string, fromMicroseconds:int -> time, fromMilliseconds:int -> time, fromNanoseconds:int -> time, fromReal:real -> time, fromSeconds:int -> time, fromString:string -> time option, now:unit -> time, toMicroseconds:time -> int, toMilliseconds:time -> int, toNanoseconds:time -> int, toReal:time -> real, toSeconds:time -> int, toString:time -> string, zeroTime:time}"),

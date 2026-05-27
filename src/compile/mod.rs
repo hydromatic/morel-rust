@@ -28,6 +28,7 @@ pub mod library;
 mod pat_coverage;
 pub mod postfix;
 mod pretty;
+pub mod progressive_widen;
 pub mod replacer;
 pub mod resolver;
 pub mod sat;

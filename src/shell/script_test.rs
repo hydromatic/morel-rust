@@ -87,9 +87,10 @@ impl ScriptTest {
                 }
                 cursor = d.parent();
             }
-            // For the "file.smli" test, move to a subdirectory; it's more
-            // predictable.
-            if path.to_string_lossy().contains("/file.") {
+            // For the "file.smli" test, move to a subdirectory; it's
+            // more predictable.
+            let path_str = path.to_string_lossy();
+            if path_str.contains("/file.") {
                 directory.push("data");
             }
             session_config.script_directory = Some(Rc::new(script_dir));

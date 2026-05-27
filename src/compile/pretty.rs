@@ -475,14 +475,21 @@ impl Pretty {
                 )?;
             }
             Type::List(element_type) => {
-                self.print_list(
-                    buf,
-                    indent,
-                    line_end,
-                    depth,
-                    element_type,
-                    value.expect_list(),
-                )?;
+                // A data file appearing as a directory entry stays as
+                // `Val::File`; render it as `<relation>` rather than
+                // eagerly materialising every row.
+                if matches!(value, Val::File(_)) {
+                    buf.push_str("<relation>");
+                } else {
+                    self.print_list(
+                        buf,
+                        indent,
+                        line_end,
+                        depth,
+                        element_type,
+                        value.expect_list(),
+                    )?;
+                }
             }
             Type::Named(_, name) => {
                 // For arbitrary named types (used as a placeholder for
@@ -521,6 +528,47 @@ impl Pretty {
                 self.pretty_primitive(buf, prim_type, value)?;
             }
             Type::Record(_progressive, arg_name_types) => {
+                // A `Val::File` carries its own state; map each type
+                // field through to the matching child file. Unknown
+                // child entries render as `Val::Unit` (printed as
+                // `{}` by the unit-typed printer) so the field list
+                // stays aligned with the type.
+                if let Val::File(file) = value {
+                    use crate::eval::file::FileState;
+                    let entries: Vec<(String, Val)> =
+                        match &*file.state.borrow() {
+                            FileState::Directory { entries } => entries
+                                .iter()
+                                .map(|(l, c)| {
+                                    (l.to_string(), Val::File(Rc::clone(c)))
+                                })
+                                .collect(),
+                            _ => Vec::new(),
+                        };
+                    buf.push('{');
+                    let start = buf.len();
+                    for (name, field_type) in arg_name_types {
+                        if buf.len() > start {
+                            buf.push(',');
+                        }
+                        let val2 = entries
+                            .iter()
+                            .find(|(n, _)| *n == name.to_string())
+                            .map_or(Val::Unit, |(_, v)| v.clone());
+                        self.pretty1(
+                            buf,
+                            indent + 1,
+                            line_end,
+                            depth + 1,
+                            field_type,
+                            &Val::new_named(&name.to_string(), val2),
+                            0,
+                            0,
+                        )?;
+                    }
+                    buf.push('}');
+                    return Ok(());
+                }
                 // Single-field records are stored as bare values, not
                 // wrapped in Val::List.
                 let list_owned;

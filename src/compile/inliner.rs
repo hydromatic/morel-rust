@@ -390,12 +390,18 @@ impl Transformer for Inliner {
         match &expr {
             // lint: sort until '#}' where '##Expr::'
             Expr::Apply(result_type, f, a, span) => {
+                // Constant-fold a record selector applied to a
+                // literal record. Only fires when the literal's
+                // shape actually has a value for that slot —
+                // `Val::Fn(Sys.file)` and `Val::File` carry no list
+                // of pre-extracted fields and must be resolved at
+                // runtime.
                 if let Expr::RecordSelector(_fn_type, slot) = f.as_ref()
                     && let Expr::Literal(record_type, v) = a.as_ref()
                     && let Some(field_type) =
                         record_type.field_types().get(*slot)
+                    && let Some(v2) = v.get_field(*slot)
                 {
-                    let v2 = v.get_field(*slot).unwrap();
                     return Expr::Literal(
                         Rc::new(field_type.clone()),
                         v2.clone(),
@@ -566,7 +572,14 @@ impl Expr {
                 let f2 = x.transform_expr(env, f);
                 let a2 = x.transform_expr(env, a);
                 match (&f2, &a2) {
-                    (Expr::RecordSelector(_, slot), Expr::Literal(_, v)) => {
+                    (Expr::RecordSelector(_, slot), Expr::Literal(_, v))
+                        if matches!(v, Val::List(_)) =>
+                    {
+                        // Records compile to `Val::List` and can be
+                        // constant-folded by slot. Other shapes
+                        // (e.g. `Val::Fn(Sys.file)`, `Val::File`)
+                        // need runtime dispatch — leave them as
+                        // `Expr::Apply` for the compiler to handle.
                         Expr::Literal(
                             result_type.clone(),
                             v.expect_list()[*slot].clone(),

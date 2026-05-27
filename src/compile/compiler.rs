@@ -1466,6 +1466,15 @@ impl<'a> Compiler<'a> {
                 // `Math.pi`) to the underlying value, by invoking the
                 // function's `Eager0` implementation. Non-zero-arg
                 // built-ins and other literals pass through unchanged.
+                if let Val::Fn(f) = val
+                    && let Impl::EF0(ef0) = f.get_impl()
+                {
+                    // Session-bound zero-arg value (e.g. `Sys.file`).
+                    // Evaluate at runtime so it sees the current
+                    // session each time, rather than baking in a
+                    // build-time placeholder.
+                    return Code::NativeF0(ef0);
+                }
                 let val2 = match val {
                     Val::Fn(f) => match f.get_impl() {
                         Impl::E0(e0) => e0.apply(),

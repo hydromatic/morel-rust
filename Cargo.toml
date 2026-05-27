@@ -39,6 +39,7 @@ path = "src/main.rs"
 # lint: sort until '^$'
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 chrono-tz = { version = "0.10", default-features = false }
+flate2 = "1.0"
 indexmap = "2.0"
 lalrpop-util = { version = "0.22", features = ["lexer", "unicode"] }
 pest = "2.8"

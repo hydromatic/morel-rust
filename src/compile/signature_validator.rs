@@ -214,7 +214,6 @@ const SKIP_SPEC_PAIRS: &[(&str, &str)] = &[
     ("Range", "complement"),   // not yet implemented
     ("Range", "ranges"),       // not yet implemented
     ("Relational", "only"),    // exposed as Bag.only overload
-    ("Sys", "file"),           // not yet implemented
 ];
 
 /// Walks a parsed `.sig` statement and returns the contained signature

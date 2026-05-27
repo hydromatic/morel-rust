@@ -260,18 +260,24 @@ fib(idx + 1, x + y) :- fib(idx, x), fib(idx - 1, y), idx <= 9.
 >     {idx=9,value=34},{idx=10,value=55}]}
 >   : {fib:{idx:int, value:int} list} variant
 
-(*) .input directive: load facts from a CSV (data/datalog/edges.csv).
-Datalog.execute ".decl edge(x:int, y:int)
-.input edge \"data/datalog/edges.csv\"
-.output edge";
-> val it = {edge=[{x=1,y=2},{x=2,y=3},{x=3,y=4}]}
->   : {edge:{x:int, y:int} list} variant
+(*) .input directive: load facts from a CSV (data/scott/depts.csv).
+Datalog.execute ".decl dept(deptno:int, dname:string, loc:string)
+.input dept \"data/scott/depts.csv\"
+.output dept";
+> val it =
+>   {
+>    dept=
+>    [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
+>     {deptno=20,dname="RESEARCH",loc="DALLAS"},
+>     {deptno=30,dname="SALES",loc="CHICAGO"},
+>     {deptno=40,dname="OPERATIONS",loc="BOSTON"}]}
+>   : {dept:{deptno:int, dname:string, loc:string} list} variant
 
 (*) .input directive: missing file surfaces a helpful error.
-Datalog.execute ".decl edge(x:int, y:int)
-.input edge \"data/datalog/missing.csv\"
-.output edge";
-> val it = "Compilation error: Input file not found: data/datalog/missing.csv (resolved to tests/data/datalog/missing.csv)"
+Datalog.execute ".decl dept(deptno:int, dname:string, loc:string)
+.input dept \"data/scott/missing.csv\"
+.output dept";
+> val it = "Compilation error: Input file not found: data/scott/missing.csv (resolved to tests/data/scott/missing.csv)"
 >   : string variant
 
 (*) End built-in/datalog.smli

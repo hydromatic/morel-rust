@@ -24,6 +24,7 @@ pub mod comparator;
 pub mod date;
 pub mod discrete;
 pub mod either;
+pub mod file;
 pub mod frame;
 pub mod int;
 pub mod link_table;

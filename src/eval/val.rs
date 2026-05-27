@@ -22,6 +22,7 @@ use crate::eval::code::{
     Code, EvalEnv, Frame as CodeFrame, Frame, Impl, LIBRARY,
 };
 use crate::eval::date;
+use crate::eval::file;
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
 use crate::eval::real::Real;
@@ -29,6 +30,7 @@ use crate::shell::main::MorelError;
 use crate::syntax::parser;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, Weak};
 
 // The runtime tag stored in `Val::Constructor(tag, _)` for a
@@ -201,6 +203,14 @@ pub enum Val {
     /// cells; the cycle is leaked (one rec group per let-rec
     /// activation), which is acceptable for the test/script use case.
     RecCell(Arc<Mutex<Val>>),
+
+    /// A live progressive file-system value (a directory or a parsed
+    /// data file). Carries an `Rc<File>` so that progressive
+    /// expansion in one place is visible everywhere it's referenced.
+    /// The associated type lives in the record-typed field of the
+    /// parent value's progressive record, expanded on demand by the
+    /// type-resolver. See [`crate::eval::file::File`].
+    File(Rc<file::File>),
 
     /// Sentinel returned by [`Code::TailApply`] from a tail-position
     /// function call. The trampoline in `Frame::create_bind_and_eval`
@@ -450,6 +460,7 @@ impl Display for Val {
                 }
             }
             Val::Date(d, o) => write!(f, "{}", date::format_iso(*d, *o)),
+            Val::File(file) => write!(f, "{}", file::display_file(file)),
             Val::Fn(func) => {
                 let name = func.name();
                 // Symbolic operator names (e.g. `^`, `+`, `=`) are shown
@@ -557,6 +568,7 @@ impl PartialEq for Val {
             (Val::Closure(a), Val::Closure(b)) => Arc::ptr_eq(a, b),
             (Val::ClosureWeak(a), Val::ClosureWeak(b)) => Weak::ptr_eq(a, b),
             (Val::RecCell(a), Val::RecCell(b)) => Arc::ptr_eq(a, b),
+            (Val::File(a), Val::File(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -687,6 +699,10 @@ impl Hash for Val {
                 22.hash(state);
                 fn_.hash(state);
                 arg.hash(state);
+            }
+            Val::File(file) => {
+                23.hash(state);
+                Rc::as_ptr(file).hash(state);
             }
         }
     }

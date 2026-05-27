@@ -18,13 +18,12 @@
  *
  * Tests for the file system ("file").
  *)
-set("mode", "validate");
-> val it = () : unit
 
 (*) The "file" value represents the file system, starting in the current
 (*) directory.
 file;
-> val it = {scott={},wordle={}} : {scott:{...}, wordle:{...}, ...}
+> val it = {map={},scott={},wordle={}}
+>   : {map:{...}, scott:{...}, wordle:{...}, ...}
 
 (*) A subdirectory.
 file.wordle;
@@ -33,8 +32,9 @@ file.wordle;
 
 (*) Now we've gone into the directory, the type of 'file' has widened.
 file;
-> val it = {scott={},wordle={answers=<relation>,words=<relation>}}
->   : {scott:{...}, wordle:{answers:{...} list, words:{...} list, ...}, ...}
+> val it = {map={},scott={},wordle={answers=<relation>,words=<relation>}}
+>   : {map:{...}, scott:{...}, wordle:{answers:{...} list, words:{...} list, ...},
+>      ...}
 
 (*) A variable via which we can access relations.
 val s = file.scott;
@@ -50,6 +50,19 @@ from d in s.depts
   order deptno;
 > val it = [{count=3,deptno=10},{count=5,deptno=20},{count=6,deptno=30}]
 >   : {count:int, deptno:int} list
+
+(* Bind a relation through a second val. The TypedValue threads through
+ * both bindings so depts widens fully. *)
+val depts_dir = s.depts;
+> val depts_dir =
+>   [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
+>    {deptno=20,dname="RESEARCH",loc="DALLAS"},
+>    {deptno=30,dname="SALES",loc="CHICAGO"},
+>    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
+>   : {deptno:int, dname:string, loc:string} list
+from d in depts_dir where d.deptno = 20;
+> val it = [{deptno=20,dname="RESEARCH",loc="DALLAS"}]
+>   : {deptno:int, dname:string, loc:string} list
 
 file.scott.depts;
 > val it =
@@ -83,14 +96,98 @@ val scott = file.scott;
 from b in scott.bonuses;
 > val it = [] : {bonus:real, ename:string, job:string, sal:real} list
 
+(* Tuple destructuring. Both s2 and w2 bind to a Val::File from the
+ * destructured RHS, so each widens on access in a later statement. *)
+val (s2, w2) = (file.scott, file.wordle);
+> val s2 =
+>   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
+>   : {bonuses:{bonus:real, ename:string, job:string, sal:real} list,
+>      depts:{deptno:int, dname:string, loc:string} list,
+>      emps:
+>           {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>            job:string, mgrno:int, sal:real} list, salgrades:{...} list, ...}
+> val w2 = {answers=<relation>,words=<relation>}
+>   : {answers:{...} list, words:{...} list, ...}
+from d in s2.depts where d.dname = "SALES";
+> val it = [{deptno=30,dname="SALES",loc="CHICAGO"}]
+>   : {deptno:int, dname:string, loc:string} list
+
+(* Record-wrap + project. Reaches the underlying File through a record
+ * literal: the post-resolution widening pass walks the value tree
+ * (record-selector chain rooted at r) to find the File. *)
+val r = {x = file.scott};
+> val r =
+>   {x={bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}}
+>   : {
+>      x:{bonuses:{bonus:real, ename:string, job:string, sal:real} list,
+>         depts:{deptno:int, dname:string, loc:string} list,
+>         emps:
+>              {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>               job:string, mgrno:int, sal:real} list, salgrades:{...} list, ...}}
+from d in r.x.depts;
+> val it =
+>   [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
+>    {deptno=20,dname="RESEARCH",loc="DALLAS"},
+>    {deptno=30,dname="SALES",loc="CHICAGO"},
+>    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
+>   : {deptno:int, dname:string, loc:string} list
+
+(* Shadow with a different type. s4 is first bound to file.scott
+ * (a directory); the next binding replaces it with an int. *)
+val s4 = file.scott;
+> val s4 =
+>   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
+>   : {bonuses:{bonus:real, ename:string, job:string, sal:real} list,
+>      depts:{deptno:int, dname:string, loc:string} list,
+>      emps:
+>           {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>            job:string, mgrno:int, sal:real} list, salgrades:{...} list, ...}
+val s4 = 5;
+> val s4 = 5 : int
+s4 + 1;
+> val it = 6 : int
+
+(* Within-statement let. The TypedValue threads through the inner-let
+ * binding so s.emps widens, but s does not escape the let. *)
+let val s = file.scott in s.emps end;
+> val it =
+>   [
+>    {comm=0,deptno=20,empno=7369,ename="SMITH",hiredate="1980-12-17",job="CLERK",
+>     mgrno=7902,sal=800},
+>    {comm=300,deptno=30,empno=7499,ename="ALLEN",hiredate="1981-02-20",
+>     job="SALESMAN",mgrno=7698,sal=1600},
+>    {comm=500,deptno=30,empno=7521,ename="WARD",hiredate="1981-02-22",
+>     job="SALESMAN",mgrno=7698,sal=1250},
+>    {comm=0,deptno=20,empno=7566,ename="JONES",hiredate="1981-02-04",
+>     job="MANAGER",mgrno=7839,sal=2975},
+>    {comm=1400,deptno=30,empno=7654,ename="MARTIN",hiredate="1981-09-28",
+>     job="SALESMAN",mgrno=7698,sal=1250},
+>    {comm=0,deptno=30,empno=7698,ename="BLAKE",hiredate="1981-01-05",
+>     job="MANAGER",mgrno=7839,sal=2850},
+>    {comm=0,deptno=10,empno=7782,ename="CLARK",hiredate="1981-06-09",
+>     job="MANAGER",mgrno=7839,sal=2450},
+>    {comm=0,deptno=20,empno=7788,ename="SCOTT",hiredate="1987-04-19",
+>     job="ANALYST",mgrno=7566,sal=3000},
+>    {comm=0,deptno=10,empno=7839,ename="KING",hiredate="1981-11-17",
+>     job="PRESIDENT",mgrno=0,sal=5000},
+>    {comm=0,deptno=30,empno=7844,ename="TURNER",hiredate="1981-09-08",
+>     job="SALESMAN",mgrno=7698,sal=1500},
+>    {comm=0,deptno=20,empno=7876,ename="ADAMS",hiredate="1987-05-23",job="CLERK",
+>     mgrno=7788,sal=1100},
+>    {comm=0,deptno=30,empno=7900,ename="JAMES",hiredate="1981-12-03",job="CLERK",
+>     mgrno=7698,sal=950},...]
+>   :
+>     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
+>      job:string, mgrno:int, sal:real} list
+
 (*) The type of 'file' has widened further.
 file;
 > val it =
->   {
+>   {map={},
 >    scott=
 >    {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>},
 >    wordle={answers=<relation>,words=<relation>}}
->   : {
+>   : {map:{...},
 >      scott:{bonuses:{bonus:real, ename:string, job:string, sal:real} list,
 >             depts:{deptno:int, dname:string, loc:string} list,
 >             emps:

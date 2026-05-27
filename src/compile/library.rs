@@ -1248,6 +1248,12 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "env", global = true))]
     #[strum(props(type = "unit -> (string * string) list"))]
     SysEnv,
+    /// `Sys.file` — a session-bound progressive record value
+    /// representing the file system under the `directory` property.
+    /// The type widens as fields are accessed.
+    #[strum(props(p = "Sys", name = "file", global = true))]
+    #[strum(props(type = "{}"))]
+    SysFile,
     #[strum(props(p = "Sys", name = "parseTree"))]
     #[strum(props(type = "string -> string"))]
     SysParseTree,

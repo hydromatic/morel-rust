@@ -26,6 +26,7 @@ use crate::compile::expander::collect_session_fn_bindings;
 use crate::compile::library::{
     BuiltInExn, BuiltInFunction, name_to_fn, name_to_rec,
 };
+use crate::compile::progressive_widen;
 use crate::compile::resolver;
 use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, EmptyTypeEnv, FunTypeEnv, TypeEnv};
@@ -399,7 +400,7 @@ pub struct Shell {
 /// Simple environment for storing bindings.
 #[derive(Clone, Debug)]
 pub struct Environment {
-    bindings: HashMap<String, Val>,
+    pub bindings: HashMap<String, Val>,
     /// Original expressions of let-bound vals from previous statements,
     /// kept for cross-compile-unit inlining. Only populated for
     /// bindings the inliner has determined are safe to substitute
@@ -662,7 +663,9 @@ impl Shell {
                 Some(Rc::new(current_dir().ok().unwrap()));
         }
 
-        Self::with_config(config)
+        let mut shell = Self::with_config(config);
+        shell.apply_session_config(&session_config);
+        shell
     }
 
     /// Creates a Shell with a custom configuration.
@@ -939,22 +942,26 @@ impl Shell {
         }
 
         // Successfully parsed, now validate.
-        let resolved =
-            match self.session.borrow_mut().deduce_type_inner(&statement) {
-                Ok(resolved) => resolved,
-                Err(Error::Compile(message, span)) => {
-                    let pest_span = span.to_pest_span();
-                    let span2 = Span::from_pest_span(&pest_span, base_line);
-                    let s = format!(
-                        "{} Error: {}\n  raised at: {}\n",
-                        span2.to_string(),
-                        message,
-                        span2.to_string()
-                    );
-                    return Ok(s);
-                }
-                Err(e) => return Err(e),
-            };
+        let runtime_bindings = self.environment.bindings.clone();
+        let resolved = match self
+            .session
+            .borrow_mut()
+            .deduce_type_inner(&statement, &runtime_bindings)
+        {
+            Ok(resolved) => resolved,
+            Err(Error::Compile(message, span)) => {
+                let pest_span = span.to_pest_span();
+                let span2 = Span::from_pest_span(&pest_span, base_line);
+                let s = format!(
+                    "{} Error: {}\n  raised at: {}\n",
+                    span2.to_string(),
+                    message,
+                    span2.to_string()
+                );
+                return Ok(s);
+            }
+            Err(e) => return Err(e),
+        };
 
         // Collect any type-checker warnings (e.g. non-alphabetical record
         // field order in 'order' expressions).
@@ -1013,7 +1020,11 @@ impl Shell {
     }
 
     fn deduce_type(&mut self, node: &Statement) -> ShellResult<String> {
-        let resolved = self.session.borrow_mut().deduce_type_inner(node)?;
+        let runtime_bindings = self.environment.bindings.clone();
+        let resolved = self
+            .session
+            .borrow_mut()
+            .deduce_type_inner(node, &runtime_bindings)?;
 
         // For now, just unparse the node back to a string. In a full
         // implementation, this would actually evaluate the expression.
@@ -1067,6 +1078,21 @@ impl Shell {
                 span, msg, span
             ));
         }
+
+        // Post-resolution progressive-record widening: walks the
+        // core decl and refines any field-selector whose receiver
+        // value resolves (through `valueOf`) to a `Val::File`. This
+        // catches paths the unifier-time `TypedValue` map does not
+        // — record literals, tuple destructuring, let-bindings —
+        // by reaching through runtime values rather than type
+        // variables.
+        let mut decl = decl;
+        let file_root = self.session.borrow().file();
+        progressive_widen::widen(
+            &mut decl,
+            &self.environment.bindings,
+            &file_root,
+        );
 
         let mut env2 = self.session.borrow().base_env().clone();
         for (k, v) in &self.environment.bindings {
