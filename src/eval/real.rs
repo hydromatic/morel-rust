@@ -18,7 +18,9 @@
 use crate::compile::library::BuiltInExn;
 use crate::compile::span::Span;
 use crate::eval::order::Order;
-use crate::eval::val::Val;
+use crate::eval::val::{
+    REALFMT_EXACT, REALFMT_FIX, REALFMT_GEN, REALFMT_SCI, Val,
+};
 use crate::shell::main::MorelError;
 use std::cmp::Ordering;
 
@@ -107,6 +109,31 @@ impl Real {
         } else {
             Ok(Val::Int(result as i32))
         }
+    }
+
+    /// Computes the Morel expression `Real.fmt spec r`. The spec is a
+    /// `StringCvt.realfmt` constructor (`SCI | FIX | GEN | EXACT`).
+    /// Special values render as `"nan"`, `"inf"`, and `"~inf"`. The
+    /// spec is assumed to have already been validated by
+    /// [`Self::validate_fmt_spec`] at partial-application time.
+    pub(crate) fn fmt(spec: &Val, r: f32) -> String {
+        let (kind, n) = parse_fmt_spec(spec);
+        if r.is_nan() {
+            return "nan".to_string();
+        }
+        if r.is_infinite() {
+            return if r.is_sign_negative() { "~inf" } else { "inf" }
+                .to_string();
+        }
+        let neg_sign = r.is_sign_negative();
+        let abs = r.abs();
+        let body = match kind {
+            FmtKind::Sci => format_sci(abs, n),
+            FmtKind::Fix => format_fix(abs, n),
+            FmtKind::Gen => format_gen(abs, n),
+            FmtKind::Exact => format_exact(abs),
+        };
+        if neg_sign { format!("~{}", body) } else { body }
     }
 
     /// Computes the Morel expression `Real.fromInt i`.
@@ -510,5 +537,307 @@ impl Real {
     /// x and y is NaN.
     pub(crate) fn unordered(x: f32, y: f32) -> bool {
         x.is_nan() || y.is_nan()
+    }
+
+    /// Validates a `StringCvt.realfmt` spec; raises `Size` if invalid.
+    /// `SCI` and `FIX` reject `SOME n` with `n < 0`; `GEN` rejects
+    /// `SOME n` with `n < 1`; `EXACT` is always valid.
+    pub(crate) fn validate_fmt_spec(
+        spec: &Val,
+        span: &Span,
+    ) -> Result<(), MorelError> {
+        let bad = match spec {
+            Val::Constructor(REALFMT_SCI, inner)
+            | Val::Constructor(REALFMT_FIX, inner) => {
+                option_int(inner).is_some_and(|n| n < 0)
+            }
+            Val::Constructor(REALFMT_GEN, inner) => {
+                option_int(inner).is_some_and(|n| n < 1)
+            }
+            Val::Constructor(REALFMT_EXACT, _) => false,
+            other => panic!("expected realfmt constructor, got {:?}", other),
+        };
+        if bad {
+            return Err(MorelError::Runtime(BuiltInExn::Size, span.clone()));
+        }
+        Ok(())
+    }
+}
+
+/// Extracts the inner `int` from a `Val::Some(Val::Int(_))`; returns
+/// `None` for `Val::Unit` (i.e. `NONE`).
+fn option_int(v: &Val) -> Option<i32> {
+    match v {
+        Val::Some(inner) => Some(inner.expect_int()),
+        Val::Unit => None,
+        _ => None,
+    }
+}
+
+#[derive(Copy, Clone)]
+enum FmtKind {
+    Sci,
+    Fix,
+    Gen,
+    Exact,
+}
+
+/// Returns the (kind, n) pair for a validated `StringCvt.realfmt`. `n`
+/// defaults to 6 for `SCI`/`FIX`, 12 for `GEN`, and 0 for `EXACT`.
+fn parse_fmt_spec(spec: &Val) -> (FmtKind, usize) {
+    let (kind, default, inner) = match spec {
+        Val::Constructor(REALFMT_EXACT, _) => return (FmtKind::Exact, 0),
+        Val::Constructor(REALFMT_SCI, inner) => (FmtKind::Sci, 6, inner),
+        Val::Constructor(REALFMT_FIX, inner) => (FmtKind::Fix, 6, inner),
+        Val::Constructor(REALFMT_GEN, inner) => (FmtKind::Gen, 12, inner),
+        other => panic!("expected realfmt constructor, got {:?}", other),
+    };
+    let n = option_int(inner).map_or(default, |n| n as usize);
+    (kind, n)
+}
+
+/// `D.dddE±exp` with `n` digits after the decimal.
+fn format_sci(abs: f32, n: usize) -> String {
+    if abs == 0.0 {
+        return if n == 0 {
+            "0E0".to_string()
+        } else {
+            format!("0.{}E0", "0".repeat(n))
+        };
+    }
+    let (digits, exp) = canonical(abs);
+    // Round `digits` to `n + 1` significant digits.
+    let (rounded, exp_adj) = round_half_down_digits(&digits, n + 1);
+    let exp = exp + exp_adj;
+    if n == 0 {
+        format!("{}E{}", &rounded[..1], sml_exp(exp))
+    } else {
+        format!("{}.{}E{}", &rounded[..1], &rounded[1..], sml_exp(exp))
+    }
+}
+
+/// Fixed-point with `n` digits after the decimal.
+fn format_fix(abs: f32, n: usize) -> String {
+    if abs == 0.0 {
+        return if n == 0 {
+            "0".to_string()
+        } else {
+            format!("0.{}", "0".repeat(n))
+        };
+    }
+    let (digits, exp) = canonical(abs);
+    // The number is `digits.0 * 10^exp` (where `digits.0` is the
+    // mantissa with the implicit decimal after the first character).
+    // Equivalently, it is `digits * 10^(exp - digits.len() + 1)`.
+    // For FIX with `n` decimals, we round `digits` so that its
+    // implied position relative to the decimal point keeps exactly
+    // `n` fractional digits.
+    //
+    // Number of digits we want before truncation/rounding:
+    //   integer digits = max(1, exp + 1)
+    //   total significant digits to round to = integer_digits + n
+    let int_digits = (exp + 1).max(0) as usize;
+    let total_sig = int_digits + n;
+    let (rounded, exp_adj) = round_half_down_digits(&digits, total_sig);
+    let exp = exp + exp_adj;
+    place_decimal(&rounded, exp, n, false)
+}
+
+/// At most `n` significant digits, using fixed when exp in `[-3, n)`,
+/// scientific otherwise. Trailing zeros are stripped.
+fn format_gen(abs: f32, n: usize) -> String {
+    if abs == 0.0 {
+        return "0".to_string();
+    }
+    let (digits, exp) = canonical(abs);
+    let (rounded, exp_adj) = round_half_down_digits(&digits, n);
+    let exp = exp + exp_adj;
+    // Strip trailing zeros from the rounded significant digits.
+    let stripped = rounded.trim_end_matches('0');
+    let stripped = if stripped.is_empty() { "0" } else { stripped };
+    if exp <= -3 || exp >= n as i32 {
+        // Scientific form: `D.dddE±exp`. Mantissa is the stripped
+        // significant digits; if length 1, no decimal point.
+        if stripped.len() == 1 {
+            format!("{}E{}", stripped, sml_exp(exp))
+        } else {
+            format!("{}.{}E{}", &stripped[..1], &stripped[1..], sml_exp(exp))
+        }
+    } else {
+        // Fixed form: place decimal point per `exp`, drop trailing zeros.
+        place_decimal(stripped, exp, 0, true)
+    }
+}
+
+/// `0.dddE<exp>` form with no trailing zeros.
+fn format_exact(abs: f32) -> String {
+    if abs == 0.0 {
+        return "0.0".to_string();
+    }
+    let (digits, exp) = canonical(abs);
+    // EXACT prints as `0.<digits>E<exp+1>`. (Decimal point moves one
+    // place left vs. standard scientific form.) Strip trailing zeros.
+    let stripped = digits.trim_end_matches('0');
+    let stripped = if stripped.is_empty() { "0" } else { stripped };
+    let exp = exp + 1;
+    if exp == 0 {
+        format!("0.{}", stripped)
+    } else {
+        format!("0.{}E{}", stripped, sml_exp(exp))
+    }
+}
+
+/// Format `exp` using SML's `~` for negatives.
+fn sml_exp(exp: i32) -> String {
+    if exp < 0 {
+        format!("~{}", (exp as i64).unsigned_abs())
+    } else {
+        exp.to_string()
+    }
+}
+
+/// Returns `abs`'s canonical decimal: a string of significant digits
+/// (no leading zeros, no decimal point) and the standard scientific
+/// exponent `e` such that `digits.0 * 10^e == abs` (decimal point
+/// implicit after the first digit). Uses Rust's `{:e}` form, which
+/// emits the shortest round-tripping representation for `f32`.
+fn canonical(abs: f32) -> (String, i32) {
+    let s = format!("{:e}", abs);
+    let (mantissa, exp_str) = match s.find('e') {
+        Some(i) => (&s[..i], &s[i + 1..]),
+        None => (s.as_str(), "0"),
+    };
+    let exp_base: i32 = exp_str.parse().unwrap_or(0);
+    let (int_part, frac_part) = match mantissa.find('.') {
+        Some(d) => (&mantissa[..d], &mantissa[d + 1..]),
+        None => (mantissa, ""),
+    };
+    let mut digits = format!("{}{}", int_part, frac_part);
+    if digits.is_empty() {
+        digits.push('0');
+    }
+    let exp = exp_base + (int_part.len() as i32 - 1);
+    (digits, exp)
+}
+
+/// Rounds the digit string `digits` to `target` significant digits
+/// using half-down (ties round toward zero). Returns the rounded
+/// digit string and an exponent adjustment (1 if rounding carried
+/// past the leading position, e.g. "999" -> "1000"; else 0).
+fn round_half_down_digits(digits: &str, target: usize) -> (String, i32) {
+    if target == 0 {
+        // No significant digits requested. Treat as "0", exp_adj=0.
+        return ("0".to_string(), 0);
+    }
+    if digits.len() <= target {
+        let mut s = digits.to_string();
+        while s.len() < target {
+            s.push('0');
+        }
+        return (s, 0);
+    }
+    let kept = &digits[..target];
+    let dropped = &digits[target..];
+    let first_dropped = dropped.as_bytes()[0];
+    let rest_dropped = &dropped[1..];
+    // Round up iff first_dropped > '5', or first_dropped == '5' and any
+    // remaining dropped digit is non-zero (half-down: exact .5 stays).
+    let round_up = first_dropped > b'5'
+        || (first_dropped == b'5' && rest_dropped.bytes().any(|b| b != b'0'));
+    if !round_up {
+        return (kept.to_string(), 0);
+    }
+    // Increment `kept` as if it were a big integer.
+    let mut bytes: Vec<u8> = kept.bytes().collect();
+    let mut carry = 1u8;
+    for b in bytes.iter_mut().rev() {
+        if carry == 0 {
+            break;
+        }
+        let v = *b - b'0' + carry;
+        if v >= 10 {
+            *b = b'0';
+            carry = 1;
+        } else {
+            *b = b'0' + v;
+            carry = 0;
+        }
+    }
+    if carry == 1 {
+        // Carry past the front: "999" -> "1000". Truncate the trailing
+        // zero and bump the exponent.
+        let mut out = String::with_capacity(target);
+        out.push('1');
+        for _ in 1..target {
+            out.push('0');
+        }
+        (out, 1)
+    } else {
+        (String::from_utf8(bytes).unwrap(), 0)
+    }
+}
+
+/// Places a decimal point in `digits` so the result is `digits.0 *
+/// 10^exp` with `min_frac` digits after the point. If `strip` is
+/// true, trailing zeros (and a trailing `.`) are removed.
+fn place_decimal(
+    digits: &str,
+    exp: i32,
+    min_frac: usize,
+    strip: bool,
+) -> String {
+    // Number of integer digits in the result.
+    let int_len_signed = exp + 1;
+    let body = if int_len_signed <= 0 {
+        // Result is `0.<zeros><digits>`; need `-exp` zeros (1 for
+        // exp=-1, 2 for exp=-2, etc., before the digits themselves).
+        let lead = (-int_len_signed) as usize;
+        format!("0.{}{}", "0".repeat(lead), digits)
+    } else {
+        let int_len = int_len_signed as usize;
+        if int_len >= digits.len() {
+            // Need to right-pad with zeros to reach int_len.
+            let mut out = String::from(digits);
+            for _ in digits.len()..int_len {
+                out.push('0');
+            }
+            if min_frac > 0 {
+                out.push('.');
+                for _ in 0..min_frac {
+                    out.push('0');
+                }
+            }
+            return if strip { trim_decimal(&out) } else { out };
+        }
+        format!("{}.{}", &digits[..int_len], &digits[int_len..])
+    };
+    // Ensure min_frac digits after the decimal point.
+    let mut body = body;
+    if let Some(dot) = body.find('.') {
+        let frac_len = body.len() - dot - 1;
+        if frac_len < min_frac {
+            for _ in frac_len..min_frac {
+                body.push('0');
+            }
+        }
+    } else if min_frac > 0 {
+        body.push('.');
+        for _ in 0..min_frac {
+            body.push('0');
+        }
+    }
+    if strip { trim_decimal(&body) } else { body }
+}
+
+/// Removes trailing zeros after a decimal point, then a trailing `.`.
+fn trim_decimal(s: &str) -> String {
+    if !s.contains('.') {
+        return s.to_string();
+    }
+    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
     }
 }

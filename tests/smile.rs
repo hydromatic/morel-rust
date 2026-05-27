@@ -173,6 +173,11 @@ fn built_in_string() {
 }
 
 #[test]
+fn built_in_string_cvt() {
+    run_script("tests/script/built-in/string-cvt.smli");
+}
+
+#[test]
 fn built_in_sys() {
     run_script("tests/script/built-in/sys.smli");
 }

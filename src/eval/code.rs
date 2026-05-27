@@ -376,13 +376,13 @@ pub enum Code {
     /// Emitted at tail-position function applications by the compiler.
     TailApply(Box<Code>, Box<Code>),
     Tuple(Vec<Code>),
-    /// `ValidatePartialArg1(eager, code, span)` evaluates `code`, runs
-    /// the eager function's first-argument validator (e.g. `Fn.repeat`
-    /// rejecting a negative count), and returns the value unchanged.
-    /// Wrapped around the first captured argument of a partial
-    /// application so the check fires when the closure is built — not
-    /// when the closure is later applied.
-    ValidatePartialArg1(EagerF3, Box<Code>, Span),
+    /// `ValidatePartialArg1(func, code, span)` evaluates `code`, runs
+    /// `func`'s first-argument validator (e.g. `Fn.repeat` rejecting a
+    /// negative count, or `Real.fmt` rejecting an invalid spec), and
+    /// returns the value unchanged. Wrapped around the first captured
+    /// argument of a partial application so the check fires when the
+    /// closure is built — not when the closure is later applied.
+    ValidatePartialArg1(BuiltInFunction, Box<Code>, Span),
 }
 
 impl Code {
@@ -1077,10 +1077,8 @@ impl Code {
             Code::RangeCsOf(cmp, ranges_code) => {
                 let ranges = ranges_code.eval_f0(r, f)?;
                 let merged = from_ranges(ranges.expect_list(), &*cmp.0, None);
-                Ok(Val::Constructor(
-                    BuiltInFunction::RangeContinuousSet.runtime_tag(),
-                    Box::new(Val::List(merged)),
-                ))
+                Ok(BuiltInFunction::RangeContinuousSet
+                    .constructor_val(Val::List(merged)))
             }
             Code::RangeDsComplement(discrete, set_code) => {
                 let set = set_code.eval_f0(r, f)?;
@@ -1094,10 +1092,8 @@ impl Code {
                     ),
                 };
                 let complemented = complement(ranges, Some(&*discrete.0));
-                Ok(Val::Constructor(
-                    BuiltInFunction::RangeDiscreteSet.runtime_tag(),
-                    Box::new(Val::List(complemented)),
-                ))
+                Ok(BuiltInFunction::RangeDiscreteSet
+                    .constructor_val(Val::List(complemented)))
             }
             Code::RangeDsOf(cmp, discrete, ranges_code) => {
                 let ranges = ranges_code.eval_f0(r, f)?;
@@ -1106,10 +1102,8 @@ impl Code {
                     &*cmp.0,
                     Some(&*discrete.0),
                 );
-                Ok(Val::Constructor(
-                    BuiltInFunction::RangeDiscreteSet.runtime_tag(),
-                    Box::new(Val::List(merged)),
-                ))
+                Ok(BuiltInFunction::RangeDiscreteSet
+                    .constructor_val(Val::List(merged)))
             }
             Code::RangeEnumerate(cmp, discrete, set_code) => {
                 let set = set_code.eval_f0(r, f)?;
@@ -1191,9 +1185,9 @@ impl Code {
                 }
                 Ok(Val::List(values))
             }
-            Code::ValidatePartialArg1(eager, code, span) => {
+            Code::ValidatePartialArg1(func, code, span) => {
                 let v = code.eval_f0(r, f)?;
-                eager.validate_partial_arg1(&v, span)?;
+                validate_partial_arg1(*func, &v, span)?;
                 Ok(v)
             }
             _ => {
@@ -1820,8 +1814,8 @@ impl Display for Code {
             }
             Self::SelfRef => write!(f, "self"),
             Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
-            Self::ValidatePartialArg1(eager, code, _span) => {
-                write!(f, "validate({}, {})", eager.plan(), code)
+            Self::ValidatePartialArg1(func, code, _span) => {
+                write!(f, "validate({}, {})", func.full_name(), code)
             }
             _ => todo!("fmt: {:?}", self),
         }
@@ -2114,6 +2108,11 @@ pub enum Eager0 {
     RealPosInf,
     RealPrecision,
     RealRadix,
+    StringCvtRadixBin,
+    StringCvtRadixDec,
+    StringCvtRadixHex,
+    StringCvtRadixOct,
+    StringCvtRealfmtExact,
     StringMaxSize,
     TimeZeroTime,
     VariantNone,
@@ -2191,6 +2190,21 @@ impl Eager0 {
             RealPosInf => Val::Real(f32::INFINITY),
             RealPrecision => Val::Int(24), // IEEE 754 single precision
             RealRadix => Val::Int(2),
+            StringCvtRadixBin => {
+                BuiltInFunction::StringCvtRadixBin.nullary_constructor_val()
+            }
+            StringCvtRadixDec => {
+                BuiltInFunction::StringCvtRadixDec.nullary_constructor_val()
+            }
+            StringCvtRadixHex => {
+                BuiltInFunction::StringCvtRadixHex.nullary_constructor_val()
+            }
+            StringCvtRadixOct => {
+                BuiltInFunction::StringCvtRadixOct.nullary_constructor_val()
+            }
+            StringCvtRealfmtExact => {
+                BuiltInFunction::StringCvtRealfmtExact.nullary_constructor_val()
+            }
             StringMaxSize => Val::Int(i32::MAX),
             TimeZeroTime => time::zero_time(),
             VariantNone => variant::none(),
@@ -2703,6 +2717,9 @@ pub enum Eager1 {
     RelationalNonEmpty,
     RelationalSum,
     StringConcat,
+    StringCvtRealfmtFix,
+    StringCvtRealfmtGen,
+    StringCvtRealfmtSci,
     StringExplode,
     StringImplode,
     StringSize,
@@ -2832,10 +2849,9 @@ impl Eager1 {
                 let (n, o) = a0.expect_date();
                 date::year_day(n, o)
             }
-            DescendingDesc => Val::Constructor(
-                BuiltInFunction::DescendingDesc.runtime_tag(),
-                Box::new(a0),
-            ),
+            DescendingDesc => {
+                BuiltInFunction::DescendingDesc.constructor_val(a0)
+            }
             EitherAsLeft => Either::as_left(&a0),
             EitherAsRight => Either::as_right(&a0),
             EitherInl => Val::Inl(Box::new(a0)),
@@ -2844,10 +2860,7 @@ impl Eager1 {
             EitherIsRight => Val::Bool(Either::is_right(&a0)),
             EitherPartition => Either::partition(a0.expect_list()),
             EitherProj => Either::proj(&a0),
-            ExnFail => Val::Constructor(
-                BuiltInFunction::ExnFail.runtime_tag(),
-                Box::new(a0),
-            ),
+            ExnFail => BuiltInFunction::ExnFail.constructor_val(a0),
             FnId => a0,
             GeneralIgnore => Val::Unit,
             IntFromInt => a0,
@@ -2885,26 +2898,15 @@ impl Eager1 {
             OptionIsSome => Val::Bool(Opt::is_some(&a0)),
             OptionJoin => Opt::join(&a0),
             OptionSome => Val::Some(Box::new(a0)),
-            RangeAtLeast => Val::Constructor(
-                BuiltInFunction::RangeAtLeast.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeAtMost => Val::Constructor(
-                BuiltInFunction::RangeAtMost.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeClosed => Val::Constructor(
-                BuiltInFunction::RangeClosed.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeClosedOpen => Val::Constructor(
-                BuiltInFunction::RangeClosedOpen.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeContinuousSet => Val::Constructor(
-                BuiltInFunction::RangeContinuousSet.runtime_tag(),
-                Box::new(a0),
-            ),
+            RangeAtLeast => BuiltInFunction::RangeAtLeast.constructor_val(a0),
+            RangeAtMost => BuiltInFunction::RangeAtMost.constructor_val(a0),
+            RangeClosed => BuiltInFunction::RangeClosed.constructor_val(a0),
+            RangeClosedOpen => {
+                BuiltInFunction::RangeClosedOpen.constructor_val(a0)
+            }
+            RangeContinuousSet => {
+                BuiltInFunction::RangeContinuousSet.constructor_val(a0)
+            }
             RangeCsComplement => {
                 // Continuous complement: no Discrete needed, so the
                 // Eager1 fallback handles every call directly.
@@ -2918,10 +2920,8 @@ impl Eager1 {
                     ),
                 };
                 let complemented = complement(&inner, None);
-                Val::Constructor(
-                    BuiltInFunction::RangeContinuousSet.runtime_tag(),
-                    Box::new(Val::List(complemented)),
-                )
+                BuiltInFunction::RangeContinuousSet
+                    .constructor_val(Val::List(complemented))
             }
             RangeCsOf => {
                 // Fallback when the compiler did not intercept the
@@ -2931,10 +2931,8 @@ impl Eager1 {
                 // non-natural orderings.
                 let merged =
                     from_ranges(a0.expect_list(), &NaturalComparator, None);
-                Val::Constructor(
-                    BuiltInFunction::RangeContinuousSet.runtime_tag(),
-                    Box::new(Val::List(merged)),
-                )
+                BuiltInFunction::RangeContinuousSet
+                    .constructor_val(Val::List(merged))
             }
             RangeCsRanges => {
                 // `ranges : 'a continuous_set -> 'a range list`. The
@@ -2947,10 +2945,9 @@ impl Eager1 {
                     ),
                 }
             }
-            RangeDiscreteSet => Val::Constructor(
-                BuiltInFunction::RangeDiscreteSet.runtime_tag(),
-                Box::new(a0),
-            ),
+            RangeDiscreteSet => {
+                BuiltInFunction::RangeDiscreteSet.constructor_val(a0)
+            }
             RangeDsComplement => {
                 // Fallback for partial application. Direct calls go
                 // through Code::RangeDsComplement which carries
@@ -2968,10 +2965,7 @@ impl Eager1 {
                 // discreteness or merge step-adjacent ranges; wrap the
                 // input as-is. The compile intercept is the correct
                 // path for all direct calls.
-                Val::Constructor(
-                    BuiltInFunction::RangeDiscreteSet.runtime_tag(),
-                    Box::new(a0),
-                )
+                BuiltInFunction::RangeDiscreteSet.constructor_val(a0)
             }
             RangeDsRanges => {
                 // `ranges : 'a discrete_set -> 'a range list`. The
@@ -2984,26 +2978,15 @@ impl Eager1 {
                     ),
                 }
             }
-            RangeGreaterThan => Val::Constructor(
-                BuiltInFunction::RangeGreaterThan.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeLessThan => Val::Constructor(
-                BuiltInFunction::RangeLessThan.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeOpen => Val::Constructor(
-                BuiltInFunction::RangeOpen.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangeOpenClosed => Val::Constructor(
-                BuiltInFunction::RangeOpenClosed.runtime_tag(),
-                Box::new(a0),
-            ),
-            RangePoint => Val::Constructor(
-                BuiltInFunction::RangePoint.runtime_tag(),
-                Box::new(a0),
-            ),
+            RangeGreaterThan => {
+                BuiltInFunction::RangeGreaterThan.constructor_val(a0)
+            }
+            RangeLessThan => BuiltInFunction::RangeLessThan.constructor_val(a0),
+            RangeOpen => BuiltInFunction::RangeOpen.constructor_val(a0),
+            RangeOpenClosed => {
+                BuiltInFunction::RangeOpenClosed.constructor_val(a0)
+            }
+            RangePoint => BuiltInFunction::RangePoint.constructor_val(a0),
             RangeToBag | RangeToList => {
                 // Fallback for partial application. Without type info
                 // we cannot build a `Discrete`; panic clearly. The
@@ -3038,6 +3021,15 @@ impl Eager1 {
             StringConcat => {
                 let strings = a0.expect_list();
                 Val::String(Str::concat(strings))
+            }
+            StringCvtRealfmtFix => {
+                BuiltInFunction::StringCvtRealfmtFix.constructor_val(a0)
+            }
+            StringCvtRealfmtGen => {
+                BuiltInFunction::StringCvtRealfmtGen.constructor_val(a0)
+            }
+            StringCvtRealfmtSci => {
+                BuiltInFunction::StringCvtRealfmtSci.constructor_val(a0)
             }
             StringExplode => {
                 let s = a0.expect_string();
@@ -3140,6 +3132,7 @@ pub enum Eager2 {
     IntCompare,
     IntDiv,
     IntEq,
+    IntFmt,
     IntGe,
     IntGt,
     IntLe,
@@ -3167,6 +3160,7 @@ pub enum Eager2 {
     RealCopySign,
     RealDivide,
     RealEq,
+    RealFmt,
     RealFromManExp,
     RealGe,
     RealGt,
@@ -3262,6 +3256,7 @@ impl Eager2 {
             }
             IntDiv => Val::Int(Int::div(a0.expect_int(), a1.expect_int())),
             IntEq => Val::Bool(a0.expect_int() == a1.expect_int()),
+            IntFmt => Val::String(Int::fmt(&a0, a1.expect_int())),
             IntGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
             IntGt => Val::Bool(a0.expect_int() > a1.expect_int()),
             IntLe => Val::Bool(a0.expect_int() <= a1.expect_int()),
@@ -3317,6 +3312,7 @@ impl Eager2 {
             }
             RealDivide => Val::Real(a0.expect_real() / a1.expect_real()),
             RealEq => Val::Bool(a0.expect_real() == a1.expect_real()),
+            RealFmt => Val::String(Real::fmt(&a0, a1.expect_real())),
             RealFromManExp => {
                 // Type: {exp:int, man:real} -> real
                 // Record fields are passed in order: a0 = exp, a1 = man
@@ -3850,34 +3846,6 @@ impl EagerF3 {
         )
     }
 
-    /// Returns true if this function checks its first argument as
-    /// soon as it arrives, before later arguments. Used by the
-    /// compiler to wrap the first-arg code of a partial application
-    /// so the check fires when the closure is built, not when it is
-    /// fully applied.
-    pub(crate) fn validates_partial_arg1(&self) -> bool {
-        matches!(self, EagerF3::FnRepeat)
-    }
-
-    fn validate_partial_arg1(
-        &self,
-        a0: &Val,
-        span: &Span,
-    ) -> Result<(), MorelError> {
-        match self {
-            EagerF3::FnRepeat => {
-                if a0.expect_int() < 0 {
-                    return Err(MorelError::Runtime(
-                        BuiltInExn::Domain,
-                        span.clone(),
-                    ));
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
     fn apply(
@@ -4034,16 +4002,37 @@ impl EagerF4 {
 
 /// Function implementation that takes three arguments.
 /// The arguments are eagerly evaluated before the function is called.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum Eager3 {
     // lint: sort until '#}'
+    StringCvtPadLeft,
+    StringCvtPadRight,
 }
 
 impl Eager3 {
+    fn plan(&self) -> String {
+        camel_to_dotted(&self.to_string())
+    }
+
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
-    fn apply(&self, _a0: Val, _a1: Val, _a2: Val) -> Val {
-        panic!("Not implemented")
+    fn apply(&self, a0: Val, a1: Val, a2: Val) -> Val {
+        #[expect(clippy::enum_glob_use)]
+        use crate::eval::code::Eager3::*;
+
+        match self {
+            // lint: sort until '#}' where '##[A-Z]'
+            StringCvtPadLeft => Val::String(Str::pad_left(
+                a0.expect_char(),
+                a1.expect_int(),
+                a2.expect_string(),
+            )),
+            StringCvtPadRight => Val::String(Str::pad_right(
+                a0.expect_char(),
+                a1.expect_int(),
+                a2.expect_string(),
+            )),
+        }
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
@@ -4443,6 +4432,7 @@ fn build_library() -> Lib {
     Eager2::IntCompare.implements(&mut b, IntCompare);
     Eager2::IntDiv.implements(&mut b, IntDiv);
     Eager2::IntEq.implements(&mut b, IntEq);
+    Eager2::IntFmt.implements(&mut b, IntFmt);
     Eager1::IntFromInt.implements(&mut b, IntFromInt);
     Eager1::IntFromLarge.implements(&mut b, IntFromLarge);
     Eager1::IntFromString.implements(&mut b, IntFromString);
@@ -4593,6 +4583,7 @@ fn build_library() -> Lib {
     Eager2::RealDivide.implements(&mut b, RealDivide);
     Eager2::RealEq.implements(&mut b, RealEq);
     EagerF1::RealFloor.implements(&mut b, RealFloor);
+    Eager2::RealFmt.implements(&mut b, RealFmt);
     Eager1::RealFromInt.implements(&mut b, RealFromInt);
     Eager2::RealFromManExp.implements(&mut b, RealFromManExp);
     Eager1::RealFromString.implements(&mut b, RealFromString);
@@ -4645,6 +4636,16 @@ fn build_library() -> Lib {
     Eager2::StringCompare.implements(&mut b, StringCompare);
     Eager1::StringConcat.implements(&mut b, StringConcat);
     EagerF2::StringConcatWith.implements(&mut b, StringConcatWith);
+    Eager3::StringCvtPadLeft.implements(&mut b, StringCvtPadLeft);
+    Eager3::StringCvtPadRight.implements(&mut b, StringCvtPadRight);
+    Eager0::StringCvtRadixBin.implements(&mut b, StringCvtRadixBin);
+    Eager0::StringCvtRadixDec.implements(&mut b, StringCvtRadixDec);
+    Eager0::StringCvtRadixHex.implements(&mut b, StringCvtRadixHex);
+    Eager0::StringCvtRadixOct.implements(&mut b, StringCvtRadixOct);
+    Eager0::StringCvtRealfmtExact.implements(&mut b, StringCvtRealfmtExact);
+    Eager1::StringCvtRealfmtFix.implements(&mut b, StringCvtRealfmtFix);
+    Eager1::StringCvtRealfmtGen.implements(&mut b, StringCvtRealfmtGen);
+    Eager1::StringCvtRealfmtSci.implements(&mut b, StringCvtRealfmtSci);
     Eager2::StringEq.implements(&mut b, StringEq);
     Eager1::StringExplode.implements(&mut b, StringExplode);
     EagerF3::StringExtract.implements(&mut b, StringExtract);
@@ -4753,6 +4754,33 @@ fn build_library() -> Lib {
 fn is_datatype_constructor(f: BuiltInFunction, name: &str) -> bool {
     f.is_constructor()
         && name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Returns true if a partial application of `func` should validate its
+/// first argument as soon as the closure is built — before the
+/// remaining arguments arrive. See [`Code::ValidatePartialArg1`].
+pub(crate) fn validates_partial_arg1(func: BuiltInFunction) -> bool {
+    matches!(func, BuiltInFunction::FnRepeat | BuiltInFunction::RealFmt)
+}
+
+fn validate_partial_arg1(
+    func: BuiltInFunction,
+    a0: &Val,
+    span: &Span,
+) -> Result<(), MorelError> {
+    match func {
+        BuiltInFunction::FnRepeat => {
+            if a0.expect_int() < 0 {
+                return Err(MorelError::Runtime(
+                    BuiltInExn::Domain,
+                    span.clone(),
+                ));
+            }
+            Ok(())
+        }
+        BuiltInFunction::RealFmt => Real::validate_fmt_spec(a0, span),
+        _ => Ok(()),
+    }
 }
 
 /// Maps a runtime value of type `exn` to a [`BuiltInExn`] tag and an

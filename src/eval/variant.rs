@@ -309,10 +309,7 @@ pub(crate) fn construct(arg: Val) -> Val {
                         "descending".to_string(),
                         vec![Rc::new(inner_type)],
                     ),
-                    Val::Constructor(
-                        BuiltInFunction::DescendingDesc.runtime_tag(),
-                        Box::new(inner_val),
-                    ),
+                    BuiltInFunction::DescendingDesc.constructor_val(inner_val),
                 ),
                 _ => unreachable!(),
             }

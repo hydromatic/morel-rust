@@ -41,8 +41,8 @@ val nan =
 Real;
 > val it =
 >   {*=fn,+=fn,-=fn,/=fn,<=fn,<==fn,<>=fn,==fn,>=fn,>==fn,abs=fn,ceil=fn,
->    checkFloat=fn,compare=fn,copySign=fn,floor=fn,fromInt=fn,fromManExp=fn,
->    fromString=fn,isFinite=fn,isNan=fn,isNormal=fn,max=fn,
+>    checkFloat=fn,compare=fn,copySign=fn,floor=fn,fmt=fn,fromInt=fn,
+>    fromManExp=fn,fromString=fn,isFinite=fn,isNan=fn,isNormal=fn,max=fn,
 >    maxFinite=3.4028235E38,min=fn,minNormalPos=1.1754944E~38,minPos=1E~45,
 >    negInf=~inf,posInf=inf,precision=24,radix=2,realCeil=fn,realFloor=fn,
 >    realMod=fn,realRound=fn,realTrunc=fn,rem=fn,round=fn,sameSign=fn,sign=fn,
@@ -52,7 +52,8 @@ Real;
 >      <>:real * real -> bool, =:real * real -> bool, >:real * real -> bool,
 >      >=:real * real -> bool, abs:real -> real, ceil:real -> int,
 >      checkFloat:real -> real, compare:real * real -> order,
->      copySign:real * real -> real, floor:real -> int, fromInt:int -> real,
+>      copySign:real * real -> real, floor:real -> int,
+>      fmt:realfmt -> real -> string, fromInt:int -> real,
 >      fromManExp:{exp:int, man:real} -> real, fromString:string -> real option,
 >      isFinite:real -> bool, isNan:real -> bool, isNormal:real -> bool,
 >      max:real * real -> real, maxFinite:real, min:real * real -> real,
@@ -1038,7 +1039,105 @@ List.map (fn x => (x, Real.fromString (Real.toString x)))
   The value returned by toString is equivalent to:
     (fmt (StringCvt.GEN NONE) r)
  *)
-(*) TODO Real.fmt
+Real.fmt;
+> val it = fn : realfmt -> real -> string
+
+(* SCI: scientific notation with one digit before the point and n after. *)
+Real.fmt (SCI NONE) 1.23456789;
+> val it = "1.234568E0" : string
+Real.fmt (SCI (SOME 0)) 1.23456789;
+> val it = "1E0" : string
+Real.fmt (SCI (SOME 3)) 1.23456789;
+> val it = "1.235E0" : string
+Real.fmt (SCI (SOME 6)) 1.23456789;
+> val it = "1.234568E0" : string
+Real.fmt (SCI (SOME 3)) ~1.23456789;
+> val it = "~1.235E0" : string
+Real.fmt (SCI (SOME 3)) 0.0;
+> val it = "0.000E0" : string
+
+(* FIX: fixed-point with n digits after the point. *)
+Real.fmt (FIX NONE) 1.23456789;
+> val it = "1.234568" : string
+Real.fmt (FIX (SOME 0)) 1.23456789;
+> val it = "1" : string
+Real.fmt (FIX (SOME 3)) 1.23456789;
+> val it = "1.235" : string
+Real.fmt (FIX (SOME 6)) 1.23456789;
+> val it = "1.234568" : string
+Real.fmt (FIX (SOME 3)) 0.0;
+> val it = "0.000" : string
+Real.fmt (FIX (SOME 3)) ~0.0;
+> val it = "~0.000" : string
+
+(* GEN: shortest of SCI / FIX, with n significant digits. *)
+Real.fmt (GEN (SOME 1)) 1.23456789;
+> val it = "1" : string
+Real.fmt (GEN (SOME 3)) 1.23456789;
+> val it = "1.23" : string
+Real.fmt (GEN (SOME 3)) 1234567.89;
+> val it = "1.23E6" : string
+Real.fmt (GEN (SOME 3)) 0.000123;
+> val it = "1.23E~4" : string
+Real.fmt (GEN (SOME 3)) 0.0123;
+> val it = "0.0123" : string
+Real.fmt (GEN (SOME 3)) 100.0;
+> val it = "100" : string
+Real.fmt (GEN (SOME 3)) 1000.0;
+> val it = "1E3" : string
+
+(* EXACT: 0.<digits>E<exp> form with no trailing zeros. *)
+Real.fmt EXACT 0.0;
+> val it = "0.0" : string
+Real.fmt EXACT 1.0;
+> val it = "0.1E1" : string
+Real.fmt EXACT 1.5;
+> val it = "0.15E1" : string
+Real.fmt EXACT 0.1;
+> val it = "0.1" : string
+
+(* Ties round half toward zero, matching SML/NJ. *)
+Real.fmt (FIX (SOME 0)) 1.5;
+> val it = "1" : string
+Real.fmt (FIX (SOME 0)) 2.5;
+> val it = "2" : string
+Real.fmt (FIX (SOME 0)) 9.5;
+> val it = "9" : string
+
+(* Special values. *)
+Real.fmt (FIX (SOME 3)) (0.0 / 0.0);
+> val it = "nan" : string
+Real.fmt (FIX (SOME 3)) (1.0 / 0.0);
+> val it = "inf" : string
+Real.fmt (FIX (SOME 3)) (~1.0 / 0.0);
+> val it = "~inf" : string
+
+(* Invalid precision raises Size. *)
+Real.fmt (SCI (SOME ~1)) 1.0;
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.29
+Real.fmt (FIX (SOME ~1)) 1.0;
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.29
+Real.fmt (GEN (SOME 0)) 1.0;
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.28
+Real.fmt (GEN (SOME ~1)) 1.0;
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.29
+(* Partial application validates the spec immediately,
+ * before the second argument arrives. *)
+Real.fmt (SCI (SOME ~1));
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.25
+Real.fmt (FIX (SOME ~1));
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.25
+Real.fmt (GEN (SOME 0));
+> uncaught exception Size
+>   raised at: stdIn:1.1-1.24
+Real.fmt EXACT;
+> val it = fn : real -> string
 
 Real.toString;
 > val it = fn : real -> string

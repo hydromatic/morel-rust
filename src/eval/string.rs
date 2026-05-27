@@ -235,6 +235,40 @@ impl Str {
         Ok(Val::String(chars?))
     }
 
+    /// Computes the Morel expression `StringCvt.padLeft c i s`. Returns
+    /// `s` left-padded with `c` to length at least `i`; if `s` is
+    /// already at least `i` characters long, returns it unchanged.
+    pub(crate) fn pad_left(c: char, i: i32, s: String) -> String {
+        let need = i as usize;
+        if s.chars().count() >= need {
+            return s;
+        }
+        let pad = need - s.chars().count();
+        let mut result = String::with_capacity(pad + s.len());
+        for _ in 0..pad {
+            result.push(c);
+        }
+        result.push_str(&s);
+        result
+    }
+
+    /// Computes the Morel expression `StringCvt.padRight c i s`. Returns
+    /// `s` right-padded with `c` to length at least `i`; if `s` is
+    /// already at least `i` characters long, returns it unchanged.
+    pub(crate) fn pad_right(c: char, i: i32, s: String) -> String {
+        let need = i as usize;
+        if s.chars().count() >= need {
+            return s;
+        }
+        let pad = need - s.chars().count();
+        let mut result = String::with_capacity(s.len() + pad);
+        result.push_str(&s);
+        for _ in 0..pad {
+            result.push(c);
+        }
+        result
+    }
+
     /// Computes the Morel expression `String.sub`.
     ///
     /// `sub (s, i)` returns the `i`(th) character of `s`, counting from zero.

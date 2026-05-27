@@ -526,6 +526,8 @@ pub enum BuiltInFunction {
     IntDiv,
     #[strum(props(name = "=", type = "int * int -> bool"))]
     IntEq,
+    #[strum(props(p = "Int", name = "fmt", type = "radix -> int -> string"))]
+    IntFmt,
     #[strum(props(p = "Int", name = "fromInt", type = "int -> int"))]
     IntFromInt,
     #[strum(props(p = "Int", name = "fromLarge", type = "int -> int"))]
@@ -1001,6 +1003,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Real", name = "floor", global = true))]
     #[strum(props(type = "real -> int", throws = "Overflow"))]
     RealFloor,
+    #[strum(props(p = "Real", name = "fmt"))]
+    #[strum(props(type = "realfmt -> real -> string", throws = "Size"))]
+    RealFmt,
     #[strum(props(p = "Real", name = "fromInt", type = "int -> real"))]
     RealFromInt,
     #[strum(props(p = "Real", name = "fromManExp"))]
@@ -1136,6 +1141,44 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "concatWith"))]
     #[strum(props(type = "string -> string list -> string"))]
     StringConcatWith,
+    #[strum(props(p = "StringCvt", name = "padLeft"))]
+    #[strum(props(type = "char -> int -> string -> string"))]
+    StringCvtPadLeft,
+    #[strum(props(p = "StringCvt", name = "padRight"))]
+    #[strum(props(type = "char -> int -> string -> string"))]
+    StringCvtPadRight,
+    #[strum(props(p = "StringCvt", name = "BIN", global = true))]
+    #[strum(props(type = "`radix`"))]
+    #[strum(props(constructor_ordinal = "0"))]
+    StringCvtRadixBin,
+    #[strum(props(p = "StringCvt", name = "DEC", global = true))]
+    #[strum(props(type = "`radix`"))]
+    #[strum(props(constructor_ordinal = "1"))]
+    StringCvtRadixDec,
+    #[strum(props(p = "StringCvt", name = "HEX", global = true))]
+    #[strum(props(type = "`radix`"))]
+    #[strum(props(constructor_ordinal = "2"))]
+    StringCvtRadixHex,
+    #[strum(props(p = "StringCvt", name = "OCT", global = true))]
+    #[strum(props(type = "`radix`"))]
+    #[strum(props(constructor_ordinal = "3"))]
+    StringCvtRadixOct,
+    #[strum(props(p = "StringCvt", name = "EXACT", global = true))]
+    #[strum(props(type = "`realfmt`"))]
+    #[strum(props(constructor_ordinal = "0"))]
+    StringCvtRealfmtExact,
+    #[strum(props(p = "StringCvt", name = "FIX", global = true))]
+    #[strum(props(type = "int option -> realfmt"))]
+    #[strum(props(constructor_ordinal = "1"))]
+    StringCvtRealfmtFix,
+    #[strum(props(p = "StringCvt", name = "GEN", global = true))]
+    #[strum(props(type = "int option -> realfmt"))]
+    #[strum(props(constructor_ordinal = "2"))]
+    StringCvtRealfmtGen,
+    #[strum(props(p = "StringCvt", name = "SCI", global = true))]
+    #[strum(props(type = "int option -> realfmt"))]
+    #[strum(props(constructor_ordinal = "3"))]
+    StringCvtRealfmtSci,
     #[strum(props(p = "String", name = "="))]
     #[strum(props(type = "string * string -> bool"))]
     StringEq,
@@ -1568,12 +1611,19 @@ impl BuiltInFunction {
         self as u16 as usize
     }
 
-    /// Convenience for nullary constructors: returns
-    /// `Val::Constructor(self.runtime_tag(), Val::Unit)`. Panics
-    /// if this isn't a constructor.
-    pub(crate) fn nullary_constructor_val(&self) -> Val {
+    /// Builds a constructor value `Val::Constructor(self.runtime_tag(),
+    /// Box::new(inner))`. For nullary constructors, pass `Val::Unit`
+    /// (or use [`Self::nullary_constructor_val`]). Panics if this is not a
+    /// constructor.
+    pub(crate) fn constructor_val(&self, inner: Val) -> Val {
         assert!(self.is_constructor(), "not a constructor: {:?}", self);
-        Val::Constructor(self.runtime_tag(), Box::new(Val::Unit))
+        Val::Constructor(self.runtime_tag(), Box::new(inner))
+    }
+
+    /// Convenience for nullary constructors: returns
+    /// `Val::Constructor(self.runtime_tag(), Val::Unit)`.
+    pub(crate) fn nullary_constructor_val(&self) -> Val {
+        self.constructor_val(Val::Unit)
     }
 
     /// Returns the name of the datatype this constructor belongs to
@@ -1657,6 +1707,8 @@ pub enum BuiltInRecord {
     Scott,
     #[strum(props(name = "String"))]
     String,
+    #[strum(props(name = "StringCvt"))]
+    StringCvt,
     #[strum(props(name = "Sys"))]
     Sys,
     #[strum(props(name = "Time"))]
@@ -1795,6 +1847,16 @@ pub enum BuiltInDatatype {
         constructors = "ALL,AT_LEAST,AT_MOST,CLOSED,CLOSED_OPEN,GREATER_THAN,LESS_THAN,OPEN,OPEN_CLOSED,POINT"
     ))]
     Range,
+    #[strum(props(p = "StringCvt"))]
+    #[strum(props(name = "radix"))]
+    #[strum(props(varCount = "0"))]
+    #[strum(props(constructors = "BIN,DEC,HEX,OCT"))]
+    StringCvtRadix,
+    #[strum(props(p = "StringCvt"))]
+    #[strum(props(name = "realfmt"))]
+    #[strum(props(varCount = "0"))]
+    #[strum(props(constructors = "EXACT,FIX,GEN,SCI"))]
+    StringCvtRealfmt,
     #[strum(props(p = "Variant"))]
     #[strum(props(name = "variant"))]
     #[strum(props(varCount = "0"))]

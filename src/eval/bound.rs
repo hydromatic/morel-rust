@@ -110,17 +110,14 @@ impl Bound {
     /// Converts a lower-upper `Bound` pair to a runtime range value.
     pub fn to_range(lo: &Self, hi: &Self) -> Val {
         match (&lo.value, &hi.value) {
-            (None, None) => Val::Constructor(
-                BuiltInFunction::RangeAll.runtime_tag(),
-                Box::new(Val::Unit),
-            ),
+            (None, None) => BuiltInFunction::RangeAll.nullary_constructor_val(),
             (None, Some(h)) => {
                 let f = if hi.inclusive {
                     BuiltInFunction::RangeAtMost
                 } else {
                     BuiltInFunction::RangeLessThan
                 };
-                Val::Constructor(f.runtime_tag(), Box::new(h.clone()))
+                f.constructor_val(h.clone())
             }
             (Some(l), None) => {
                 let f = if lo.inclusive {
@@ -128,14 +125,12 @@ impl Bound {
                 } else {
                     BuiltInFunction::RangeGreaterThan
                 };
-                Val::Constructor(f.runtime_tag(), Box::new(l.clone()))
+                f.constructor_val(l.clone())
             }
             (Some(l), Some(h)) => {
                 if lo.inclusive && hi.inclusive && l == h {
-                    return Val::Constructor(
-                        BuiltInFunction::RangePoint.runtime_tag(),
-                        Box::new(l.clone()),
-                    );
+                    return BuiltInFunction::RangePoint
+                        .constructor_val(l.clone());
                 }
                 let f = match (lo.inclusive, hi.inclusive) {
                     (true, true) => BuiltInFunction::RangeClosed,
@@ -143,10 +138,7 @@ impl Bound {
                     (false, true) => BuiltInFunction::RangeOpenClosed,
                     (false, false) => BuiltInFunction::RangeOpen,
                 };
-                Val::Constructor(
-                    f.runtime_tag(),
-                    Box::new(Val::List(vec![l.clone(), h.clone()])),
-                )
+                f.constructor_val(Val::List(vec![l.clone(), h.clone()]))
             }
         }
     }

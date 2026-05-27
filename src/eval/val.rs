@@ -47,14 +47,27 @@ use std::sync::{Arc, Mutex, Weak};
 // which set of constructors a tag refers to.
 
 /// Runtime tag of the sole `descending` constructor.
+// lint: sort until 'pub enum' where '##pub const '
 pub const DESCENDING_DESC: usize = BuiltInFunction::DescendingDesc as usize;
 
-/// Runtime tags of the ten `range` constructors.
+/// Runtime tags of the four `StringCvt.radix` constructors.
+pub const RADIX_BIN: usize = BuiltInFunction::StringCvtRadixBin as usize;
+pub const RADIX_DEC: usize = BuiltInFunction::StringCvtRadixDec as usize;
+pub const RADIX_HEX: usize = BuiltInFunction::StringCvtRadixHex as usize;
+pub const RADIX_OCT: usize = BuiltInFunction::StringCvtRadixOct as usize;
+
+/// Runtime tags of the ten `range` constructors, interleaved with the
+/// synthetic single-constructor wrappers for `continuous_set` and
+/// `discrete_set`.
 pub const RANGE_ALL: usize = BuiltInFunction::RangeAll as usize;
 pub const RANGE_AT_LEAST: usize = BuiltInFunction::RangeAtLeast as usize;
 pub const RANGE_AT_MOST: usize = BuiltInFunction::RangeAtMost as usize;
 pub const RANGE_CLOSED: usize = BuiltInFunction::RangeClosed as usize;
 pub const RANGE_CLOSED_OPEN: usize = BuiltInFunction::RangeClosedOpen as usize;
+pub const RANGE_CONTINUOUS_SET: usize =
+    BuiltInFunction::RangeContinuousSet as usize;
+pub const RANGE_DISCRETE_SET: usize =
+    BuiltInFunction::RangeDiscreteSet as usize;
 pub const RANGE_GREATER_THAN: usize =
     BuiltInFunction::RangeGreaterThan as usize;
 pub const RANGE_LESS_THAN: usize = BuiltInFunction::RangeLessThan as usize;
@@ -62,12 +75,12 @@ pub const RANGE_OPEN: usize = BuiltInFunction::RangeOpen as usize;
 pub const RANGE_OPEN_CLOSED: usize = BuiltInFunction::RangeOpenClosed as usize;
 pub const RANGE_POINT: usize = BuiltInFunction::RangePoint as usize;
 
-/// Runtime tags of the synthetic single-constructor wrappers for
-/// `continuous_set` and `discrete_set`.
-pub const RANGE_CONTINUOUS_SET: usize =
-    BuiltInFunction::RangeContinuousSet as usize;
-pub const RANGE_DISCRETE_SET: usize =
-    BuiltInFunction::RangeDiscreteSet as usize;
+/// Runtime tags of the four `StringCvt.realfmt` constructors.
+pub const REALFMT_EXACT: usize =
+    BuiltInFunction::StringCvtRealfmtExact as usize;
+pub const REALFMT_FIX: usize = BuiltInFunction::StringCvtRealfmtFix as usize;
+pub const REALFMT_GEN: usize = BuiltInFunction::StringCvtRealfmtGen as usize;
+pub const REALFMT_SCI: usize = BuiltInFunction::StringCvtRealfmtSci as usize;
 
 /// Runtime value.
 ///

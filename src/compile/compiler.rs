@@ -935,11 +935,9 @@ impl<'a> Compiler<'a> {
                         && matches!(result_type.as_ref(), Type::Fn(_, _))
                     {
                         let mut cap_code = self.compile_arg(cx, a);
-                        if let Impl::EF3(ef3) = impl_
-                            && ef3.validates_partial_arg1()
-                        {
+                        if code::validates_partial_arg1(*f) {
                             cap_code = Code::ValidatePartialArg1(
-                                ef3,
+                                *f,
                                 Box::new(cap_code),
                                 span.clone(),
                             );
@@ -1010,7 +1008,14 @@ impl<'a> Compiler<'a> {
                     if matches!(result_type.as_ref(), Type::Fn(_, _))
                         && matches!(impl_, Impl::E2(_) | Impl::EF2(_))
                     {
-                        let single_arg = self.compile_arg(cx, a);
+                        let mut single_arg = self.compile_arg(cx, a);
+                        if code::validates_partial_arg1(*f) {
+                            single_arg = Code::ValidatePartialArg1(
+                                *f,
+                                Box::new(single_arg),
+                                span.clone(),
+                            );
+                        }
                         let codes: Vec<Box<Code>> = vec![Box::new(single_arg)];
                         let frame_def = Arc::new(FrameDef::new(
                             &[Binding::of_name("__cap")],
@@ -1174,8 +1179,15 @@ impl<'a> Compiler<'a> {
                     {
                         // This is a curried call to an EF2 or E2 function.
                         // Gather both arguments.
-                        let arg1_code =
-                            Box::new(self.compile_arg(cx, second_arg));
+                        let mut arg1 = self.compile_arg(cx, second_arg);
+                        if code::validates_partial_arg1(*func) {
+                            arg1 = Code::ValidatePartialArg1(
+                                *func,
+                                Box::new(arg1),
+                                span.clone(),
+                            );
+                        }
+                        let arg1_code = Box::new(arg1);
                         let arg2_code = Box::new(self.compile_arg(cx, a));
                         return Code::new_native(
                             func.get_impl(),
@@ -1193,11 +1205,9 @@ impl<'a> Compiler<'a> {
                         && matches!(result_type.as_ref(), Type::Fn(_, _))
                     {
                         let mut cap1_code = self.compile_arg(cx, second_arg);
-                        if let Impl::EF3(ef3) = func.get_impl()
-                            && ef3.validates_partial_arg1()
-                        {
+                        if code::validates_partial_arg1(*func) {
                             cap1_code = Code::ValidatePartialArg1(
-                                ef3,
+                                *func,
                                 Box::new(cap1_code),
                                 span.clone(),
                             );

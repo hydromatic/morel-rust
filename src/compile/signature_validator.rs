@@ -211,13 +211,9 @@ const SKIP_SPEC_PAIRS: &[(&str, &str)] = &[
     ("General", "before"),     // not yet implemented
     ("General", "exnMessage"), // not yet implemented
     ("General", "exnName"),    // not yet implemented
-    ("Int", "fmt"),            // not yet implemented
     ("Range", "complement"),   // not yet implemented
     ("Range", "ranges"),       // not yet implemented
-    ("Real", "fmt"),           // not yet implemented
     ("Relational", "only"),    // exposed as Bag.only overload
-    ("StringCvt", "padLeft"),  // not yet implemented
-    ("StringCvt", "padRight"), // not yet implemented
     ("Sys", "file"),           // not yet implemented
 ];
 
