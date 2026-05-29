@@ -184,6 +184,8 @@ fn test_each_expr_kind() {
     // Data constructors: [...], (...), {...}. All three are atomic when
     // used as a function argument.
     k.check_kind("[1, 2]");
+    // A list literal with a range item parses to a RangeList.
+    k.check_kind("[1 .. 5]");
     k.check_kind("(1, 2)");
     k.check_kind("{a = 1}");
     k.check_kind("hd [1, 2, 3]");

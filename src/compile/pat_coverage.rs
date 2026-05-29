@@ -29,7 +29,7 @@ use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::shell::error::Error;
 use crate::syntax::ast::{
     Decl, DeclKind, Expr, ExprKind, Literal, LiteralKind, Match, Pat, PatField,
-    PatKind, Span,
+    PatKind, RangeItem, Span,
 };
 use std::collections::HashMap;
 
@@ -581,6 +581,30 @@ fn visit_expr(
         | ExprKind::Append(a, b) => {
             visit_expr(a, type_map, warnings)?;
             visit_expr(b, type_map, warnings)?;
+        }
+
+        // Normally desugared away in the type resolver, but visit the
+        // endpoint expressions for completeness.
+        ExprKind::RangeList(items) => {
+            for item in items {
+                match item {
+                    RangeItem::Point(e)
+                    | RangeItem::AtLeast(e)
+                    | RangeItem::GreaterThan(e)
+                    | RangeItem::AtMost(e)
+                    | RangeItem::LessThan(e) => {
+                        visit_expr(e, type_map, warnings)?;
+                    }
+                    RangeItem::Closed(lo, hi)
+                    | RangeItem::ClosedOpen(lo, hi)
+                    | RangeItem::OpenClosed(lo, hi)
+                    | RangeItem::Open(lo, hi) => {
+                        visit_expr(lo, type_map, warnings)?;
+                        visit_expr(hi, type_map, warnings)?;
+                    }
+                    RangeItem::All => {}
+                }
+            }
         }
 
         ExprKind::Record(base, fields) => {

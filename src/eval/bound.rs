@@ -399,6 +399,53 @@ pub fn enumerate(
     }
 }
 
+/// Like [`enumerate`], but returns `false` instead of panicking when the
+/// range is infinite (unbounded above, an unbounded-below element type
+/// with no minimum, or an empty open range at the discrete maximum).
+/// Used by `Range.flatten`, which raises `Size` in those cases. Appends
+/// the enumerated values to `out` and returns `true` on success.
+pub fn enumerate_finite(
+    lo: &Bound,
+    hi: &Bound,
+    discrete: &dyn Discrete,
+    cmp: &dyn Comparator,
+    out: &mut Vec<Val>,
+) -> bool {
+    let hi_val = match &hi.value {
+        Some(v) => v,
+        None => return false,
+    };
+    let start = match &lo.value {
+        None => match discrete.min_value() {
+            Some(v) => v,
+            None => return false,
+        },
+        Some(v) => {
+            if lo.inclusive {
+                v.clone()
+            } else {
+                match discrete.next(v) {
+                    Some(n) => n,
+                    None => return false,
+                }
+            }
+        }
+    };
+    let mut v = start;
+    loop {
+        let c = cmp.compare(&v, hi_val);
+        if c == Ordering::Greater || (c == Ordering::Equal && !hi.inclusive) {
+            break;
+        }
+        out.push(v.clone());
+        match discrete.next(&v) {
+            Some(n) => v = n,
+            None => break,
+        }
+    }
+    true
+}
+
 /// Enumerates every value covered by the given (normalized) list of
 /// ranges, in ascending order.
 pub fn enumerate_ranges(

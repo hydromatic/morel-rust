@@ -28,7 +28,7 @@
 
 use crate::syntax::ast::{
     Attribute, AttributePayload, Decl, DeclKind, Expr, ExprKind, LabeledExpr,
-    Literal, LiteralKind, Match, Pat, PatField, PatKind, Statement,
+    Literal, LiteralKind, Match, Pat, PatField, PatKind, RangeItem, Statement,
     StatementKind, Type, TypeKind, ValBind,
 };
 
@@ -170,6 +170,29 @@ fn dump_expr_kind(b: &mut String, e: &ExprKind<Expr>) {
         ExprKind::Ordinal => b.push_str("ordinal"),
         ExprKind::Plus(a, c) => infix(b, "plus", a, c),
         ExprKind::Raise(e) => prefix(b, "raise", e),
+        ExprKind::RangeList(items) => {
+            b.push_str("(rangeList");
+            for item in items {
+                b.push(' ');
+                match item {
+                    RangeItem::Point(e) => prefix(b, "point", e),
+                    RangeItem::Closed(lo, hi) => infix(b, "closed", lo, hi),
+                    RangeItem::ClosedOpen(lo, hi) => {
+                        infix(b, "closedOpen", lo, hi)
+                    }
+                    RangeItem::OpenClosed(lo, hi) => {
+                        infix(b, "openClosed", lo, hi)
+                    }
+                    RangeItem::Open(lo, hi) => infix(b, "open", lo, hi),
+                    RangeItem::AtLeast(e) => prefix(b, "atLeast", e),
+                    RangeItem::GreaterThan(e) => prefix(b, "greaterThan", e),
+                    RangeItem::AtMost(e) => prefix(b, "atMost", e),
+                    RangeItem::LessThan(e) => prefix(b, "lessThan", e),
+                    RangeItem::All => b.push_str("all"),
+                }
+            }
+            b.push(')');
+        }
         ExprKind::Record(base, fields) => {
             b.push_str("(record");
             if let Some(base) = base {

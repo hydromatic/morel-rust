@@ -952,6 +952,9 @@ pub enum BuiltInFunction {
     #[strum(props(name = "$dsRanges"))]
     #[strum(props(type = "forall 1 'a discrete_set -> 'a range list"))]
     RangeDsRanges,
+    #[strum(props(p = "Range", name = "flatten"))]
+    #[strum(props(type = "forall 1 'a range list -> 'a list"))]
+    RangeFlatten,
     #[strum(props(p = "Range", name = "GREATER_THAN", global = true))]
     #[strum(props(type = "forall 1 'a -> 'a range"))]
     #[strum(props(constructor_ordinal = "5"))]

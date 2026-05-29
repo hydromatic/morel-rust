@@ -839,6 +839,43 @@ impl<'a> Compiler<'a> {
                             // which itself would have rejected a
                             // non-discrete type.
                         }
+                        // Intercept Range.flatten to build type-directed
+                        // helpers from the element type inside `'a range
+                        // list`. Unlike toList/toBag, a non-discrete
+                        // element type is allowed: only non-POINT ranges
+                        // then raise `Size` at runtime.
+                        if *f == BuiltInFunction::RangeFlatten {
+                            let elem_type = match a.type_().as_ref() {
+                                Type::List(r) => match r.as_ref() {
+                                    Type::Data(name, args)
+                                        if name == "range"
+                                            && !args.is_empty() =>
+                                    {
+                                        (*args[0]).clone()
+                                    }
+                                    _ => (*a.type_()).clone(),
+                                },
+                                _ => (*a.type_()).clone(),
+                            };
+                            let cmp = CmpRef(comparator::comparator_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            ));
+                            let discrete = discrete_for_with(
+                                &elem_type,
+                                &self.type_map.datatype_constructors,
+                                &self.type_map.constructor_arg_types,
+                            )
+                            .ok()
+                            .map(code::DiscreteRef);
+                            let arg = self.compile_arg(cx, a);
+                            return Code::RangeFlatten(
+                                cmp,
+                                discrete,
+                                Box::new(arg),
+                            );
+                        }
                         // Intercept Range.complement on a discrete_set:
                         // use the Discrete-aware complement. The
                         // continuous-set variant is handled by the
@@ -890,9 +927,9 @@ impl<'a> Compiler<'a> {
                                 return Code::RangeCsOf(cmp, Box::new(arg));
                             }
                             // discreteSetOf: also build a Discrete.
-                            // If the element type is not discrete,
-                            // bake a runtime `IllegalArgument` error
-                            // carrying the message morel-java raises.
+                            // If the element type is not discrete, bake a
+                            // compile-style error carrying the message
+                            // morel-java raises (as a `CompileException`).
                             match discrete_for_with(
                                 &elem_type,
                                 &self.type_map.datatype_constructors,
@@ -906,9 +943,9 @@ impl<'a> Compiler<'a> {
                                     );
                                 }
                                 Err(msg) => {
-                                    return Code::RaiseIllegalArgument(
+                                    return Code::RaiseCompileError(
                                         msg,
-                                        span.clone(),
+                                        Span::new("0.0-0.0"),
                                     );
                                 }
                             }

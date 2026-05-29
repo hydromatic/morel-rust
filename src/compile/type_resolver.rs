@@ -35,8 +35,8 @@ use crate::eval::file::TypedValue;
 use crate::shell::error::Error;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, LabeledExpr,
-    Literal, LiteralKind, Match, MorelNode, Pat, PatField, PatKind, Span,
-    Statement, StatementKind, Step, StepKind, Type as AstType, TypeField,
+    Literal, LiteralKind, Match, MorelNode, Pat, PatField, PatKind, RangeItem,
+    Span, Statement, StatementKind, Step, StepKind, Type as AstType, TypeField,
     TypeKind, TypeScheme, ValBind,
 };
 use crate::unify::unifier::{
@@ -1511,6 +1511,84 @@ impl TypeResolver {
         }
     }
 
+    /// Builds the AST for `Range.<method>`, i.e.
+    /// `Apply(RecordSelector(method), Identifier("Range"))`.
+    fn range_method(span: &Span, method: &str) -> Expr {
+        ExprKind::Apply(
+            Box::new(
+                ExprKind::RecordSelector(method.to_string()).spanned(span),
+            ),
+            Box::new(ExprKind::Identifier("Range".to_string()).spanned(span)),
+        )
+        .spanned(span)
+    }
+
+    /// Converts one [`RangeItem`] to the AST for a `Range` constructor
+    /// application (`POINT e`, `CLOSED (lo, hi)`, etc.).
+    fn range_item_to_expr(item: &RangeItem, span: &Span) -> Expr {
+        let id = |name: &str| ExprKind::Identifier(name.to_string());
+        let apply = |name: &str, arg: Expr| {
+            ExprKind::Apply(Box::new(id(name).spanned(span)), Box::new(arg))
+                .spanned(span)
+        };
+        let pair = |lo: &Expr, hi: &Expr| {
+            ExprKind::Tuple(vec![lo.clone(), hi.clone()]).spanned(span)
+        };
+        match item {
+            RangeItem::Point(e) => apply("POINT", e.clone()),
+            RangeItem::Closed(lo, hi) => apply("CLOSED", pair(lo, hi)),
+            RangeItem::ClosedOpen(lo, hi) => apply("CLOSED_OPEN", pair(lo, hi)),
+            RangeItem::OpenClosed(lo, hi) => apply("OPEN_CLOSED", pair(lo, hi)),
+            RangeItem::Open(lo, hi) => apply("OPEN", pair(lo, hi)),
+            RangeItem::AtLeast(e) => apply("AT_LEAST", e.clone()),
+            RangeItem::GreaterThan(e) => apply("GREATER_THAN", e.clone()),
+            RangeItem::AtMost(e) => apply("AT_MOST", e.clone()),
+            RangeItem::LessThan(e) => apply("LESS_THAN", e.clone()),
+            RangeItem::All => id("ALL").spanned(span),
+        }
+    }
+
+    /// Builds the desugared AST for `x elem [r1, r2, ...]` (or `notelem`):
+    /// `Range.contains r1 x orelse Range.contains r2 x orelse ...`,
+    /// wrapped in `not (...)` for `notelem`.
+    fn elem_on_range_list(
+        x: &Expr,
+        items: &[RangeItem],
+        not: bool,
+        span: &Span,
+    ) -> Expr {
+        if items.is_empty() {
+            return ExprKind::Literal(LiteralKind::Bool(not).spanned(span))
+                .spanned(span);
+        }
+        let mut disjunction: Option<Expr> = None;
+        for item in items {
+            let range_exp = Self::range_item_to_expr(item, span);
+            let contains = Self::range_method(span, "contains");
+            let applied =
+                ExprKind::Apply(Box::new(contains), Box::new(range_exp))
+                    .spanned(span);
+            let test = ExprKind::Apply(Box::new(applied), Box::new(x.clone()))
+                .spanned(span);
+            disjunction = Some(match disjunction {
+                None => test,
+                Some(d) => {
+                    ExprKind::OrElse(Box::new(d), Box::new(test)).spanned(span)
+                }
+            });
+        }
+        let d = disjunction.unwrap();
+        if not {
+            ExprKind::Apply(
+                Box::new(ExprKind::Identifier("not".to_string()).spanned(span)),
+                Box::new(d),
+            )
+            .spanned(span)
+        } else {
+            d
+        }
+    }
+
     /// Converts a list of patterns to a singleton pattern or tuple pattern.
     fn pat_tuple(&self, span: &Span, pat_list: &[Pat]) -> Pat {
         if pat_list.is_empty() {
@@ -1850,6 +1928,16 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Elem(left, right) => {
+                // Special case: `x elem [r1, r2, ...]` where the RHS
+                // contains range items is rewritten to a short-circuiting
+                // chain of `Range.contains` calls, so the list (which may
+                // be infinite) is never materialized.
+                if let ExprKind::RangeList(items) = &right.kind {
+                    let call = Self::elem_on_range_list(
+                        left, items, false, &expr.span,
+                    );
+                    return self.deduce_expr_type(env, &call, v);
+                }
                 // 'elem' works on both lists and bags.
                 let v_elem = self.variable();
                 let left2 = self.deduce_expr_type(env, left, &v_elem)?;
@@ -2104,6 +2192,13 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::NotElem(left, right) => {
+                // Special case: `x notelem [r1, r2, ...]` with range items
+                // is rewritten to `not (Range.contains r1 x orelse ...)`.
+                if let ExprKind::RangeList(items) = &right.kind {
+                    let call =
+                        Self::elem_on_range_list(left, items, true, &expr.span);
+                    return self.deduce_expr_type(env, &call, v);
+                }
                 // 'notelem' works on both lists and bags.
                 let v_elem = self.variable();
                 let left2 = self.deduce_expr_type(env, left, &v_elem)?;
@@ -2210,6 +2305,21 @@ impl TypeResolver {
                 let e2 = self.deduce_expr_type(env, e, &v_exn)?;
                 let x = ExprKind::Raise(Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
+            }
+            ExprKind::RangeList(items) => {
+                // Desugar `[r1, r2, ...]` (with at least one range item)
+                // into `Range.flatten [POINT/CLOSED/... applications]`.
+                let span = &expr.span;
+                let range_exps: Vec<Expr> = items
+                    .iter()
+                    .map(|it| Self::range_item_to_expr(it, span))
+                    .collect();
+                let list = ExprKind::List(range_exps).spanned(span);
+                let flatten_fn = Self::range_method(span, "flatten");
+                let call =
+                    ExprKind::Apply(Box::new(flatten_fn), Box::new(list))
+                        .spanned(span);
+                self.deduce_expr_type(env, &call, v)?
             }
             ExprKind::Record(with_expr, labeled_expr_list) => {
                 let mut field_vars = Vec::new(); // never read

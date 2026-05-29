@@ -330,7 +330,33 @@ op_name = {
 
 identifier_expr = { identifier }
 tuple_expr = { "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
-list_expr = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
+// A bracketed list literal whose items may be plain expressions
+// (POINT) or range forms built with the `..`, `..^`, `^..`, `^..^`
+// delimiters. A caret marks an excluded endpoint. The forms are:
+//   e            POINT e          .. e         AT_MOST e
+//   e .. e'      CLOSED           ..^ e        LESS_THAN e
+//   e ..^ e'     CLOSED_OPEN      ..           ALL
+//   e ^.. e'     OPEN_CLOSED      e ..         AT_LEAST e
+//   e ^..^ e'    OPEN             e ^..        GREATER_THAN e
+// The consumer builds an ordinary `List` if every item is a POINT,
+// otherwise a `RangeList` that desugars to `Range.flatten`.
+list_expr = { "[" ~ (range_item ~ ("," ~ range_item)*)? ~ "]" }
+range_item = {
+    range_dd_caret ~ expr
+  | range_dd ~ expr
+  | range_dd
+  | expr ~ range_caret_dd_caret ~ expr
+  | expr ~ range_caret_dd ~ expr
+  | expr ~ range_caret_dd
+  | expr ~ range_dd_caret ~ expr
+  | expr ~ range_dd ~ expr
+  | expr ~ range_dd
+  | expr
+}
+range_dd = @{ ".." }
+range_dd_caret = @{ "..^" }
+range_caret_dd = @{ "^.." }
+range_caret_dd_caret = @{ "^..^" }
 record_expr = { "{" ~ record_body? ~ "}" }
 record_body = { (expr ~ _with)? ~ labeled_expr ~ ("," ~ labeled_expr)* }
 

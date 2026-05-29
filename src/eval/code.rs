@@ -33,7 +33,8 @@ use crate::datalog::translate_string as datalog_translate;
 use crate::datalog::validate as datalog_validate;
 use crate::eval::bool::Bool;
 use crate::eval::bound::{
-    complement, enumerate_ranges, from_ranges, set_contains,
+    Bound, complement, enumerate_finite, enumerate_ranges, from_ranges,
+    set_contains,
 };
 use crate::eval::char::Char;
 use crate::eval::comparator::{Comparator, NaturalComparator};
@@ -318,6 +319,12 @@ pub enum Code {
     /// points at the `raise` keyword's source location, used to
     /// report the location of an uncaught exception.
     Raise(Box<Code>, Span),
+    /// `RaiseCompileError(msg, span)` raises `MorelError::CompileError`
+    /// when evaluated, rendering as `{span} Error: {msg}` followed by a
+    /// `raised at: {span}` line. Mirrors morel-java's `CompileException`
+    /// surfaced during evaluation (e.g. `Range.discreteSetOf` on a
+    /// non-discrete element type).
+    RaiseCompileError(String, Span),
     /// `RaiseIllegalArgument(msg, span)` raises
     /// `MorelError::IllegalArgument` when evaluated. Baked into the
     /// `Code` tree by compile-time interceptors that detect invalid
@@ -353,6 +360,14 @@ pub enum Code {
     /// `Range.toList` and `Range.toBag` (bags share the `Val::List`
     /// representation).
     RangeEnumerate(CmpRef, DiscreteRef, Box<Code>),
+    /// `RangeFlatten(cmp, discrete, list_code)` implements
+    /// `Range.flatten`: evaluates an `'a range list`, enumerates each
+    /// range in input order (ascending within a range) and concatenates
+    /// the results, preserving duplicates. `discrete` is `None` when the
+    /// element type is not discrete (e.g. `real`); then only `POINT`
+    /// ranges are finite and any other range raises `Size`. With a
+    /// `Discrete`, an unbounded range also raises `Size`.
+    RangeFlatten(CmpRef, Option<DiscreteRef>, Box<Code>),
     /// `RecValBindings(items)` compiles an inner-let `Decl::RecVal`
     /// whose bindings may cross-reference each other. For each item
     /// `(slot, expr_code, span)`:
@@ -745,12 +760,14 @@ impl Code {
             Code::Raise(_, _) => {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
+            Code::RaiseCompileError(_, _) => *mode == EvalMode::EagerF0,
             Code::RaiseIllegalArgument(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeContains(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RangeCsOf(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeDsComplement(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeDsOf(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RangeEnumerate(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::RangeFlatten(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RecValBindings(_) => *mode == EvalMode::EagerF0,
             Code::SelfRef => *mode == EvalMode::EagerF0,
             Code::TailApply(_, _) => *mode == EvalMode::EagerF0,
@@ -1067,6 +1084,9 @@ impl Code {
                 let (exn, payload) = exn_from_val(&value);
                 Err(MorelError::Runtime2(exn, payload, span.clone()))
             }
+            Code::RaiseCompileError(msg, span) => {
+                Err(MorelError::CompileError(msg.clone(), span.clone()))
+            }
             Code::RaiseIllegalArgument(msg, span) => {
                 Err(MorelError::IllegalArgument(msg.clone(), span.clone()))
             }
@@ -1118,6 +1138,50 @@ impl Code {
                     ),
                 };
                 let out = enumerate_ranges(ranges, &*discrete.0, &*cmp.0);
+                Ok(Val::List(out))
+            }
+            Code::RangeFlatten(cmp, discrete, list_code) => {
+                let list = list_code.eval_f0(r, f)?;
+                let ranges = list.expect_list();
+                let mut out: Vec<Val> = Vec::new();
+                for range in ranges {
+                    let ord = match range {
+                        Val::Constructor(o, _) => *o,
+                        other => panic!(
+                            "Range.flatten: not a range value: {:?}",
+                            other
+                        ),
+                    };
+                    match discrete {
+                        None => {
+                            // Element type is not discrete: only POINT
+                            // ranges are finite.
+                            if ord != RANGE_POINT {
+                                return Err(MorelError::Runtime(
+                                    BuiltInExn::Size,
+                                    Span::new("0.0-0.0"),
+                                ));
+                            }
+                            out.push(
+                                Bound::lower(range)
+                                    .value
+                                    .expect("POINT has a value"),
+                            );
+                        }
+                        Some(d) => {
+                            let lo = Bound::lower(range);
+                            let hi = Bound::upper(range);
+                            if !enumerate_finite(
+                                &lo, &hi, &*d.0, &*cmp.0, &mut out,
+                            ) {
+                                return Err(MorelError::Runtime(
+                                    BuiltInExn::Size,
+                                    Span::new("0.0-0.0"),
+                                ));
+                            }
+                        }
+                    }
+                }
                 Ok(Val::List(out))
             }
             Code::RecValBindings(items) => {
@@ -2731,6 +2795,7 @@ pub enum Eager1 {
     RangeDsComplement,
     RangeDsOf,
     RangeDsRanges,
+    RangeFlatten,
     RangeGreaterThan,
     RangeLessThan,
     RangeOpen,
@@ -3019,6 +3084,15 @@ impl Eager1 {
                         other
                     ),
                 }
+            }
+            RangeFlatten => {
+                // Fallback for partial application. Without type info we
+                // cannot build a `Discrete`; panic clearly. The compile
+                // intercept covers every direct call.
+                panic!(
+                    "Range.flatten: partial application is not supported; \
+                     invoke with a concrete range list argument"
+                )
             }
             RangeGreaterThan => {
                 BuiltInFunction::RangeGreaterThan.constructor_val(a0)
@@ -4609,6 +4683,7 @@ fn build_library() -> Lib {
     Eager2::RangeContains.implements(&mut b, RangeDsContains);
     Eager1::RangeDsOf.implements(&mut b, RangeDsOf);
     Eager1::RangeDsRanges.implements(&mut b, RangeDsRanges);
+    Eager1::RangeFlatten.implements(&mut b, RangeFlatten);
     Eager1::RangeGreaterThan.implements(&mut b, RangeGreaterThan);
     Eager1::RangeLessThan.implements(&mut b, RangeLessThan);
     Eager1::RangeOpen.implements(&mut b, RangeOpen);

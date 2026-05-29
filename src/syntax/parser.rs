@@ -21,9 +21,9 @@ use crate::syntax::ast::{
     Attribute, AttributeKind, AttributePayload, ConBind, ConDesc, DatatypeBind,
     DatatypeDesc, Decl, DeclKind, ExnDesc, Expr, ExprKind, FunBind, FunMatch,
     Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField, PatKind,
-    SigBind, Span, Spec, SpecKind, Statement, StatementKind, Step, StepKind,
-    Type, TypeBind, TypeDesc, TypeField, TypeKind, TypeScheme, ValBind,
-    ValDesc,
+    RangeItem, SigBind, Span, Spec, SpecKind, Statement, StatementKind, Step,
+    StepKind, Type, TypeBind, TypeDesc, TypeField, TypeKind, TypeScheme,
+    ValBind, ValDesc,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
@@ -656,10 +656,59 @@ impl MorelParser {
         ))
     }
 
+    fn range_dd(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn range_dd_caret(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn range_caret_dd(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn range_caret_dd_caret(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn range_item(input: ParseInput) -> ParseResult<RangeItem> {
+        Ok(match_nodes!(input.children();
+            [range_dd_caret(_), expr(e)] => RangeItem::LessThan(e),
+            [range_dd(_), expr(e)] => RangeItem::AtMost(e),
+            [range_dd(_)] => RangeItem::All,
+            [expr(lo), range_caret_dd_caret(_), expr(hi)] =>
+                RangeItem::Open(lo, hi),
+            [expr(lo), range_caret_dd(_), expr(hi)] =>
+                RangeItem::OpenClosed(lo, hi),
+            [expr(lo), range_caret_dd(_)] => RangeItem::GreaterThan(lo),
+            [expr(lo), range_dd_caret(_), expr(hi)] =>
+                RangeItem::ClosedOpen(lo, hi),
+            [expr(lo), range_dd(_), expr(hi)] => RangeItem::Closed(lo, hi),
+            [expr(lo), range_dd(_)] => RangeItem::AtLeast(lo),
+            [expr(e)] => RangeItem::Point(e),
+        ))
+    }
+
     fn list_expr(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [expr(exprs)..] => {
-                ExprKind::List(exprs.collect()).wrap(input)
+            [range_item(items)..] => {
+                let items: Vec<RangeItem> = items.collect();
+                // If every item is a POINT, build an ordinary list
+                // literal; otherwise a RangeList that desugars to
+                // Range.flatten in the type resolver.
+                if items.iter().all(|it| matches!(it, RangeItem::Point(_))) {
+                    let exprs = items
+                        .into_iter()
+                        .map(|it| match it {
+                            RangeItem::Point(e) => e,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    ExprKind::List(exprs).wrap(input)
+                } else {
+                    ExprKind::RangeList(items).wrap(input)
+                }
             },
         ))
     }

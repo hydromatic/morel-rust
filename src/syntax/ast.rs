@@ -196,6 +196,33 @@ impl Display for Expr {
     }
 }
 
+/// One item in a [`ExprKind::RangeList`]: either a point (a plain
+/// expression) or a range form, one per `Range` datatype constructor.
+/// A caret in the source marks an excluded endpoint.
+#[derive(Clone, Debug)]
+pub enum RangeItem {
+    /// `e` — a single value, `POINT e`.
+    Point(Expr),
+    /// `e .. e'` — `CLOSED (e, e')`.
+    Closed(Expr, Expr),
+    /// `e ..^ e'` — `CLOSED_OPEN (e, e')`.
+    ClosedOpen(Expr, Expr),
+    /// `e ^.. e'` — `OPEN_CLOSED (e, e')`.
+    OpenClosed(Expr, Expr),
+    /// `e ^..^ e'` — `OPEN (e, e')`.
+    Open(Expr, Expr),
+    /// `e ..` — `AT_LEAST e`.
+    AtLeast(Expr),
+    /// `e ^..` — `GREATER_THAN e`.
+    GreaterThan(Expr),
+    /// `.. e` — `AT_MOST e`.
+    AtMost(Expr),
+    /// `..^ e` — `LESS_THAN e`.
+    LessThan(Expr),
+    /// `..` — `ALL`.
+    All,
+}
+
 /// Kind of expression.
 #[derive(Clone, Debug, strum_macros::EnumDiscriminants)]
 #[strum_discriminants(
@@ -252,6 +279,10 @@ pub enum ExprKind<SubExpr> {
     // Constructors for data structures
     Tuple(Vec<Expr>), // e.g. `(x, y, z)`
     List(Vec<Expr>),  // e.g. `[x, y, z]`
+    /// A list literal containing at least one range item, e.g.
+    /// `[0 ..^ 10, 20, 100 ..]`. Desugars to `Range.flatten [...]` in
+    /// the type resolver.
+    RangeList(Vec<RangeItem>),
     Record(Option<Box<Expr>>, Vec<LabeledExpr>), // e.g. `{r with x = 1, y}`
 
     // Relational expressions
@@ -331,6 +362,7 @@ impl ExprKind<Expr> {
             ExprKind::Ordinal => Op::ATOM,
             ExprKind::Plus(..) => Op::PLUS,
             ExprKind::Raise(..) => Op::LOW_EXPR,
+            ExprKind::RangeList(..) => Op::ATOM,
             ExprKind::Record(..) => Op::ATOM,
             ExprKind::RecordSelector(..) => Op::ATOM,
             ExprKind::Times(..) => Op::TIMES_OP,
@@ -460,6 +492,52 @@ impl ExprKind<Expr> {
             ExprKind::Ordinal => f.write_str("ordinal"),
             ExprKind::Plus(a0, a1) => infix(f, a0, Op::PLUS, a1, left, right),
             ExprKind::Raise(e) => write!(f, "raise {}", e),
+            ExprKind::RangeList(items) => {
+                f.write_str("[")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    let lo_hi = |f: &mut Formatter<'_>,
+                                 lo: &Expr,
+                                 sep,
+                                 hi: &Expr|
+                     -> FmtResult {
+                        write_sub(f, lo, 198, 199)?;
+                        f.write_str(sep)?;
+                        write_sub(f, hi, 198, 199)
+                    };
+                    match item {
+                        RangeItem::Point(e) => write_sub(f, e, 198, 199)?,
+                        RangeItem::Closed(lo, hi) => lo_hi(f, lo, " .. ", hi)?,
+                        RangeItem::ClosedOpen(lo, hi) => {
+                            lo_hi(f, lo, " ..^ ", hi)?
+                        }
+                        RangeItem::OpenClosed(lo, hi) => {
+                            lo_hi(f, lo, " ^.. ", hi)?
+                        }
+                        RangeItem::Open(lo, hi) => lo_hi(f, lo, " ^..^ ", hi)?,
+                        RangeItem::AtLeast(lo) => {
+                            write_sub(f, lo, 198, 199)?;
+                            f.write_str(" ..")?
+                        }
+                        RangeItem::GreaterThan(lo) => {
+                            write_sub(f, lo, 198, 199)?;
+                            f.write_str(" ^..")?
+                        }
+                        RangeItem::AtMost(hi) => {
+                            f.write_str(".. ")?;
+                            write_sub(f, hi, 198, 199)?
+                        }
+                        RangeItem::LessThan(hi) => {
+                            f.write_str("..^ ")?;
+                            write_sub(f, hi, 198, 199)?
+                        }
+                        RangeItem::All => f.write_str("..")?,
+                    }
+                }
+                f.write_str("]")
+            }
             ExprKind::Record(base, fields) => {
                 f.write_str("{")?;
                 if let Some(b) = base {

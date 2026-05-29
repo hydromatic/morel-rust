@@ -1434,6 +1434,12 @@ pub enum MorelError {
     /// Analogous to Java's `IllegalArgumentException`.
     IllegalArgument(String, Span),
 
+    /// A compile-time error surfaced during evaluation, rendered as
+    /// `{loc} Error: {msg}` plus a `raised at: {loc}` line. Analogous to
+    /// Java's `CompileException` (e.g. `Range.discreteSetOf` on a
+    /// non-discrete element type).
+    CompileError(String, Span),
+
     /// Advisory signal that a row sink has completed early and does not
     /// need more rows. Producers may honor this for performance or safely
     /// ignore it. Sinks returning EarlyReturn must be idempotent.
@@ -1469,6 +1475,9 @@ impl Display for MorelError {
                 } else {
                     write!(f, "\n  raised at: {}", loc_str)
                 }
+            }
+            MorelError::CompileError(msg, loc) => {
+                write!(f, "{} Error: {}\n  raised at: {}", loc, msg, loc)
             }
             MorelError::EarlyReturn => {
                 write!(f, "EarlyReturn (internal signal)")
