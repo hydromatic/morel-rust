@@ -921,7 +921,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a range list -> 'a continuous_set"))]
     #[strum(props(constructor_ordinal = "0"))]
     RangeContinuousSet,
-    #[strum(props(name = "$csComplement"))]
+    #[strum(props(p = "Range", name = "complement"))]
     #[strum(props(type = "forall 1 'a continuous_set -> 'a continuous_set"))]
     RangeCsComplement,
     #[strum(props(name = "$csContains"))]
@@ -930,7 +930,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Range", name = "continuousSetOf"))]
     #[strum(props(type = "forall 1 'a range list -> 'a continuous_set"))]
     RangeCsOf,
-    #[strum(props(name = "$csRanges"))]
+    #[strum(props(p = "Range", name = "ranges"))]
     #[strum(props(type = "forall 1 'a continuous_set -> 'a range list"))]
     RangeCsRanges,
     /// Synthetic single-constructor wrapper for the `discrete_set`

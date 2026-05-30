@@ -158,6 +158,11 @@ fn built_in_order() {
 }
 
 #[test]
+fn built_in_range() {
+    run_script("tests/script/built-in/range.smli");
+}
+
+#[test]
 fn built_in_real() {
     run_script("tests/script/built-in/real.smli");
 }
