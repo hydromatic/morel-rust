@@ -187,7 +187,7 @@ macro_rules! define_props {
                     Prop::Output => {
                         PropVal::Output(Output::from_str(str).unwrap())
                     },
-                    Prop::InlinePassCount => {
+                    Prop::InlinePassCount | Prop::StringFold => {
                         PropVal::Int(str.parse().unwrap())
                     },
                     _ => todo!("str_to_val: {}", self.camel_name())
@@ -458,6 +458,17 @@ define_props! {
         required: true,
     },
 
+    StringFold => {
+        doc: "Integer property 'stringFold' controls how tabular mode \
+               renders long strings. When set, strings longer than this \
+               value are folded across multiple lines, breaking at word \
+               boundaries when possible. Legal values are 1 or greater. If \
+               not set (the default), folding is disabled.",
+        camel_name: "stringFold",
+        default: None as Option<PropVal>,
+        required: false,
+    },
+
     TimeZone => {
         doc: "String property 'timeZone' overrides the local timezone used by \
                Date.fromTimeLocal(), Date.localOffset(), and Date.date when \
@@ -564,7 +575,7 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 21);
+        assert_eq!(all_props.len(), 22);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
         assert!(all_props.contains(&Prop::Now));

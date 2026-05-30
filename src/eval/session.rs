@@ -305,6 +305,7 @@ pub struct Config {
     pub match_coverage_enabled: Option<bool>,
     pub output: Option<Output>,
     pub script_directory: Option<Rc<PathBuf>>,
+    pub string_fold: Option<i32>,
     pub time_zone: Option<Rc<String>>,
 }
 
@@ -319,6 +320,7 @@ impl Default for Config {
             output: Some(Output::Classic),
             match_coverage_enabled: None,
             script_directory: None,
+            string_fold: None,
             time_zone: None,
         }
     }
@@ -331,6 +333,7 @@ impl Config {
         match prop {
             Prop::Now => self.now.clone().map(PropVal::String),
             Prop::OptionalInt => self.optional_int.map(PropVal::Int),
+            Prop::StringFold => self.string_fold.map(PropVal::Int),
             Prop::TimeZone => self.time_zone.clone().map(PropVal::String),
             _ => None,
         }

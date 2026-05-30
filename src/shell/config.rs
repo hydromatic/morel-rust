@@ -34,6 +34,7 @@ pub struct Config {
     pub prompt: Option<bool>,
     pub stdin_is_tty: Option<bool>,
     pub string_depth: Option<i32>,
+    pub string_fold: Option<i32>,
 }
 
 impl Default for Config {
@@ -52,6 +53,7 @@ impl Default for Config {
             prompt: Some(false),
             stdin_is_tty: Some(false),
             string_depth: Some(Prop::StringDepth.default_value().as_int()),
+            string_fold: None,
         }
     }
 }

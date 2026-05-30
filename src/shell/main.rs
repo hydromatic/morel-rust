@@ -569,6 +569,16 @@ impl Shell {
                     })?);
                 Ok(())
             }
+            "stringFold" => {
+                let i = val.maybe_int().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'int'".to_string(),
+                    )
+                })?;
+                self.config.string_fold = Some(i);
+                self.session.borrow_mut().config.string_fold = Some(i);
+                Ok(())
+            }
             "timeZone" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
@@ -625,6 +635,11 @@ impl Shell {
             }
             "stringDepth" => {
                 self.config.string_depth = None;
+                Ok(())
+            }
+            "stringFold" => {
+                self.config.string_fold = None;
+                self.session.borrow_mut().config.string_fold = None;
                 Ok(())
             }
             "timeZone" => {

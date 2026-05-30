@@ -2404,6 +2404,9 @@ impl ValDeclAction {
             shell_config
                 .string_depth
                 .unwrap_or_else(|| Prop::StringDepth.default_value().as_int()),
+            // Unset (the default) disables folding; `tabular` treats < 1 as
+            // disabled.
+            shell_config.string_fold.unwrap_or(0),
             constructor_arg_types.clone(),
             datatype_constructors.clone(),
         )

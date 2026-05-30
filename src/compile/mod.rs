@@ -35,6 +35,7 @@ pub mod resolver;
 pub mod sat;
 pub mod signature_validator;
 pub mod span;
+pub mod tabular;
 pub mod type_env;
 pub mod type_parser;
 pub mod type_resolver;

@@ -16,6 +16,7 @@
 // License.
 
 use crate::compile::library;
+use crate::compile::tabular;
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
 use crate::eval::code;
 use crate::eval::date;
@@ -37,6 +38,9 @@ pub struct Pretty {
     print_length: i32,
     print_depth: i32,
     string_depth: i32,
+    /// Column width at which tabular mode folds long strings across
+    /// lines. `< 1` (the default) disables folding.
+    string_fold: i32,
     newline: char,
     /// Maps constructor name → argument type. Used to format record
     /// arguments with field names (e.g. `Foo {a=1,b="x"}` instead
@@ -48,24 +52,6 @@ pub struct Pretty {
 }
 
 impl Type {
-    fn is_collection(&self) -> bool {
-        match &self {
-            Type::List(_) => true,
-            Type::Bag(_) => true,
-            Type::Data(name, _) => name == "bag",
-            _ => false,
-        }
-    }
-
-    fn arg(&self, index: usize) -> Option<&Type> {
-        match self {
-            Type::List(inner) if index == 0 => Some(inner),
-            Type::Bag(inner) if index == 0 => Some(inner),
-            Type::Data(_name, args) => args.get(index).map(AsRef::as_ref),
-            _ => None,
-        }
-    }
-
     /// Removes any "forall" qualifier of a type. Does not renumber
     /// the remaining type variables, and therefore can avoid cloning.
     ///
@@ -101,6 +87,7 @@ impl Pretty {
         print_length: i32,
         print_depth: i32,
         string_depth: i32,
+        string_fold: i32,
         constructor_arg_types: HashMap<String, Type>,
         datatype_constructors: HashMap<String, Vec<String>>,
     ) -> Self {
@@ -110,6 +97,7 @@ impl Pretty {
             print_length,
             print_depth,
             string_depth,
+            string_fold,
             newline: '\n',
             constructor_arg_types,
             datatype_constructors,
@@ -632,119 +620,27 @@ impl Pretty {
         buf: &mut String,
         _indent: usize,
         _line_end: &mut [i32],
-        _depth: i32,
+        depth: i32,
         type_ref: &Type,
         value: &Val,
     ) -> Result<bool, fmt::Error> {
         if !matches!(self.output, PropOutput::Classic)
-            && self.can_print_tabular(type_ref)
-            && let Val::List(records) = value
-            && let Some(Type::Record(_, arg_name_types)) = type_ref.arg(0)
+            && tabular::can_print(type_ref)
+            && matches!(value, Val::List(_))
         {
-            let headers: Vec<String> =
-                arg_name_types.keys().map(ToString::to_string).collect();
-            let mut widths: Vec<usize> =
-                headers.iter().map(String::len).collect();
-
-            // Convert records to string representations
-            let mut string_records = Vec::new();
-            for record in records {
-                if let Val::List(fields) = record {
-                    let string_row: Vec<String> =
-                        fields.iter().map(Self::format_tabular).collect();
-                    // Update column widths
-                    for (i, s) in string_row.iter().enumerate() {
-                        if i < widths.len() && widths[i] < s.len() {
-                            widths[i] = s.len();
-                        }
-                    }
-                    string_records.push(string_row);
-                }
-            }
-
-            self.row(buf, &headers, &widths, ' ');
-            let empty_row: Vec<String> =
-                headers.iter().map(|_| String::new()).collect();
-            self.row(buf, &empty_row, &widths, '-');
-            for record in &string_records {
-                self.row(buf, record, &widths, ' ');
-            }
-            buf.push(self.newline);
-            return Ok(true);
+            return Ok(tabular::print(
+                buf,
+                depth,
+                type_ref,
+                value,
+                self.print_depth,
+                self.print_length,
+                self.string_depth,
+                self.string_fold,
+                self.newline,
+            ));
         }
         Ok(false)
-    }
-
-    /// Formats a primitive value for tabular display.
-    /// Strings are unquoted; numbers use `~` for negative.
-    fn format_tabular(val: &Val) -> String {
-        match val {
-            // lint: sort until '#}' where '##Val::'
-            Val::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
-            Val::Char(c) => char_to_string(*c),
-            Val::Int(i) => {
-                if *i < 0 {
-                    if *i == i32::MIN {
-                        "~2147483648".to_string()
-                    } else {
-                        format!("~{}", -i)
-                    }
-                } else {
-                    i.to_string()
-                }
-            }
-            Val::Real(f) => Real::to_string(*f),
-            Val::String(s) => s.to_string(),
-            _ => format!("{:?}", val),
-        }
-    }
-
-    fn can_print_tabular(&self, type_ref: &Type) -> bool {
-        type_ref.is_collection()
-            && type_ref
-                .arg(0)
-                .is_some_and(|arg| matches!(arg, Type::Record(_, _)))
-            && self.can_print_tabular2(type_ref.arg(0).unwrap())
-    }
-
-    fn can_print_tabular2(&self, type_ref: &Type) -> bool {
-        if let Type::Record(_, arg_name_types) = type_ref {
-            arg_name_types
-                .values()
-                .all(|t| matches!(&**t, Type::Primitive(_)))
-        } else {
-            false
-        }
-    }
-
-    fn row(
-        &self,
-        buf: &mut String,
-        values: &[String],
-        widths: &[usize],
-        pad: char,
-    ) {
-        let start = buf.len();
-        for (value, &width) in zip(values, widths) {
-            if buf.len() > start {
-                buf.push(' ');
-            }
-            let target_len = buf.len() + width;
-            buf.push_str(value);
-            self.pad_to(buf, target_len, pad);
-        }
-
-        // Remove trailing spaces
-        while buf.ends_with(' ') {
-            buf.pop();
-        }
-        buf.push(self.newline);
-    }
-
-    fn pad_to(&self, buf: &mut String, desired_length: usize, pad: char) {
-        while buf.len() < desired_length {
-            buf.push(pad);
-        }
     }
 
     fn pretty_primitive(
