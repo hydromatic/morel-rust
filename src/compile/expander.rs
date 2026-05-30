@@ -30,8 +30,12 @@
 use crate::compile::core::{
     Binding, Decl, Expr, Match, Pat, Step, StepEnv, StepKind, ValBind,
 };
+use crate::compile::fbbt;
 use crate::compile::generator::Cache;
-use crate::compile::generators::{maybe_generator_with_scope, split_conjuncts};
+use crate::compile::generators::{
+    fold_literal_bounds_into_range_scans, has_infinite_range_scan,
+    maybe_generator_with_scope, rewrite_infinite_range_scans, split_conjuncts,
+};
 use crate::compile::library::BuiltInFunction;
 use crate::compile::span::Span;
 use crate::compile::types::{Label, PrimitiveType, Type};
@@ -101,8 +105,25 @@ pub fn expand_from_with_scope_rec(
     datatypes: &DatatypeMap,
     outer_scope: &BTreeSet<String>,
 ) -> Expr {
+    // Make infinite single-constructor range scans (`from x in [1..]`)
+    // finite. First fold a literal `where` bound into the range
+    // constructor in place (works for int and char); any remaining
+    // infinite int scans (bound deduced by FBBT, not literal) become
+    // list-typed Extent scans grounded by the range extractor.
+    let prep = |steps: Vec<Step>| {
+        if !has_infinite_range_scan(&steps) {
+            return steps;
+        }
+        let steps = fold_literal_bounds_into_range_scans(steps);
+        if has_infinite_range_scan(&steps) {
+            rewrite_infinite_range_scans(steps)
+        } else {
+            steps
+        }
+    };
     match expr {
         Expr::From(t, steps) => {
+            let steps = prep(steps);
             if !has_extent_scan(&steps) {
                 return Expr::From(t, steps);
             }
@@ -118,6 +139,7 @@ pub fn expand_from_with_scope_rec(
             )
         }
         Expr::Exists(t, steps) => {
+            let steps = prep(steps);
             if !has_extent_scan(&steps) {
                 return Expr::Exists(t, steps);
             }
@@ -133,6 +155,7 @@ pub fn expand_from_with_scope_rec(
             )
         }
         Expr::Forall(t, steps) => {
+            let steps = prep(steps);
             if !has_extent_scan(&steps) {
                 return Expr::Forall(t, steps);
             }
@@ -3900,14 +3923,14 @@ fn derive_generators(
 
     // Collect names of every unbounded sibling so we can break
     // equality-constraint cycles (`y2 = y` with both unbounded).
-    let unbounded_siblings: BTreeSet<String> = steps
+    let unbounded_pats: Vec<(String, Rc<Type>)> = steps
         .iter()
         .filter_map(|s| match &s.kind {
             StepKind::Scan(p, source, _)
                 if matches!(source.as_ref(), Expr::Extent(_, _)) =>
             {
-                if let Pat::Identifier(_, n) = p.as_ref() {
-                    Some(n.clone())
+                if let Pat::Identifier(t, n) = p.as_ref() {
+                    Some((n.clone(), t.clone()))
                 } else {
                     None
                 }
@@ -3915,6 +3938,21 @@ fn derive_generators(
             _ => None,
         })
         .collect();
+    let unbounded_siblings: BTreeSet<String> =
+        unbounded_pats.iter().map(|(n, _)| n.clone()).collect();
+
+    // Feasibility-based bound tightening: deduce constant bounds for the
+    // unbounded patterns (from `abs`, cross-variable, and multiplication
+    // constraints) and prepend them so the range extractor below grounds
+    // patterns it otherwise couldn't. Prepending makes a deduced constant
+    // bound win over a same-side cross-variable bound (which would create
+    // a cyclic generator dependency).
+    let deduced = fbbt::strengthen(&unbounded_pats, &all_constraints);
+    if !deduced.is_empty() {
+        let mut combined = deduced;
+        combined.extend(all_constraints);
+        all_constraints = combined;
+    }
 
     // For every Scan-over-Extent, attempt to synthesise a generator.
     // Use a copy of the constraints so each pattern sees the full set.

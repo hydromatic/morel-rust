@@ -222,6 +222,19 @@ from x where (x + 2) * (x - 3) = 0;
 > stdIn:1.6 Error: pattern 'x' is not grounded
 >   raised at: stdIn:1.6
 
+(* FBBT (feasibility-based bound tightening) lets the planner ground
+ * some patterns that would otherwise not be grounded. Here, the
+ * pattern is bounded by `abs x < 5`. *)
+from x where abs x < 5;
+> val it = [~4,~3,~2,~1,0,1,2,3,4] : int bag
+
+(* And here, each variable's bound depends on the other; FBBT
+ * propagates the constants through the cycle to deduce finite bounds
+ * for both. (Without FBBT, this would not be grounded; see
+ * optimize.smli for more cases.) *)
+Bag.length (from x, y where x > 0 andalso x < y andalso y < 10);
+> val it = 36 : int
+
 (* -- elem patterns ----------------------------------------------- *)
 
 (*) Pattern

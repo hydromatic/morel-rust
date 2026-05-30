@@ -19,6 +19,7 @@
 pub mod compiler;
 pub mod core;
 pub mod expander;
+pub mod fbbt;
 pub mod free_finder;
 pub mod from_builder;
 pub mod generator;

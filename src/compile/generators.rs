@@ -23,7 +23,9 @@
 //! add string-prefix, function inlining, exists, case, and
 //! constructor patterns.
 
-use crate::compile::core::{Binding, Expr, Match, Pat};
+use crate::compile::core::{
+    Binding, Expr, Match, Pat, Step, StepEnv, StepKind,
+};
 use crate::compile::expander::{DatatypeMap, FnEnv, and_all, expr_eq};
 use crate::compile::free_finder::free_names_in;
 use crate::compile::generator::{Cache, Cardinality, Generator};
@@ -172,6 +174,7 @@ pub fn maybe_generator_with_scope(
             pat_name,
             ordered,
             constraints,
+            unbounded_siblings,
         );
     }
     if matches!(pat_type, Type::Tuple(_))
@@ -320,6 +323,7 @@ fn create_range_generator(
     pat_name: &str,
     ordered: bool,
     constraints: &[Expr],
+    unbounded_siblings: &BTreeSet<String>,
 ) -> bool {
     let lower = match lower_bound(pat_name, constraints) {
         Some(l) => l,
@@ -330,10 +334,18 @@ fn create_range_generator(
         None => return false,
     };
 
-    // Provenance: every bound constraint involving the pattern.
+    // Provenance: every bound constraint involving the pattern, except
+    // those that also reference another unbounded sibling (e.g. `x < y`).
+    // Such cross-variable constraints are not fully expressed by this
+    // pattern's finite range — the constant-valued bounds that ground it
+    // come from elsewhere (an input literal or an FBBT-deduced bound) —
+    // so they must remain in the `where` as post-generation filters.
     let provenance: Vec<Expr> = constraints
         .iter()
-        .filter(|c| is_bound_constraint(c, pat_name))
+        .filter(|c| {
+            is_bound_constraint(c, pat_name)
+                && !references_other_sibling(c, pat_name, unbounded_siblings)
+        })
         .cloned()
         .collect();
 
@@ -2241,6 +2253,20 @@ fn is_bound_constraint(constraint: &Expr, pat_name: &str) -> bool {
     try_isolate_bound(constraint, pat_name).is_some()
 }
 
+/// Returns whether `constraint` references an unbounded sibling pattern
+/// other than `pat_name` (e.g. `x < y` when `y` is also unbounded). Such
+/// a constraint cannot be subsumed by `pat_name`'s finite range; it must
+/// remain as a filter.
+fn references_other_sibling(
+    constraint: &Expr,
+    pat_name: &str,
+    unbounded_siblings: &BTreeSet<String>,
+) -> bool {
+    free_names_in(constraint)
+        .iter()
+        .any(|n| n != pat_name && unbounded_siblings.contains(n))
+}
+
 /// Returns `(bound, strict)` for the pattern's lower bound, picking
 /// the first matching constraint. Strict means `>` (exclusive).
 fn lower_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
@@ -2462,6 +2488,379 @@ fn as_builtin_fn(expr: &Expr) -> Option<BuiltInFunction> {
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Infinite-range scan rewriting (RangePushdown)
+// ---------------------------------------------------------------------------
+
+/// Rewrites scans whose source is an infinite single-constructor range
+/// list (e.g. `from x in [1..]`, i.e. `Range.flatten [AT_LEAST 1]`) into
+/// a list-typed `Extent` scan plus an implied bound conjunct merged into
+/// the `where` step. This routes the scan through the FBBT / range
+/// extractor pipeline (so a downstream bound like `where x < 5` makes it
+/// finite), while preserving the scan's `list` result type.
+///
+/// Mirrors morel-java's `RangePushdown`, but folds the range endpoint
+/// into a `where` bound and re-grounds via the existing extractor rather
+/// than rewriting the range constructor in place.
+pub fn rewrite_infinite_range_scans(steps: Vec<Step>) -> Vec<Step> {
+    let mut implied: Vec<Expr> = Vec::new();
+    let mut converted = false;
+    let mut new_steps: Vec<Step> = Vec::with_capacity(steps.len());
+    for step in steps {
+        if let StepKind::Scan(pat, src, cond) = &step.kind
+            && let Pat::Identifier(elem_t, name) = pat.as_ref()
+            // Only int scans are routed through the extractor; morel-rust
+            // does not yet ground char/real range scans (they would
+            // materialize and raise `Size`, as before).
+            && matches!(elem_t.as_ref(), Type::Primitive(PrimitiveType::Int))
+            && let Some((lower, strict, arg)) = match_infinite_range_scan(src)
+        {
+            // Build `name <op> arg` with the element type's comparator.
+            if let Some(bound) =
+                compare_for_type(elem_t, lower, strict, name, arg)
+            {
+                implied.push(bound);
+            }
+            let ext = Expr::Extent(
+                Rc::new(Type::List(elem_t.clone())),
+                Span::new(""),
+            );
+            new_steps.push(Step::new(
+                StepKind::Scan(pat.clone(), Box::new(ext), cond.clone()),
+                step.env.clone(),
+            ));
+            converted = true;
+        } else {
+            new_steps.push(step);
+        }
+    }
+    if !converted || implied.is_empty() {
+        return new_steps;
+    }
+    // Merge the implied bounds into the first Where step (every grounding
+    // case has one). If none exists the extent simply stays ungrounded
+    // and the usual "not grounded" check fires.
+    let mut merged = false;
+    for step in &mut new_steps {
+        if let StepKind::Where(cond) = &step.kind {
+            let mut combined = (**cond).clone();
+            for b in &implied {
+                combined = and_all(vec![combined, b.clone()]);
+            }
+            step.kind = StepKind::Where(Box::new(combined));
+            merged = true;
+            break;
+        }
+    }
+    if !merged {
+        // No where step: append one carrying the implied bounds, reusing
+        // the last step's env so the scan variables are in scope.
+        let env = new_steps
+            .last()
+            .map_or_else(StepEnv::empty, |s| s.env.clone());
+        let cond = implied
+            .into_iter()
+            .reduce(|a, b| and_all(vec![a, b]))
+            .unwrap();
+        new_steps.push(Step::new(StepKind::Where(Box::new(cond)), env));
+    }
+    new_steps
+}
+
+/// Returns whether `steps` contains a scan over an infinite
+/// single-constructor range list.
+pub fn has_infinite_range_scan(steps: &[Step]) -> bool {
+    steps.iter().any(|s| {
+        matches!(&s.kind, StepKind::Scan(_, src, _)
+            if match_infinite_range_scan(src).is_some())
+    })
+}
+
+/// If `src` is `Range.flatten [<single infinite constructor>]`, returns
+/// `(lower, strict, arg)`: whether the implied bound is a lower bound,
+/// whether it is strict, and the range endpoint expression. Finite
+/// constructors (POINT, CLOSED, …) and multi-item lists return `None`.
+fn match_infinite_range_scan(src: &Expr) -> Option<(bool, bool, Expr)> {
+    let Expr::Apply(_, f, arg, _) = src else {
+        return None;
+    };
+    if as_builtin_fn(f) != Some(BuiltInFunction::RangeFlatten) {
+        return None;
+    }
+    let Expr::List(_, items) = arg.as_ref() else {
+        return None;
+    };
+    if items.len() != 1 {
+        return None;
+    }
+    let Expr::Apply(_, ctor_fn, ctor_arg, _) = &items[0] else {
+        return None;
+    };
+    let Expr::Literal(_, Val::Fn(ctor)) = ctor_fn.as_ref() else {
+        return None;
+    };
+    match ctor {
+        BuiltInFunction::RangeAtLeast => {
+            Some((true, false, (**ctor_arg).clone()))
+        }
+        BuiltInFunction::RangeGreaterThan => {
+            Some((true, true, (**ctor_arg).clone()))
+        }
+        BuiltInFunction::RangeAtMost => {
+            Some((false, false, (**ctor_arg).clone()))
+        }
+        BuiltInFunction::RangeLessThan => {
+            Some((false, true, (**ctor_arg).clone()))
+        }
+        _ => None,
+    }
+}
+
+/// Builds `name <op> bound` where `<op>` is the lower/upper, strict/
+/// non-strict comparison for the element type. Supports int and char.
+fn compare_for_type(
+    elem_t: &Rc<Type>,
+    lower: bool,
+    strict: bool,
+    name: &str,
+    bound: Expr,
+) -> Option<Expr> {
+    let op = match elem_t.as_ref() {
+        Type::Primitive(PrimitiveType::Int) => match (lower, strict) {
+            (true, false) => BuiltInFunction::IntGe,
+            (true, true) => BuiltInFunction::IntGt,
+            (false, false) => BuiltInFunction::IntLe,
+            (false, true) => BuiltInFunction::IntLt,
+        },
+        Type::Primitive(PrimitiveType::Char) => match (lower, strict) {
+            (true, false) => BuiltInFunction::CharGe,
+            (true, true) => BuiltInFunction::CharGt,
+            (false, false) => BuiltInFunction::CharLe,
+            (false, true) => BuiltInFunction::CharLt,
+        },
+        _ => return None,
+    };
+    let id = Expr::Identifier(elem_t.clone(), name.to_string());
+    let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+    let pair_t = Rc::new(Type::Tuple(vec![elem_t.clone(), elem_t.clone()]));
+    let fn_t = Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+    let fn_expr = Expr::Literal(fn_t, Val::Fn(op));
+    let arg = Expr::Tuple(pair_t, vec![id, bound]);
+    Some(Expr::Apply(
+        bool_t,
+        Box::new(fn_expr),
+        Box::new(arg),
+        Span::new(""),
+    ))
+}
+
+/// Folds a literal `where` bound into an infinite single-constructor
+/// range scan, producing a finite range that materializes directly via
+/// `Range.flatten`. This is the in-place analogue of morel-java's
+/// `RangePushdown`; because it keeps the scan a `Range.flatten` (rather
+/// than converting to an `Extent`), it works for any discrete element
+/// type — in particular `char`, which the extent route cannot ground:
+///
+/// ```text
+/// from c in [#"a"..] where c < #"e"
+///   -->  from c in [#"a" ..^ #"e"]   (i.e. CLOSED_OPEN (#"a", #"e"))
+/// ```
+///
+/// The consumed `where` conjunct is dropped. Scans with no complementary
+/// literal bound (e.g. the int multiplication case, where the bound is
+/// deduced by FBBT) are left for [`rewrite_infinite_range_scans`].
+pub fn fold_literal_bounds_into_range_scans(steps: Vec<Step>) -> Vec<Step> {
+    let Some(where_idx) = steps
+        .iter()
+        .position(|s| matches!(s.kind, StepKind::Where(_)))
+    else {
+        return steps;
+    };
+    let StepKind::Where(where_exp) = &steps[where_idx].kind else {
+        return steps;
+    };
+    let conjuncts = split_conjuncts(where_exp);
+
+    // Map of scan-step index -> rebuilt finite scan source, plus the set
+    // of consumed conjunct indices.
+    let mut replacements: HashMap<usize, Expr> = HashMap::new();
+    let mut consumed: Vec<usize> = Vec::new();
+    for (si, step) in steps.iter().enumerate() {
+        let StepKind::Scan(pat, src, _) = &step.kind else {
+            continue;
+        };
+        let Pat::Identifier(elem_t, name) = pat.as_ref() else {
+            continue;
+        };
+        let Some((scan_lower, scan_strict, scan_end)) =
+            match_infinite_range_scan(src)
+        else {
+            continue;
+        };
+        for (ci, c) in conjuncts.iter().enumerate() {
+            if consumed.contains(&ci) {
+                continue;
+            }
+            let Some((w_lower, w_strict, w_end)) =
+                extract_literal_bound(c, name)
+            else {
+                continue;
+            };
+            // The scan supplies one side; the conjunct must supply the
+            // other for the two to bracket a finite range.
+            if w_lower == scan_lower {
+                continue;
+            }
+            let ((lo, lo_incl), (hi, hi_incl)) = if scan_lower {
+                ((scan_end.clone(), !scan_strict), (w_end, !w_strict))
+            } else {
+                ((w_end, !w_strict), (scan_end.clone(), !scan_strict))
+            };
+            let ctor = match (lo_incl, hi_incl) {
+                (true, true) => BuiltInFunction::RangeClosed,
+                (true, false) => BuiltInFunction::RangeClosedOpen,
+                (false, true) => BuiltInFunction::RangeOpenClosed,
+                (false, false) => BuiltInFunction::RangeOpen,
+            };
+            replacements
+                .insert(si, build_finite_range_scan(src, elem_t, ctor, lo, hi));
+            consumed.push(ci);
+            break;
+        }
+    }
+
+    if replacements.is_empty() {
+        return steps;
+    }
+    let remaining: Vec<Expr> = conjuncts
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !consumed.contains(i))
+        .map(|(_, c)| c)
+        .collect();
+
+    let mut out = Vec::with_capacity(steps.len());
+    for (si, step) in steps.into_iter().enumerate() {
+        if si == where_idx {
+            if remaining.is_empty() {
+                continue; // every conjunct folded; drop the where step
+            }
+            out.push(Step::new(
+                StepKind::Where(Box::new(and_all(remaining.clone()))),
+                step.env,
+            ));
+        } else if let Some(new_src) = replacements.remove(&si) {
+            let StepKind::Scan(pat, _, cond) = step.kind else {
+                unreachable!()
+            };
+            out.push(Step::new(
+                StepKind::Scan(pat, Box::new(new_src), cond),
+                step.env,
+            ));
+        } else {
+            out.push(step);
+        }
+    }
+    out
+}
+
+/// If `conjunct` is a comparison `name <op> lit` (or `lit <op> name`)
+/// against an int/char literal, returns `(lower, strict, literal_expr)`:
+/// whether it bounds `name` from below, whether the bound is strict, and
+/// the literal endpoint.
+fn extract_literal_bound(
+    conjunct: &Expr,
+    pat_name: &str,
+) -> Option<(bool, bool, Expr)> {
+    let ops = [
+        BuiltInFunction::IntLt,
+        BuiltInFunction::IntLe,
+        BuiltInFunction::IntGt,
+        BuiltInFunction::IntGe,
+        BuiltInFunction::CharLt,
+        BuiltInFunction::CharLe,
+        BuiltInFunction::CharGt,
+        BuiltInFunction::CharGe,
+    ];
+    let (a, b, op) = call2_args_op(conjunct, &ops)?;
+    let a_is_pat = matches!(a, Expr::Identifier(_, n) if n == pat_name);
+    let b_is_pat = matches!(b, Expr::Identifier(_, n) if n == pat_name);
+    if a_is_pat && is_scalar_literal(b) {
+        let (lower, strict) = bound_direction(op);
+        return Some((lower, strict, b.clone()));
+    }
+    if b_is_pat && is_scalar_literal(a) {
+        let (lower, strict) = bound_direction(flip_cmp(op));
+        return Some((lower, strict, a.clone()));
+    }
+    None
+}
+
+/// Returns `(lower, strict)` for a `pat <op> c` comparison: `lower` true
+/// if it bounds the pattern from below (`>`, `>=`).
+fn bound_direction(op: BuiltInFunction) -> (bool, bool) {
+    match op {
+        BuiltInFunction::IntLt | BuiltInFunction::CharLt => (false, true),
+        BuiltInFunction::IntLe | BuiltInFunction::CharLe => (false, false),
+        BuiltInFunction::IntGt | BuiltInFunction::CharGt => (true, true),
+        BuiltInFunction::IntGe | BuiltInFunction::CharGe => (true, false),
+        _ => unreachable!(),
+    }
+}
+
+/// The comparison with its operands swapped (`a < b` ⇔ `b > a`).
+fn flip_cmp(op: BuiltInFunction) -> BuiltInFunction {
+    match op {
+        BuiltInFunction::IntLt => BuiltInFunction::IntGt,
+        BuiltInFunction::IntLe => BuiltInFunction::IntGe,
+        BuiltInFunction::IntGt => BuiltInFunction::IntLt,
+        BuiltInFunction::IntGe => BuiltInFunction::IntLe,
+        BuiltInFunction::CharLt => BuiltInFunction::CharGt,
+        BuiltInFunction::CharLe => BuiltInFunction::CharGe,
+        BuiltInFunction::CharGt => BuiltInFunction::CharLt,
+        BuiltInFunction::CharGe => BuiltInFunction::CharLe,
+        other => other,
+    }
+}
+
+fn is_scalar_literal(e: &Expr) -> bool {
+    matches!(e, Expr::Literal(_, Val::Int(_) | Val::Char(_)))
+}
+
+/// Rebuilds an infinite range scan's source as a finite two-sided range,
+/// reusing the original `Range.flatten` wrapper and replacing the single
+/// list constructor with `ctor (lo, hi)`.
+fn build_finite_range_scan(
+    src: &Expr,
+    elem_t: &Rc<Type>,
+    ctor: BuiltInFunction,
+    lo: Expr,
+    hi: Expr,
+) -> Expr {
+    let Expr::Apply(result_t, flatten_fn, list, span) = src else {
+        unreachable!("match_infinite_range_scan guarantees Apply")
+    };
+    let Expr::List(list_t, items) = list.as_ref() else {
+        unreachable!("match_infinite_range_scan guarantees a list")
+    };
+    let range_t = items[0].type_();
+    let pair_t = Rc::new(Type::Tuple(vec![elem_t.clone(), elem_t.clone()]));
+    let fn_t = Rc::new(Type::Fn(pair_t.clone(), range_t.clone()));
+    let ctor_app = Expr::Apply(
+        range_t,
+        Box::new(Expr::Literal(fn_t, Val::Fn(ctor))),
+        Box::new(Expr::Tuple(pair_t, vec![lo, hi])),
+        span.clone(),
+    );
+    let new_list = Expr::List(list_t.clone(), vec![ctor_app]);
+    Expr::Apply(
+        result_t.clone(),
+        flatten_fn.clone(),
+        Box::new(new_list),
+        span.clone(),
+    )
 }
 
 /// Splits an `andalso`-rooted expression into its conjuncts. Anything
