@@ -100,6 +100,7 @@ keywords = {
   | _where
   | _with
   | _yield
+  | _yieldall
 }
 
 // lint: sort until '^$'
@@ -160,6 +161,7 @@ _val = @{ "val" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _where = @{ "where" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _with = @{ "with" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _yield = @{ "yield" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_yieldall = @{ "yieldAll" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 
 // Top-level program
 program = { SOI ~ (WHITE_SPACE | COMMENT)* ~ statement_semicolon+ ~ EOI }
@@ -405,6 +407,7 @@ step = {
   | _unorder
   | where_
   | yield_
+  | yield_all
 }
 
 terminal_step = {
@@ -426,6 +429,7 @@ take = { _take ~ expr }
 union = { _union ~ _distinct? ~ expr ~ ("," ~ expr)* }
 where_ = { _where ~ expr }
 yield_ = { _yield ~ expr }
+yield_all = { _yieldall ~ expr }
 
 // -- Patterns --------------------------------------------
 

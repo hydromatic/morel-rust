@@ -1819,6 +1819,60 @@ impl<'a> Resolver<'a> {
                 let resolved_expr = self.resolve_expr(expr);
                 builder.yield_(resolved_expr);
             }
+            AstStepKind::YieldAll(expr) => {
+                // Lower "yieldAll e" to a scan over the collection-valued
+                // expression "e" followed by a yield of the freshly-bound
+                // element. For example,
+                //
+                //   from r in orders
+                //     yieldAll r.items
+                //
+                // becomes
+                //
+                //   from r in orders,
+                //       i in r.items
+                //     yield i
+                //
+                // The scan multiplies each input row by the elements of
+                // "e" ("r.items"), then the yield drops the input bindings
+                // ("r"), keeping only the element ("i").
+                let resolved_expr = self.resolve_expr(expr);
+                match resolved_expr.type_().as_ref() {
+                    Type::List(elem) | Type::Bag(elem) => {
+                        let elem_type = elem.clone();
+                        let name = format!(
+                            "v_{}",
+                            std::ptr::addr_of!(**expr) as usize
+                        );
+                        let pat = CorePat::Identifier(
+                            elem_type.clone(),
+                            name.clone(),
+                        );
+                        let id = CoreExpr::Identifier(elem_type, name);
+                        builder.scan(pat, resolved_expr);
+                        builder.yield_(id);
+                    }
+                    _ => {
+                        // Unreachable in practice: the type resolver's
+                        // `constrain_bag_or_list` already rejects a
+                        // non-collection `yieldAll` expression with a "no
+                        // valid overloads" type error before resolution.
+                        // Kept as a defensive fallback that reports a
+                        // compile error (rather than panicking) and
+                        // recovers by treating it as a plain yield.
+                        let span = Span::from_pest_span(
+                            &expr.span.to_pest_span(),
+                            self.base_line,
+                        );
+                        self.errors.borrow_mut().push((
+                            "yieldAll expression must be a list or bag"
+                                .to_string(),
+                            span,
+                        ));
+                        builder.yield_(resolved_expr);
+                    }
+                }
+            }
         }
     }
 

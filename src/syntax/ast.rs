@@ -799,6 +799,11 @@ pub enum StepKind {
     Unorder,
     Where(Box<Expr>),
     Yield(Box<Expr>),
+
+    /// A `yieldAll` step in a `from` expression: a flatMap that evaluates
+    /// a collection-valued expression for each input row and emits each of
+    /// its elements, flattening the result.
+    YieldAll(Box<Expr>),
 }
 
 impl StepKind {
@@ -824,6 +829,7 @@ impl StepKind {
             StepKind::Unorder => "unorder",
             StepKind::Where(_) => "where",
             StepKind::Yield(_) => "yield",
+            StepKind::YieldAll(_) => "yieldAll",
         }
     }
 
@@ -897,6 +903,7 @@ impl Display for StepKind {
             StepKind::Unorder => f.write_str("unorder"),
             StepKind::Where(e) => write!(f, "where {}", e),
             StepKind::Yield(e) => write!(f, "yield {}", e),
+            StepKind::YieldAll(e) => write!(f, "yieldAll {}", e),
         }
     }
 }

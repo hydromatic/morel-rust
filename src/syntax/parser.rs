@@ -952,6 +952,7 @@ impl MorelParser {
             [_unorder(_)] => vec![StepKind::Unorder.wrap(input)],
             [where_(s)] => vec![s],
             [yield_(s)] => vec![s],
+            [yield_all(s)] => vec![s],
         ))
     }
 
@@ -1134,6 +1135,14 @@ impl MorelParser {
         Ok(match_nodes!(input.children();
             [_yield(_), expr(e)] => {
                 StepKind::Yield(Box::new(e)).wrap(input)
+            },
+        ))
+    }
+
+    fn yield_all(input: ParseInput) -> ParseResult<Step> {
+        Ok(match_nodes!(input.children();
+            [_yieldall(_), expr(e)] => {
+                StepKind::YieldAll(Box::new(e)).wrap(input)
             },
         ))
     }
@@ -2173,6 +2182,10 @@ impl MorelParser {
     }
 
     fn _yield(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _yieldall(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 }

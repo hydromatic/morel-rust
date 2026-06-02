@@ -2618,6 +2618,9 @@ impl TypeResolver {
             StepKind::Yield(expr) => self.deduce_yield_step_type(
                 p, expr, &step.span, field_vars, steps2,
             ),
+            StepKind::YieldAll(expr) => self.deduce_yield_all_step_type(
+                p, expr, &step.span, field_vars, steps2,
+            ),
         }
     }
 
@@ -2847,6 +2850,56 @@ impl TypeResolver {
         let env = envs.build();
 
         Ok(Triple::new(p.root_env.clone(), env, v6, Some(c6)))
+    }
+
+    /// Deduces the type of a `yieldAll` step.
+    ///
+    /// `yieldAll e` evaluates the collection-valued expression `e` for each
+    /// input row and emits each of its elements, flattening the result --
+    /// the relational equivalent of flatMap (monadic bind). It is
+    /// type-checked here as a first-class step, so that a type error points
+    /// at `e` itself and `current` resolves against the element type; it is
+    /// lowered to a scan followed by a yield in the resolver. Flatten
+    /// semantics: the prior bindings are dropped, and each element of `e`
+    /// becomes a row, visible downstream as `current`.
+    fn deduce_yield_all_step_type(
+        &mut self,
+        p: &Triple,
+        expr: &Expr,
+        span: &Span,
+        field_vars: &mut Vec<(String, Var)>,
+        steps2: &mut Vec<Step>,
+    ) -> Result<Triple, Error> {
+        // `e` must evaluate to a list or a bag (of element type `elem`).
+        // Enforce this with an overload constraint (not the permissive
+        // `may_be_bag_or_list` action used by scans), so that a
+        // non-collection `e` fails type resolution with "no valid
+        // overloads" -- mirroring morel-java's `mayBeBagOrList`.
+        let elem = self.variable();
+        let c0 = self.variable();
+        self.constrain_bag_or_list(&c0, &elem);
+        let expr2 = self.deduce_expr_type(&*p.env, expr, &c0)?;
+
+        // The output is a list if both the input and `e` are lists, and a
+        // bag if either is a bag -- the same rule as a comma-join scan.
+        let c = self.unifier.variable();
+        self.is_list_or_bag_matching_input(&c0, &elem, &c, &elem);
+
+        let step = StepKind::YieldAll(Box::new(expr2));
+        steps2.push(step.spanned(span));
+
+        // The prior row bindings are dropped; `current` (and only
+        // `current`) is bound to the element type. Build the new
+        // environment from the root (outer) env.
+        let mut envs = p.root_env.builder();
+        envs.push("current".to_string(), Term::Variable(elem));
+        let env = envs.build();
+        field_vars.clear();
+        field_vars.push(("current".to_string(), elem));
+
+        let mut triple = Triple::new(p.root_env.clone(), env, elem, Some(c));
+        triple.ordered = p.ordered && self.var_is_list(&c0);
+        Ok(triple)
     }
 
     /// Deduces a set operation step's type (Union/Except/Intersect).
@@ -4493,6 +4546,22 @@ impl TypeResolver {
         self.equiv(&Term::Sequence(seq1.clone()), v1);
         self.equiv(&Term::Sequence(seq2), v2);
         self.equiv(&Term::Sequence(seq3), v3);
+    }
+
+    /// Adds an overload constraint that `c` must be a list or a bag of
+    /// element type `v`. Unlike [`may_be_bag_or_list`](Self::may_be_bag_or_list)
+    /// -- a permissive reactive action that only fires once `c` is already
+    /// known to be a collection -- this fails type resolution with "no valid
+    /// overloads" when `c` resolves to a non-collection, and selects the
+    /// list-or-bag kind once `c` is known.
+    fn constrain_bag_or_list(&mut self, c: &Var, v: &Var) {
+        let elem = Term::Variable(*v);
+        let list_seq = self.unifier.apply1(self.list_op, elem.clone());
+        let bag_seq = self.unifier.apply1(self.bag_op, elem);
+        self.overload_constraints.push(Constraint {
+            var: *c,
+            candidates: vec![Term::Sequence(list_seq), Term::Sequence(bag_seq)],
+        });
     }
 
     /// Constrains `v` to be the element type of collection `c`, where `c` may

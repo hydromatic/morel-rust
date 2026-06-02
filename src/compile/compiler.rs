@@ -1943,13 +1943,30 @@ impl<'a> Compiler<'a> {
                     )
                 };
 
+                // When the scan's collection expression references
+                // 'ordinal' (a lateral scan whose source depends on the
+                // input row's position, e.g. the lowering of 'yieldAll'),
+                // wrap the sink with an OrdinalRowSink so the counter is
+                // written into the frame slot before the collection
+                // expression is evaluated for each incoming row.
+                let ordinal_slot = if Self::expr_uses_ordinal(expr) {
+                    cx.frame_def.try_var_index("ordinal")
+                } else {
+                    None
+                };
+
                 RowSinkFactory::new(move || {
-                    Box::new(ScanRowSink::new(
+                    let scan: Box<dyn RowSink> = Box::new(ScanRowSink::new(
                         pat_code.clone(),
                         expr_code.clone(),
                         condition_code.clone(),
                         next_factory.create(),
-                    ))
+                    ));
+                    if let Some(slot) = ordinal_slot {
+                        Box::new(OrdinalRowSink::new(slot, scan))
+                    } else {
+                        scan
+                    }
                 })
             }
             StepKind::Skip(expr) => {
