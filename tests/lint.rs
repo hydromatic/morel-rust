@@ -683,6 +683,76 @@ fn test_signatures() {
     }
 }
 
+/// Validates that `parser::RESERVED_WORDS` is sorted, has no duplicates, and
+/// exactly matches the keyword tokens declared in the grammar
+/// (`src/syntax/morel.pest`). Mirrors morel-java's
+/// `LintTest.testReservedWords`.
+#[test]
+fn test_reserved_words() {
+    use morel::syntax::parser::RESERVED_WORDS;
+    use std::collections::BTreeSet;
+
+    // RESERVED_WORDS must be sorted (so `is_reserved_word`'s binary search
+    // works) and free of duplicates.
+    let mut sorted = RESERVED_WORDS.to_vec();
+    sorted.sort_unstable();
+    assert_eq!(
+        RESERVED_WORDS,
+        sorted.as_slice(),
+        "RESERVED_WORDS in src/syntax/parser.rs is not sorted"
+    );
+    let unique: BTreeSet<&&str> = RESERVED_WORDS.iter().collect();
+    assert_eq!(
+        unique.len(),
+        RESERVED_WORDS.len(),
+        "RESERVED_WORDS contains duplicates"
+    );
+
+    // Collect the keyword strings from the grammar. The `keywords = { ... }`
+    // rule lists the keyword token names; each token's string literal is
+    // defined as `_name = @{ "literal" ~ ... }`.
+    let pest = fs::read_to_string("src/syntax/morel.pest")
+        .expect("read src/syntax/morel.pest");
+    let kw_block = pest
+        .split_once("keywords = {")
+        .and_then(|(_, rest)| rest.split_once('}'))
+        .map(|(block, _)| block)
+        .expect("`keywords` rule not found in morel.pest");
+    let token_re = Regex::new(r"_[A-Za-z0-9]+").unwrap();
+    let grammar_words: BTreeSet<String> = token_re
+        .find_iter(kw_block)
+        .map(|m| {
+            let token = m.as_str();
+            let def_re = Regex::new(&format!(
+                r#"(?m)^{} = @\{{ "([^"]+)""#,
+                regex::escape(token)
+            ))
+            .unwrap();
+            def_re
+                .captures(&pest)
+                .unwrap_or_else(|| {
+                    panic!("no definition found for keyword token {token}")
+                })
+                .get(1)
+                .unwrap()
+                .as_str()
+                .to_string()
+        })
+        .collect();
+
+    let reserved_set: BTreeSet<String> =
+        RESERVED_WORDS.iter().map(|s| (*s).to_string()).collect();
+    let missing: Vec<&String> =
+        grammar_words.difference(&reserved_set).collect();
+    let extra: Vec<&String> = reserved_set.difference(&grammar_words).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "RESERVED_WORDS does not match the grammar's keyword tokens.\n  \
+         in grammar but missing from RESERVED_WORDS: {missing:?}\n  \
+         in RESERVED_WORDS but not a grammar keyword: {extra:?}"
+    );
+}
+
 /// Validates that for each .smli file in tests/script/, there is a
 /// corresponding test method in tests/smile.rs.
 #[test]

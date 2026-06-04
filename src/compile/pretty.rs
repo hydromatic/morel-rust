@@ -24,7 +24,7 @@ use crate::eval::real::Real;
 use crate::eval::val::Val;
 use crate::shell::prop::Output as PropOutput;
 use crate::syntax::parser::{
-    append_id, char_to_string, string_to_string_append,
+    append_bare_id, append_id, char_to_string, string_to_string_append,
 };
 use std::collections::HashMap;
 use std::fmt::{self, Write};
@@ -336,7 +336,7 @@ impl Pretty {
             Val::Typed(b) => {
                 let (name, v2, t2) = &**b;
                 let mut buf2 = String::from("val ");
-                append_id(&mut buf2, name.as_str());
+                append_bare_id(&mut buf2, name.as_str());
 
                 if self.custom_print(buf, indent, line_end, depth, t2, v2)? {
                     line_end[0] = -1; // no limit

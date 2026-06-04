@@ -2365,13 +2365,101 @@ fn requires_escape(s: &str) -> bool {
     })
 }
 
-/// Appends an identifier. Encloses it in back-ticks if necessary.
+/// Reserved words. These cannot be used as identifiers or record labels
+/// unless quoted with back-ticks, so [`append_id`] quotes them. Must be kept
+/// in sync with the keyword tokens in `morel.pest` (enforced by
+/// `tests/lint.rs::test_reserved_words`).
+pub const RESERVED_WORDS: &[&str] = &[
+    // lint: sort until '];'
+    "and",
+    "andalso",
+    "as",
+    "case",
+    "compute",
+    "current",
+    "datatype",
+    "distinct",
+    "div",
+    "elem",
+    "elements",
+    "else",
+    "end",
+    "eqtype",
+    "except",
+    "exception",
+    "exists",
+    "fn",
+    "forall",
+    "from",
+    "fun",
+    "group",
+    "if",
+    "implies",
+    "in",
+    "inst",
+    "intersect",
+    "into",
+    "join",
+    "let",
+    "mod",
+    "notelem",
+    "o",
+    "of",
+    "on",
+    "op",
+    "order",
+    "ordinal",
+    "orelse",
+    "over",
+    "raise",
+    "rec",
+    "require",
+    "sig",
+    "signature",
+    "skip",
+    "take",
+    "then",
+    "through",
+    "type",
+    "typeof",
+    "union",
+    "unorder",
+    "val",
+    "where",
+    "with",
+    "yield",
+    "yieldAll",
+];
+
+/// Returns whether `id` is a reserved word (a keyword in the grammar), and so
+/// must be back-tick-quoted when used as a variable identifier or record label.
+pub fn is_reserved_word(id: &str) -> bool {
+    RESERVED_WORDS.binary_search(&id).is_ok()
+}
+
+/// Appends an identifier or record label, enclosing it in back-ticks if
+/// necessary (because it contains a back-tick or space, or is a reserved
+/// word), so that it round-trips. Mirrors morel-java's `Parsers.appendId`
+/// (the `AstWriter.idQuoted` path) — use for variable identifiers in
+/// expressions and for record labels.
 pub fn append_id(buf: &mut String, id: &str) {
+    append_id_internal(buf, id, true);
+}
+
+/// Appends an identifier, quoting only when it contains a back-tick or space
+/// (never merely because it is a reserved word). Used for the `val NAME = …`
+/// declaration echo, whose binding name morel-java prints without
+/// reserved-word quoting.
+pub fn append_bare_id(buf: &mut String, id: &str) {
+    append_id_internal(buf, id, false);
+}
+
+fn append_id_internal(buf: &mut String, id: &str, quote_reserved: bool) {
     if id.contains('`') {
         buf.push('`');
         buf.push_str(&id.replace('`', "``"));
         buf.push('`');
-    } else if id.contains(' ') {
+    } else if id.contains(' ') || (quote_reserved && is_reserved_word(id)) {
         buf.push('`');
         buf.push_str(id);
         buf.push('`');
