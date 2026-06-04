@@ -262,6 +262,20 @@ pub struct Resolver<'a> {
     self_fns: RefCell<HashSet<String>>,
 }
 
+/// Builds `F elem`, where `F` is the functor of `map` (`ListMap`, `BagMap`,
+/// `OptionMap` or `VectorMap`). Used to re-wrap a field type in the
+/// receiver's functor layers when lowering safe navigation `e?.f`.
+fn wrap_functor(map: BuiltInFunction, elem: &Rc<Type>) -> Rc<Type> {
+    match map {
+        BuiltInFunction::ListMap => Rc::new(Type::List(elem.clone())),
+        BuiltInFunction::BagMap => Rc::new(Type::Bag(elem.clone())),
+        BuiltInFunction::VectorMap => {
+            Rc::new(Type::Data("vector".to_string(), vec![elem.clone()]))
+        }
+        _ => Rc::new(Type::Data("option".to_string(), vec![elem.clone()])),
+    }
+}
+
 /// Helper struct representing a pattern-expression pair with position info.
 #[derive(Clone, Debug)]
 struct PatExpr {
@@ -579,6 +593,11 @@ impl<'a> Resolver<'a> {
                 self.call2(t, BuiltInFunction::ListAt, &span, a0, a1)
             }
             ExprKind::Apply(func, arg) => {
+                // Safe navigation `e?.f`: lower to a projection through the
+                // receiver's functor layers.
+                if let ExprKind::SafeRecordSelector(name) = &func.kind {
+                    return self.resolve_safe_nav(t, name, arg, &span);
+                }
                 // Dispatch `abs x` to Int.abs or Real.abs when the
                 // argument type is known. This matches `~ x` (ExprKind::
                 // Negate) and lets Int.abs raise Overflow on minInt.
@@ -1066,6 +1085,80 @@ impl<'a> Resolver<'a> {
         let fn_literal = CoreExpr::Literal(fn_type.clone(), Val::Fn(f));
         let c0 = self.resolve_expr(a0);
         CoreExpr::Apply(t, Box::new(fn_literal), Box::new(c0), span.clone())
+    }
+
+    /// Lowers safe navigation `e?.f` by tunneling through the receiver's
+    /// functor layers (option, list, bag, vector) down to the record:
+    /// `F1.map (F2.map (... (Fn.map #f))) e`. The field's own type is
+    /// preserved, so the result is the field's type wrapped in those same
+    /// functor layers.
+    fn resolve_safe_nav(
+        &self,
+        t: Rc<Type>,
+        name: &str,
+        arg: &Expr,
+        span: &Span,
+    ) -> CoreExpr {
+        let core_arg = self.resolve_expr(arg);
+
+        // Peel the functor layers (outermost first) down to the record.
+        let mut maps: Vec<BuiltInFunction> = Vec::new();
+        let mut cur = core_arg.type_();
+        loop {
+            let next = match cur.as_ref() {
+                Type::List(elem) => (BuiltInFunction::ListMap, elem.clone()),
+                Type::Bag(elem) => (BuiltInFunction::BagMap, elem.clone()),
+                Type::Data(n, args) if n == "option" && args.len() == 1 => {
+                    (BuiltInFunction::OptionMap, args[0].clone())
+                }
+                Type::Data(n, args) if n == "vector" && args.len() == 1 => {
+                    (BuiltInFunction::VectorMap, args[0].clone())
+                }
+                _ => break,
+            };
+            maps.push(next.0);
+            cur = next.1;
+        }
+        let record_t = cur;
+
+        // Build the record selector at the bottom record.
+        let slot = record_t.lookup_field(name).unwrap_or_else(|| {
+            self.errors.borrow_mut().push((
+                format!("no field '{}' in type '{}'", name, record_t),
+                span.clone(),
+            ));
+            0
+        });
+        let field_t = record_t.field_types().get(slot).map_or_else(
+            || Rc::new(Type::Primitive(PrimitiveType::Unit)),
+            |ft| Rc::new(ft.clone()),
+        );
+        let mut fn_expr = CoreExpr::RecordSelector(
+            Rc::new(Type::Fn(record_t.clone(), field_t.clone())),
+            slot,
+        );
+
+        // Wrap "F1.map (F2.map (... (Fn.map #f)))", innermost layer first.
+        let mut in_type = record_t;
+        let mut out_type = field_t;
+        for map in maps.iter().rev() {
+            let f_in = wrap_functor(*map, &in_type);
+            let f_out = wrap_functor(*map, &out_type);
+            let inner_fn = Rc::new(Type::Fn(in_type.clone(), out_type.clone()));
+            let outer_fn = Rc::new(Type::Fn(f_in.clone(), f_out.clone()));
+            let map_type = Rc::new(Type::Fn(inner_fn, outer_fn.clone()));
+            let map_lit = CoreExpr::Literal(map_type, Val::Fn(*map));
+            fn_expr = CoreExpr::Apply(
+                outer_fn,
+                Box::new(map_lit),
+                Box::new(fn_expr),
+                span.clone(),
+            );
+            in_type = f_in;
+            out_type = f_out;
+        }
+
+        CoreExpr::Apply(t, Box::new(fn_expr), Box::new(core_arg), span.clone())
     }
 
     fn call2(

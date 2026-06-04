@@ -553,6 +553,7 @@ fn visit_expr(
         | ExprKind::Identifier(_)
         | ExprKind::OpSection(_)
         | ExprKind::RecordSelector(_)
+        | ExprKind::SafeRecordSelector(_)
         | ExprKind::Current
         | ExprKind::Ordinal
         | ExprKind::Elements => {}

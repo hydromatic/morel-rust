@@ -178,7 +178,8 @@ impl Expr {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Aggregate(left, _) => left.implicit_label_opt(),
             ExprKind::Apply(left, _) => match &left.kind {
-                ExprKind::RecordSelector(name) => Some(name.clone()),
+                ExprKind::RecordSelector(name)
+                | ExprKind::SafeRecordSelector(name) => Some(name.clone()),
                 _ => None,
             },
             ExprKind::Current => Some("current".to_string()),
@@ -237,6 +238,11 @@ pub enum ExprKind<SubExpr> {
     /// For example, `op +` is equivalent to `fn (x, y) => x + y`.
     OpSection(String),
     RecordSelector(String),
+    /// Safe-navigation record selector, the function part of `e?.f`. Unlike
+    /// [`RecordSelector`](ExprKind::RecordSelector) (`#f e`), it projects the
+    /// field through the receiver's functor layers (option, list, bag,
+    /// vector), e.g. `(SOME {f=1})?.f` is `SOME 1`.
+    SafeRecordSelector(String),
     Current,
     Ordinal,
     Elements,
@@ -365,6 +371,7 @@ impl ExprKind<Expr> {
             ExprKind::RangeList(..) => Op::ATOM,
             ExprKind::Record(..) => Op::ATOM,
             ExprKind::RecordSelector(..) => Op::ATOM,
+            ExprKind::SafeRecordSelector(..) => Op::ATOM,
             ExprKind::Times(..) => Op::TIMES_OP,
             ExprKind::Tuple(..) => Op::ATOM,
         }
@@ -396,6 +403,12 @@ impl ExprKind<Expr> {
                 infix(f, a0, Op::APPEND, a1, left, right)
             }
             ExprKind::Apply(fx, arg) => {
+                // Safe navigation "e?.f" unparses postfix; the plain
+                // selector "#f e" has no prefix safe spelling.
+                if let ExprKind::SafeRecordSelector(name) = &fx.kind {
+                    write_sub(f, arg, left, Op::APPLY.left)?;
+                    return write!(f, "?.{}", name);
+                }
                 infix(f, fx, Op::APPLY, arg, left, right)
             }
             ExprKind::Caret(a0, a1) => infix(f, a0, Op::CARET, a1, left, right),
@@ -555,6 +568,7 @@ impl ExprKind<Expr> {
                 f.write_str("}")
             }
             ExprKind::RecordSelector(name) => write!(f, "#{}", name),
+            ExprKind::SafeRecordSelector(name) => write!(f, "#?{}", name),
             ExprKind::Times(a0, a1) => {
                 infix(f, a0, Op::TIMES_OP, a1, left, right)
             }

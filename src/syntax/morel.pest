@@ -278,8 +278,11 @@ expr_unary_op = { !literal ~ "~" }
 // whitespace at the boundaries of the postfix_tail's own tokens, but
 // sub-rules such as 'postfix_args' remain non-atomic internally so
 // whitespace inside the argument list is still allowed.
-expr_postfix = { atom ~ postfix_tail* ~ expr_attr* }
+expr_postfix = { atom ~ (postfix_tail | safe_postfix_tail)* ~ expr_attr* }
 postfix_tail = ${ "." ~ WHITESPACE* ~ label }
+// Safe navigation `e?.f`: projects field `f` through the receiver's
+// functor (option, list, bag, vector), yielding `NONE`/`[]` when absent.
+safe_postfix_tail = ${ "?." ~ WHITESPACE* ~ label }
 postfix_args = !{ "(" ~ postfix_arg_list? ~ ")" }
 postfix_arg_list = !{ expr ~ ("," ~ expr)* }
 

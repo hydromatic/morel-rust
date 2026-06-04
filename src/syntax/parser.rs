@@ -556,7 +556,8 @@ impl MorelParser {
         // can't mix a rest pattern with another rest pattern of a
         // different rule in match_nodes, so we walk children manually.
         let mut atom_expr: Option<Expr> = None;
-        let mut tails: Vec<Label> = Vec::new();
+        // Each tail is (label, safe): safe = true for `?.f`, false for `.f`.
+        let mut tails: Vec<(Label, bool)> = Vec::new();
         let mut attrs: Vec<Attribute> = Vec::new();
         for child in input.children() {
             match child.as_rule() {
@@ -564,7 +565,10 @@ impl MorelParser {
                     atom_expr = Some(Self::atom(child)?);
                 }
                 Rule::postfix_tail => {
-                    tails.push(Self::postfix_tail(child)?);
+                    tails.push((Self::postfix_tail(child)?, false));
+                }
+                Rule::safe_postfix_tail => {
+                    tails.push((Self::safe_postfix_tail(child)?, true));
                 }
                 Rule::expr_attr => {
                     attrs.push(Self::expr_attr(child)?);
@@ -573,9 +577,13 @@ impl MorelParser {
             }
         }
         let mut e = atom_expr.expect("expr_postfix missing atom");
-        for label in tails {
-            let selector = ExprKind::RecordSelector(label.name.to_string())
-                .spanned(&label.span);
+        for (label, safe) in tails {
+            let kind = if safe {
+                ExprKind::SafeRecordSelector(label.name.to_string())
+            } else {
+                ExprKind::RecordSelector(label.name.to_string())
+            };
+            let selector = kind.spanned(&label.span);
             let sel_span = e.span.union(&label.span);
             e = ExprKind::Apply(Box::new(selector), Box::new(e))
                 .spanned(&sel_span);
@@ -602,6 +610,12 @@ impl MorelParser {
     }
 
     fn postfix_tail(input: ParseInput) -> ParseResult<Label> {
+        Ok(match_nodes!(input.children();
+            [label(l)] => l,
+        ))
+    }
+
+    fn safe_postfix_tail(input: ParseInput) -> ParseResult<Label> {
         Ok(match_nodes!(input.children();
             [label(l)] => l,
         ))

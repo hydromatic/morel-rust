@@ -290,6 +290,19 @@ impl Typed for Pat {
 
 /// The collection kind of an aggregate function's input parameter.
 /// Determines how the TypeResolver constrains the aggregate input.
+/// Outcome of eagerly tunnelling a safe-navigation receiver type (see
+/// `tunnel_safe_eager`).
+enum SafeTunnel {
+    /// The result type term (the field's type re-wrapped in the receiver's
+    /// functor layers).
+    Resolved(Term),
+    /// The receiver type is not yet determinable; the caller should register
+    /// a deferred action instead.
+    Defer,
+    /// A type error was found and reported.
+    Errored,
+}
+
 enum CollectionKind {
     /// Function expects list input (e.g. `count: 'a list -> int`).
     List,
@@ -3683,6 +3696,12 @@ impl TypeResolver {
             // When we resolve "v_arg", we can then deduce "v".
             let span = fun.span.union(&arg.span);
             self.deduce_record_selector_type(env, name, &span, &v_arg, v_result)
+        } else if let ExprKind::SafeRecordSelector(name) = &fun.kind {
+            // Safe navigation "arg?.field": tunnel through the receiver's
+            // functor layers (option, list, bag, vector) to the record,
+            // then wrap the field's type in the same layers.
+            let span = fun.span.union(&arg.span);
+            self.deduce_safe_record_selector_type(name, &span, &v_arg, v_result)
         } else {
             self.deduce_apply_fn_type(env, fun, &v_fn, &v_arg, v_result)?
         };
@@ -4219,6 +4238,239 @@ impl TypeResolver {
         // Create a record selector expression
         let selector_kind = ExprKind::RecordSelector(field_name.to_string());
         self.reg_expr(&selector_kind, &span, None, &v_fn)
+    }
+
+    /// Eagerly tunnels the (already-deduced) receiver type `v_rec` through its
+    /// functor layers to a record, looks up `field_name`, and returns the
+    /// field's type re-wrapped in those functor layers as a unifier term.
+    /// Returns [`SafeTunnel::Defer`] if the receiver type is not yet
+    /// determinable (the caller then registers a deferred action), or
+    /// [`SafeTunnel::Errored`] after reporting a type error.
+    fn tunnel_safe_eager(
+        &self,
+        field_name: &str,
+        v_rec: &Var,
+        span: &Span,
+    ) -> SafeTunnel {
+        // Build a substitution from the constraints gathered so far and use
+        // it to *deeply* resolve the receiver type. (We can't use
+        // `resolve_during_deduce`, which stops at the first sequence in
+        // `self.terms` without resolving its element terms — that leaves the
+        // element of an inline `list`/`bag` literal an unresolved variable.)
+        let term_pairs: Vec<(Term, Term)> = self
+            .terms
+            .iter()
+            .map(|(var, term)| (term.clone(), Term::Variable(*var)))
+            .collect();
+        let Ok(subst) = self.unifier.unify(
+            term_pairs.as_ref(),
+            &NullTracer,
+            self.actions.as_ref(),
+        ) else {
+            return SafeTunnel::Defer;
+        };
+        let op_defs = Rc::clone(&self.unifier.op_defs);
+        let mut functors: Vec<Op> = Vec::new();
+        let mut current = subst.resolve_term(&Term::Variable(*v_rec));
+        loop {
+            let Term::Sequence(seq) = current.clone() else {
+                // An unresolved type variable. If we haven't tunnelled
+                // through any functor yet, the receiver type isn't known —
+                // defer. Otherwise the element can never be a record, so
+                // `?.field` is a type error.
+                if functors.is_empty() {
+                    return SafeTunnel::Defer;
+                }
+                self.field_errors.borrow_mut().push((
+                    format!(
+                        "reference to field {field_name} of non-record \
+                         type 'a"
+                    ),
+                    span.clone(),
+                ));
+                return SafeTunnel::Errored;
+            };
+            let op_name = op_defs[seq.op.0 as usize].name.as_str();
+            if matches!(op_name, "list" | "bag" | "option" | "vector") {
+                functors.push(seq.op);
+                current = subst.resolve_term(&seq.terms[0]);
+                continue;
+            }
+            if functors.is_empty() {
+                self.field_errors.borrow_mut().push((
+                    format!(
+                        "'?.' applied to non-functor type {op_name} \
+                         (expected option, list, bag or vector)"
+                    ),
+                    span.clone(),
+                ));
+                return SafeTunnel::Errored;
+            }
+            let Some(fields) = TypeResolver::field_list(&op_defs, &seq) else {
+                // Tunnelled to a leaf type that is not a record/tuple.
+                self.field_errors.borrow_mut().push((
+                    format!(
+                        "reference to field {field_name} of non-record \
+                         type {op_name}"
+                    ),
+                    span.clone(),
+                ));
+                return SafeTunnel::Errored;
+            };
+            let Some(i) = fields.iter().position(|f| f == field_name) else {
+                let type_name =
+                    TypeResolver::type_name(&op_defs, &seq, &fields);
+                self.field_errors.borrow_mut().push((
+                    format!("no field '{field_name}' in type '{type_name}'"),
+                    span.clone(),
+                ));
+                return SafeTunnel::Errored;
+            };
+            let mut result = subst.resolve_term(&seq.terms[i]);
+            for op in functors.iter().rev() {
+                result = Term::Sequence(Sequence {
+                    op: *op,
+                    terms: Rc::from(vec![result]),
+                });
+            }
+            return SafeTunnel::Resolved(result);
+        }
+    }
+
+    /// Deduces the type of a safe-navigation selector `arg?.field`.
+    ///
+    /// Registers an action on the receiver type `v_rec` that tunnels through
+    /// the receiver's functor layers (option, list, bag, vector) down to a
+    /// record, looks up `field`, and unifies the result type `v_field` with
+    /// the field's type re-wrapped in those same functor layers. For example
+    /// a receiver of type `{x:int} option` makes the result `int option`.
+    fn deduce_safe_record_selector_type(
+        &mut self,
+        field_name: &str,
+        span: &Span,
+        v_rec: &Var,
+        v_field: &Var,
+    ) -> Expr {
+        // Create a function type: receiver -> result
+        let v_fn = self.variable();
+        self.fn_term(v_rec, v_field, &v_fn);
+
+        // Prefer eager resolution: if the receiver's type is already
+        // determinable (it usually is — it was deduced just above), tunnel
+        // it now and unify the result directly. This avoids the action's
+        // inability to re-fire when an inner functor element resolves later
+        // than the receiver (e.g. an inline `[SOME {y=1}, NONE]`).
+        match self.tunnel_safe_eager(field_name, v_rec, span) {
+            SafeTunnel::Resolved(result) => {
+                self.equiv(&result, v_field);
+                let selector_kind =
+                    ExprKind::SafeRecordSelector(field_name.to_string());
+                return self.reg_expr(&selector_kind, span, None, &v_fn);
+            }
+            SafeTunnel::Errored => {
+                let selector_kind =
+                    ExprKind::SafeRecordSelector(field_name.to_string());
+                return self.reg_expr(&selector_kind, span, None, &v_fn);
+            }
+            SafeTunnel::Defer => {} // fall through to the deferred action
+        }
+
+        struct SafeNavAction {
+            field_name: String,
+            v_field: Var,
+            errors: Rc<RefCell<Vec<(String, Span)>>>,
+            span: Span,
+        }
+        impl Action for SafeNavAction {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                op_defs: &[OpDef],
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                // This action may fire several times as the receiver type
+                // resolves; clear any error from a previous (less resolved)
+                // firing so the final state reflects the resolved type.
+                self.errors.borrow_mut().retain(|(_, s)| s != &self.span);
+
+                // Tunnel through functor layers (option, list, bag, vector)
+                // to the record, collecting the ops so the field's type can
+                // be re-wrapped in the same layers.
+                let mut functors: Vec<Op> = Vec::new();
+                let mut current = substitution.resolve_term(term);
+                loop {
+                    let seq = match &current {
+                        Term::Sequence(seq) => seq.clone(),
+                        // Not yet a concrete type; defer.
+                        _ => return,
+                    };
+                    let op_name = op_defs[seq.op.0 as usize].name.as_str();
+                    if matches!(op_name, "list" | "bag" | "option" | "vector") {
+                        functors.push(seq.op);
+                        current = substitution.resolve_term(&seq.terms[0]);
+                        continue;
+                    }
+                    if functors.is_empty() {
+                        self.errors.borrow_mut().push((
+                            "'?.' applied to non-functor type (expected \
+                             option, list, bag or vector)"
+                                .to_string(),
+                            self.span.clone(),
+                        ));
+                        return;
+                    }
+                    let Some(field_list) =
+                        TypeResolver::field_list(op_defs, &seq)
+                    else {
+                        self.errors.borrow_mut().push((
+                            format!(
+                                "reference to field {} of non-record type",
+                                self.field_name
+                            ),
+                            self.span.clone(),
+                        ));
+                        return;
+                    };
+                    let Some(i) =
+                        field_list.iter().position(|f| *f == self.field_name)
+                    else {
+                        self.errors.borrow_mut().push((
+                            format!("no field '{}' in type", self.field_name),
+                            self.span.clone(),
+                        ));
+                        return;
+                    };
+                    let field_term = substitution.resolve_term(&seq.terms[i]);
+                    let mut result = field_term;
+                    for op in functors.iter().rev() {
+                        result = Term::Sequence(Sequence {
+                            op: *op,
+                            terms: Rc::from(vec![result]),
+                        });
+                    }
+                    let vf = substitution
+                        .resolve_term(&Term::Variable(self.v_field));
+                    term_pairs.push((vf, result));
+                    return;
+                }
+            }
+        }
+
+        self.actions.push((
+            *v_rec,
+            Rc::new(SafeNavAction {
+                field_name: field_name.to_string(),
+                v_field: *v_field,
+                errors: self.field_errors.clone(),
+                span: span.clone(),
+            }),
+        ));
+
+        let selector_kind =
+            ExprKind::SafeRecordSelector(field_name.to_string());
+        self.reg_expr(&selector_kind, span, None, &v_fn)
     }
 
     fn deduce_record_type(

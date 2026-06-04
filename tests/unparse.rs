@@ -121,6 +121,12 @@ fn test_each_expr_kind() {
     k.check_kind("x");
     k.check_kind("op +");
     k.check_kind("#name");
+    // `SafeRecordSelector` only ever appears as the function of an `Apply`
+    // (`e?.f`), never at top level, so it can't be reached via `check_kind`
+    // (which keys on the parsed expression's top-level kind). Check its
+    // postfix round-trip directly and mark the variant covered.
+    check("a?.b", "a?.b");
+    k.remaining.remove(&ExprKindTag::SafeRecordSelector);
     k.check_kind("current");
     k.check_kind("ordinal");
     k.check_kind("elements");

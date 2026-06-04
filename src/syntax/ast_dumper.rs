@@ -211,6 +211,11 @@ fn dump_expr_kind(b: &mut String, e: &ExprKind<Expr>) {
             b.push_str(name);
             b.push(')');
         }
+        ExprKind::SafeRecordSelector(name) => {
+            b.push_str("(safeRecordSelector ");
+            b.push_str(name);
+            b.push(')');
+        }
         ExprKind::Times(a, c) => infix(b, "times", a, c),
         ExprKind::Tuple(args) => list(b, "tuple", args.iter(), dump_expr),
     }
