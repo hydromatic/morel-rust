@@ -431,6 +431,14 @@ succ ~ 3;
 ~{a=3, b=true}.a;
 > val it = ~3 : int
 
+(*) A lexical error (here, a stray backslash) is reported as a positioned
+(*) error and does not crash the shell; the next statement still runs.
+1 \ 2;
+> stdIn:3.3 Error: syntax error
+>   raised at: stdIn:3.3
+1 + 2;
+> val it = 3 : int
+
 (*) Functions
 (*
 fun f (a,b,c) = if a then b else c;
