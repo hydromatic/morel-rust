@@ -123,6 +123,9 @@ fn can_print_field(type_: &Type) -> bool {
     if matches!(type_, Type::Primitive(_)) {
         return true;
     }
+    if option_scalar(type_).is_some() {
+        return true;
+    }
     if is_collection(type_)
         && let Some(elem) = element_type(type_)
     {
@@ -157,6 +160,33 @@ fn element_type(type_: &Type) -> Option<&Type> {
 
 fn is_record_like(type_: &Type) -> bool {
     matches!(type_, Type::Record(_, _) | Type::Tuple(_))
+}
+
+/// If `type_` is `T option` where `T` is a primitive, returns `T`; otherwise
+/// returns `None`. Such a field is rendered as a scalar column: `SOME x` as
+/// `x`, and `NONE` as a blank cell.
+fn option_scalar(type_: &Type) -> Option<&PrimitiveType> {
+    if let Type::Data(name, args) = type_
+        && name == "option"
+        && let Some(arg) = args.first()
+        && let Type::Primitive(p) = arg.as_ref()
+    {
+        return Some(p);
+    }
+    None
+}
+
+/// Renders the value of a `string option` cell so that it cannot be confused
+/// with the blank cell used for `NONE`. A string is shown as an SML string
+/// literal (in double-quotes, with embedded double-quotes and backslashes
+/// escaped) if it is empty or contains a double-quote; otherwise it is shown
+/// verbatim (subject to `string_depth` truncation).
+fn option_string(s: &str, string_depth: i32) -> String {
+    if s.is_empty() || s.contains('"') {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        stringify_scalar(&Val::String(s.to_string()), string_depth)
+    }
 }
 
 /// Returns the (name, type) pairs of a record-like type: named fields in
@@ -210,16 +240,25 @@ struct Section {
     kind: Kind,
     name: String,
     right_align: bool,
+    /// Whether a SCALAR value is wrapped in `option` (so `SOME x` prints as
+    /// `x` and `NONE` as a blank cell).
+    optional: bool,
     children: Vec<Section>,
     width: usize,
 }
 
 impl Section {
-    fn leaf(kind: Kind, name: &str, right_align: bool) -> Section {
+    fn leaf(
+        kind: Kind,
+        name: &str,
+        right_align: bool,
+        optional: bool,
+    ) -> Section {
         Section {
             kind,
             name: name.to_string(),
             right_align,
+            optional,
             children: Vec::new(),
             width: char_len(name),
         }
@@ -235,6 +274,7 @@ impl Section {
             kind: Kind::RecordList,
             name: name.to_string(),
             right_align: false,
+            optional: false,
             children,
             width: char_len(name),
         }
@@ -243,18 +283,28 @@ impl Section {
     /// Builds a Section for one field of a record-like type.
     fn for_field(name: &str, type_: &Type) -> Section {
         if let Type::Primitive(p) = type_ {
-            return Section::leaf(Kind::Scalar, name, is_numeric(p));
+            return Section::leaf(Kind::Scalar, name, is_numeric(p), false);
+        }
+        if let Some(p) = option_scalar(type_) {
+            // `T option` (T primitive): a scalar column where `SOME x`
+            // prints as `x` and `NONE` as a blank cell.
+            return Section::leaf(Kind::Scalar, name, is_numeric(p), true);
         }
         if let Some(elem) = element_type(type_) {
             if let Type::Primitive(p) = elem {
-                return Section::leaf(Kind::ScalarList, name, is_numeric(p));
+                return Section::leaf(
+                    Kind::ScalarList,
+                    name,
+                    is_numeric(p),
+                    false,
+                );
             }
             if is_record_like(elem) {
                 return Section::for_record(name, elem);
             }
         }
         // Unreachable when `can_print` has accepted the type.
-        Section::leaf(Kind::Scalar, name, false)
+        Section::leaf(Kind::Scalar, name, false, false)
     }
 
     /// Builds a `Cell` from a value, updating leaf widths as a side
@@ -268,7 +318,24 @@ impl Section {
     ) -> Cell {
         match self.kind {
             Kind::Scalar => {
-                let s = stringify_scalar(value, string_depth);
+                let s = if self.optional {
+                    // `NONE` is `Val::Unit` (a blank cell); `SOME x` is
+                    // `Val::Some(x)`. A `string option` value must be
+                    // distinguishable from the blank `NONE` cell, so an
+                    // empty or quote-containing string is shown as a
+                    // quoted SML string literal.
+                    match value {
+                        Val::Some(inner) => match inner.as_ref() {
+                            Val::String(str_val) => {
+                                option_string(str_val, string_depth)
+                            }
+                            other => stringify_scalar(other, string_depth),
+                        },
+                        _ => String::new(),
+                    }
+                } else {
+                    stringify_scalar(value, string_depth)
+                };
                 let lines = fold_string(&s, string_fold);
                 for line in &lines {
                     self.width = self.width.max(char_len(line));
