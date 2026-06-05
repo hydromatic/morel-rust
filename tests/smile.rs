@@ -16,12 +16,48 @@
 // License.
 
 use morel::shell::ScriptTest;
+use std::panic::resume_unwind;
+use std::thread::Builder;
 
-/// Runs an idempotent script as a test.
+/// Returns the custom stack size (in bytes) to use when running `file_name`,
+/// or `None` to use the default thread stack.
+///
+/// `type.smli`'s type inference recurses deeply enough to overflow libtest's
+/// default thread stack in debug builds (release stack frames are smaller and
+/// fit), so it gets a larger stack in debug builds only.
+fn custom_stack_size(file_name: &str) -> Option<usize> {
+    if cfg!(debug_assertions) && file_name.ends_with("/type.smli") {
+        Some(64 * 1024 * 1024)
+    } else {
+        None
+    }
+}
+
+/// Runs an idempotent script as a test, using a custom stack size if one is
+/// required.
 fn run_script(file_name: &str) {
-    let shell = ScriptTest::default();
-    let result = shell.run(file_name);
-    result.expect("should work");
+    run_script_with(file_name, custom_stack_size(file_name));
+}
+
+/// Runs an idempotent script as a test, optionally on a thread with a custom
+/// stack size.
+///
+/// If `stack_size` is `Some`, spawns a thread with that stack and recursively
+/// runs the script (with `None`) on it, propagating any panic (such as the
+/// "Files differ" assertion) unchanged; otherwise runs the script inline.
+fn run_script_with(file_name: &str, stack_size: Option<usize>) {
+    if let Some(stack_size) = stack_size {
+        let file = file_name.to_string();
+        let handle = Builder::new()
+            .stack_size(stack_size)
+            .spawn(move || run_script_with(&file, None))
+            .expect("failed to spawn test thread");
+        if let Err(panic) = handle.join() {
+            resume_unwind(panic);
+        }
+    } else {
+        ScriptTest::default().run(file_name).expect("should work");
+    }
 }
 
 // lint: sort until 'End smile.rs' where '^fn '
