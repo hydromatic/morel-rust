@@ -523,4 +523,35 @@ Char.compare (#"D", #"a");
 Char.compare (#"a", #"D");
 > val it = GREATER : order
 
+(* [=] and [<>] compare characters for equality. *)
+Char.`=` (#"a", #"a");
+> val it = true : bool
+Char.`=` (#"a", #"b");
+> val it = false : bool
+Char.`<>` (#"a", #"b");
+> val it = true : bool
+Char.`<>` (#"a", #"a");
+> val it = false : bool
+
+(* [fromInt i] returns SOME c, the character with code i, or NONE if i is out
+   of range. *)
+Char.fromInt 65;
+> val it = SOME #"A" : char option
+Char.fromInt 0;
+> val it = SOME #"\^@" : char option
+Char.fromInt ~1;
+> val it = NONE : char option
+Char.fromInt 256;
+> val it = NONE : char option
+
+(* [isOctDigit c] returns true if c is an octal digit (0 to 7). *)
+Char.isOctDigit #"7";
+> val it = true : bool
+Char.isOctDigit #"8";
+> val it = false : bool
+Char.isOctDigit #"a";
+> val it = false : bool
+#"7".isOctDigit ();
+> val it = true : bool
+
 (*) End char.smli

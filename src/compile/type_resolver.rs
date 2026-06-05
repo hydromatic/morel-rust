@@ -2080,8 +2080,15 @@ impl TypeResolver {
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
             ExprKind::If(a0, a1, a2) => {
-                let (a02, a12, a22) =
-                    self.deduce_call3_type(env, "op if", a0, a1, a2, v)?;
+                // `if cond then e1 else e2` is not a function: the condition is
+                // `bool`, and `e1`, `e2` and the result share a type. It lowers
+                // to a `case` in the resolver, so only the taken branch is
+                // evaluated.
+                let v_cond = self.variable();
+                self.primitive_term(&PrimitiveType::Bool, &v_cond);
+                let a02 = self.deduce_expr_type(env, a0, &v_cond)?;
+                let a12 = self.deduce_expr_type(env, a1, v)?;
+                let a22 = self.deduce_expr_type(env, a2, v)?;
                 let x =
                     ExprKind::If(Box::new(a02), Box::new(a12), Box::new(a22));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4570,35 +4577,6 @@ impl TypeResolver {
             Ok((args.first().unwrap().clone(), args.get(1).unwrap().clone()))
         } else {
             panic!("{:?}", left.kind)
-        }
-    }
-
-    fn deduce_call3_type(
-        &mut self,
-        env: &dyn TypeEnv,
-        op: &str,
-        a0: &Expr,
-        a1: &Expr,
-        a2: &Expr,
-        v: &Var,
-    ) -> Result<(Expr, Expr, Expr), Error> {
-        let fun =
-            Box::new(ExprKind::Identifier(op.to_string()).spanned(&a0.span));
-        let arg = Box::new(
-            ExprKind::Tuple(vec![a0.clone(), a1.clone(), a2.clone()])
-                .spanned(&a0.span),
-        );
-        let (_fun, arg) = self.deduce_apply_type(env, &fun, &arg, &v)?;
-        if let ExprKind::Tuple(args) = arg.kind
-            && args.len() == 3
-        {
-            Ok((
-                args.first().unwrap().clone(),
-                args.get(1).unwrap().clone(),
-                args.get(2).unwrap().clone(),
-            ))
-        } else {
-            panic!("{:?}", op)
         }
     }
 

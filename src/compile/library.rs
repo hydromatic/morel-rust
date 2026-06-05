@@ -106,6 +106,9 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a bag"))]
     #[strum(props(constructor_ordinal = "0"))]
     BagNil,
+    #[strum(props(p = "Bag", name = "nth", throws = "Subscript"))]
+    #[strum(props(type = "forall 1 'a bag * int -> 'a"))]
+    BagNth,
     #[strum(props(p = "Bag", name = "null"))]
     #[strum(props(type = "forall 1 'a bag -> bool"))]
     BagNull,
@@ -141,12 +144,15 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bool", name = "fromString"))]
     #[strum(props(type = "string -> bool option"))]
     BoolFromString,
-    #[strum(props(p = "Bool", name = "if", alias = "op if"))]
-    #[strum(props(type = "forall 1 bool * 'a * 'a -> 'a"))]
-    BoolIf,
+    #[strum(props(p = "Bool", name = ">"))]
+    #[strum(props(type = "bool * bool -> bool"))]
+    BoolGt,
     #[strum(props(p = "Bool", name = "implies", alias = "op implies"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolImplies,
+    #[strum(props(p = "Bool", name = "<"))]
+    #[strum(props(type = "bool * bool -> bool"))]
+    BoolLt,
     #[strum(props(p = "Bool", name = "<>"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolNe,
@@ -558,9 +564,9 @@ pub enum BuiltInFunction {
     IntMod,
     #[strum(props(name = "<>", type = "int * int -> bool"))]
     IntNe,
-    #[strum(props(name = "~", type = "int -> int"))]
+    #[strum(props(p = "Int", name = "~", type = "int -> int"))]
     IntNegate,
-    #[strum(props(name = "+", type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "+", type = "int * int -> int"))]
     IntPlus,
     #[strum(props(p = "Int", name = "precision", type = "int option"))]
     IntPrecision,
@@ -676,7 +682,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "concat"))]
     #[strum(props(type = "forall 1 'a list list -> 'a list"))]
     ListConcat,
-    #[strum(props(p = "List", name = "::", alias = "op ::"))]
+    #[strum(props(name = "::", alias = "op ::"))]
     #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
     #[strum(props(constructor_ordinal = "1"))]
     ListCons,

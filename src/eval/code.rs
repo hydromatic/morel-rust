@@ -3228,7 +3228,9 @@ pub enum Eager2 {
     BagAt,
     BoolAndAlso,
     BoolEq,
+    BoolGt,
     BoolImplies,
+    BoolLt,
     BoolNe,
     BoolOrElse,
     CharCompare,
@@ -3334,9 +3336,11 @@ impl Eager2 {
             }
             BoolAndAlso => Val::Bool(a0.expect_bool() && a1.expect_bool()),
             BoolEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
+            BoolGt => Val::Bool(a0.expect_bool() & !a1.expect_bool()),
             BoolImplies => {
                 Val::Bool(Bool::implies(a0.expect_bool(), a1.expect_bool()))
             }
+            BoolLt => Val::Bool(!a0.expect_bool() & a1.expect_bool()),
             BoolNe => Val::Bool(a0.expect_bool() != a1.expect_bool()),
             BoolOrElse => Val::Bool(a0.expect_bool() || a1.expect_bool()),
             CharCompare => {
@@ -3521,6 +3525,7 @@ pub enum EagerF2 {
     BagFind,
     BagMap,
     BagMapPartial,
+    BagNth,
     BagPartition,
     BagTabulate,
     BagTake,
@@ -3633,6 +3638,9 @@ impl EagerF2 {
             BagFind => List::find(r, f, &a0, a1.expect_list()),
             BagMap => List::map(r, f, &a0, a1.expect_list()),
             BagMapPartial => List::map_partial(r, f, &a0, a1.expect_list()),
+            BagNth => {
+                List::nth(a0.expect_list(), a1.expect_int(), span.unwrap())
+            }
             BagPartition => List::partition(r, f, &a0, a1.expect_list()),
             BagTabulate => {
                 List::tabulate(r, f, a0.expect_int(), &a1, span.unwrap())
@@ -4163,7 +4171,6 @@ impl Eager3 {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Custom {
     // lint: sort until '#}'
-    BoolIf,
     GAbs,
     GEq,
     GGe,
@@ -4220,7 +4227,6 @@ impl Custom {
         }
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
-            BoolIf => panic!("Not implemented"),
             GAbs => match a0 {
                 Val::Int(x) => Val::Int(x.abs()),
                 Val::Real(x) => Val::Real(x.abs()),
@@ -4417,6 +4423,7 @@ fn build_library() -> Lib {
     EagerF2::BagMap.implements(&mut b, BagMap);
     EagerF2::BagMapPartial.implements(&mut b, BagMapPartial);
     Eager0::ListNil.implements(&mut b, BagNil);
+    EagerF2::BagNth.implements(&mut b, BagNth);
     Eager1::BagNull.implements(&mut b, BagNull);
     EagerF1::BagOnly.implements(&mut b, BagOnly);
     EagerF2::BagPartition.implements(&mut b, BagPartition);
@@ -4428,8 +4435,9 @@ fn build_library() -> Lib {
     Eager2::BoolEq.implements(&mut b, BoolEq);
     Eager0::BoolFalse.implements(&mut b, BoolFalse);
     Eager1::BoolFromString.implements(&mut b, BoolFromString);
-    Custom::BoolIf.implements(&mut b, BoolIf);
+    Eager2::BoolGt.implements(&mut b, BoolGt);
     Eager2::BoolImplies.implements(&mut b, BoolImplies);
+    Eager2::BoolLt.implements(&mut b, BoolLt);
     Eager2::BoolNe.implements(&mut b, BoolNe);
     Eager1::BoolNot.implements(&mut b, BoolNot);
     Eager2::BoolOrElse.implements(&mut b, BoolOrElse);

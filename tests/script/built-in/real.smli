@@ -158,6 +158,51 @@ Real.posInf / Real.negInf;
 0.0 + ~0.0;
 > val it = 0 : real
 
+(* Arithmetic operators are also available as members of the Real structure. *)
+Real.`+` (1.0, 2.0);
+> val it = 3 : real
+Real.`+` (1.0, Real.posInf);
+> val it = inf : real
+Real.`-` (5.0, 2.0);
+> val it = 3 : real
+Real.`-` (Real.posInf, Real.posInf);
+> val it = nan : real
+Real.`*` (0.5, 34.6);
+> val it = 17.3 : real
+Real.`*` (0.0, Real.posInf);
+> val it = nan : real
+Real.`~` 2.0;
+> val it = ~2 : real
+Real.`~` Real.posInf;
+> val it = ~inf : real
+
+(* Comparison operators are also available as members. They return false if
+   either argument is NaN. *)
+Real.`<` (3.0, 5.0);
+> val it = true : bool
+Real.`<` (3.0, nan);
+> val it = false : bool
+Real.`<=` (3.0, 3.0);
+> val it = true : bool
+Real.`<=` (nan, 5.0);
+> val it = false : bool
+Real.`>` (5.0, 3.0);
+> val it = true : bool
+Real.`>` (3.0, nan);
+> val it = false : bool
+Real.`>=` (3.0, 3.0);
+> val it = true : bool
+Real.`>=` (3.0, Real.negInf);
+> val it = true : bool
+Real.`=` (1.0, 1.0);
+> val it = true : bool
+Real.`=` (1.0, 2.0);
+> val it = false : bool
+Real.`<>` (1.0, 2.0);
+> val it = true : bool
+Real.`<>` (1.0, 1.0);
+> val it = false : bool
+
 (* "rem (x, y)" returns the remainder x - n * y, where n = trunc (x / y). The
     result has the same sign as x and has absolute value less than the absolute
     value of y. If x is an infinity or y is 0, rem returns NaN. If y is an

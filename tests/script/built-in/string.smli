@@ -366,6 +366,10 @@ String.`<`;
 > val it = false : bool
 "ab" < "ab";
 > val it = false : bool
+String.`<` ("a", "A");
+> val it = false : bool
+String.`<` ("a", "b");
+> val it = true : bool
 
 (*) val <= : string * string -> bool
 String.`<=`;
@@ -390,6 +394,18 @@ String.`>=`;
 > val it = true : bool
 "ab" >= "ab";
 > val it = true : bool
+
+(*) val =  : string * string -> bool
+String.`=` ("a", "a");
+> val it = true : bool
+String.`=` ("a", "b");
+> val it = false : bool
+
+(*) val <> : string * string -> bool
+String.`<>` ("a", "b");
+> val it = true : bool
+String.`<>` ("a", "a");
+> val it = false : bool
 
 (*) val toString : string -> String.string
 (*) val scan       : (char, 'a) StringCvt.reader

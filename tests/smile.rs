@@ -193,6 +193,11 @@ fn built_in_time() {
 }
 
 #[test]
+fn built_in_variant() {
+    run_script("tests/script/built-in/variant.smli");
+}
+
+#[test]
 fn built_in_vector() {
     run_script("tests/script/built-in/vector.smli");
 }
