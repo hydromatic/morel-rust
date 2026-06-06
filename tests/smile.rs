@@ -314,6 +314,11 @@ fn scott() {
 }
 
 #[test]
+fn scott_queries() {
+    run_script("tests/script/scott-queries.smli");
+}
+
+#[test]
 fn signature() {
     run_script("tests/script/signature.smli");
 }

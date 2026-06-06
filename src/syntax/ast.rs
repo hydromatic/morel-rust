@@ -777,6 +777,35 @@ pub struct Step {
 
 impl Step {}
 
+/// The kind of join that a scan step performs.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum JoinType {
+    /// `from`, a comma-join, or an inner `join`. Produces no optional
+    /// elements; the scan is correlated with the input.
+    Inner,
+    /// `left join`: the right (scanned) side is wrapped in `option`; an
+    /// input row that matches nothing is emitted once with `NONE`.
+    Left,
+    /// `right join`: the left (input) side is wrapped in `option`; a source
+    /// row that matches no input row is emitted with `NONE`.
+    Right,
+    /// `full join`: both sides are wrapped in `option`.
+    Full,
+}
+
+impl JoinType {
+    /// Returns the join keyword, for unparsing (`""` for a plain inner scan;
+    /// the caller decides between `","` and `"join"` from context).
+    pub fn keyword(self) -> &'static str {
+        match self {
+            JoinType::Inner => "",
+            JoinType::Left => "left join",
+            JoinType::Right => "right join",
+            JoinType::Full => "full join",
+        }
+    }
+}
+
 /// Kind of step in a query.
 #[derive(Clone, Debug)]
 pub enum StepKind {
@@ -787,9 +816,10 @@ pub enum StepKind {
     /// A scan (e.g., "e in emps", "e") or scan-and-join (e.g., "left join d in
     /// depts on e.deptno = d.deptno") in a `from` expression.
     ///
-    /// `Scan(p, e, Some(c))` represents `join p in e on c`;
-    /// `Scan(p, e, None)` represents `join p in e` or `from p in e`.
-    Scan(Box<Pat>, Box<Expr>, Option<Box<Expr>>),
+    /// `Scan(j, p, e, Some(c))` represents `[j] join p in e on c`;
+    /// `Scan(Inner, p, e, None)` represents `join p in e` or `from p in e`.
+    /// `j` is the [`JoinType`] (inner / `left` / `right` / `full`).
+    Scan(JoinType, Box<Pat>, Box<Expr>, Option<Box<Expr>>),
 
     /// A scan where the pattern is bound to a single expression.
     ///
@@ -833,7 +863,7 @@ impl StepKind {
             StepKind::Into(_) => "into",
             StepKind::Order(_) => "order",
             StepKind::Require(_) => "require",
-            StepKind::Scan(_, _, _) => "scan",
+            StepKind::Scan(_, _, _, _) => "scan",
             StepKind::ScanEq(_, _) => "join",
             StepKind::ScanExtent(_) => "join",
             StepKind::Skip(_) => "skip",
@@ -851,6 +881,15 @@ impl StepKind {
         Step {
             kind: self.clone(),
             span: span.clone(),
+        }
+    }
+
+    /// Returns the join type of a scan step ([`JoinType::Inner`] for any
+    /// non-scan step).
+    pub(crate) fn join_type(&self) -> JoinType {
+        match self {
+            StepKind::Scan(jt, ..) => *jt,
+            _ => JoinType::Inner,
         }
     }
 
@@ -892,11 +931,11 @@ impl Display for StepKind {
             StepKind::Into(e) => write!(f, "into {}", e),
             StepKind::Order(e) => write!(f, "order {}", e),
             StepKind::Require(e) => write!(f, "require {}", e),
-            StepKind::Scan(pat, exp, None) => {
+            StepKind::Scan(_, pat, exp, None) => {
                 write!(f, "{} in ", pat)?;
                 write_sub(f, exp, Op::EQ_OP.right, 0)
             }
-            StepKind::Scan(pat, exp, Some(cond)) => {
+            StepKind::Scan(_, pat, exp, Some(cond)) => {
                 write!(f, "{} in ", pat)?;
                 write_sub(f, exp, Op::EQ_OP.right, 0)?;
                 write!(f, " on {}", cond)
@@ -953,8 +992,12 @@ fn write_query(
     let mut prev_scan = false;
     for (i, step) in steps.iter().enumerate() {
         let this_scan = step.kind.is_scan();
+        let join_type = step.kind.join_type();
         if i == 0 {
             f.write_str(" ")?;
+        } else if join_type != JoinType::Inner {
+            // An outer join carries its own keyword (`left join`, etc.).
+            write!(f, " {} ", join_type.keyword())?;
         } else if this_scan && prev_scan {
             f.write_str(", ")?;
         } else if this_scan {

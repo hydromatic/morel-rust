@@ -224,9 +224,9 @@ Sys.planEx "0";
 
 (*) Either case (an enum with two type parameters).
 let
-  val left = INL "a"
+  val `left` = INL "a"
 in
-  case left of INL s => "left:" ^ s | INR s => "right:" ^ s
+  case `left` of INL s => "left:" ^ s | INR s => "right:" ^ s
 end;
 > val it = "left:a" : string
 Sys.planEx "~1";

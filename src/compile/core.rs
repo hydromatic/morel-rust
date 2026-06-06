@@ -19,6 +19,7 @@ use crate::compile::span::Span;
 use crate::compile::type_env::Id;
 use crate::compile::types::{Label, Type};
 use crate::eval::val::Val;
+use crate::syntax::ast::JoinType;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -355,11 +356,33 @@ impl StepEnv {
 pub struct Step {
     pub kind: StepKind,
     pub env: StepEnv,
+    /// Join type of a [`StepKind::Scan`] step (inner / `left` / `right` /
+    /// `full`); [`JoinType::Inner`] for every other kind of step. Carried on
+    /// the `Step` rather than the `Scan` variant so the many passes that
+    /// rebuild scan steps don't all have to thread it.
+    pub join_type: JoinType,
 }
 
 impl Step {
     pub fn new(kind: StepKind, env: StepEnv) -> Self {
-        Step { kind, env }
+        Step {
+            kind,
+            env,
+            join_type: JoinType::Inner,
+        }
+    }
+
+    /// Creates a scan step with an explicit [`JoinType`].
+    pub fn with_join(
+        join_type: JoinType,
+        kind: StepKind,
+        env: StepEnv,
+    ) -> Self {
+        Step {
+            kind,
+            env,
+            join_type,
+        }
     }
 }
 

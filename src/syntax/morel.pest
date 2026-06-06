@@ -63,6 +63,7 @@ keywords = {
   | _fn
   | _forall
   | _from
+  | _full
   | _fun
   | _group
   | _if
@@ -72,6 +73,7 @@ keywords = {
   | _intersect
   | _into
   | _join
+  | _left
   | _let
   | _mod
   | _notelem
@@ -86,6 +88,7 @@ keywords = {
   | _raise
   | _rec
   | _require
+  | _right
   | _sig
   | _signature
   | _skip
@@ -124,6 +127,7 @@ _exists = @{ "exists" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _fn = @{ "fn" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _forall = @{ "forall" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _from = @{ "from" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_full = @{ "full" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _fun = @{ "fun" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _group = @{ "group" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _if = @{ "if" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -133,6 +137,7 @@ _inst = @{ "inst" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _intersect = @{ "intersect" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _into = @{ "into" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _join = @{ "join" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_left = @{ "left" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _let = @{ "let" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _mod = @{ "mod" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _notelem = @{ "notelem" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -147,6 +152,7 @@ _over = @{ "over" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _raise = @{ "raise" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _rec = @{ "rec" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _require = @{ "require" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_right = @{ "right" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _sig = @{ "sig" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _signature = @{ "signature" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _skip = @{ "skip" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -394,7 +400,10 @@ scan1_in = { pat ~ _in ~ expr }
 scan = { scan_eq | scan_in | pat }
 scan_eq = { pat ~ "=" ~ expr }
 scan_in = { pat ~ _in ~ expr ~ (_on ~ expr)? }
-join = { _join ~ scan ~ ("," ~ scan)* }
+// An inner `join`, or an outer `left`/`right`/`full` join. The
+// `left`/`right`/`full` modifier applies only to the first scan; any
+// comma-separated scans after it are plain (inner) scans.
+join = { (_left | _right | _full)? ~ _join ~ scan ~ ("," ~ scan)* }
 
 step = {
     _distinct

@@ -20,10 +20,10 @@
 use crate::syntax::ast::{
     Attribute, AttributeKind, AttributePayload, ConBind, ConDesc, DatatypeBind,
     DatatypeDesc, Decl, DeclKind, ExnDesc, Expr, ExprKind, FunBind, FunMatch,
-    Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField, PatKind,
-    RangeItem, SigBind, Span, Spec, SpecKind, Statement, StatementKind, Step,
-    StepKind, Type, TypeBind, TypeDesc, TypeField, TypeKind, TypeScheme,
-    ValBind, ValDesc,
+    JoinType, Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField,
+    PatKind, RangeItem, SigBind, Span, Spec, SpecKind, Statement,
+    StatementKind, Step, StepKind, Type, TypeBind, TypeDesc, TypeField,
+    TypeKind, TypeScheme, ValBind, ValDesc,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
@@ -997,7 +997,8 @@ impl MorelParser {
     fn scan1_in(input: ParseInput) -> ParseResult<Step> {
         Ok(match_nodes!(input.children();
             [pat(p), _in(_), expr(e)] => {
-                StepKind::Scan(Box::new(p), Box::new(e), None).wrap(input)
+                StepKind::Scan(JoinType::Inner, Box::new(p), Box::new(e), None)
+                    .wrap(input)
             },
         ))
     }
@@ -1021,20 +1022,42 @@ impl MorelParser {
     fn scan_in(input: ParseInput) -> ParseResult<Step> {
         Ok(match_nodes!(input.children();
             [pat(p), _in(_), expr(e), _on(_), expr(c)] => {
-                StepKind::Scan(Box::new(p), Box::new(e), Some(Box::new(c)))
-                    .wrap(input)
+                StepKind::Scan(
+                    JoinType::Inner,
+                    Box::new(p),
+                    Box::new(e),
+                    Some(Box::new(c)),
+                )
+                .wrap(input)
             },
             [pat(p), _in(_), expr(e)] => {
-                StepKind::Scan(Box::new(p), Box::new(e), None)
+                StepKind::Scan(JoinType::Inner, Box::new(p), Box::new(e), None)
                     .wrap(input)
             },
         ))
     }
 
     fn join(input: ParseInput) -> ParseResult<Vec<Step>> {
-        Ok(match_nodes!(input.children();
-            [_join(_), scan(s)..] => s.collect(),
-        ))
+        // The grammar is `(_left | _right | _full)? _join scan ("," scan)*`.
+        // The outer-join modifier applies only to the first scan.
+        let mut join_type = JoinType::Inner;
+        let mut scans: Vec<Step> = Vec::new();
+        for child in input.children() {
+            match child.as_rule() {
+                Rule::_left => join_type = JoinType::Left,
+                Rule::_right => join_type = JoinType::Right,
+                Rule::_full => join_type = JoinType::Full,
+                Rule::scan => scans.push(Self::scan(child)?),
+                _ => {}
+            }
+        }
+        if join_type != JoinType::Inner
+            && let Some(first) = scans.first_mut()
+            && let StepKind::Scan(jt, ..) = &mut first.kind
+        {
+            *jt = join_type;
+        }
+        Ok(scans)
     }
 
     fn compute(input: ParseInput) -> ParseResult<Step> {
@@ -2405,6 +2428,7 @@ pub const RESERVED_WORDS: &[&str] = &[
     "fn",
     "forall",
     "from",
+    "full",
     "fun",
     "group",
     "if",
@@ -2414,6 +2438,7 @@ pub const RESERVED_WORDS: &[&str] = &[
     "intersect",
     "into",
     "join",
+    "left",
     "let",
     "mod",
     "notelem",
@@ -2428,6 +2453,7 @@ pub const RESERVED_WORDS: &[&str] = &[
     "raise",
     "rec",
     "require",
+    "right",
     "sig",
     "signature",
     "skip",

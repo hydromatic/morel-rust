@@ -806,6 +806,7 @@ impl Expr {
             Step {
                 kind,
                 env: step.env.clone(),
+                join_type: step.join_type,
             },
             env2,
         )

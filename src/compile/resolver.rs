@@ -1808,7 +1808,7 @@ impl<'a> Resolver<'a> {
                 );
                 builder.where_(negated);
             }
-            AstStepKind::Scan(pat, expr, condition) => {
+            AstStepKind::Scan(join_type, pat, expr, condition) => {
                 // Resolve the pattern and expression.
                 let resolved_pat = self.resolve_pat(pat);
                 let resolved_expr = self.resolve_expr(expr);
@@ -1817,8 +1817,10 @@ impl<'a> Resolver<'a> {
                 let resolved_condition =
                     condition.as_ref().map(|c| self.resolve_expr(c));
 
-                // Add the scan step to the builder.
-                builder.scan_with_condition(
+                // Add the scan step, preserving the join type (inner / left
+                // / right / full).
+                builder.scan_with_join(
+                    *join_type,
                     resolved_pat,
                     resolved_expr,
                     resolved_condition,

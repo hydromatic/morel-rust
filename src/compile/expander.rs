@@ -561,7 +561,7 @@ fn walk_query_steps(
                 ),
                 other => other,
             };
-            Step::new(new_kind, s.env)
+            Step::with_join(s.join_type, new_kind, s.env)
         })
         .collect();
     match kind {
@@ -1703,7 +1703,7 @@ fn simplify_tuple_projections_in_steps(steps: &[Step]) -> Vec<Step> {
                     StepKind::Yield(Box::new(simplify_tuple_projections(e)))
                 }
             };
-            Step::new(kind, s.env.clone())
+            Step::with_join(s.join_type, kind, s.env.clone())
         })
         .collect()
 }
@@ -2562,7 +2562,11 @@ fn destructure_tuple_extents_for_fn_calls(
             }
             other => other,
         };
-        out.push(Step::new(new_kind, rewrite_env(&step.env)));
+        out.push(Step::with_join(
+            step.join_type,
+            new_kind,
+            rewrite_env(&step.env),
+        ));
     }
     // Add an explicit Yield + Distinct of the destructured tuple
     // if the original had no yield and isn't an exists/forall —
