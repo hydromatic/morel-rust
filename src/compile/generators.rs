@@ -2251,6 +2251,91 @@ struct Bound {
 
 fn is_bound_constraint(constraint: &Expr, pat_name: &str) -> bool {
     try_isolate_bound(constraint, pat_name).is_some()
+        || !range_contains_bounds(constraint, pat_name).is_empty()
+}
+
+/// If `c` is `Range.contains range value` (curried, i.e.
+/// `Apply(Apply(Range.contains, range), value)`) where `value` is exactly the
+/// pattern `pat_name`, returns the range constructor application (e.g.
+/// `CLOSED (a, b)` or `AT_LEAST a`); otherwise `None`. `pat elem [a..b]`
+/// desugars to this form.
+fn range_contains_range<'a>(c: &'a Expr, pat_name: &str) -> Option<&'a Expr> {
+    let Expr::Apply(_, outer_fn, value, _) = c else {
+        return None;
+    };
+    if !references(value, pat_name) {
+        return None;
+    }
+    let Expr::Apply(_, contains_fn, range, _) = outer_fn.as_ref() else {
+        return None;
+    };
+    if as_builtin_fn(contains_fn) != Some(BuiltInFunction::RangeContains) {
+        return None;
+    }
+    Some(range)
+}
+
+/// The lower/upper bounds implied by a `Range.contains range pat` constraint.
+/// A two-sided range (e.g. `CLOSED (a, b)`) yields both bounds; a one-sided
+/// range (e.g. `AT_LEAST a`) yields one; `ALL` and a point yield none. Each
+/// entry is `(is_lower, bound)`.
+fn range_contains_bounds(c: &Expr, pat_name: &str) -> Vec<(bool, Bound)> {
+    use BuiltInFunction as B;
+    let Some(range) = range_contains_range(c, pat_name) else {
+        return Vec::new();
+    };
+    let Expr::Apply(_, ctor_fn, ctor_arg, _) = range else {
+        return Vec::new();
+    };
+    let Some(ctor) = as_builtin_fn(ctor_fn) else {
+        return Vec::new();
+    };
+    match ctor {
+        B::RangeClosed
+        | B::RangeClosedOpen
+        | B::RangeOpen
+        | B::RangeOpenClosed => {
+            let Expr::Tuple(_, args) = ctor_arg.as_ref() else {
+                return Vec::new();
+            };
+            if args.len() != 2 {
+                return Vec::new();
+            }
+            let lo_strict = matches!(ctor, B::RangeOpen | B::RangeOpenClosed);
+            let hi_strict = matches!(ctor, B::RangeOpen | B::RangeClosedOpen);
+            vec![
+                (
+                    true,
+                    Bound {
+                        bound: args[0].clone(),
+                        strict: lo_strict,
+                    },
+                ),
+                (
+                    false,
+                    Bound {
+                        bound: args[1].clone(),
+                        strict: hi_strict,
+                    },
+                ),
+            ]
+        }
+        B::RangeAtLeast | B::RangeGreaterThan => vec![(
+            true,
+            Bound {
+                bound: (**ctor_arg).clone(),
+                strict: ctor == B::RangeGreaterThan,
+            },
+        )],
+        B::RangeAtMost | B::RangeLessThan => vec![(
+            false,
+            Bound {
+                bound: (**ctor_arg).clone(),
+                strict: ctor == B::RangeLessThan,
+            },
+        )],
+        _ => Vec::new(),
+    }
 }
 
 /// Returns whether `constraint` references an unbounded sibling pattern
@@ -2279,6 +2364,14 @@ fn lower_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
                 strict: op == BuiltInFunction::IntGt,
             });
         }
+        // `pat elem [a..b]` (a finite or lower-bounded range) implies a lower
+        // bound on `pat`.
+        if let Some((_, bound)) = range_contains_bounds(c, pat_name)
+            .into_iter()
+            .find(|(is_lower, _)| *is_lower)
+        {
+            return Some(bound);
+        }
     }
     None
 }
@@ -2294,6 +2387,14 @@ fn upper_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
                 bound: rhs,
                 strict: op == BuiltInFunction::IntLt,
             });
+        }
+        // `pat elem [a..b]` (a finite or upper-bounded range) implies an upper
+        // bound on `pat`.
+        if let Some((_, bound)) = range_contains_bounds(c, pat_name)
+            .into_iter()
+            .find(|(is_lower, _)| !*is_lower)
+        {
+            return Some(bound);
         }
     }
     None
