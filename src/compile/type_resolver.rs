@@ -3490,11 +3490,19 @@ impl TypeResolver {
 
         // Process the compute expression, if present.
         let compute_expr2 = if let Some(compute) = compute_expr {
-            // Push the pre-group triple so that `Aggregate`'s `over`
-            // expression can resolve pre-group variables (e.g. `a` in
-            // `compute sum over a`). The compute expressions themselves
-            // are evaluated against `group_env` below.
-            self.compute_stack.push(p.clone());
+            // Push a triple so that `Aggregate`'s `over` expression can resolve
+            // the pre-group variables (e.g. `a` in `compute sum over a`) and
+            // the group key fields (e.g. `k` in `group {k = i + 2} compute {…
+            // over (i + j + k)}`). Its env is the pre-group env extended with
+            // the key fields (`field_vars` holds only the key fields here; the
+            // compute fields are added afterwards). The compute expressions
+            // themselves are evaluated against `group_env` below.
+            let mut over_env_builder = p.env.builder();
+            field_vars.iter().for_each(|(label, v)| {
+                over_env_builder.push(label.clone(), Term::Variable(*v));
+            });
+            let over_env = over_env_builder.build();
+            self.compute_stack.push(p.with_env(&over_env));
 
             let v_compute = self.variable();
             let result = if let ExprKind::Record(_with, labeled_exprs) =
