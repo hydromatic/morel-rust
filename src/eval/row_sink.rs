@@ -838,6 +838,9 @@ impl RowSink for TakeRowSink {
 pub struct IntersectRowSink {
     slots: Vec<usize>,
     wrap: bool,
+    /// `true` for `intersect distinct`: the input is deduplicated before the
+    /// intersection (`distinct(A) ∩ B`), so the result has no duplicates.
+    distinct: bool,
     codes: Vec<Code>,
     row_sink: Box<dyn RowSink>,
     seen: Vec<Val>,
@@ -847,12 +850,14 @@ impl IntersectRowSink {
     pub fn new(
         slots: Vec<usize>,
         wrap: bool,
+        distinct: bool,
         codes: Vec<Code>,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
             slots,
             wrap,
+            distinct,
             codes,
             row_sink,
             seen: Vec::new(),
@@ -875,9 +880,13 @@ impl RowSink for IntersectRowSink {
         _r: &mut EvalEnv,
         f: &mut Frame,
     ) -> Result<(), MorelError> {
-        // Collect the current row value.
+        // Collect the current row value. For the `distinct` variant the input
+        // is deduplicated here, so the difference/intersection below yields a
+        // duplicate-free result.
         let row_val = read_set_op_row(&self.slots, self.wrap, f);
-        self.seen.push(row_val);
+        if !self.distinct || !self.seen.contains(&row_val) {
+            self.seen.push(row_val);
+        }
         Ok(())
     }
 
@@ -925,6 +934,9 @@ impl RowSink for IntersectRowSink {
 pub struct ExceptRowSink {
     slots: Vec<usize>,
     wrap: bool,
+    /// `true` for `except distinct`: the input is deduplicated before the
+    /// difference (`distinct(A) − B`), so the result has no duplicates.
+    distinct: bool,
     codes: Vec<Code>,
     row_sink: Box<dyn RowSink>,
     seen: Vec<Val>,
@@ -934,12 +946,14 @@ impl ExceptRowSink {
     pub fn new(
         slots: Vec<usize>,
         wrap: bool,
+        distinct: bool,
         codes: Vec<Code>,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
             slots,
             wrap,
+            distinct,
             codes,
             row_sink,
             seen: Vec::new(),
@@ -962,9 +976,13 @@ impl RowSink for ExceptRowSink {
         _r: &mut EvalEnv,
         f: &mut Frame,
     ) -> Result<(), MorelError> {
-        // Collect the current row value.
+        // Collect the current row value. For the `distinct` variant the input
+        // is deduplicated here, so the difference/intersection below yields a
+        // duplicate-free result.
         let row_val = read_set_op_row(&self.slots, self.wrap, f);
-        self.seen.push(row_val);
+        if !self.distinct || !self.seen.contains(&row_val) {
+            self.seen.push(row_val);
+        }
         Ok(())
     }
 

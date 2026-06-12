@@ -1654,24 +1654,14 @@ impl<'a> Compiler<'a> {
                 })
             }
             StepKind::Except(distinct, exprs) => {
-                // Translate "except-distinct" as if it were ordinary "except"
-                // followed by "distinct".
-                let downstream_steps = if *distinct {
-                    // Create a Distinct step and append remaining steps.
-                    let mut new_steps = vec![Step::new(
-                        StepKind::Distinct,
-                        first_step.env.clone(),
-                    )];
-                    new_steps.extend_from_slice(&steps[1..]);
-                    new_steps
-                } else {
-                    steps[1..].to_vec()
-                };
-
+                // `except distinct` deduplicates the input before the
+                // difference (`distinct(A) - B`); the sink handles this
+                // directly, so no separate `distinct` step is inserted.
+                let distinct = *distinct;
                 let next_factory = self.create_row_sink_factory(
                     cx,
                     &first_step.env,
-                    &downstream_steps,
+                    &steps[1..],
                     element_type,
                 );
 
@@ -1680,13 +1670,15 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|expr| self.compile_expr(cx, None, expr))
                     .collect();
+                let op_elem = Self::set_op_element_type(exprs, element_type);
                 let (slots, wrap) =
-                    self.set_op_row_slots(cx, step_env, element_type);
+                    self.set_op_row_slots(cx, step_env, op_elem.as_ref());
 
                 RowSinkFactory::new(move || {
                     Box::new(ExceptRowSink::new(
                         slots.clone(),
                         wrap,
+                        distinct,
                         codes.clone(),
                         next_factory.create(),
                     ))
@@ -1849,25 +1841,14 @@ impl<'a> Compiler<'a> {
                 })
             }
             StepKind::Intersect(distinct, exprs) => {
-                // Translate "intersect-distinct" as if it were an ordinary
-                // "intersect" followed by "distinct". (We could also
-                // make the inputs distinct.)
-                let downstream_steps = if *distinct {
-                    // Create a Distinct step and append remaining steps.
-                    let mut new_steps = vec![Step::new(
-                        StepKind::Distinct,
-                        first_step.env.clone(),
-                    )];
-                    new_steps.extend_from_slice(&steps[1..]);
-                    new_steps
-                } else {
-                    steps[1..].to_vec()
-                };
-
+                // `intersect distinct` deduplicates the input before the
+                // intersection (`distinct(A) ∩ B`); the sink handles this
+                // directly, so no separate `distinct` step is inserted.
+                let distinct = *distinct;
                 let next_factory = self.create_row_sink_factory(
                     cx,
                     &first_step.env,
-                    &downstream_steps,
+                    &steps[1..],
                     element_type,
                 );
 
@@ -1876,13 +1857,15 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|expr| self.compile_expr(cx, None, expr))
                     .collect();
+                let op_elem = Self::set_op_element_type(exprs, element_type);
                 let (slots, wrap) =
-                    self.set_op_row_slots(cx, step_env, element_type);
+                    self.set_op_row_slots(cx, step_env, op_elem.as_ref());
 
                 RowSinkFactory::new(move || {
                     Box::new(IntersectRowSink::new(
                         slots.clone(),
                         wrap,
+                        distinct,
                         codes.clone(),
                         next_factory.create(),
                     ))
@@ -2101,8 +2084,9 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|expr| self.compile_expr(cx, None, expr))
                     .collect();
+                let op_elem = Self::set_op_element_type(exprs, element_type);
                 let (slots, wrap) =
-                    self.set_op_row_slots(cx, step_env, element_type);
+                    self.set_op_row_slots(cx, step_env, op_elem.as_ref());
 
                 RowSinkFactory::new(move || {
                     Box::new(UnionRowSink::new(
@@ -2255,6 +2239,24 @@ impl<'a> Compiler<'a> {
                     }
                 }
             }
+        }
+    }
+
+    /// The element type a set step (`except`/`intersect`/`union`) operates on:
+    /// the element type of its operand collections, which is the type of one
+    /// row at this step. This differs from the query's final element type when
+    /// the set step is not the last (e.g. `… except … group …`), so it must be
+    /// derived from the operand rather than passed down from the query.
+    fn set_op_element_type(exprs: &[Expr], fallback: &Type) -> Rc<Type> {
+        match exprs.first().map(Expr::type_) {
+            Some(t) => match t.as_ref() {
+                Type::List(elem) | Type::Bag(elem) => elem.clone(),
+                Type::Data(name, args) if name == "bag" && !args.is_empty() => {
+                    args[0].clone()
+                }
+                _ => Rc::new(fallback.clone()),
+            },
+            None => Rc::new(fallback.clone()),
         }
     }
 
