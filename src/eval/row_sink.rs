@@ -423,24 +423,52 @@ impl RowSink for WhereRowSink {
     }
 }
 
+/// Reads a set-operation (`union`/`intersect`/`except`) row from the given
+/// frame slots, in the canonical field-name order that matches the elements of
+/// the operation's argument collections. When `wrap`, the slot values form one
+/// record/tuple value (`Val::List`); otherwise the single slot holds the row.
+fn read_set_op_row(slots: &[usize], wrap: bool, f: &Frame) -> Val {
+    if wrap {
+        Val::List(slots.iter().map(|&s| f.vals[s].clone()).collect())
+    } else {
+        f.vals[slots[0]].clone()
+    }
+}
+
+/// Writes a set-operation row back into the given frame slots (the inverse of
+/// [`read_set_op_row`]) so that downstream steps see the bindings.
+fn write_set_op_row(slots: &[usize], wrap: bool, f: &mut Frame, row: &Val) {
+    if wrap {
+        let items = row.expect_list();
+        for (i, &slot) in slots.iter().enumerate() {
+            f.vals[slot] = items[i].clone();
+        }
+    } else {
+        f.vals[slots[0]] = row.clone();
+    }
+}
+
 /// Implementation of RowSink for a `union` step.
 ///
 /// First accepts rows from upstream, then evaluates additional collections
 /// and passes their elements downstream.
 pub struct UnionRowSink {
-    slot_count: usize,
+    slots: Vec<usize>,
+    wrap: bool,
     codes: Vec<Code>,
     row_sink: Box<dyn RowSink>,
 }
 
 impl UnionRowSink {
     pub fn new(
-        slot_count: usize,
+        slots: Vec<usize>,
+        wrap: bool,
         codes: Vec<Code>,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
-            slot_count,
+            slots,
+            wrap,
             codes,
             row_sink,
         }
@@ -475,17 +503,7 @@ impl RowSink for UnionRowSink {
             let collection = code.eval_f0(r, f)?;
             let items = collection.expect_list();
             for item in items {
-                // Bind the item directly to frame slots (0..slot_count).
-                if self.slot_count == 1 {
-                    // Atom case: single binding at slot 0.
-                    f.vals[0] = item.clone();
-                } else {
-                    // Tuple case: unpack tuple and bind to slots
-                    // 0..slot_count.
-                    let tuple_items = item.expect_list();
-                    f.vals[..self.slot_count]
-                        .clone_from_slice(&tuple_items[..self.slot_count]);
-                }
+                write_set_op_row(&self.slots, self.wrap, f, item);
                 self.row_sink.accept(r, f)?;
             }
         }
@@ -818,7 +836,8 @@ impl RowSink for TakeRowSink {
 /// Computes the intersection of the upstream collection with additional
 /// collections.
 pub struct IntersectRowSink {
-    slot_count: usize,
+    slots: Vec<usize>,
+    wrap: bool,
     codes: Vec<Code>,
     row_sink: Box<dyn RowSink>,
     seen: Vec<Val>,
@@ -826,12 +845,14 @@ pub struct IntersectRowSink {
 
 impl IntersectRowSink {
     pub fn new(
-        slot_count: usize,
+        slots: Vec<usize>,
+        wrap: bool,
         codes: Vec<Code>,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
-            slot_count,
+            slots,
+            wrap,
             codes,
             row_sink,
             seen: Vec::new(),
@@ -855,11 +876,7 @@ impl RowSink for IntersectRowSink {
         f: &mut Frame,
     ) -> Result<(), MorelError> {
         // Collect the current row value.
-        let row_val = if self.slot_count == 1 {
-            f.vals[0].clone()
-        } else {
-            Val::List(f.vals[0..self.slot_count].to_vec())
-        };
+        let row_val = read_set_op_row(&self.slots, self.wrap, f);
         self.seen.push(row_val);
         Ok(())
     }
@@ -894,13 +911,7 @@ impl RowSink for IntersectRowSink {
 
         // Pass the remaining items downstream.
         for item in &self.seen {
-            if self.slot_count == 1 {
-                f.vals[0] = item.clone();
-            } else {
-                let tuple_items = item.expect_list();
-                f.vals[..self.slot_count]
-                    .clone_from_slice(&tuple_items[..self.slot_count]);
-            }
+            write_set_op_row(&self.slots, self.wrap, f, item);
             self.row_sink.accept(r, f)?;
         }
         self.row_sink.result(r, f)
@@ -912,7 +923,8 @@ impl RowSink for IntersectRowSink {
 /// Removes elements from the upstream collection that appear in additional
 /// collections.
 pub struct ExceptRowSink {
-    slot_count: usize,
+    slots: Vec<usize>,
+    wrap: bool,
     codes: Vec<Code>,
     row_sink: Box<dyn RowSink>,
     seen: Vec<Val>,
@@ -920,12 +932,14 @@ pub struct ExceptRowSink {
 
 impl ExceptRowSink {
     pub fn new(
-        slot_count: usize,
+        slots: Vec<usize>,
+        wrap: bool,
         codes: Vec<Code>,
         row_sink: Box<dyn RowSink>,
     ) -> Self {
         Self {
-            slot_count,
+            slots,
+            wrap,
             codes,
             row_sink,
             seen: Vec::new(),
@@ -949,11 +963,7 @@ impl RowSink for ExceptRowSink {
         f: &mut Frame,
     ) -> Result<(), MorelError> {
         // Collect the current row value.
-        let row_val = if self.slot_count == 1 {
-            f.vals[0].clone()
-        } else {
-            Val::List(f.vals[0..self.slot_count].to_vec())
-        };
+        let row_val = read_set_op_row(&self.slots, self.wrap, f);
         self.seen.push(row_val);
         Ok(())
     }
@@ -991,13 +1001,7 @@ impl RowSink for ExceptRowSink {
 
         // Pass the remaining items downstream.
         for item in &self.seen {
-            if self.slot_count == 1 {
-                f.vals[0] = item.clone();
-            } else {
-                let tuple_items = item.expect_list();
-                f.vals[..self.slot_count]
-                    .clone_from_slice(&tuple_items[..self.slot_count]);
-            }
+            write_set_op_row(&self.slots, self.wrap, f, item);
             self.row_sink.accept(r, f)?;
         }
         self.row_sink.result(r, f)

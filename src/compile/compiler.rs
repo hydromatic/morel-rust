@@ -1680,11 +1680,13 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|expr| self.compile_expr(cx, None, expr))
                     .collect();
-                let slot_count = step_env.bindings.len();
+                let (slots, wrap) =
+                    self.set_op_row_slots(cx, step_env, element_type);
 
                 RowSinkFactory::new(move || {
                     Box::new(ExceptRowSink::new(
-                        slot_count,
+                        slots.clone(),
+                        wrap,
                         codes.clone(),
                         next_factory.create(),
                     ))
@@ -1856,11 +1858,13 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|expr| self.compile_expr(cx, None, expr))
                     .collect();
-                let slot_count = step_env.bindings.len();
+                let (slots, wrap) =
+                    self.set_op_row_slots(cx, step_env, element_type);
 
                 RowSinkFactory::new(move || {
                     Box::new(IntersectRowSink::new(
-                        slot_count,
+                        slots.clone(),
+                        wrap,
                         codes.clone(),
                         next_factory.create(),
                     ))
@@ -2079,11 +2083,13 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|expr| self.compile_expr(cx, None, expr))
                     .collect();
-                let slot_count = step_env.bindings.len();
+                let (slots, wrap) =
+                    self.set_op_row_slots(cx, step_env, element_type);
 
                 RowSinkFactory::new(move || {
                     Box::new(UnionRowSink::new(
-                        slot_count,
+                        slots.clone(),
+                        wrap,
                         codes.clone(),
                         next_factory.create(),
                     ))
@@ -2235,6 +2241,50 @@ impl<'a> Compiler<'a> {
     }
 
     /// Gets the code for collecting bound variables.
+    /// Returns the frame slots that hold a set-operation step's row, in the
+    /// canonical (field-name-sorted) order used to build the collection
+    /// element, plus whether those slots' values are wrapped in a single
+    /// record/tuple value (`Val::List`).
+    ///
+    /// A set step (`except`/`intersect`/`union`) compares its row against the
+    /// elements of its argument collections, which are whole record/tuple
+    /// values in field-name order. The row's bindings may sit at arbitrary
+    /// frame slots (e.g. after a `yield` the original scan variable still
+    /// occupies slot 0) and in binding order rather than field order, so the
+    /// row must be read from — and written back to — these specific slots.
+    /// Mirrors [`Self::get_collection_code`].
+    fn set_op_row_slots(
+        &self,
+        cx: &Context,
+        step_env: &StepEnv,
+        element_type: &Type,
+    ) -> (Vec<usize>, bool) {
+        let mut field_names: Vec<String> = step_env
+            .bindings
+            .iter()
+            .map(|b| b.id.name.clone())
+            .collect();
+        field_names.sort();
+
+        if field_names.len() == 1
+            && step_env.bindings[0].type_.as_ref() == element_type
+        {
+            let name = &field_names[0];
+            let slot = if name == "current" {
+                cx.frame_def.bound_vars.len()
+            } else {
+                cx.frame_def.var_index(name)
+            };
+            (vec![slot], false)
+        } else {
+            let slots = field_names
+                .iter()
+                .map(|name| cx.frame_def.var_index(name))
+                .collect();
+            (slots, true)
+        }
+    }
+
     fn get_collection_code(
         &mut self,
         cx: &Context,
