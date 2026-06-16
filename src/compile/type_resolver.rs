@@ -3732,33 +3732,44 @@ impl TypeResolver {
     ) -> Result<Triple, Error> {
         let v_result = self.variable();
         let v_fn = self.variable();
-
-        // Deduce the type of the function expression.
-        let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
-
-        // The function must have type: collection -> result.
-        // Use collectionKind to determine whether the function's
-        // parameter should match the input or be independent.
-        // `into` adapts collection kinds.
         let c_param = self.variable();
-        let kind = self.aggregate_collection_kind(&*p.env, expr);
-        match kind {
-            CollectionKind::List => {
-                self.list_term(Term::Variable(p.v), &c_param);
-            }
-            CollectionKind::Bag => {
-                self.bag_term(Term::Variable(p.v), &c_param);
-            }
-            CollectionKind::MatchInput => {
-                // Overloaded: link to input collection kind.
-                self.equiv(&Term::Variable(p.c.unwrap()), &c_param);
-            }
-            CollectionKind::Unknown => {
-                // Anonymous: allow either.
-                self.may_be_bag_or_list(&c_param, &p.v);
+
+        // The function has type `collection -> result`. Deduce it first and
+        // tie its parameter to `c_param` via `v_fn`. Field accesses inside an
+        // inline-lambda body are resolved lazily by the unifier (a deferred
+        // action), so deducing before `c_param`'s element is known does not
+        // hard-error — the constraints we add below are all solved together in
+        // the final unification, where the field actions then fire.
+        let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
+        self.fn_term(&c_param, &v_result, &v_fn);
+
+        // Now decide how to constrain the parameter's element type. Two cases,
+        // distinguished by whether the function's own type already pins the
+        // parameter to a concrete collection kind:
+        //
+        //  - Pinned (`into sum` → `bag`, `into List.length` → `list`): the kind
+        //    is fixed by the function. Use `constrain_bag_or_list` to link the
+        //    *element* to the input element `p.v` (its `list(p.v)`/`bag(p.v)`
+        //    candidates unify with the pinned kind, forcing element = `p.v`).
+        //    `into` adapts the input collection's kind to the function's.
+        //
+        //  - Free (`into process`, `into (fn rows => … r.a)`): the function is
+        //    kind-agnostic, so nothing forces `c_param` to a collection and a
+        //    purely reactive element link would deadlock — leaving a field
+        //    access in the body on an unresolved `'a`. Link the parameter
+        //    directly to the input collection type (`p.c`); `into` feeds the
+        //    input collection to the function, so this is the natural type and
+        //    it fixes both the kind and the element so field accesses resolve.
+        if self.resolves_to_collection(&c_param) {
+            self.constrain_bag_or_list(&c_param, &p.v);
+        } else {
+            match p.c {
+                Some(c_in) => {
+                    self.equiv(&Term::Variable(c_in), &c_param);
+                }
+                None => self.constrain_bag_or_list(&c_param, &p.v),
             }
         }
-        self.fn_term(&c_param, &v_result, &v_fn);
 
         let step2 = StepKind::Into(Box::new(expr2));
         steps2.push(step2.spanned(span));
@@ -5052,6 +5063,34 @@ impl TypeResolver {
         self.equiv(&Term::Sequence(seq1.clone()), v1);
         self.equiv(&Term::Sequence(seq2), v2);
         self.equiv(&Term::Sequence(seq3), v3);
+    }
+
+    /// Returns whether variable `c` already resolves to a concrete collection
+    /// (a `list` or `bag` sequence) given the constraints gathered so far.
+    /// Builds a substitution from `self.terms` (as `tunnel_safe_eager` does)
+    /// and resolves `c`; a non-collection or still-unresolved variable yields
+    /// `false`. Used by `into` to tell a function whose type pins the
+    /// collection kind (`into sum` → `bag`) from a kind-agnostic one
+    /// (`into process`).
+    fn resolves_to_collection(&self, c: &Var) -> bool {
+        let term_pairs: Vec<(Term, Term)> = self
+            .terms
+            .iter()
+            .map(|(var, term)| (term.clone(), Term::Variable(*var)))
+            .collect();
+        let Ok(subst) = self.unifier.unify(
+            term_pairs.as_ref(),
+            &NullTracer,
+            self.actions.as_ref(),
+        ) else {
+            return false;
+        };
+        match subst.resolve_term(&Term::Variable(*c)) {
+            Term::Sequence(seq) => {
+                seq.op == self.list_op || seq.op == self.bag_op
+            }
+            _ => false,
+        }
     }
 
     /// Adds an overload constraint that `c` must be a list or a bag of
