@@ -1131,7 +1131,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a bag -> bool"))]
     RelationalNonEmpty,
     #[strum(props(p = "Relational", name = "sum", global = true))]
-    #[strum(props(type = "int bag -> int"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a"))]
     RelationalSum,
     #[strum(props(p = "String", name = "^", alias = "op ^"))]
     #[strum(props(type = "string * string -> string"))]

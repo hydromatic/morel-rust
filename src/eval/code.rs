@@ -3132,7 +3132,14 @@ impl Eager1 {
             RelationalEmpty => Val::Bool(a0.expect_list().is_empty()),
             RelationalNonEmpty => Val::Bool(!a0.expect_list().is_empty()),
             RelationalSum => {
-                Val::Int(a0.expect_list().iter().map(Val::expect_int).sum())
+                // `sum` is `'a bag -> 'a` where `'a` is numeric; dispatch on
+                // the element type. An empty bag sums to `0` (int).
+                let items = a0.expect_list();
+                if matches!(items.first(), Some(Val::Real(_))) {
+                    Val::Real(items.iter().map(Val::expect_real).sum())
+                } else {
+                    Val::Int(items.iter().map(Val::expect_int).sum())
+                }
             }
             StringConcat => {
                 let strings = a0.expect_list();

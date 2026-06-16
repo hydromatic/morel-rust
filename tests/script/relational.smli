@@ -3263,8 +3263,6 @@ from i in [1,2,3]
   through xs in (List.map (fn x => x * 10));
 > val it = [10,20,30] : int list
 
-set("mode", "validate");
-> val it = () : unit
 
 let
   fun clean emps =
@@ -3284,9 +3282,6 @@ in
 end;
 > val it = [{i=13},{i=24},{i=35}] : {i:int} list
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) "threes" is a function that groups a list into sublists of 3
 (* (or fewer) elements each. *)
