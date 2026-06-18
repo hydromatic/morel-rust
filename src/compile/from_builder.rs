@@ -24,7 +24,9 @@
 //! - Removing trivial yields like "from v in list where condition yield v"
 //! - Inlining nested from expressions
 
-use crate::compile::core::{Binding, Expr, Pat, Step, StepEnv, StepKind};
+use crate::compile::core::{
+    Binding, Decl, Expr, Match, Pat, Step, StepEnv, StepKind, ValBind,
+};
 use crate::compile::type_env::Id;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::val::Val;
@@ -47,6 +49,103 @@ pub(crate) fn agg_implicit_label(expr: &Expr) -> Option<String> {
         Expr::Aggregate(_, left, _) => agg_implicit_label(left),
         Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
         _ => None,
+    }
+}
+
+/// Replaces every `current` pseudo-field in `expr` with `repl`, without
+/// descending into a nested `from`/`exists`/`forall` (each of which establishes
+/// its own `current`). Mirrors morel-java's `Resolver.withCurrent`, which binds
+/// `current` to a reference to the single atom binding of the enclosing step,
+/// so `current` and the atom's implicit-label name resolve to the same value.
+fn replace_current(expr: &Expr, repl: &Expr) -> Expr {
+    match expr {
+        Expr::Current(_) => repl.clone(),
+        // A nested query establishes its own `current`; leave it alone.
+        Expr::From(..) | Expr::Exists(..) | Expr::Forall(..) => expr.clone(),
+        // Leaves with no sub-expressions.
+        Expr::Literal(..)
+        | Expr::Identifier(..)
+        | Expr::RecordSelector(..)
+        | Expr::Ordinal(_)
+        | Expr::Extent(..) => expr.clone(),
+        Expr::Aggregate(t, a, b) => Expr::Aggregate(
+            t.clone(),
+            Box::new(replace_current(a, repl)),
+            Box::new(replace_current(b, repl)),
+        ),
+        Expr::Apply(t, f, a, s) => Expr::Apply(
+            t.clone(),
+            Box::new(replace_current(f, repl)),
+            Box::new(replace_current(a, repl)),
+            s.clone(),
+        ),
+        Expr::Case(t, subj, arms, s) => Expr::Case(
+            t.clone(),
+            Box::new(replace_current(subj, repl)),
+            arms.iter()
+                .map(|m| replace_current_match(m, repl))
+                .collect(),
+            s.clone(),
+        ),
+        Expr::Fn(t, arms, s) => Expr::Fn(
+            t.clone(),
+            arms.iter()
+                .map(|m| replace_current_match(m, repl))
+                .collect(),
+            s.clone(),
+        ),
+        Expr::Let(t, decls, body) => Expr::Let(
+            t.clone(),
+            decls
+                .iter()
+                .map(|d| replace_current_decl(d, repl))
+                .collect(),
+            Box::new(replace_current(body, repl)),
+        ),
+        Expr::Raise(t, e, s) => Expr::Raise(
+            t.clone(),
+            Box::new(replace_current(e, repl)),
+            s.clone(),
+        ),
+        Expr::Tuple(t, items) => Expr::Tuple(
+            t.clone(),
+            items.iter().map(|e| replace_current(e, repl)).collect(),
+        ),
+        Expr::List(t, items) => Expr::List(
+            t.clone(),
+            items.iter().map(|e| replace_current(e, repl)).collect(),
+        ),
+    }
+}
+
+fn replace_current_match(m: &Match, repl: &Expr) -> Match {
+    Match {
+        pat: m.pat.clone(),
+        expr: replace_current(&m.expr, repl),
+    }
+}
+
+fn replace_current_decl(decl: &Decl, repl: &Expr) -> Decl {
+    match decl {
+        Decl::NonRecVal(vb) => {
+            Decl::NonRecVal(Box::new(replace_current_valbind(vb, repl)))
+        }
+        Decl::RecVal(vbs) => Decl::RecVal(
+            vbs.iter()
+                .map(|vb| replace_current_valbind(vb, repl))
+                .collect(),
+        ),
+        Decl::Over(_) | Decl::Type(_) | Decl::Datatype(_) => decl.clone(),
+    }
+}
+
+fn replace_current_valbind(vb: &ValBind, repl: &Expr) -> ValBind {
+    ValBind {
+        pat: vb.pat.clone(),
+        t: vb.t.clone(),
+        expr: replace_current(&vb.expr, repl),
+        overload_pat: vb.overload_pat.clone(),
+        span: vb.span.clone(),
     }
 }
 
@@ -182,6 +281,26 @@ impl FromBuilder {
         StepEnv::new(self.bindings.clone(), self.atom, ordered)
     }
 
+    /// Rewrites references to the `current` pseudo-field in a step expression
+    /// into a reference to the single atom binding currently in scope, so that
+    /// `current` and the atom's implicit-label name (e.g. `deptno` after
+    /// `yield e.deptno`) resolve to the same value. Mirrors morel-java's
+    /// `Resolver.withCurrent`. Applies only when the input is an atom with a
+    /// real label; an unlabelled atom keeps the `current` pseudo-field (its
+    /// binding is named `"current"`, which has no frame slot of its own).
+    fn subst_current(&self, expr: Expr) -> Expr {
+        if self.atom
+            && self.bindings.len() == 1
+            && self.bindings[0].id.name != "current"
+        {
+            let b = &self.bindings[0];
+            let repl = Expr::Identifier(b.type_.clone(), b.id.name.clone());
+            replace_current(&expr, &repl)
+        } else {
+            expr
+        }
+    }
+
     /// Adds a step to this builder.
     fn add_step(&mut self, step: Step) -> &mut Self {
         // Check if we should remove the previous step because it's no longer
@@ -215,6 +334,7 @@ impl FromBuilder {
     /// Adds a "where" (filter) step.
     /// Optimization: Skips "where true" since it has no effect.
     pub fn where_(&mut self, condition: Expr) -> &mut Self {
+        let condition = self.subst_current(condition);
         // Check if the condition is a boolean literal true.
         if let Expr::Literal(_, Val::Bool(true)) = condition {
             // Skip "where true".
@@ -229,6 +349,10 @@ impl FromBuilder {
     /// Adds a "skip" step.
     /// Optimization: Skips "skip 0" since it has no effect.
     pub fn skip(&mut self, count: Expr) -> &mut Self {
+        // Note: `skip`/`take` counts are resolved WITHOUT this step's bindings
+        // (matching morel-java's `withEnv(env)`), so a `current` in the count
+        // refers to the enclosing query's row, not this atom step — hence no
+        // `subst_current` here.
         // Check if the count is 0.
         if let Expr::Literal(_, Val::Int(n)) = &count
             && *n == 0
@@ -244,6 +368,8 @@ impl FromBuilder {
 
     /// Adds a "take" (limit) step.
     pub fn take(&mut self, count: Expr) -> &mut Self {
+        // See `skip`: the count is resolved without this step's bindings, so a
+        // `current` in it refers to the enclosing query; no `subst_current`.
         let env = self.step_env();
         let step = Step::new(StepKind::Take(Box::new(count)), env);
         self.add_step(step)
@@ -266,6 +392,7 @@ impl FromBuilder {
 
     /// Adds an "order" step. Always produces ordered (list) output.
     pub fn order(&mut self, exp: Expr) -> &mut Self {
+        let exp = self.subst_current(exp);
         let mut env = self.step_env();
         env.ordered = true;
         let step = Step::new(StepKind::Order(Box::new(exp)), env);
@@ -312,6 +439,7 @@ impl FromBuilder {
         env2: Option<StepEnv>,
         exp: Expr,
     ) -> &mut Self {
+        let exp = self.subst_current(exp);
         let env = self.step_env();
         let mut useless_if_not_last = false;
 
@@ -393,7 +521,15 @@ impl FromBuilder {
                 _ => self.bindings.clone(),
             }
         } else {
-            let label = agg_implicit_label(&exp)
+            // Use the expression's full implicit label, which (unlike
+            // `agg_implicit_label`) also derives a label from a field access
+            // such as `e.deptno`. Naming the atom binding `deptno` (rather than
+            // the fallback `current`) gives it a real frame slot, so a later
+            // `compute … over deptno` or `order … deptno` reads the slot the
+            // re-iterating sinks maintain. References to `current` are rewritten
+            // to this binding by `subst_current`, keeping them in sync.
+            let label = exp
+                .implicit_label()
                 .unwrap_or_else(|| "current".to_string());
             vec![Binding::new(Id::new(&label, 0), exp.type_())]
         };
@@ -461,6 +597,8 @@ impl FromBuilder {
         key_expr: Expr,
         aggregate_expr: Option<Expr>,
     ) -> &mut Self {
+        let key_expr = self.subst_current(key_expr);
+        let aggregate_expr = aggregate_expr.map(|a| self.subst_current(a));
         // Update bindings to reflect the combined key + aggregate output
         // fields. This enables get_collection_code to emit the correct
         // slot-read codes and compute_result_type to derive the right type.
@@ -613,6 +751,7 @@ impl FromBuilder {
 
     /// Adds a standalone "compute" step (produces a singleton, not a list).
     pub fn compute(&mut self, expr: Expr) -> &mut Self {
+        let expr = self.subst_current(expr);
         let env = self.step_env();
         let step = Step::new(StepKind::Compute(Box::new(expr)), env);
         self.add_step(step);

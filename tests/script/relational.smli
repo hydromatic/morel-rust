@@ -2706,8 +2706,6 @@ only (
     group {} compute {si = sum over e.id, c = count over (), si1 = sum over e.id + 1});
 > val it = {c=4,si=406,si1=410} : {c:int, si:int, si1:int}
 
-set("mode", "validate");
-> val it = () : unit
 
 (*) similar to previous, but the 'only' function converts a singleton set to a record
 only (
@@ -2727,8 +2725,6 @@ from e in emps
   compute sum over deptno;
 > val it = 90 : int
 
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Reference to 'deptno' is not valid after it has been renamed to 'x'. *)
 from e in emps
