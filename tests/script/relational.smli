@@ -2526,8 +2526,6 @@ order deptno;
 >     rows=[{deptno=30,id=102,name="Shaggy"},{deptno=30,id=103,name="Scooby"}]}]
 >   : {deptno:int, rows:{deptno:int, id:int, name:string} list} list
 
-set("mode", "validate");
-> val it = () : unit
 
 (*) Identity aggregate function with multiple input variables
 from e in emps, d in depts
@@ -2559,8 +2557,6 @@ order deptno;
 >   : {avgId:int, deptno:int} list
 
 
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Similar, using a sub-from:
 from g in (
@@ -2573,8 +2569,6 @@ order deptno;
 > val it = [{avgId=100,deptno=10},{avgId=101,deptno=20},{avgId=102,deptno=30}]
 >   : {avgId:int, deptno:int} list
 
-set("mode", "validate");
-> val it = () : unit
 
 (*) Group followed by order and yield
 from e in emps
@@ -2587,8 +2581,6 @@ yield {deptno, avgId = sumId div count};
 >   : {avgId:int, deptno:int} list
 
 
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Group followed by group
 from e in emps

@@ -802,13 +802,26 @@ impl Expr {
                 (StepKind::Yield(Box::new(expr2)), env.clone())
             }
         };
+        // Shadow every name this step binds (group key/compute fields,
+        // yielded fields, …) in the environment seen by subsequent steps, so
+        // that a later step does not inline a global constant for a field of
+        // the same name — e.g. in
+        // `group e.deptno compute {count = count over e} yield {… count …}`
+        // the yielded `count` is the group's output field, not the `count`
+        // aggregate builtin. (`Scan` already shadows its pattern names above,
+        // walking compound patterns; this also covers them via the step's
+        // output bindings.)
+        let mut env3 = env2;
+        for b in &step.env.bindings {
+            env3 = env3.child_none(&b.id.name, &b.type_);
+        }
         (
             Step {
                 kind,
                 env: step.env.clone(),
                 join_type: step.join_type,
             },
-            env2,
+            env3,
         )
     }
 }
