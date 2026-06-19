@@ -1389,15 +1389,15 @@ from x in [{a = {a = 1}}, {a = {a = 2}}]
   yield {x.a};
 > val it = [{a={a=1}},{a={a=2}}] : {a:{a:int}} list
 
-set("mode", "validate");
-> val it = () : unit
 
 from (x, y) in [(1,2),(3,4),(3,0)]
   group x + y;
 > val it = [3,7] : int list
 
-set("mode", "evaluate");
-> val it = () : unit
+(*) As previous, but the anonymous key is a tuple.
+from (x, y) in [(1,2),(3,4),(3,0)]
+  group (x + y, x - y);
+> val it = [(3,~1),(7,~1),(3,3)] : (int * int) list
 
 (* "over" is only valid inside "compute" *)
 from i in [2, 1, 2]
@@ -2394,8 +2394,6 @@ order ename;
 >    {deptno=20,dname="HR",ename="Velma",sumId=101}]
 >   : {deptno:int, dname:string, ename:string, sumId:int} list
 
-set("mode", "validate");
-> val it = () : unit
 
 (*) 'group' that yields record
 from e in emps, d in depts
@@ -2405,9 +2403,6 @@ group d;
 >   [{deptno=10,name="Sales"},{deptno=20,name="HR"},
 >    {deptno=30,name="Engineering"}] : {deptno:int, name:string} list
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Yield a variable whose value is a record.
 from e in emps, d in depts
@@ -3201,7 +3196,6 @@ Sys.plan();
 > val it =
 >   "from(sink join(pat r1, exp apply2(fnValue List.tabulate, constant(6), match(i, tuple(get(name i), apply2(fnValue +, get(name i), constant(3)), apply3(fnValue String.substring, constant(morel), constant(0), get(name i))))), sink collect(tuple(apply(fnValue nth:1, argCode get(name r1)), apply(fnValue nth:2, argCode get(name r1))))))"
 >   : string
-
 
 
 set("mode", "evaluate");

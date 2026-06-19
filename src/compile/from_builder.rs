@@ -515,15 +515,22 @@ impl FromBuilder {
                             }
                         }
                     } else {
-                        // Scalar key via field access (e.g.
-                        // `group e.deptno`): derive binding name.
-                        if let Some(name) = key_expr.implicit_label() {
-                            new_bindings.push(Binding::new(
-                                Id::new(&name, 0),
-                                key_expr.type_().clone(),
-                            ));
-                            has_key_bindings = true;
-                        }
+                        // Scalar key, either via field access (e.g.
+                        // `group e.deptno`, labelled "deptno") or an anonymous
+                        // expression (e.g. `group x + y`, which has no derivable
+                        // label and so binds the pseudo-field "current"). Either
+                        // way it is a single key field that replaces the input
+                        // bindings; otherwise the input bindings would leak into
+                        // the result (e.g. `group x + y` over `(x, y)` would
+                        // wrongly yield `{x, y}` records instead of the scalar).
+                        let name = key_expr
+                            .implicit_label()
+                            .unwrap_or_else(|| "current".to_string());
+                        new_bindings.push(Binding::new(
+                            Id::new(&name, 0),
+                            key_expr.type_().clone(),
+                        ));
+                        has_key_bindings = true;
                     }
                 }
             }

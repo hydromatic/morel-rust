@@ -1725,41 +1725,59 @@ impl<'a> Compiler<'a> {
                 // Determine key slots by looking up field names in
                 // the frame. Works the same with or without aggregate.
                 let (key_slots, key_is_record): (Vec<usize>, bool) =
-                    match key_expr.type_().as_ref() {
-                        Type::Record(_, fields) if fields.is_empty() => {
-                            (vec![], false)
-                        }
-                        Type::Primitive(PrimitiveType::Unit) => (vec![], false),
-                        Type::Record(_, fields) => {
-                            let slots: Vec<usize> = fields
-                                .keys()
-                                .filter_map(|label| {
-                                    cx.frame_def
-                                        .try_var_index(&label.to_string())
-                                })
-                                .collect();
-                            if slots.len() == fields.len() {
-                                (slots, true)
-                            } else {
-                                (vec![0], false)
+                    if let Expr::Identifier(_, name) = key_expr.as_ref() {
+                        // `group d` where `d` is a single binding (whatever its
+                        // type, e.g. a whole record): the key is that one binding,
+                        // read and written at its own slot — not split into the
+                        // record's fields (which, after a join, are not frame
+                        // bindings and would otherwise resolve to the wrong slot).
+                        let slot =
+                            cx.frame_def.try_var_index(name).unwrap_or(0);
+                        (vec![slot], false)
+                    } else {
+                        match key_expr.type_().as_ref() {
+                            Type::Record(_, fields) if fields.is_empty() => {
+                                (vec![], false)
                             }
-                        }
-                        Type::Tuple(types) => {
-                            ((0..types.len()).collect(), true)
-                        }
-                        _ => {
-                            // Scalar key: look up its named slot
-                            // from the step env's first binding.
-                            if let Some(b) = first_step.env.bindings.first() {
-                                if let Some(slot) =
-                                    cx.frame_def.try_var_index(&b.id.name)
+                            Type::Primitive(PrimitiveType::Unit) => {
+                                (vec![], false)
+                            }
+                            Type::Record(_, fields) => {
+                                let slots: Vec<usize> = fields
+                                    .keys()
+                                    .filter_map(|label| {
+                                        cx.frame_def
+                                            .try_var_index(&label.to_string())
+                                    })
+                                    .collect();
+                                if slots.len() == fields.len() {
+                                    (slots, true)
+                                } else {
+                                    (vec![0], false)
+                                }
+                            }
+                            _ => {
+                                // Scalar or anonymous-tuple key: look up its named
+                                // slot from the step env's first binding. An
+                                // anonymous key — a scalar like `group x + y` or a
+                                // tuple like `group (x + y, x - y)`, neither of
+                                // which has field names to split into — is bound to
+                                // the pseudo-field "current", whose slot is the
+                                // primary element slot (as in get_collection_code),
+                                // and the whole value is stored there.
+                                if let Some(b) = first_step.env.bindings.first()
                                 {
+                                    let slot = if b.id.name == "current" {
+                                        cx.frame_def.bound_vars.len()
+                                    } else {
+                                        cx.frame_def
+                                            .try_var_index(&b.id.name)
+                                            .unwrap_or(0)
+                                    };
                                     (vec![slot], false)
                                 } else {
                                     (vec![0], false)
                                 }
-                            } else {
-                                (vec![0], false)
                             }
                         }
                     };
