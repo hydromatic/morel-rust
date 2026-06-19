@@ -266,6 +266,33 @@ impl Pretty {
 
     /// Prints a value to a buffer. If the first attempt goes beyond line_end,
     /// back-tracks, adds a newline and indent, and tries again one time.
+    /// Formats `inner`, the argument of a constructor application, wrapping it
+    /// in parentheses when it is itself a (non-nullary) constructor
+    /// application — e.g. the inner `SOME 7` of `SOME (SOME 7)`, or `INL x`,
+    /// `INR x`, `C x`. Standard ML requires the parentheses: `SOME SOME 7`
+    /// would parse as `(SOME SOME) 7`. Atomic values, tuples and lists are
+    /// already self-delimiting and are not wrapped.
+    fn pretty_con_arg(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        type_ref: &Type,
+        inner: &Val,
+    ) -> Result<(), fmt::Error> {
+        let paren = matches!(inner, Val::Some(_) | Val::Inl(_) | Val::Inr(_))
+            || matches!(inner, Val::Constructor(_, c) if **c != Val::Unit);
+        if paren {
+            self.pretty_raw(buf, indent, line_end, depth, "(")?;
+        }
+        self.pretty1(buf, indent, line_end, depth, type_ref, inner, 0, 0)?;
+        if paren {
+            self.pretty_raw(buf, indent, line_end, depth, ")")?;
+        }
+        Ok(())
+    }
+
     fn pretty1(
         &self,
         buf: &mut String,
@@ -802,17 +829,17 @@ impl Pretty {
             Val::Inl(v) => {
                 self.pretty_raw(buf, indent, line_end, depth, "INL ")?;
                 return self
-                    .pretty1(buf, indent, line_end, depth, &args[0], v, 0, 0);
+                    .pretty_con_arg(buf, indent, line_end, depth, &args[0], v);
             }
             Val::Inr(v) => {
                 self.pretty_raw(buf, indent, line_end, depth, "INR ")?;
                 return self
-                    .pretty1(buf, indent, line_end, depth, &args[1], v, 0, 0);
+                    .pretty_con_arg(buf, indent, line_end, depth, &args[1], v);
             }
             Val::Some(v) => {
                 self.pretty_raw(buf, indent, line_end, depth, "SOME ")?;
                 return self
-                    .pretty1(buf, indent, line_end, depth, &args[0], v, 0, 0);
+                    .pretty_con_arg(buf, indent, line_end, depth, &args[0], v);
             }
             Val::Unit => {
                 if name == "option" {
@@ -836,15 +863,13 @@ impl Pretty {
                             // datatype's actual type arguments.
                             let instantiated =
                                 Self::instantiate(arg_type, args);
-                            self.pretty1(
+                            self.pretty_con_arg(
                                 buf,
                                 indent,
                                 line_end,
                                 depth,
                                 &instantiated,
                                 inner,
-                                0,
-                                0,
                             )?;
                         } else {
                             write!(buf, "{}", inner)?;

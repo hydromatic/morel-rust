@@ -83,8 +83,6 @@ NONE = SOME 1;
 SOME "a" = NONE;
 > val it = false : bool
 
-set("mode", "validate");
-> val it = () : unit
 SOME (SOME true);
 > val it = SOME (SOME true) : bool option option
 SOME (SOME [1,2,3]);
@@ -97,16 +95,12 @@ SOME (SOME {a=1, b=true});
  *   datatype 'a descending = DESC of 'a;
  *)
 
-set("mode", "evaluate");
-> val it = () : unit
 
 DESC;
 > val it = fn : 'a -> 'a descending
 DESC 1;
 > val it = DESC 1 : int descending
 
-set("mode", "validate");
-> val it = () : unit
 DESC (DESC "a");
 > val it = DESC (DESC "a") : string descending descending
 
@@ -116,8 +110,6 @@ DESC (DESC "a");
  * following are all of the top-level functions and operators defined
  * by Standard ML.
  *)
-set("mode", "evaluate");
-> val it = () : unit
 (* A few functions and operators belong to signatures but can be
    used unqualified. For example, "hd" is shorthand for "List.hd".
    The following are all of the top-level functions and operators
