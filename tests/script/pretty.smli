@@ -130,16 +130,25 @@ Sys.set ("output", "tabular");
 >
 > val it : {s:string option} list
 
-(* List of records with a tuple field uses classic style. *)
+(* List of records with a tuple field: the tuple is a nested sub-table. *)
 [{id=1, address=(94705,"CA")}, {id=2, address=(94618,"CA")}];
-> val it = [{address=(94705,"CA"),id=1},{address=(94618,"CA"),id=2}]
->   : {address:int * string, id:int} list
+> address  id
+> 1     2
+> ----- -- --
+> 94705 CA  1
+> 94618 CA  2
+>
+> val it : {address:int * string, id:int} list
 
-(* List of records with a record field uses classic style. *)
+(* List of records with a record field: the record is a nested sub-table. *)
 [{id=1, address={zip=94705,state="CA"}}, {id=2, address={zip=94618, state="CA"}}];
-> val it =
->   [{address={state="CA",zip=94705},id=1},{address={state="CA",zip=94618},id=2}]
->   : {address:{state:string, zip:int}, id:int} list
+> address     id
+> state zip
+> ----- ----- --
+> CA    94705  1
+> CA    94618  2
+>
+> val it : {address:{state:string, zip:int}, id:int} list
 
 (*) Tabular mode: list of records with all-primitive fields uses tabular style
 Sys.set ("output", "tabular");
@@ -160,68 +169,58 @@ Sys.set ("output", "classic");
 [{id=1, name="Alice"}, {id=2, name="Bob"}];
 > val it = [{id=1,name="Alice"},{id=2,name="Bob"}] : {id:int, name:string} list
 
-(*) In tabular mode, non-record-list values fall back to classic style
+(*) Re-enter tabular mode for the remaining nested-record tests.
 Sys.set ("output", "tabular");
 > val it = () : unit
 
-(* List of primitives uses classic style. *)
-[1,2,3];
-> val it = [1,2,3] : int list
-
-(* List of lists uses classic style. *)
-[[1,2],[3,4]];
-> val it = [[1,2],[3,4]] : int list list
-
-(* Record uses classic style. *)
-{id=1, name="julian", employed=false};
-> val it = {employed=false,id=1,name="julian"}
->   : {employed:bool, id:int, name:string}
-
-(* List of records with a list field is tabular: the list expands
- * vertically under its header. *)
-[{id=1, pets=["ruby"]}, {id=2, pets=["stealth", "luna"]}];
-> id pets
-> -- -------
->  1 ruby
->  2 stealth
->    luna
+(* A record-'option' field is a nested sub-table; 'NONE' leaves its columns
+ * blank, distinguishable from a 'SOME' because at least one field is not an
+ * option. *)
+[{id=1, addr=SOME {zip=94705, state="CA"}}, {id=2, addr=NONE}];
+> addr        id
+> state zip
+> ----- ----- --
+> CA    94705  1
+>              2
 >
-> val it : {id:int, pets:string list} list
+> val it : {addr:{state:string, zip:int} option, id:int} list
 
-(* A column of primitive option renders 'NONE' as a blank cell. *)
-[{id=1, salary=NONE}, {id=2, salary=SOME 100}];
-> id salary
-> -- ------
->  1
->  2    100
+(* A record-'option' field whose record is entirely options cannot be
+ * tabulated -- 'NONE' would be indistinguishable from a 'SOME' whose every
+ * field is 'NONE' -- so it falls back to classic style. *)
+[{id=1, addr=SOME {zip=SOME 94705}}, {id=2, addr=NONE}];
+> val it = [{addr=SOME {zip=SOME 94705},id=1},{addr=NONE,id=2}]
+>   : {addr:{zip:int option} option, id:int} list
+
+(* A doubly-'option' field (e.g. from a right join of a right join) is not
+ * tabulated either: a blank cell cannot tell 'NONE' from 'SOME NONE'. Classic
+ * style keeps all three states distinct. *)
+[{id=1, p=SOME (SOME 7)}, {id=2, p=SOME NONE}, {id=3, p=NONE}];
+> val it = [{id=1,p=SOME (SOME 7)},{id=2,p=SOME NONE},{id=3,p=NONE}]
+>   : {id:int, p:int option option} list
+
+(* Records nested to three levels: the header grows one level per depth. *)
+[{id=1, a={b={c=10, d="p"}, e=2}}, {id=2, a={b={c=20, d="q"}, e=3}}];
+> a      id
+> b    e
+> c  d
+> -- - - --
+> 10 p 2  1
+> 20 q 3  2
 >
-> val it : {id:int, salary:int option} list
+> val it : {a:{b:{c:int, d:string}, e:int}, id:int} list
 
-(* In a 'string option' column, 'NONE' must be distinguishable from every
- * 'SOME' value, including the empty string. A string is quoted (as an SML
- * literal) when it is empty or contains a double-quote, and shown verbatim
- * otherwise. *)
-[{s=NONE}, {s=SOME "hello"}, {s=SOME ""}, {s=SOME "a\"b"}, {s=SOME "\"\""}];
-> s
-> ------
+(* Three levels with 'option' at the outer and an inner level; an outer 'NONE'
+ * blanks the whole nested block. *)
+[{id=1, a=SOME {b={c=10}, e=SOME {f="x"}}}, {id=2, a=NONE}];
+> a    id
+> b  e
+> c  f
+> -- - --
+> 10 x  1
+>       2
 >
-> hello
-> ""
-> "a\"b"
-> "\"\""
->
-> val it : {s:string option} list
-
-(* List of records with a tuple field uses classic style. *)
-[{id=1, address=(94705,"CA")}, {id=2, address=(94618,"CA")}];
-> val it = [{address=(94705,"CA"),id=1},{address=(94618,"CA"),id=2}]
->   : {address:int * string, id:int} list
-
-(* List of records with a record field uses classic style. *)
-[{id=1, address={zip=94705,state="CA"}}, {id=2, address={zip=94618, state="CA"}}];
-> val it =
->   [{address={state="CA",zip=94705},id=1},{address={state="CA",zip=94618},id=2}]
->   : {address:{state:string, zip:int}, id:int} list
+> val it : {a:{b:{c:int}, e:{f:string} option} option, id:int} list
 
 (* -------------------------------------------------------------------
  * [MOREL-376] Tabular mode for nested collections

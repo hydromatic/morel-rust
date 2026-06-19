@@ -126,6 +126,17 @@ fn can_print_field(type_: &Type) -> bool {
     if option_scalar(type_).is_some() {
         return true;
     }
+    // A bare record or tuple field: a one-row nested sub-table.
+    if is_record_like(type_) {
+        return can_print_record(type_);
+    }
+    // A record/tuple `option` field: a nested sub-table, blank for `NONE`. It
+    // is renderable only if at least one field is non-option; otherwise a
+    // `NONE` (every cell blank) could not be told apart from a `SOME` whose
+    // every field happens to be `NONE`.
+    if let Some(inner) = option_record(type_) {
+        return can_print_record(inner) && !all_fields_option(inner);
+    }
     if is_collection(type_)
         && let Some(elem) = element_type(type_)
     {
@@ -174,6 +185,31 @@ fn option_scalar(type_: &Type) -> Option<&PrimitiveType> {
         return Some(p);
     }
     None
+}
+
+/// If `type_` is `T option` where `T` is a record or tuple, returns `T`;
+/// otherwise returns `None`.
+fn option_record(type_: &Type) -> Option<&Type> {
+    if let Type::Data(name, args) = type_
+        && name == "option"
+        && let Some(arg) = args.first()
+        && is_record_like(arg)
+    {
+        return Some(arg);
+    }
+    None
+}
+
+/// Whether `type_` is an `option`.
+fn is_option(type_: &Type) -> bool {
+    matches!(type_, Type::Data(name, _) if name == "option")
+}
+
+/// Whether every field of a record-like type has an `option` type.
+fn all_fields_option(record_like: &Type) -> bool {
+    field_name_types(record_like)
+        .iter()
+        .all(|(_, t)| is_option(t))
 }
 
 /// Renders the value of a `string option` cell so that it cannot be confused
@@ -236,6 +272,18 @@ enum Kind {
     RecordList,
 }
 
+/// For a [`Kind::RecordList`], how its value maps to a list of records.
+#[derive(Copy, Clone, PartialEq)]
+enum RecordShape {
+    /// Value is already a list of records (a nested collection).
+    List,
+    /// Value is a single record; render it as a one-row sub-table.
+    Single,
+    /// Value is a record `option`: `SOME` is one row, `NONE` is no rows (so
+    /// its columns are blank).
+    Option,
+}
+
 struct Section {
     kind: Kind,
     name: String,
@@ -243,6 +291,8 @@ struct Section {
     /// Whether a SCALAR value is wrapped in `option` (so `SOME x` prints as
     /// `x` and `NONE` as a blank cell).
     optional: bool,
+    /// For a RECORD_LIST, how its value maps to a list of records.
+    shape: RecordShape,
     children: Vec<Section>,
     width: usize,
 }
@@ -259,6 +309,7 @@ impl Section {
             name: name.to_string(),
             right_align,
             optional,
+            shape: RecordShape::List,
             children: Vec::new(),
             width: char_len(name),
         }
@@ -266,6 +317,15 @@ impl Section {
 
     /// Builds a Section tree for a record-like (record or tuple) type.
     fn for_record(name: &str, record_like: &Type) -> Section {
+        Section::for_record_with_shape(name, record_like, RecordShape::List)
+    }
+
+    /// Builds a Section tree for a record-like type with a given shape.
+    fn for_record_with_shape(
+        name: &str,
+        record_like: &Type,
+        shape: RecordShape,
+    ) -> Section {
         let children = field_name_types(record_like)
             .iter()
             .map(|(n, t)| Section::for_field(n, t))
@@ -275,6 +335,7 @@ impl Section {
             name: name.to_string(),
             right_align: false,
             optional: false,
+            shape,
             children,
             width: char_len(name),
         }
@@ -289,6 +350,23 @@ impl Section {
             // `T option` (T primitive): a scalar column where `SOME x`
             // prints as `x` and `NONE` as a blank cell.
             return Section::leaf(Kind::Scalar, name, is_numeric(p), true);
+        }
+        // A bare record or tuple field renders as a one-row nested sub-table.
+        if is_record_like(type_) {
+            return Section::for_record_with_shape(
+                name,
+                type_,
+                RecordShape::Single,
+            );
+        }
+        // A record/tuple `option` field renders as a nested sub-table that is
+        // blank for `NONE`.
+        if let Some(inner) = option_record(type_) {
+            return Section::for_record_with_shape(
+                name,
+                inner,
+                RecordShape::Option,
+            );
         }
         if let Some(elem) = element_type(type_) {
             if let Type::Primitive(p) = elem {
@@ -359,10 +437,22 @@ impl Section {
                 Cell::Lines(items)
             }
             Kind::RecordList => {
+                // Normalize the value to a list of records according to the
+                // shape: a nested collection is already a list; a single
+                // record becomes a one-element list; a record `option` becomes
+                // empty (`NONE`) or a one-element list (`SOME`).
+                let rows: Vec<&Val> = match self.shape {
+                    RecordShape::List => list_elems(value).iter().collect(),
+                    RecordShape::Single => vec![value],
+                    RecordShape::Option => match value {
+                        Val::Some(inner) => vec![inner.as_ref()],
+                        _ => Vec::new(),
+                    },
+                };
                 let mut records = Vec::new();
                 let mut truncated = false;
                 let n = self.children.len();
-                for (count, rec_val) in list_elems(value).iter().enumerate() {
+                for (count, rec_val) in rows.into_iter().enumerate() {
                     if print_length >= 0 && count >= print_length as usize {
                         truncated = true;
                         break;
