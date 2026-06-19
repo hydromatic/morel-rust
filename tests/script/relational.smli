@@ -1396,6 +1396,9 @@ from (x, y) in [(1,2),(3,4),(3,0)]
   group x + y;
 > val it = [3,7] : int list
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (* "over" is only valid inside "compute" *)
 from i in [2, 1, 2]
   where (sum over i) > 3;
@@ -1432,10 +1435,6 @@ from (i, j) in [(2, 5), (1, 1), (2, 7)]
   group i compute {min over (count over ())};
 > stdIn:2.30-2.43 Error: 'over' is not valid in 'over'
 >   raised at: stdIn:2.30-2.43
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 from i in [2, 1, 2]
   compute sum over i;

@@ -587,6 +587,11 @@ pub struct TypeResolver {
     /// Stack of `compute` clauses.
     compute_stack: Vec<Triple>,
 
+    /// Nesting depth of `over` (aggregate) expressions. Greater than zero while
+    /// deducing an aggregate's sub-expressions, so a nested `over` (e.g.
+    /// `min over (max over j)`) can be rejected.
+    aggregate_depth: usize,
+
     /// Nesting depth of `from`/`exists`/`forall` queries. Used to
     /// validate that `ordinal` only appears inside a query.
     query_depth: usize,
@@ -1006,6 +1011,7 @@ impl TypeResolver {
             warnings: Vec::new(),
             node_var_map: HashMap::new(),
             compute_stack: Vec::new(),
+            aggregate_depth: 0,
             query_depth: 0,
             query_ordered: true,
             actions: Vec::new(),
@@ -2010,12 +2016,28 @@ impl TypeResolver {
         Ok(match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
             ExprKind::Aggregate(f, e) => {
-                self.check_in_compute(env, &expr.span)?;
+                // 'over' is valid only inside a 'compute' clause, and not
+                // nested inside another 'over'.
+                if self.compute_stack.is_empty() {
+                    return Err(Error::Compile(
+                        "'over' is only valid in 'compute'".to_string(),
+                        expr.span.clone(),
+                    ));
+                }
+                if self.aggregate_depth > 0 {
+                    return Err(Error::Compile(
+                        "'over' is not valid in 'over'".to_string(),
+                        expr.span.clone(),
+                    ));
+                }
                 let step_env = self.compute_stack.last().unwrap().clone();
                 // The `over` expression (e) refers to pre-group variables
                 // (e.g. `a` in `compute sum over a`), so resolve it against
                 // the pre-group environment, not the post-group environment.
                 let v_e = self.variable();
+                // Mark that we are inside an `over` while resolving its
+                // sub-expressions, so a nested `over` is rejected.
+                self.aggregate_depth += 1;
                 let e2 = self.deduce_expr_type(&*step_env.env, e, &v_e)?;
                 // f has type: collection(type_of_e) -> v.
                 // Determine the collection kind from the aggregate
@@ -2057,6 +2079,7 @@ impl TypeResolver {
                 let v_fn = self.variable();
                 self.fn_term(&v_elements, v, &v_fn);
                 let f2 = self.deduce_expr_type(env, f, &v_fn)?;
+                self.aggregate_depth -= 1;
                 let x = ExprKind::Aggregate(Box::new(f2), Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3241,26 +3264,6 @@ impl TypeResolver {
             p.v,
             Some(c_result),
         ))
-    }
-
-    /// Throws if the current expression is not within a `compute` clause.
-    fn check_in_compute(
-        &mut self,
-        env: &dyn TypeEnv,
-        span: &Span,
-    ) -> Result<(), Error> {
-        if env.get(ExprKind::Elements.clause(), self).is_some() {
-            Ok(())
-        } else {
-            Err(Error::Compile(
-                format!(
-                    "'{}' is only valid in a '{}' clause",
-                    ExprKind::Elements.clause(),
-                    StepKind::Compute(Expr::empty()).clause()
-                ),
-                span.clone(),
-            ))
-        }
     }
 
     /// Validates a Group step. Throws an error if labels cannot be derived
