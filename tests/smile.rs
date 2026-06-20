@@ -203,6 +203,11 @@ fn built_in_vector() {
 }
 
 #[test]
+fn built_in_word() {
+    run_script("tests/script/built-in/word.smli");
+}
+
+#[test]
 fn closure() {
     run_script("tests/script/closure.smli");
 }

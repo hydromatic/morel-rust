@@ -58,6 +58,7 @@ use crate::eval::time;
 use crate::eval::val::{self, ClosureData, Val};
 use crate::eval::variant;
 use crate::eval::vector::Vector;
+use crate::eval::word;
 use crate::shell::main::{MorelError, Shell};
 use crate::shell::prop::{Configurable, Prop};
 use crate::syntax::ast_dumper::dump as ast_dumper_dump;
@@ -2226,6 +2227,7 @@ pub enum Eager0 {
     WeekdayThu,
     WeekdayTue,
     WeekdayWed,
+    WordWordSize,
 }
 
 impl Eager0 {
@@ -2318,6 +2320,7 @@ impl Eager0 {
             WeekdayThu => BuiltInFunction::WeekdayThu.nullary_constructor_val(),
             WeekdayTue => BuiltInFunction::WeekdayTue.nullary_constructor_val(),
             WeekdayWed => BuiltInFunction::WeekdayWed.nullary_constructor_val(),
+            WordWordSize => Val::Int(word::WORD_SIZE),
         }
     }
 
@@ -2863,6 +2866,13 @@ pub enum Eager1 {
     VectorConcat,
     VectorFromList,
     VectorLength,
+    WordFromInt,
+    WordFromString,
+    WordIdentity,
+    WordNotb,
+    WordOpNegate,
+    WordToInt,
+    WordToString,
 }
 
 impl Eager1 {
@@ -3235,6 +3245,22 @@ impl Eager1 {
                 use crate::eval::vector::Vector as VectorOps;
                 Val::Int(VectorOps::length(a0.expect_list()))
             }
+            // `Word.fromInt`/`fromLargeInt`: sign-extend the 32-bit int to
+            // the 64-bit word.
+            WordFromInt => Val::Word(a0.expect_int() as i64 as u64),
+            WordFromString => match word::from_string(&a0.expect_string()) {
+                Some(w) => Val::Some(Box::new(Val::Word(w))),
+                None => Val::Unit,
+            },
+            // `Word.toLarge`/`fromLarge`/... : identity on our single
+            // 64-bit word type.
+            WordIdentity => a0,
+            WordNotb => Val::Word(!a0.expect_word()),
+            WordOpNegate => Val::Word(a0.expect_word().wrapping_neg()),
+            // `Word.toInt`/`toIntX`/`toLargeInt`/`toLargeIntX`: truncate to
+            // the low 32 bits, as morel-java's `(int)(long) w`.
+            WordToInt => Val::Int(a0.expect_word() as i32),
+            WordToString => Val::String(word::to_string(a0.expect_word())),
         }
     }
 
@@ -3338,6 +3364,25 @@ pub enum Eager2 {
     TimeLe,
     TimeLt,
     TimeSub,
+    WordAndb,
+    WordArithShiftRight,
+    WordCompare,
+    WordDiv,
+    WordFmt,
+    WordMax,
+    WordMin,
+    WordMod,
+    WordOpGe,
+    WordOpGt,
+    WordOpLe,
+    WordOpLt,
+    WordOpMinus,
+    WordOpPlus,
+    WordOpTimes,
+    WordOrb,
+    WordShiftLeft,
+    WordShiftRight,
+    WordXorb,
 }
 
 impl Eager2 {
@@ -3521,6 +3566,40 @@ impl Eager2 {
             TimeSub => {
                 Val::Time(a0.expect_time().wrapping_sub(a1.expect_time()))
             }
+            WordAndb => Val::Word(a0.expect_word() & a1.expect_word()),
+            WordArithShiftRight => Val::Word(word::arith_shift_right(
+                a0.expect_word(),
+                a1.expect_word(),
+            )),
+            WordCompare => {
+                Val::Order(Order(a0.expect_word().cmp(&a1.expect_word())))
+            }
+            WordDiv => Val::Word(a0.expect_word() / a1.expect_word()),
+            WordFmt => Val::String(word::fmt(&a0, a1.expect_word())),
+            WordMax => Val::Word(a0.expect_word().max(a1.expect_word())),
+            WordMin => Val::Word(a0.expect_word().min(a1.expect_word())),
+            WordMod => Val::Word(a0.expect_word() % a1.expect_word()),
+            WordOpGe => Val::Bool(a0.expect_word() >= a1.expect_word()),
+            WordOpGt => Val::Bool(a0.expect_word() > a1.expect_word()),
+            WordOpLe => Val::Bool(a0.expect_word() <= a1.expect_word()),
+            WordOpLt => Val::Bool(a0.expect_word() < a1.expect_word()),
+            WordOpMinus => {
+                Val::Word(a0.expect_word().wrapping_sub(a1.expect_word()))
+            }
+            WordOpPlus => {
+                Val::Word(a0.expect_word().wrapping_add(a1.expect_word()))
+            }
+            WordOpTimes => {
+                Val::Word(a0.expect_word().wrapping_mul(a1.expect_word()))
+            }
+            WordOrb => Val::Word(a0.expect_word() | a1.expect_word()),
+            WordShiftLeft => {
+                Val::Word(word::shift_left(a0.expect_word(), a1.expect_word()))
+            }
+            WordShiftRight => {
+                Val::Word(word::shift_right(a0.expect_word(), a1.expect_word()))
+            }
+            WordXorb => Val::Word(a0.expect_word() ^ a1.expect_word()),
         }
     }
 
@@ -4196,12 +4275,14 @@ impl Eager3 {
 pub enum Custom {
     // lint: sort until '#}'
     GAbs,
+    GDiv,
     GEq,
     GGe,
     GGt,
     GLe,
     GLt,
     GMinus,
+    GMod,
     GNe,
     GNegate,
     GPlus,
@@ -4256,6 +4337,11 @@ impl Custom {
                 Val::Real(x) => Val::Real(x.abs()),
                 _ => panic!("Type error in abs"),
             },
+            GDiv => match (a0, a1) {
+                (Val::Int(x), Val::Int(y)) => Val::Int(Int::div(x, y)),
+                (Val::Word(x), Val::Word(y)) => Val::Word(x / y),
+                _ => panic!("Type error in div operation"),
+            },
             GEq => Val::Bool(norm(a0) == norm(a1)),
             GGe => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Bool(x >= y),
@@ -4301,6 +4387,11 @@ impl Custom {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x - y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x - y),
                 _ => panic!("Type error in - operation"),
+            },
+            GMod => match (a0, a1) {
+                (Val::Int(x), Val::Int(y)) => Val::Int(Int::_mod(x, y)),
+                (Val::Word(x), Val::Word(y)) => Val::Word(x % y),
+                _ => panic!("Type error in mod operation"),
             },
             GNe => Val::Bool(norm(a0) != norm(a1)),
             GNegate => match a0 {
@@ -4595,12 +4686,14 @@ fn build_library() -> Lib {
     EagerF3::FnRepeat.implements(&mut b, FnRepeat);
     EagerF2::FnUncurry.implements(&mut b, FnUncurry);
     Custom::GAbs.implements(&mut b, GAbs);
+    Custom::GDiv.implements(&mut b, GDiv);
     Custom::GEq.implements(&mut b, GEq);
     Custom::GGe.implements(&mut b, GGe);
     Custom::GGt.implements(&mut b, GGt);
     Custom::GLe.implements(&mut b, GLe);
     Custom::GLt.implements(&mut b, GLt);
     Custom::GMinus.implements(&mut b, GMinus);
+    Custom::GMod.implements(&mut b, GMod);
     Custom::GNe.implements(&mut b, GNe);
     Custom::GNegate.implements(&mut b, GNegate);
     Custom::GPlus.implements(&mut b, GPlus);
@@ -4927,6 +5020,42 @@ fn build_library() -> Lib {
     Eager0::WeekdayThu.implements(&mut b, WeekdayThu);
     Eager0::WeekdayTue.implements(&mut b, WeekdayTue);
     Eager0::WeekdayWed.implements(&mut b, WeekdayWed);
+    Eager2::WordAndb.implements(&mut b, WordAndb);
+    Eager2::WordCompare.implements(&mut b, WordCompare);
+    Eager2::WordDiv.implements(&mut b, WordDiv);
+    Eager2::WordFmt.implements(&mut b, WordFmt);
+    Eager1::WordFromInt.implements(&mut b, WordFromInt);
+    Eager1::WordIdentity.implements(&mut b, WordFromLarge);
+    Eager1::WordFromInt.implements(&mut b, WordFromLargeInt);
+    Eager1::WordIdentity.implements(&mut b, WordFromLargeWord);
+    Eager1::WordFromString.implements(&mut b, WordFromString);
+    Eager2::WordMax.implements(&mut b, WordMax);
+    Eager2::WordMin.implements(&mut b, WordMin);
+    Eager2::WordMod.implements(&mut b, WordMod);
+    Eager1::WordNotb.implements(&mut b, WordNotb);
+    Eager2::WordOpGe.implements(&mut b, WordOpGe);
+    Eager2::WordOpGt.implements(&mut b, WordOpGt);
+    Eager2::WordOpLe.implements(&mut b, WordOpLe);
+    Eager2::WordOpLt.implements(&mut b, WordOpLt);
+    Eager2::WordOpMinus.implements(&mut b, WordOpMinus);
+    Eager1::WordOpNegate.implements(&mut b, WordOpNegate);
+    Eager2::WordOpPlus.implements(&mut b, WordOpPlus);
+    Eager2::WordShiftLeft.implements(&mut b, WordOpShiftLeft);
+    Eager2::WordShiftRight.implements(&mut b, WordOpShiftRight);
+    Eager2::WordArithShiftRight.implements(&mut b, WordOpShiftRightArith);
+    Eager2::WordOpTimes.implements(&mut b, WordOpTimes);
+    Eager2::WordOrb.implements(&mut b, WordOrb);
+    Eager1::WordToInt.implements(&mut b, WordToInt);
+    Eager1::WordToInt.implements(&mut b, WordToIntX);
+    Eager1::WordIdentity.implements(&mut b, WordToLarge);
+    Eager1::WordToInt.implements(&mut b, WordToLargeInt);
+    Eager1::WordToInt.implements(&mut b, WordToLargeIntX);
+    Eager1::WordIdentity.implements(&mut b, WordToLargeWord);
+    Eager1::WordIdentity.implements(&mut b, WordToLargeWordX);
+    Eager1::WordIdentity.implements(&mut b, WordToLargeX);
+    Eager1::WordToString.implements(&mut b, WordToString);
+    Eager0::WordWordSize.implements(&mut b, WordWordSize);
+    Eager2::WordXorb.implements(&mut b, WordXorb);
 
     b.build()
 }

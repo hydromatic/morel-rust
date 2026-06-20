@@ -39,6 +39,7 @@ use crate::syntax::ast::{
     PatKind, RangeItem, Span, Statement, StatementKind, Step, StepKind,
     Type as AstType, TypeField, TypeKind, TypeScheme, ValBind,
 };
+use crate::syntax::parser;
 use crate::unify::unifier::{
     Action, Constraint, NullTracer, Op, OpDef, Sequence, Substitution, Term,
     Unifier, Var,
@@ -397,7 +398,8 @@ impl<'a> TermToTypeConverter<'a> {
                         let type_ = self.term_type(&sequence.terms[0]);
                         self.lib.intern(Type::Bag(type_))
                     }
-                    "bool" | "char" | "int" | "real" | "string" | "unit" => {
+                    "bool" | "char" | "int" | "real" | "string" | "unit"
+                    | "word" => {
                         let primitive_type =
                             PrimitiveType::parse_name(op_name).unwrap();
                         self.lib.intern(Type::Primitive(primitive_type))
@@ -738,6 +740,24 @@ fn join_source_ref_error(name: &str, span: &Span) -> Error {
         ),
         span.clone(),
     )
+}
+
+/// Returns an error message if a numeric literal is outside its type's
+/// representable range: `int` is signed 32-bit, `word` is unsigned 64-bit.
+/// Returns `None` for in-range or non-numeric literals.
+fn literal_range_error(kind: &LiteralKind) -> Option<String> {
+    match kind {
+        LiteralKind::Int(s) => {
+            let parsed = s.replace('~', "-").parse::<i128>().ok();
+            let in_range = parsed.is_some_and(|n| i32::try_from(n).is_ok());
+            (!in_range)
+                .then(|| format!("literal '{}' is too large for type int", s))
+        }
+        LiteralKind::Word(s) => parser::parse_word_literal(s)
+            .is_none()
+            .then(|| format!("literal '{}' is too large for type word", s)),
+        _ => None,
+    }
 }
 
 fn join_source_walk(
@@ -2161,6 +2181,7 @@ impl TypeResolver {
             ExprKind::Div(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op div", left, right, v)?;
+                self.preferred_vars.push(*v);
                 let x = ExprKind::Div(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -2416,6 +2437,10 @@ impl TypeResolver {
                     self.equiv(&Term::Variable(v_builtin), v);
                     self.reg_expr(&expr.kind, &expr.span, expr.id, v)
                 } else {
+                    // Reject numeric literals outside their type's range.
+                    if let Some(msg) = literal_range_error(&lit.kind) {
+                        return Err(Error::Compile(msg, expr.span.clone()));
+                    }
                     let resolved_type = Self::literal_type(&lit.kind);
                     self.primitive_term(&resolved_type, v);
                     self.reg_expr(&expr.kind, &expr.span, expr.id, v)
@@ -2431,6 +2456,7 @@ impl TypeResolver {
             ExprKind::Mod(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op mod", left, right, v)?;
+                self.preferred_vars.push(*v);
                 let x = ExprKind::Mod(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -2488,7 +2514,10 @@ impl TypeResolver {
                 // so that, if still free after unification, it defaults
                 // to `int`. Arithmetic ops (+, -, *, ~) return the element
                 // type; comparison ops (<, <=, >, >=) return `bool`.
-                let arith = matches!(name.as_str(), "+" | "-" | "*" | "~");
+                let arith = matches!(
+                    name.as_str(),
+                    "+" | "-" | "*" | "~" | "div" | "mod"
+                );
                 let compare = matches!(name.as_str(), "<" | "<=" | ">" | ">=");
                 if arith || compare {
                     let v_elem = self.variable();
@@ -4286,6 +4315,7 @@ impl TypeResolver {
             "bool" => Some(Rc::new(Type::Primitive(PrimitiveType::Bool))),
             "string" => Some(Rc::new(Type::Primitive(PrimitiveType::String))),
             "unit" => Some(Rc::new(Type::Primitive(PrimitiveType::Unit))),
+            "word" => Some(Rc::new(Type::Primitive(PrimitiveType::Word))),
             "list" => {
                 // 'a list; element type is unresolved here but
                 // postfix_dispatch only keys on the list constructor.
@@ -5795,6 +5825,7 @@ impl TypeResolver {
             LiteralKind::Real(_) => PrimitiveType::Real,
             LiteralKind::String(_) => PrimitiveType::String,
             LiteralKind::Unit => PrimitiveType::Unit,
+            LiteralKind::Word(_) => PrimitiveType::Word,
         }
     }
 

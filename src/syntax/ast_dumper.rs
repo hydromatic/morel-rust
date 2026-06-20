@@ -268,6 +268,11 @@ fn dump_literal(b: &mut String, lit: &Literal) {
             b.push(')');
         }
         LiteralKind::Unit => b.push_str("(unit_literal)"),
+        LiteralKind::Word(s) => {
+            b.push_str("(word_literal ");
+            b.push_str(s);
+            b.push(')');
+        }
     }
 }
 

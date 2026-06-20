@@ -656,6 +656,9 @@ pub enum LiteralKind {
     Fn(BuiltInFunction),
     Int(String),
     Real(String),
+    /// A `word` literal, stored as its raw source text (e.g. `0w255`,
+    /// `0wx1f`).
+    Word(String),
     String(String),
     Char(String),
     Bool(bool),
@@ -682,6 +685,7 @@ impl Display for LiteralKind {
             LiteralKind::Real(s) => write!(f, "{}", s)?,
             LiteralKind::String(s) => write!(f, "{}", s)?,
             LiteralKind::Unit => write!(f, "()")?,
+            LiteralKind::Word(s) => write!(f, "{}", s)?,
         };
         Ok(())
     }

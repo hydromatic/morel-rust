@@ -94,7 +94,7 @@ impl Int {
 }
 
 /// Returns the numeric base for a `StringCvt.radix` constructor value.
-fn radix_base(radix: &Val) -> u32 {
+pub(crate) fn radix_base(radix: &Val) -> u32 {
     match radix {
         Val::Constructor(RADIX_BIN, _) => 2,
         Val::Constructor(RADIX_OCT, _) => 8,
@@ -104,7 +104,7 @@ fn radix_base(radix: &Val) -> u32 {
     }
 }
 
-fn format_radix(mut n: u64, base: u32) -> String {
+pub(crate) fn format_radix(mut n: u64, base: u32) -> String {
     if n == 0 {
         return "0".to_string();
     }

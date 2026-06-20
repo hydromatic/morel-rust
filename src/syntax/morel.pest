@@ -645,10 +645,13 @@ literal = {
 numeric_literal = {
     scientific_literal
   | real_literal
+  | word_literal
   | negative_integer_literal
   | non_negative_integer_literal
 }
 
+// Word literals: decimal `0w255` or hexadecimal `0wx1f` / `0wX1F`.
+word_literal = @{ "0w" ~ (("x" | "X") ~ ASCII_HEX_DIGIT+ | ASCII_DIGIT+) }
 non_negative_integer_literal = @{ ASCII_DIGIT+ }
 negative_integer_literal = @{ "~" ~ ASCII_DIGIT+ }
 real_literal = @{ "~"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }

@@ -69,6 +69,7 @@ fn type_recv_key(t: &Type) -> Option<&'static str> {
         Type::Primitive(PrimitiveType::Int) => Some("int"),
         Type::Primitive(PrimitiveType::Real) => Some("real"),
         Type::Primitive(PrimitiveType::String) => Some("string"),
+        Type::Primitive(PrimitiveType::Word) => Some("word"),
         Type::List(_) => Some("list"),
         Type::Bag(_) => Some("bag"),
         // The type parser canonicalises `'a list` to `Type::List` and

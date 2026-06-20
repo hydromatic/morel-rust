@@ -102,6 +102,9 @@ pub enum Val {
     Order(Order),
     Real(f32),
     String(String),
+    /// `Word(bits)` represents Standard ML's unsigned 64-bit `word` type.
+    /// Printed in hexadecimal, e.g. `0wxFF`.
+    Word(u64),
     /// `Time(nanoseconds)` represents a `time` value as a 64-bit signed
     /// nanosecond count from the Unix epoch (or as a duration).
     Time(i64),
@@ -313,6 +316,13 @@ impl Val {
         match self {
             Val::Real(r) => *r,
             _ => panic!("Expected real"),
+        }
+    }
+
+    pub(crate) fn expect_word(&self) -> u64 {
+        match self {
+            Val::Word(w) => *w,
+            _ => panic!("Expected word"),
         }
     }
 
@@ -534,6 +544,7 @@ impl Display for Val {
                 }
             }
             Val::Unit => write!(f, "()"),
+            Val::Word(w) => write!(f, "0wx{:X}", w),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -549,6 +560,7 @@ impl PartialEq for Val {
             (Val::Int(a), Val::Int(b)) => a == b,
             (Val::Order(a), Val::Order(b)) => a == b,
             (Val::Real(a), Val::Real(b)) => a == b,
+            (Val::Word(a), Val::Word(b)) => a == b,
             (Val::String(a), Val::String(b)) => a == b,
             (Val::List(a), Val::List(b)) => a == b,
             (Val::Fn(a), Val::Fn(b)) => a == b,
@@ -601,6 +613,10 @@ impl Hash for Val {
                 // Hash floats using their bit representation
                 5.hash(state);
                 f.to_bits().hash(state);
+            }
+            Val::Word(w) => {
+                24.hash(state);
+                w.hash(state);
             }
             Val::String(s) => {
                 6.hash(state);

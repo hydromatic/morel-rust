@@ -123,7 +123,10 @@ Sys.env ();
 >    ("Variant","{parse:string -> variant, print:variant -> string}"),
 >    ("Vector",
 >     "{all:forall 'a. ('a -> bool) -> 'a vector -> bool, app:forall 'a. ('a -> unit) -> 'a vector -> unit, appi:forall 'a. (int * 'a -> unit) -> 'a vector -> unit, collate:forall 'a. ('a * 'a -> order) -> 'a vector * 'a vector -> order, concat:forall 'a. 'a vector list -> 'a vector, `exists`:forall 'a. ('a -> bool) -> 'a vector -> bool, find:forall 'a. ('a -> bool) -> 'a vector -> 'a option, findi:forall 'a. (int * 'a -> bool) -> 'a vector -> (int * 'a) option, foldl:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldli:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldr:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldri:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, fromList:forall 'a. 'a list -> 'a vector, length:forall 'a. 'a vector -> int, map:forall 'a 'b. ('a -> 'b) -> 'a vector -> 'b vector, mapi:forall 'a 'b. (int * 'a -> 'b) -> 'a vector -> 'b vector, maxLen:int, sub:forall 'a. 'a vector * int -> 'a, tabulate:forall 'a. int * (int -> 'a) -> 'a vector, update:forall 'a. 'a vector * int * 'a -> 'a vector}"),
->    ("Wed","weekday"),("false","bool"),("it","unit -> (string * string) list"),
+>    ("Wed","weekday"),
+>    ("Word",
+>     "{*:word * word -> word, +:word * word -> word, -:word * word -> word, <:word * word -> bool, <<:word * word -> word, <=:word * word -> bool, >:word * word -> bool, >=:word * word -> bool, >>:word * word -> word, andb:word * word -> word, compare:word * word -> order, `div`:word * word -> word, fmt:radix -> word -> string, fromInt:int -> word, fromLarge:word -> word, fromLargeInt:int -> word, fromLargeWord:word -> word, fromString:string -> word option, max:word * word -> word, min:word * word -> word, `mod`:word * word -> word, notb:word -> word, orb:word * word -> word, toInt:word -> int, toIntX:word -> int, toLarge:word -> word, toLargeInt:word -> int, toLargeIntX:word -> int, toLargeWord:word -> word, toLargeWordX:word -> word, toLargeX:word -> word, toString:word -> string, wordSize:int, xorb:word * word -> word, ~:word -> word, ~>>:word * word -> word}"),
+>    ("false","bool"),("it","unit -> (string * string) list"),
 >    ("nil","forall 'a. 'a bag"),("nil","forall 'a. 'a list"),
 >    ("scott",
 >     "{bonuses:{comm:real, ename:string, job:string, sal:real} bag, depts:{deptno:int, dname:string, loc:string} bag, emps:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag, salgrades:{grade:int, hisal:real, losal:real} bag}"),
@@ -213,7 +216,10 @@ env ();
 >    ("Variant","{parse:string -> variant, print:variant -> string}"),
 >    ("Vector",
 >     "{all:forall 'a. ('a -> bool) -> 'a vector -> bool, app:forall 'a. ('a -> unit) -> 'a vector -> unit, appi:forall 'a. (int * 'a -> unit) -> 'a vector -> unit, collate:forall 'a. ('a * 'a -> order) -> 'a vector * 'a vector -> order, concat:forall 'a. 'a vector list -> 'a vector, `exists`:forall 'a. ('a -> bool) -> 'a vector -> bool, find:forall 'a. ('a -> bool) -> 'a vector -> 'a option, findi:forall 'a. (int * 'a -> bool) -> 'a vector -> (int * 'a) option, foldl:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldli:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldr:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldri:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, fromList:forall 'a. 'a list -> 'a vector, length:forall 'a. 'a vector -> int, map:forall 'a 'b. ('a -> 'b) -> 'a vector -> 'b vector, mapi:forall 'a 'b. (int * 'a -> 'b) -> 'a vector -> 'b vector, maxLen:int, sub:forall 'a. 'a vector * int -> 'a, tabulate:forall 'a. int * (int -> 'a) -> 'a vector, update:forall 'a. 'a vector * int * 'a -> 'a vector}"),
->    ("Wed","weekday"),("false","bool"),("it","unit -> (string * string) list"),
+>    ("Wed","weekday"),
+>    ("Word",
+>     "{*:word * word -> word, +:word * word -> word, -:word * word -> word, <:word * word -> bool, <<:word * word -> word, <=:word * word -> bool, >:word * word -> bool, >=:word * word -> bool, >>:word * word -> word, andb:word * word -> word, compare:word * word -> order, `div`:word * word -> word, fmt:radix -> word -> string, fromInt:int -> word, fromLarge:word -> word, fromLargeInt:int -> word, fromLargeWord:word -> word, fromString:string -> word option, max:word * word -> word, min:word * word -> word, `mod`:word * word -> word, notb:word -> word, orb:word * word -> word, toInt:word -> int, toIntX:word -> int, toLarge:word -> word, toLargeInt:word -> int, toLargeIntX:word -> int, toLargeWord:word -> word, toLargeWordX:word -> word, toLargeX:word -> word, toString:word -> string, wordSize:int, xorb:word * word -> word, ~:word -> word, ~>>:word * word -> word}"),
+>    ("false","bool"),("it","unit -> (string * string) list"),
 >    ("nil","forall 'a. 'a bag"),("nil","forall 'a. 'a list"),
 >    ("scott",
 >     "{bonuses:{comm:real, ename:string, job:string, sal:real} bag, depts:{deptno:int, dname:string, loc:string} bag, emps:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag, salgrades:{grade:int, hisal:real, losal:real} bag}"),
@@ -254,6 +260,12 @@ Sys.plan;
 > val it = 3 : int
 Sys.plan ();
 > val it = "apply2(fnValue Int.+, constant(1), constant(2))" : string
+
+(*) Word literals are unparsed in hexadecimal (e.g. "0wxAB") in the plan.
+val warthog = 0wxAB + 0w1;
+> val warthog = 0wxAC : word
+Sys.planEx "0";
+> val it = "val warthog = #+ Word (0wxAB, 0wx1)" : string
 
 (*) val set : string * 'a -> unit
 Sys.set;

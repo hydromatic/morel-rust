@@ -148,11 +148,21 @@ impl Display for Expr {
                     && args.len() == 2
                 {
                     let name = func.name();
-                    if !name.is_empty()
+                    let symbolic = !name.is_empty()
                         && name
                             .chars()
-                            .all(|c| !c.is_alphanumeric() && c != '_')
-                    {
+                            .all(|c| !c.is_alphanumeric() && c != '_');
+                    if symbolic {
+                        // A symbolic operator resolved to a specific
+                        // structure member (e.g. word's `+`, which is
+                        // `Word.+`) unparses as `#+ Word (a, b)`, mirroring
+                        // morel-java. The default numeric instances (int,
+                        // real) stay infix.
+                        if let Some(p) = func.parent()
+                            && p == "Word"
+                        {
+                            return write!(f, "#{} {} {}", name, p, arg);
+                        }
                         return write!(f, "{} {} {}", args[0], name, args[1]);
                     }
                 }

@@ -486,6 +486,9 @@ pub enum BuiltInFunction {
     #[strum(props(name = "abs", global = true))]
     #[strum(props(type = "forall 1 'a -> 'a"))]
     GAbs,
+    #[strum(props(name = "div", alias = "op div"))]
+    #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
+    GDiv,
     #[strum(props(name = "=", alias = "op ="))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GEq,
@@ -504,6 +507,9 @@ pub enum BuiltInFunction {
     #[strum(props(name = "-", alias = "op -"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GMinus,
+    #[strum(props(name = "mod", alias = "op mod"))]
+    #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
+    GMod,
     #[strum(props(name = "<>", alias = "op <>"))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GNe,
@@ -536,8 +542,7 @@ pub enum BuiltInFunction {
     IntAbs,
     #[strum(props(p = "Int", name = "compare", type = "int * int -> `order`"))]
     IntCompare,
-    #[strum(props(p = "Int", name = "div", alias = "op div"))]
-    #[strum(props(type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "div", type = "int * int -> int"))]
     IntDiv,
     #[strum(props(name = "=", type = "int * int -> bool"))]
     IntEq,
@@ -568,8 +573,7 @@ pub enum BuiltInFunction {
     IntMinInt,
     #[strum(props(p = "Int", name = "-", type = "int * int -> int"))]
     IntMinus,
-    #[strum(props(p = "Int", name = "mod", alias = "op mod"))]
-    #[strum(props(type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "mod", type = "int * int -> int"))]
     IntMod,
     #[strum(props(name = "<>", type = "int * int -> bool"))]
     IntNe,
@@ -1562,6 +1566,81 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Date", name = "Wed", global = true))]
     #[strum(props(type = "`weekday`", constructor_ordinal = "2"))]
     WeekdayWed,
+    #[strum(props(p = "Word", name = "andb", type = "word * word -> word"))]
+    WordAndb,
+    #[strum(props(p = "Word", name = "compare"))]
+    #[strum(props(type = "word * word -> `order`"))]
+    WordCompare,
+    #[strum(props(p = "Word", name = "div", type = "word * word -> word"))]
+    WordDiv,
+    #[strum(props(p = "Word", name = "fmt"))]
+    #[strum(props(type = "`radix` -> word -> string"))]
+    WordFmt,
+    #[strum(props(p = "Word", name = "fromInt", type = "int -> word"))]
+    WordFromInt,
+    #[strum(props(p = "Word", name = "fromLarge", type = "word -> word"))]
+    WordFromLarge,
+    #[strum(props(p = "Word", name = "fromLargeInt", type = "int -> word"))]
+    WordFromLargeInt,
+    #[strum(props(p = "Word", name = "fromLargeWord", type = "word -> word"))]
+    WordFromLargeWord,
+    #[strum(props(p = "Word", name = "fromString"))]
+    #[strum(props(type = "string -> word option"))]
+    WordFromString,
+    #[strum(props(p = "Word", name = "max", type = "word * word -> word"))]
+    WordMax,
+    #[strum(props(p = "Word", name = "min", type = "word * word -> word"))]
+    WordMin,
+    #[strum(props(p = "Word", name = "mod", type = "word * word -> word"))]
+    WordMod,
+    #[strum(props(p = "Word", name = "notb", type = "word -> word"))]
+    WordNotb,
+    #[strum(props(p = "Word", name = ">=", type = "word * word -> bool"))]
+    WordOpGe,
+    #[strum(props(p = "Word", name = ">", type = "word * word -> bool"))]
+    WordOpGt,
+    #[strum(props(p = "Word", name = "<=", type = "word * word -> bool"))]
+    WordOpLe,
+    #[strum(props(p = "Word", name = "<", type = "word * word -> bool"))]
+    WordOpLt,
+    #[strum(props(p = "Word", name = "-", type = "word * word -> word"))]
+    WordOpMinus,
+    #[strum(props(p = "Word", name = "~", type = "word -> word"))]
+    WordOpNegate,
+    #[strum(props(p = "Word", name = "+", type = "word * word -> word"))]
+    WordOpPlus,
+    #[strum(props(p = "Word", name = "<<", type = "word * word -> word"))]
+    WordOpShiftLeft,
+    #[strum(props(p = "Word", name = ">>", type = "word * word -> word"))]
+    WordOpShiftRight,
+    #[strum(props(p = "Word", name = "~>>", type = "word * word -> word"))]
+    WordOpShiftRightArith,
+    #[strum(props(p = "Word", name = "*", type = "word * word -> word"))]
+    WordOpTimes,
+    #[strum(props(p = "Word", name = "orb", type = "word * word -> word"))]
+    WordOrb,
+    #[strum(props(p = "Word", name = "toInt", type = "word -> int"))]
+    WordToInt,
+    #[strum(props(p = "Word", name = "toIntX", type = "word -> int"))]
+    WordToIntX,
+    #[strum(props(p = "Word", name = "toLarge", type = "word -> word"))]
+    WordToLarge,
+    #[strum(props(p = "Word", name = "toLargeInt", type = "word -> int"))]
+    WordToLargeInt,
+    #[strum(props(p = "Word", name = "toLargeIntX", type = "word -> int"))]
+    WordToLargeIntX,
+    #[strum(props(p = "Word", name = "toLargeWord", type = "word -> word"))]
+    WordToLargeWord,
+    #[strum(props(p = "Word", name = "toLargeWordX", type = "word -> word"))]
+    WordToLargeWordX,
+    #[strum(props(p = "Word", name = "toLargeX", type = "word -> word"))]
+    WordToLargeX,
+    #[strum(props(p = "Word", name = "toString", type = "word -> string"))]
+    WordToString,
+    #[strum(props(p = "Word", name = "wordSize", type = "int"))]
+    WordWordSize,
+    #[strum(props(p = "Word", name = "xorb", type = "word * word -> word"))]
+    WordXorb,
 }
 
 impl BuiltInFunction {
@@ -1744,6 +1823,8 @@ pub enum BuiltInRecord {
     Variant,
     #[strum(props(name = "Vector"))]
     Vector,
+    #[strum(props(name = "Word"))]
+    Word,
 }
 
 impl BuiltInRecord {

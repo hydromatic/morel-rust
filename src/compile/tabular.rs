@@ -647,6 +647,7 @@ fn stringify_scalar(value: &Val, string_depth: i32) -> String {
             }
         }
         Val::Real(f) => Real::to_string(*f),
+        Val::Word(w) => format!("0wx{:X}", w),
         Val::String(s) => {
             if string_depth >= 0 && char_len(s) > string_depth as usize {
                 let prefix: String =

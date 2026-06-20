@@ -311,6 +311,7 @@ pub enum PrimitiveType {
     Real,
     String,
     Char,
+    Word,
 }
 
 impl PrimitiveType {
@@ -322,6 +323,7 @@ impl PrimitiveType {
             PrimitiveType::Real => "real",
             PrimitiveType::String => "string",
             PrimitiveType::Unit => "unit",
+            PrimitiveType::Word => "word",
         }
     }
 
@@ -333,6 +335,7 @@ impl PrimitiveType {
             "real" => Some(PrimitiveType::Real),
             "string" => Some(PrimitiveType::String),
             "unit" => Some(PrimitiveType::Unit),
+            "word" => Some(PrimitiveType::Word),
             _ => None,
         }
     }

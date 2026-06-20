@@ -659,7 +659,12 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::Current => CoreExpr::Current(t),
             ExprKind::Div(a0, a1) => {
-                self.call2(t, BuiltInFunction::IntDiv, &span, a0, a1)
+                let f = if self.is_word(a0) {
+                    BuiltInFunction::WordDiv
+                } else {
+                    BuiltInFunction::IntDiv
+                };
+                self.call2(t, f, &span, a0, a1)
             }
             ExprKind::Divide(a0, a1) => {
                 self.call2(t, BuiltInFunction::RealDivide, &span, a0, a1)
@@ -766,6 +771,9 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharGt, &span, a0, a1)
                     }
+                    Type::Primitive(PrimitiveType::Word) => {
+                        self.call2(t, BuiltInFunction::WordOpGt, &span, a0, a1)
+                    }
                     _ => self.call2(t, BuiltInFunction::GGt, &span, a0, a1),
                 }
             }
@@ -779,6 +787,9 @@ impl<'a> Resolver<'a> {
                     }
                     Type::Primitive(PrimitiveType::String) => {
                         self.call2(t, BuiltInFunction::StringGe, &span, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Word) => {
+                        self.call2(t, BuiltInFunction::WordOpGe, &span, a0, a1)
                     }
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharGe, &span, a0, a1)
@@ -861,6 +872,9 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharLt, &span, a0, a1)
                     }
+                    Type::Primitive(PrimitiveType::Word) => {
+                        self.call2(t, BuiltInFunction::WordOpLt, &span, a0, a1)
+                    }
                     _ => self.call2(t, BuiltInFunction::GLt, &span, a0, a1),
                 }
             }
@@ -877,6 +891,9 @@ impl<'a> Resolver<'a> {
                     }
                     Type::Primitive(PrimitiveType::Char) => {
                         self.call2(t, BuiltInFunction::CharLe, &span, a0, a1)
+                    }
+                    Type::Primitive(PrimitiveType::Word) => {
+                        self.call2(t, BuiltInFunction::WordOpLe, &span, a0, a1)
                     }
                     _ => self.call2(t, BuiltInFunction::GLe, &span, a0, a1),
                 }
@@ -909,11 +926,23 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call2(t, BuiltInFunction::RealMinus, &span, a0, a1)
                     }
+                    Type::Primitive(PrimitiveType::Word) => self.call2(
+                        t,
+                        BuiltInFunction::WordOpMinus,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     _ => self.call2(t, BuiltInFunction::GMinus, &span, a0, a1),
                 }
             }
             ExprKind::Mod(a0, a1) => {
-                self.call2(t, BuiltInFunction::IntMod, &span, a0, a1)
+                let f = if self.is_word(a0) {
+                    BuiltInFunction::WordMod
+                } else {
+                    BuiltInFunction::IntMod
+                };
+                self.call2(t, f, &span, a0, a1)
             }
             ExprKind::Negate(a0) => {
                 match a0.get_type(self.type_map).expect("type").as_ref() {
@@ -922,6 +951,9 @@ impl<'a> Resolver<'a> {
                     }
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call1(t, BuiltInFunction::RealNegate, a0, &span)
+                    }
+                    Type::Primitive(PrimitiveType::Word) => {
+                        self.call1(t, BuiltInFunction::WordOpNegate, a0, &span)
                     }
                     _ => self.call1(t, BuiltInFunction::GNegate, a0, &span),
                 }
@@ -966,6 +998,13 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call2(t, BuiltInFunction::RealPlus, &span, a0, a1)
                     }
+                    Type::Primitive(PrimitiveType::Word) => self.call2(
+                        t,
+                        BuiltInFunction::WordOpPlus,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     // Polymorphic / unconstrained type variable: use the
                     // generic dispatcher which resolves at runtime.
                     _ => self.call2(t, BuiltInFunction::GPlus, &span, a0, a1),
@@ -1063,6 +1102,13 @@ impl<'a> Resolver<'a> {
                     Type::Primitive(PrimitiveType::Real) => {
                         self.call2(t, BuiltInFunction::RealTimes, &span, a0, a1)
                     }
+                    Type::Primitive(PrimitiveType::Word) => self.call2(
+                        t,
+                        BuiltInFunction::WordOpTimes,
+                        &span,
+                        a0,
+                        a1,
+                    ),
                     _ => self.call2(t, BuiltInFunction::GTimes, &span, a0, a1),
                 }
             }
@@ -1072,6 +1118,16 @@ impl<'a> Resolver<'a> {
             ),
             _ => todo!("Unimplemented expression kind: {:?}", expr.kind),
         }
+    }
+
+    /// Returns true if `expr` has type `word`, used to dispatch the
+    /// overloaded operators (`+`, `-`, `*`, `div`, `mod`) to their `Word`
+    /// variants.
+    fn is_word(&self, expr: &Expr) -> bool {
+        matches!(
+            expr.get_type(self.type_map).as_deref(),
+            Some(Type::Primitive(PrimitiveType::Word))
+        )
     }
 
     fn call1(
@@ -1458,6 +1514,9 @@ impl<'a> Resolver<'a> {
                 Val::String(parser::unquote_string(s).unwrap())
             }
             LiteralKind::Unit => Val::Unit,
+            LiteralKind::Word(w) => {
+                Val::Word(parser::parse_word_literal(w).unwrap())
+            }
         }
     }
 
@@ -1992,6 +2051,9 @@ impl<'a> Resolver<'a> {
                 Val::String(parser::unquote_string(x).unwrap())
             }
             LiteralKind::Unit => Val::Unit,
+            LiteralKind::Word(x) => {
+                Val::Word(parser::parse_word_literal(x).unwrap())
+            }
         }
     }
 
@@ -2275,14 +2337,16 @@ impl<'a> Resolver<'a> {
     /// function.
     fn multi_op_to_builtin(&self, op_name: &str) -> BuiltInFunction {
         use BuiltInFunction::{
-            GEq, GGe, GGt, GLe, GLt, GMinus, GNe, GNegate, GPlus, GTimes,
-            ListCons,
+            GDiv, GEq, GGe, GGt, GLe, GLt, GMinus, GMod, GNe, GNegate, GPlus,
+            GTimes, ListCons,
         };
         match op_name {
             "~" => GNegate,
             "+" => GPlus,
             "*" => GTimes,
             "-" => GMinus,
+            "div" => GDiv,
+            "mod" => GMod,
             "<" => GLt,
             "<=" => GLe,
             ">" => GGt,

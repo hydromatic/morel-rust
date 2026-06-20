@@ -42,3 +42,4 @@ pub mod time;
 pub mod val;
 pub mod variant;
 pub mod vector;
+pub mod word;

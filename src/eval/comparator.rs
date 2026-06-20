@@ -81,6 +81,7 @@ impl Comparator for NaturalComparator {
             (Val::String(x), Val::String(y)) => x.cmp(y),
             (Val::Unit, Val::Some(_)) => Ordering::Less,
             (Val::Unit, Val::Unit) => Ordering::Equal,
+            (Val::Word(x), Val::Word(y)) => x.cmp(y),
             // #}
             _ => Ordering::Equal,
         }

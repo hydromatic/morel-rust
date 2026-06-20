@@ -1916,9 +1916,15 @@ impl MorelParser {
         Ok(match_nodes!(input.children();
             [scientific_literal(n)] => n,
             [real_literal(n)] => n,
+            [word_literal(n)] => n,
             [negative_integer_literal(n)] => n,
             [non_negative_integer_literal(n)] => n,
         ))
+    }
+
+    fn word_literal(input: ParseInput) -> ParseResult<Literal> {
+        let value = String::from(input.as_str());
+        Ok(LiteralKind::Word(value).spanned(&input_to_span(&input)))
     }
 
     fn non_negative_integer(input: ParseInput<'_>) -> ParseResult<&str> {
@@ -2290,6 +2296,19 @@ pub fn unquote_identifier(s: &str) -> Result<String, &'static str> {
 /// Given quoted string "abc" returns abc; "\t" returns
 /// the tab character; "\^A" returns character 1; "\255"
 /// returns character 255.
+/// Parses a `word` literal's source text (e.g. `0w255`, `0wx1f`, `0wX1F`)
+/// into its 64-bit value. Returns `None` if the value exceeds the range of
+/// a 64-bit word.
+pub fn parse_word_literal(s: &str) -> Option<u64> {
+    // Strip the leading "0w"; an optional "x"/"X" selects hexadecimal.
+    let rest = s.strip_prefix("0w").unwrap_or(s);
+    let (radix, digits) = match rest.strip_prefix(['x', 'X']) {
+        Some(hex) => (16, hex),
+        None => (10, rest),
+    };
+    u64::from_str_radix(digits, radix).ok()
+}
+
 pub fn unquote_string(s: &str) -> Result<String, String> {
     if s.len() < 2 {
         return Err("String must be at least 2 characters long".to_string());
