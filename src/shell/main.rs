@@ -497,6 +497,16 @@ impl Shell {
                     Some(val.expect_bool());
                 Ok(())
             }
+            "matchStrict" => {
+                self.config.match_strict =
+                    Some(val.maybe_bool().ok_or_else(|| {
+                        Error::Runtime(
+                            "value for property must have type 'bool'"
+                                .to_string(),
+                        )
+                    })?);
+                Ok(())
+            }
             "mode" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
@@ -606,6 +616,10 @@ impl Shell {
             }
             "matchCoverageEnabled" => {
                 self.session.borrow_mut().config.match_coverage_enabled = None;
+                Ok(())
+            }
+            "matchStrict" => {
+                self.config.match_strict = None;
                 Ok(())
             }
             "mode" => {
@@ -831,8 +845,12 @@ impl Shell {
                 // (modulo whitespace and bag reordering), emit the
                 // expected output verbatim so the .smli file stays
                 // idempotent across runs where bag iteration order
-                // or pretty-printer wrapping may differ.
+                // or pretty-printer wrapping may differ. The
+                // 'matchStrict' property disables this, so that exact
+                // formatting (e.g. pretty-printing) can be tested.
+                let match_strict = self.config.match_strict.unwrap_or(false);
                 let to_write = if idempotent
+                    && !match_strict
                     && !expected_output_buffer.is_empty()
                     && !raw.is_empty()
                 {

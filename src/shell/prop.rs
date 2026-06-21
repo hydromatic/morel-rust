@@ -349,6 +349,19 @@ define_props! {
         required: true,
     },
 
+    MatchStrict => {
+        doc: "Boolean property 'matchStrict' controls how the script-test \
+               harness matches output. If false (the default), the harness \
+               adapts equivalent output (modulo whitespace and bag-element \
+               order) to the expected text, so a script stays idempotent \
+               across runs where bag iteration order or wrapping may differ. \
+               If true, output must match verbatim, so exact formatting (e.g. \
+               pretty-printing) can be tested.",
+        camel_name: "matchStrict",
+        default: Some(PropVal::Bool(false)),
+        required: true,
+    },
+
     Mode => {
         doc: "How much to validate each statement in a script.",
         camel_name: "mode",
@@ -575,7 +588,7 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 22);
+        assert_eq!(all_props.len(), 23);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
         assert!(all_props.contains(&Prop::Now));
