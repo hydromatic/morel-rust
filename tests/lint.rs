@@ -231,6 +231,12 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         // `[//]: # (start:...)` / `[//]: # (end:...)`. Lines inside such
         // a block are exempt from the line-length check.
         let mut in_generated_block = false;
+
+        // For .smli files: the first and last line of the current run of
+        // consecutive `(*)` line comments (`comment_run_start` is 0 when not
+        // in a run).
+        let mut comment_run_start: usize = 0;
+        let mut comment_run_end: usize = 0;
         contents
             .lines()
             .chain(iter::once("")) // add a blank line at the end
@@ -463,6 +469,33 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
                             l.len(),
                             MOREL_WIDTH
                         ));
+                    }
+                }
+                // Rule: two or more consecutive `(*)` line comments should be
+                // a single `(* ... *)` block comment. A line mentioning TODO
+                // is not part of a run, so a TODO line can be deleted without
+                // reformatting; an end-of-line comment doesn't start with
+                // `(*)` after trimming, so it doesn't count either.
+                if language == Language::MOREL {
+                    if l.trim().starts_with("(*)") && !l.contains("TODO") {
+                        if comment_run_start == 0 {
+                            comment_run_start = line;
+                        }
+                        comment_run_end = line;
+                    } else {
+                        if comment_run_start != 0
+                            && comment_run_end > comment_run_start
+                        {
+                            warnings.push(format!(
+                                "{}:{}: Consecutive line comments; convert \
+                                 lines {} through {} into a block comment.",
+                                file_name,
+                                comment_run_start,
+                                comment_run_start,
+                                comment_run_end
+                            ));
+                        }
+                        comment_run_start = 0;
                     }
                 }
                 // Check for alphabetically sorted derive macros

@@ -106,8 +106,8 @@ Time.fmt 0 Time.zeroTime;
 Time.fmt 6 (Time.fromReal 1.5);
 > val it = "1.500000" : string
 
-(*) Time.fmt: comprehensive test of all behaviours.
-(*) Banker's rounding (round half to even) at integer precision.
+(* Time.fmt: comprehensive test of all behaviours.
+ * Banker's rounding (round half to even) at integer precision. *)
 Time.fmt 0 (Time.fromNanoseconds 500000000);
 > val it = "0" : string
 Time.fmt 0 (Time.fromNanoseconds 1500000000);

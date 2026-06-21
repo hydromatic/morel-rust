@@ -443,8 +443,8 @@ from x, y in [2,3] where x > y andalso true where x < 5;
 >
 > val it : {x:int, y:int} bag
 
-(*) Unbound variables in declared 'join';
-(*) condition on 'j' occurs after 'join'
+(* Unbound variables in declared 'join';
+ * condition on 'j' occurs after 'join' *)
 from i, j
 where i > 0 andalso i < 3
 join k, m
@@ -717,9 +717,9 @@ yield {dno, name = #dname v};
 >
 > val it : {dno:int, name:string} bag
 
-(*) Forward references are required. 'dno' is infinite until we see the
-(*) condition 'v.deptno = dno', and at that point we haven't declared
-(*) 'v'. So we defer 'dno' until after 'v'.
+(* Forward references are required. 'dno' is infinite until we see the
+ * condition 'v.deptno = dno', and at that point we haven't declared
+ * 'v'. So we defer 'dno' until after 'v'. *)
 from dno, name, v
 where v elem scott.depts
 where v.deptno = dno
@@ -898,16 +898,16 @@ from s in ["abcd", "ant"], p where String.isPrefix p s yield p distinct;
 from p where (exists s in ["abcd", "ant"] where String.isPrefix p s) order p;
 > val it = ["","a","ab","abc","abcd","an","ant"] : string list
 
-(*) A string function with external extent.
-(*) Given s2, we could generate finite s1.
+(* A string function with external extent.
+ * Given s2, we could generate finite s1. *)
 fun isPrefix (s1, s2) =
   String.isPrefix s1 s2;
 > val isPrefix = fn : string * string -> bool
 from s where isPrefix (s, "abcd");
 > val it = ["","a","ab","abc","abcd"] : string bag
 
-(*) An integer function with external extent.
-(*) Given j, k we could generate finite i.
+(* An integer function with external extent.
+ * Given j, k we could generate finite i. *)
 let
   fun isBetween (i, j, k) = j <= i andalso i <= k
 in
@@ -1286,10 +1286,10 @@ fun isR y = true;
 fun isS1 x = exists y where isR y;
 > val isS1 = fn : 'a -> bool
 
-(*) isS1 is unsafe — `x` doesn't appear in any non-negated
-(*) relational subgoal, so it can take infinitely many values.
-(*) morel-java rejects this with `Unsafe`; morel-rust reports
-(*) the equivalent `pattern 'x' is not grounded`.
+(* isS1 is unsafe — `x` doesn't appear in any non-negated
+ * relational subgoal, so it can take infinitely many values.
+ * morel-java rejects this with `Unsafe`; morel-rust reports
+ * the equivalent `pattern 'x' is not grounded`. *)
 from x where isS1 x;
 > stdIn:1.6 Error: pattern 'x' is not grounded
 >   raised at: stdIn:1.6
@@ -1310,12 +1310,12 @@ from x where isS3 x;
 > stdIn:1.6 Error: pattern 'x' is not grounded
 >   raised at: stdIn:1.6
 
-(*) Ungrounded tuple-pattern call. The body of `tuPair` places no
-(*) constraint on its arguments, so neither component of `p` can
-(*) be grounded. morel-java reports `pattern 'p' is not grounded`;
-(*) `destructure_tuple_extents_for_fn_calls` splits `p` into
-(*) `p__1, p__2` before this point, so morel-rust reports the
-(*) same shape using the destructured component name.
+(* Ungrounded tuple-pattern call. The body of `tuPair` places no
+ * constraint on its arguments, so neither component of `p` can
+ * be grounded. morel-java reports `pattern 'p' is not grounded`;
+ * `destructure_tuple_extents_for_fn_calls` splits `p` into
+ * `p__1, p__2` before this point, so morel-rust reports the
+ * same shape using the destructured component name. *)
 fun tuPair (a, b) = true;
 > val tuPair = fn : 'a * 'b -> bool
 from p where tuPair p;
@@ -1533,13 +1533,13 @@ fun cousin2 (x, y) = sib (x, y)
       andalso cousin2 (xp, yp));
 > val cousin2 = fn : string * string -> bool
 
-(*) The expander's Phase 3 stratification check skips `cousin2` —
-(*) its body contains a self-call inside `not (...)`. The query
-(*) falls through to the existing pipeline, which can't ground
-(*) `p`'s components and emits a runtime error. (morel-java
-(*) reports this as "Error: non-stratified"; morel-rust shows the
-(*) equivalent "pattern not grounded" message until a phase-3.5
-(*) enhancement upgrades the wording.)
+(* The expander's Phase 3 stratification check skips `cousin2` —
+ * its body contains a self-call inside `not (...)`. The query
+ * falls through to the existing pipeline, which can't ground
+ * `p`'s components and emits a runtime error. (morel-java
+ * reports this as "Error: non-stratified"; morel-rust shows the
+ * equivalent "pattern not grounded" message until a phase-3.5
+ * enhancement upgrades the wording.) *)
 from p where cousin2 p;
 > stdIn:1.6 Error: pattern 'p__1' is not grounded
 >   raised at: stdIn:1.6

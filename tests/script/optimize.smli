@@ -236,12 +236,12 @@ Sys.planEx "~1";
 Sys.planEx "1";
 > val it = "val it = \"left:\" ^ \"a\"" : string
 
-(*) Tree case (an enum with a tuple value). Use a top-level datatype
-(*) declaration rather than a `let datatype ... in ... end` because
-(*) morel-rust does not yet propagate inner datatype declarations to the
-(*) pattern-coverage checker. Note also that morel-rust expects
-(*) `t1 * t2 * t3` rather than `(t1, t2, t3)` as the constructor argument
-(*) syntax.
+(* Tree case (an enum with a tuple value). Use a top-level datatype
+ * declaration rather than a `let datatype ... in ... end` because
+ * morel-rust does not yet propagate inner datatype declarations to the
+ * pattern-coverage checker. Note also that morel-rust expects
+ * `t1 * t2 * t3` rather than `(t1, t2, t3)` as the constructor argument
+ * syntax. *)
 datatype tree = EMPTY | NODE of tree * int * string;
 > datatype tree = EMPTY | NODE of tree * int * string
 let
@@ -250,8 +250,8 @@ in
   case v of EMPTY => "empty" | NODE (t, i, s) => s
 end;
 > val it = "b" : string
-(*) The unparser shows datatype constructor values without their
-(*) original name (`fn` for the wrapper, `#<ordinal>` for the tag).
+(* The unparser shows datatype constructor values without their
+ * original name (`fn` for the wrapper, `#<ordinal>` for the tag). *)
 Sys.planEx "1";
 > val it =
 >   "val it = case fn (fn (#0, 1, \"a\"), 2, \"b\") of EMPTY => \"empty\" | NODE (t, i, s) => s"
@@ -377,8 +377,8 @@ from x where abs x = 0;
 > val it = [0] : int bag
 from x where abs x < 10 andalso x > 0;
 > val it = [1,2,3,4,5,6,7,8,9] : int bag
-(*) Disjoint case (abs x > c) is two intervals — FBBT skips and the
-(*) constraint cannot be inverted by the existing extractor either.
+(* Disjoint case (abs x > c) is two intervals — FBBT skips and the
+ * constraint cannot be inverted by the existing extractor either. *)
 from x where abs x > 5;
 > stdIn:1.6 Error: pattern 'x' is not grounded
 >   raised at: stdIn:1.6

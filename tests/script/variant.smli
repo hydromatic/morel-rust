@@ -102,9 +102,9 @@ VECTOR [STRING "a", STRING "b", STRING "c"];
 VECTOR [LIST [STRING "a"], LIST [STRING "b", STRING "c"]];
 > val it = #[["a"],["b","c"]] : string list vector variant
 
-(*) VECTOR constructor - vector of string lists, one of them empty.
-(*) The empty `LIST []` has element type `variant`; common-type
-(*) unification reconciles it with the others' `string list`.
+(* VECTOR constructor - vector of string lists, one of them empty.
+ * The empty `LIST []` has element type `variant`; common-type
+ * unification reconciles it with the others' `string list`. *)
 VECTOR [LIST [STRING "a"], LIST [], LIST [STRING "b", STRING "c"]];
 > val it = #[["a"],[],["b","c"]] : string list vector variant
 
@@ -133,25 +133,25 @@ RECORD [("name", STRING "Alice"), ("age", INT 30), ("b", BOOL true), ("i", INT 4
 > val it = {age=30,b=true,i=42,name="Alice",pets=["cat","dog"]}
 >   : {age:int, b:bool, i:int, name:string, pets:string list} variant
 
-(*) CONSTANT constructor - nullary constructor of a built-in datatype.
-(*) morel-rust supports `LESS`/`EQUAL`/`GREATER` (order) and `NONE`
-(*) (option). Other names fall back to a placeholder display.
+(* CONSTANT constructor - nullary constructor of a built-in datatype.
+ * morel-rust supports `LESS`/`EQUAL`/`GREATER` (order) and `NONE`
+ * (option). Other names fall back to a placeholder display. *)
 CONSTANT "LESS";
 > val it = LESS : order variant
 
-(*) CONSTRUCT constructor - unary constructor of a built-in datatype.
-(*) morel-rust supports `SOME`, `INL`, `INR`, `DESC` against their
-(*) parent datatypes. The `CONSTANT "missing"` error test (morel-java
-(*) raises IllegalArgumentException) requires plumbing runtime errors
-(*) through the variant module and is not yet supported.
+(* CONSTRUCT constructor - unary constructor of a built-in datatype.
+ * morel-rust supports `SOME`, `INL`, `INR`, `DESC` against their
+ * parent datatypes. The `CONSTANT "missing"` error test (morel-java
+ * raises IllegalArgumentException) requires plumbing runtime errors
+ * through the variant module and is not yet supported. *)
 CONSTRUCT ("SOME", INT 42);
 > val it = SOME 42 : int option variant
 
-(*) CONSTRUCT ("CONS", (head, tail)) prepends `head` onto the list
-(*) `tail`. CONSTANT "NIL" is the empty list. Together they let you
-(*) build a `T list variant` from cons cells; existing list patterns
-(*) match the result. (morel-java instead constructs a value of an
-(*) internal `$list` datatype.)
+(* CONSTRUCT ("CONS", (head, tail)) prepends `head` onto the list
+ * `tail`. CONSTANT "NIL" is the empty list. Together they let you
+ * build a `T list variant` from cons cells; existing list patterns
+ * match the result. (morel-java instead constructs a value of an
+ * internal `$list` datatype.) *)
 CONSTRUCT ("CONS", RECORD [("1", INT 1), ("2", CONSTANT "NIL")]);
 > val it = [1] : int list variant
 
@@ -259,8 +259,8 @@ testRoundTrip (INT 42);
 > val it = true : bool
 testRoundTrip (INT ~5);
 > val it = true : bool
-(*) REAL comparisons - note: real is not an equality type in Standard ML
-(*) so we can't directly compare REAL values; skip these tests
+(* REAL comparisons - note: real is not an equality type in Standard ML
+ * so we can't directly compare REAL values; skip these tests *)
 (*testRoundTrip (REAL 0.0);*)
 (*> val it = true : bool*)
 (*testRoundTrip (REAL 3.14);*)

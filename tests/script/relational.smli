@@ -921,8 +921,8 @@ from i in [1,2]
 > val it = [{i=1,j=0},{i=1,j=1},{i=1,j=2},{i=2,j=0},{i=2,j=1},{i=2,j=2}]
 >   : {i:int, j:int} list
 
-(*) 'ordinal' in a lateral scan's source expression (not a subquery)
-(*) refers to the position of the row from the preceding scan.
+(* 'ordinal' in a lateral scan's source expression (not a subquery)
+ * refers to the position of the row from the preceding scan. *)
 from i in [10,20,30],
     j in [i + ordinal]
   yield j;
@@ -1467,24 +1467,24 @@ from i in [2, 1, 2]
   group i compute {c = count (bag ["a", "b"])};
 > val it = [{c=2,i=2},{c=2,i=1}] : {c:int, i:int} list
 
-(*) Duplicate field name across 'group' and 'compute' clauses. The
-(*) error points at the offending label (the second occurrence).
+(* Duplicate field name across 'group' and 'compute' clauses. The
+ * error points at the offending label (the second occurrence). *)
 from e in [{x = 1, y = 5}]
   group {a = e.x}
   compute {a = sum over e.y};
 > stdIn:3.12 Error: duplicate field name 'a' in group
 >   raised at: stdIn:3.12
 
-(*) When the duplicate label is implicit (derived from the field
-(*) expression), the error position is the field expression itself.
+(* When the duplicate label is implicit (derived from the field
+ * expression), the error position is the field expression itself. *)
 from e in [{x = 1, y = 5}]
   group {sum = e.x}
   compute sum over e.y;
 > stdIn:3.11-3.23 Error: duplicate field name 'sum' in group
 >   raised at: stdIn:3.11-3.23
 
-(*) Duplicate field name within the 'group' record itself. The error
-(*) position is the second occurrence of the label.
+(* Duplicate field name within the 'group' record itself. The error
+ * position is the second occurrence of the label. *)
 from e in [{x = 1, y = 5}, {x = 0, y = 1}, {x = 1, y = 1}]
   group {a = e.x, a = e.y};
 > stdIn:2.19 Error: duplicate field 'a' in record
@@ -1672,9 +1672,9 @@ from e in emps
     end;
 > val it = [200,202,204,206] : int list
 
-(*) 'distinct' is equivalent to 'group' with all fields
-(*) Query 1, using `distinct`
-(*) (The 'order' clause is for deterministic results.)
+(* 'distinct' is equivalent to 'group' with all fields
+ * Query 1, using `distinct`
+ * (The 'order' clause is for deterministic results.) *)
 from e in scott.emps
   yield {e.job, e.deptno}
   distinct
@@ -1685,8 +1685,8 @@ from e in scott.emps
 >    {deptno=30,job="MANAGER"},{deptno=10,job="PRESIDENT"},
 >    {deptno=30,job="SALESMAN"}] : {deptno:int, job:string} list
 
-(*) Query 2, using `group` with no aggregate functions, equivalent to query 1
-(*) (The 'order' clause is for deterministic results.)
+(* Query 2, using `group` with no aggregate functions, equivalent to query 1
+ * (The 'order' clause is for deterministic results.) *)
 from e in scott.emps
   yield {e.job, e.deptno}
   group {job, deptno}
@@ -1854,8 +1854,8 @@ from e in emps, d in depts
 > val it = [{count=4,deptno=10},{count=4,deptno=20},{count=8,deptno=30}]
 >   : {count:int, deptno:int} list
 
-(*) join with intervening 'where'
-(*) we can't write ', d in depts' after 'where'
+(* join with intervening 'where'
+ * we can't write ', d in depts' after 'where' *)
 from e in emps
   where e.name elem ["Shaggy", "Fred"]
   join d in depts
@@ -1895,8 +1895,8 @@ from e in emps
 >    {d={deptno=30,name="Engineering"},e={deptno=30,id=103,name="Scooby"}}]
 >   : {d:{deptno:int, name:string}, e:{deptno:int, id:int, name:string}} list
 
-(*) exists (defining the "exists" function ourselves)
-(*) and correlated sub-query
+(* exists (defining the "exists" function ourselves)
+ * and correlated sub-query *)
 let
   fun exists_ [] = false
     | exists_ (hd :: tl) = true
@@ -2237,8 +2237,8 @@ order deptno;
 >   [{count=1,deptno=10,sum=100},{count=1,deptno=20,sum=101},
 >    {count=2,deptno=30,sum=205}] : {count:int, deptno:int, sum:int} list
 
-(*) As previous, without the implied "deptno =" in "group",
-(*) and "sum =" and "count =" in "compute".
+(* As previous, without the implied "deptno =" in "group",
+ * and "sum =" and "count =" in "compute". *)
 from e in emps
 group e.deptno
   compute {sum over e.id,
@@ -2347,8 +2347,8 @@ compute {empty over (), nonEmpty over ()};
 > val it = {empty=true,nonEmpty=false} : {empty:bool, nonEmpty:bool}
 
 
-(*) 'group' with record key
-(*) (useful if we want to refer to 'e' later in the pipeline)
+(* 'group' with record key
+ * (useful if we want to refer to 'e' later in the pipeline) *)
 from e in emps
 group {e = {e.deptno, odd = e.id mod 2 = 1}} compute {c = count over ()}
 yield {e.deptno, c1 = c + 1}
@@ -2409,9 +2409,9 @@ from e in emps
 group {} compute {sumId = sum over e.id};
 > val it = [{sumId=406}] : {sumId:int} list
 
-(*) 'group' with aggregate function that references the key.
-(*) Uses List.length (not sum) because sum is bag-only and anonymous
-(*) functions in list context cannot yet adapt bag-only aggregates.
+(* 'group' with aggregate function that references the key.
+ * Uses List.length (not sum) because sum is bag-only and anonymous
+ * functions in list context cannot yet adapt bag-only aggregates. *)
 from (k, v) in [(1, 5), (1, 6), (2, 7), (2, 10)]
 group k compute {x = (fn vs => k + List.length vs) over v};
 > val it = [{k=1,x=3},{k=2,x=4}] : {k:int, x:int} list
@@ -2661,10 +2661,10 @@ from e in emps,
 > val it = ["Scooby","Shaggy","Velma","Fred"] : string list
 
 
-(*) Only (scalar sub-query). These use 'only' as a regular function with a
-(*) list sub-query; morel-rust adapts the list to the bag that 'only' expects,
-(*) so they evaluate (raising 'Empty'/'Size' at run time if the sub-query is
-(*) not a singleton).
+(* Only (scalar sub-query). These use 'only' as a regular function with a
+ * list sub-query; morel-rust adapts the list to the bag that 'only' expects,
+ * so they evaluate (raising 'Empty'/'Size' at run time if the sub-query is
+ * not a singleton). *)
 from e in emps
   yield only (from d in depts
               where d.deptno = e.deptno
@@ -3185,8 +3185,8 @@ Sys.plan();
 set("mode", "evaluate");
 > val it = () : unit
 
-(*) List expression in Hybrid mode (0% Calcite), with various
-(*) row types: record, tuple, primitive
+(* List expression in Hybrid mode (0% Calcite), with various
+ * row types: record, tuple, primitive *)
 List.filter (fn {i, j} => i mod 2 = 0) [{i = 1, j = 1}, {i = 2, j = 2}, {i = 3, j = 3}, {i = 4, j = 5}];
 > val it = [{i=2,j=2},{i=4,j=5}] : {i:int, j:int} list
 List.filter (fn (i, j) => i mod 2 = 0) [(1, 1), (2, 2), (3, 3), (4, 5)];
@@ -3194,8 +3194,8 @@ List.filter (fn (i, j) => i mod 2 = 0) [(1, 1), (2, 2), (3, 3), (4, 5)];
 List.filter (fn i => i mod 2 = 0) [1, 2, 3, 4];
 > val it = [2,4] : int list
 
-(*) Parameterized view
-(*) (Funky variable names like 'e138' are just to ensure stable plans.)
+(* Parameterized view
+ * (Funky variable names like 'e138' are just to ensure stable plans.) *)
 Sys.set ("hybrid", false);
 > val it = () : unit
 
@@ -3215,8 +3215,8 @@ Sys.plan();
 >   "from(sink join(pat e139, exp apply(fnCode match((emps, deptno), from(sink join(pat e138, exp get(name emps), sink where(condition apply2(fnValue =, apply(fnValue nth:0, argCode get(name e138)), get(name deptno)), sink collect(get(name e138)))))), argCode tuple(constant([[10, 100, Fred], [20, 101, Velma], [30, 102, Shaggy], [30, 103, Scooby]]), constant(30))), sink collect(apply(fnValue nth:2, argCode get(name e139)))))"
 >   : string
 
-(*) Same, via a predicate
-(*) (Funky variable names like 'e140' are just to ensure stable plans.)
+(* Same, via a predicate
+ * (Funky variable names like 'e140' are just to ensure stable plans.) *)
 let
   fun empsIn emps predicate =
     from e140 in emps
@@ -3342,9 +3342,9 @@ from d in scott.depts
 
 (*) through a pivot function
 
-(*) Pivot converts a list of lists into a list whose elements are
-(*) the first element of each list, the second element of each list,
-(*) and so forth.
+(* Pivot converts a list of lists into a list whose elements are
+ * the first element of each list, the second element of each list,
+ * and so forth. *)
 fun pivot listlists =
   if listlists = [] then
     []

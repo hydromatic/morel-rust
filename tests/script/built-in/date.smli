@@ -148,8 +148,8 @@ Date.compare (Date.fromTimeUniv (Time.zeroTime), Date.fromTimeUniv (Time.fromSec
 Date.fmt "%Y-%m-%d" (Date.fromTimeUniv (Time.zeroTime));
 > val it = "1970-01-01" : string
 
-(*) Date.fmt: comprehensive test of every supported directive on
-(*) Fri Mar 15 2024 14:30:45.
+(* Date.fmt: comprehensive test of every supported directive on
+ * Fri Mar 15 2024 14:30:45. *)
 val sample = Date.date {year=2024, month=Mar, day=15, hour=14, minute=30, second=45, offset=NONE};
 > val sample = 2024-03-15T14:30:45Z : date
 Date.fmt "%a" sample;
@@ -224,9 +224,9 @@ Date.fmt "%" sample;
 Date.fmt "abc%defGHI" sample;
 > val it = "abc15efGHI" : string
 
-(*) Non-UTC timezone: switch to America/New_York and verify the same
-(*) UTC instant produces a local date with negative offset. EST is
-(*) UTC-5 in January (no DST).
+(* Non-UTC timezone: switch to America/New_York and verify the same
+ * UTC instant produces a local date with negative offset. EST is
+ * UTC-5 in January (no DST). *)
 Sys.set ("timeZone", "America/New_York");
 > val it = () : unit
 

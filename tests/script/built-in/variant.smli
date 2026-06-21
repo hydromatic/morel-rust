@@ -74,10 +74,10 @@ Variant.print (LIST [INT 1, INT 2, INT 3]);
 (*) Variant.parse : string -> variant
 Variant.parse;
 > val it = fn : string -> variant
-(*) TODO: morel-rust's Variant.parse is not yet implemented; the calls below
-(*) are exercised in morel-java's variant.smli.
-(*) Variant.parse "()";
-(*) Variant.parse "42";
-(*) Variant.parse "true";
+(* TODO: morel-rust's Variant.parse is not yet implemented; the calls below
+ * are exercised in morel-java's variant.smli.
+ * Variant.parse "()";
+ * Variant.parse "42";
+ * Variant.parse "true"; *)
 
 (*) End variant.smli

@@ -30,18 +30,18 @@ f 2;
 > uncaught exception Match [nonexhaustive match failure]
 >   raised at: stdIn:1.5-1.12
 
-(*) Three forms that all reach a non-exhaustive pattern at runtime,
-(*) showing the difference between the 'Bind' exception (raised by a
-(*) failing 'val' binding) and the 'Match' exception (raised by a
-(*) failing function application).
+(* Three forms that all reach a non-exhaustive pattern at runtime,
+ * showing the difference between the 'Bind' exception (raised by a
+ * failing 'val' binding) and the 'Match' exception (raised by a
+ * failing function application). *)
 
 (*) 'val' with a non-exhaustive pattern raises 'Bind'.
 val (1, x) = (2, 3);
 > uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.20
 
-(*) 'fun' with a non-exhaustive pattern: defining is OK (warning),
-(*) but applying it to a non-matching value raises 'Match'.
+(* 'fun' with a non-exhaustive pattern: defining is OK (warning),
+ * but applying it to a non-matching value raises 'Match'. *)
 fun f1 (1, x) = 3;
 > stdIn:1.5-1.18 Warning: match nonexhaustive
 >   raised at: stdIn:1.5-1.18
@@ -124,8 +124,8 @@ warm Green;
 > uncaught exception Match [nonexhaustive match failure]
 >   raised at: stdIn:1.5-1.20
 
-(*) The Ackermann-Péter function
-(*) See "Recursion Equations as a Programming Language", D A Turner 1982
+(* The Ackermann-Péter function
+ * See "Recursion Equations as a Programming Language", D A Turner 1982 *)
 fun ack 0 n = n + 1
   | ack m 0 = ack (m - 1) 1
   | ack m n = ack (m - 1) (ack m (n - 1));

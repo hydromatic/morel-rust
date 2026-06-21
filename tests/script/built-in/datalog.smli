@@ -142,8 +142,8 @@ path(X,Z) :- path(X,Y), edge(Y,Z).
 .output path";
 > val it = "{path:{x:int, y:int} list}" : string
 
-(*) Arithmetic in head: variables inside arithmetic do not ground.
-(*) Same as morel-java's fib test.
+(* Arithmetic in head: variables inside arithmetic do not ground.
+ * Same as morel-java's fib test. *)
 Datalog.validate ".decl fib(idx:int, value:int)
 fib(1,1).
 fib(2,1).

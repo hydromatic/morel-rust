@@ -205,9 +205,9 @@ in
 end;
 > val it = 60 : int
 
-(*) As previous, replacing captured variable with constant.
-(*) The implementation may still use a closure, so that the recursive function
-(*) can reference itself by name.
+(* As previous, replacing captured variable with constant.
+ * The implementation may still use a closure, so that the recursive function
+ * can reference itself by name. *)
 let
   val rec perm3 = fn n => if n = 3 then n else n * perm3 (n - 1)
 in
@@ -215,14 +215,14 @@ in
 end;
 > val it = 60 : int
 
-(*) Closure body references a let-bound non-fn capture, called from a
-(*) higher-order built-in. The compiler stashes let-bound names in the
-(*) env as `Val::Code(expr_code)` so that `fun` declarations can be
-(*) inlined at use sites. A previous bug propagated that wrapper through
-(*) `Expr::Identifier` lowering, leaving the body to receive
-(*) `Val::Code(Code::Tuple(...))` (the unevaluated literal) instead of
-(*) the evaluated value. Any consumer that called `expect_list`/`expect_tuple`
-(*) /`expect_record` then panicked. Cover one case for each shape.
+(* Closure body references a let-bound non-fn capture, called from a
+ * higher-order built-in. The compiler stashes let-bound names in the
+ * env as `Val::Code(expr_code)` so that `fun` declarations can be
+ * inlined at use sites. A previous bug propagated that wrapper through
+ * `Expr::Identifier` lowering, leaving the body to receive
+ * `Val::Code(Code::Tuple(...))` (the unevaluated literal) instead of
+ * the evaluated value. Any consumer that called `expect_list`/`expect_tuple`
+ * /`expect_record` then panicked. Cover one case for each shape. *)
 
 (*) Tuple capture.
 let val t = (10, 20) in List.map (fn _ => #1 t + #2 t) [0] end;
@@ -236,14 +236,14 @@ let val r = {a = 1, b = 2} in List.map (fn _ => #a r + #b r) [0] end;
 let val xs = [1, 2, 3] in List.map (fn _ => xs @ xs) [0] end;
 > val it = [[1,2,3,1,2,3]] : int list list
 
-(*) Three-binding chain where a deeper closure captures a let-binding
-(*) whose own compiled code references yet another let-binding.
-(*) Previously the env-shortcut path stashed `ancestor` as
-(*) `Val::Code(<iterate code>)`. The iterate code contained a
-(*) `GetLocal(outer_let_frame, parent_slot)` reference. When the
-(*) descendant closure body re-evaluated the substituted code, the
-(*) runtime frame was the closure's own — the GetLocal panicked with
-(*) "bad frame in GetLocal" because parent's slot didn't match.
+(* Three-binding chain where a deeper closure captures a let-binding
+ * whose own compiled code references yet another let-binding.
+ * Previously the env-shortcut path stashed `ancestor` as
+ * `Val::Code(<iterate code>)`. The iterate code contained a
+ * `GetLocal(outer_let_frame, parent_slot)` reference. When the
+ * descendant closure body re-evaluated the substituted code, the
+ * runtime frame was the closure's own — the GetLocal panicked with
+ * "bad frame in GetLocal" because parent's slot didn't match. *)
 let
   val parent = [(1, 2), (2, 3)]
   val ancestor =
