@@ -2649,6 +2649,19 @@ impl TypeResolver {
                 let x = ExprKind::Record(with_expr2, labeled_expr_list2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::RecordSelector(name) => {
+                // A bare record selector (e.g. `#a`) that is not applied to
+                // a record cannot have its flex record resolved, because we
+                // cannot tell what other fields the record has. morel-java
+                // reports the same error.
+                return Err(Error::Compile(
+                    format!(
+                        "unresolved flex record (can't tell what fields there are besides #{})",
+                        name
+                    ),
+                    expr.span.clone(),
+                ));
+            }
             ExprKind::Times(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op *", left, right, v)?;
