@@ -1522,10 +1522,8 @@ val empsRemoved = from e in scott.emps except emps4;
 >     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
 >      job:string, mgr:int, sal:real} bag
 
-(*) Empty summary table. (TODO: Use record type.)
-val summary =
-  from s in [{deptno = 0, c = 0, sum_sal = 0.0}]
-    where false;
+(*) Empty summary table.
+val summary = [] : {c:int, deptno:int, sum_sal:real} list;
 > val summary = [] : {c:int, deptno:int, sum_sal:real} list
 
 (* Compute the updated summary table. *)
@@ -1609,19 +1607,15 @@ fun isAncestor (x, z) =
     orelse (exists y
       where isAncestor(x, y)
         andalso (y, z) elem parents);
-> com.google.common.base.VerifyException: not found [isAncestor]
+> val isAncestor = fn : string * string -> bool
 
 from a
   where isAncestor(a, "arwen");
-> stdIn:2.9-2.19 Error: unbound variable or constructor: isAncestor
->   raised at: stdIn:2.9-2.19
-(*) TODO should return ["earendil", "elrond"] : string list
+> val it = ["elrond","earendil"] : string bag
 
 from d
   where isAncestor("earendil", d);
-> stdIn:2.9-2.19 Error: unbound variable or constructor: isAncestor
->   raised at: stdIn:2.9-2.19
-(*) TODO should return ["elrond", "arwen", "elladan", "elrohir"] : string list
+> val it = ["elrond","arwen","elladan","elrohir"] : string bag
 
 (*) Recipe optimization
 from b, c

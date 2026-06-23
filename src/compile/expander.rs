@@ -762,6 +762,44 @@ fn try_invert_recursive_predicates(
             let Expr::Identifier(_, fn_name) = f.as_ref() else {
                 continue;
             };
+            // Mixed tuple `f (a, "const", …)`: some positions are unbounded
+            // identifiers (each with an extent-scan), others are constants.
+            // The arg-shape machinery below requires every position to be an
+            // identifier, so handle this case separately by computing the
+            // transitive closure and filtering the constant positions.
+            if let Expr::Tuple(tt, mixed_items) = arg.as_ref()
+                && mixed_items
+                    .iter()
+                    .any(|e| matches!(e, Expr::Identifier(_, _)))
+                && mixed_items
+                    .iter()
+                    .any(|e| !matches!(e, Expr::Identifier(_, _)))
+            {
+                let body_for_strat = rec_fn_env
+                    .get(fn_name)
+                    .map(|(_, b)| b)
+                    .or_else(|| fn_env.get(fn_name).map(|(_, b)| b));
+                let stratified = !body_for_strat.is_some_and(|b| {
+                    contains_self_call_under_negation(b, fn_name)
+                });
+                if stratified
+                    && let Some(result) = try_mixed_tuple_tc(
+                        &steps,
+                        where_idx,
+                        cj_idx,
+                        fn_name,
+                        tt,
+                        mixed_items,
+                        rec_fn_env,
+                        fn_env,
+                        datatypes,
+                        &outer_scope,
+                    )
+                {
+                    return result;
+                }
+                continue;
+            }
             // Recognise three call shapes:
             //   (a) `f p` — single identifier arg matching one
             //       extent-scan pattern;
@@ -2396,6 +2434,185 @@ fn rewrite_steps_for_iterate_tuple(
 /// `inline_tuple_fn_calls_in_where` handle `f p` (where `p` has
 /// tuple type) by exposing the tuple components as bindings.
 ///
+/// Builds the core boolean expression `name = rhs`, choosing the
+/// comparison built-in from the value type.
+fn build_eq(name: &str, t: &Rc<Type>, rhs: Expr) -> Expr {
+    let eq_op = match t.as_ref() {
+        Type::Primitive(PrimitiveType::Int) => BuiltInFunction::IntEq,
+        Type::Primitive(PrimitiveType::String) => BuiltInFunction::StringEq,
+        Type::Primitive(PrimitiveType::Char) => BuiltInFunction::CharEq,
+        Type::Primitive(PrimitiveType::Bool) => BuiltInFunction::BoolEq,
+        _ => BuiltInFunction::GEq,
+    };
+    let pair_t = Rc::new(Type::Tuple(vec![t.clone(), t.clone()]));
+    let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+    let fn_t = Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+    let eq_lit = Expr::Literal(fn_t, Val::Fn(eq_op));
+    let lhs = Expr::Identifier(t.clone(), name.to_string());
+    let arg = Expr::Tuple(pair_t, vec![lhs, rhs]);
+    Expr::Apply(bool_t, Box::new(eq_lit), Box::new(arg), Span::new(""))
+}
+
+/// Handles a recursive-predicate call whose tuple argument mixes unbounded
+/// identifiers with constants, e.g. `isAncestor (a, "arwen")`. Computes the
+/// transitive closure over all positions (using fresh variables for the
+/// constants), scans it, filters each constant position, and yields the
+/// identifier positions — mirroring morel-java's
+/// `tryTupleTransitiveClosureWithConstants`. Returns `None` if the call is
+/// not a constant-bearing tuple over groundable identifiers.
+#[allow(clippy::too_many_arguments)]
+fn try_mixed_tuple_tc(
+    steps: &[Step],
+    where_idx: usize,
+    cj_idx: usize,
+    fn_name: &str,
+    tuple_type: &Type,
+    items: &[Expr],
+    rec_fn_env: &FnEnv,
+    fn_env: &FnEnv,
+    datatypes: &DatatypeMap,
+    outer_scope: &BTreeSet<String>,
+) -> Option<Vec<Step>> {
+    use crate::compile::generators::split_conjuncts;
+    use crate::compile::type_env::Id;
+    enum Pos {
+        Id(String, Rc<Type>),
+        Const(Expr, Rc<Type>),
+    }
+    let mut positions: Vec<Pos> = Vec::new();
+    let mut id_scan_indices: Vec<usize> = Vec::new();
+    for item in items {
+        match item {
+            Expr::Identifier(t, n) => {
+                let scan_idx = steps.iter().position(|st| {
+                    matches!(&st.kind,
+                        StepKind::Scan(p, src, None)
+                            if matches!(src.as_ref(), Expr::Extent(_, _))
+                            && matches!(p.as_ref(),
+                                Pat::Identifier(_, nn) if nn == n))
+                })?;
+                id_scan_indices.push(scan_idx);
+                positions.push(Pos::Id(n.clone(), t.clone()));
+            }
+            other => positions.push(Pos::Const(other.clone(), other.type_())),
+        }
+    }
+    if id_scan_indices.is_empty() {
+        return None;
+    }
+    let iterate_expr = build_iterate_for_recursive_v2(
+        fn_name,
+        rec_fn_env,
+        fn_env,
+        datatypes,
+        outer_scope,
+    )?;
+
+    // Build the tuple-pat over the iterate, the per-constant filters, and
+    // the identifier output bindings.
+    let mut sub_pats: Vec<Pat> = Vec::new();
+    let mut const_filters: Vec<Expr> = Vec::new();
+    let mut id_outputs: Vec<(String, Rc<Type>)> = Vec::new();
+    let mut all_bindings: Vec<Binding> = Vec::new();
+    for (i, pos) in positions.iter().enumerate() {
+        match pos {
+            Pos::Id(n, t) => {
+                sub_pats.push(Pat::Identifier(t.clone(), n.clone()));
+                id_outputs.push((n.clone(), t.clone()));
+                all_bindings.push(Binding::new(Id::new(n, 0), t.clone()));
+            }
+            Pos::Const(expr, t) => {
+                let fresh = format!("_tc_const{}", i);
+                sub_pats.push(Pat::Identifier(t.clone(), fresh.clone()));
+                const_filters.push(build_eq(&fresh, t, expr.clone()));
+                all_bindings.push(Binding::new(Id::new(&fresh, 0), t.clone()));
+            }
+        }
+    }
+    let new_pat = Pat::Tuple(Rc::new(tuple_type.clone()), sub_pats);
+    let merged_env = StepEnv::new(all_bindings, false, false);
+
+    let primary = id_scan_indices[0];
+    let drop_set: HashSet<usize> =
+        id_scan_indices[1..].iter().copied().collect();
+    let mut out: Vec<Step> = Vec::with_capacity(steps.len() + 2);
+    let mut iterate_opt = Some(iterate_expr);
+    for (i, st) in steps.iter().enumerate() {
+        if i == primary {
+            let StepKind::Scan(_, _, cond) = &st.kind else {
+                out.push(st.clone());
+                continue;
+            };
+            let iter = iterate_opt.take().expect("primary visited once");
+            out.push(Step::new(
+                StepKind::Scan(
+                    Box::new(new_pat.clone()),
+                    Box::new(iter),
+                    cond.clone(),
+                ),
+                merged_env.clone(),
+            ));
+            out.push(Step::new(StepKind::Distinct, merged_env.clone()));
+        } else if drop_set.contains(&i) {
+            continue;
+        } else if i == where_idx {
+            let StepKind::Where(cond) = &st.kind else {
+                out.push(st.clone());
+                continue;
+            };
+            let mut kept: Vec<Expr> = split_conjuncts(cond)
+                .into_iter()
+                .enumerate()
+                .filter(|(j, _)| *j != cj_idx)
+                .map(|(_, c)| c)
+                .collect();
+            kept.extend(const_filters.iter().cloned());
+            if !kept.is_empty() {
+                let mut it = kept.into_iter();
+                let first = it.next().unwrap();
+                let new_cond = it.fold(first, |a, b| and_all(vec![a, b]));
+                out.push(Step::new(
+                    StepKind::Where(Box::new(new_cond)),
+                    st.env.clone(),
+                ));
+            }
+        } else {
+            out.push(st.clone());
+        }
+    }
+    // Project the identifier positions, dropping the fresh constant vars.
+    let single = id_outputs.len() == 1;
+    let yield_expr = if single {
+        let (n, t) = &id_outputs[0];
+        Expr::Identifier(t.clone(), n.clone())
+    } else {
+        let tup_t = Rc::new(Type::Tuple(
+            id_outputs.iter().map(|(_, t)| t.clone()).collect(),
+        ));
+        Expr::Tuple(
+            tup_t,
+            id_outputs
+                .iter()
+                .map(|(n, t)| Expr::Identifier(t.clone(), n.clone()))
+                .collect(),
+        )
+    };
+    // For an `exists` query the result is a boolean — the projection is
+    // unnecessary, and a trailing `Yield` would violate the invariant that
+    // an `Exists` step occurs only last. Otherwise project the identifier
+    // positions to drop the fresh constant variables.
+    if !matches!(out.last().map(|s| &s.kind), Some(StepKind::Exists)) {
+        let yield_t = yield_expr.type_();
+        let yield_env = StepEnv::new(
+            vec![Binding::new(Id::new("current", 0), yield_t)],
+            single,
+            false,
+        );
+        out.push(Step::new(StepKind::Yield(Box::new(yield_expr)), yield_env));
+    }
+    Some(out)
+}
+
 /// Adds an explicit `Yield` of the tuple to preserve the
 /// original tuple-typed result; without this, the implicit
 /// from-yield (a record over all bindings) would change the
