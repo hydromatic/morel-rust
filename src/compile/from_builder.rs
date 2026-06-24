@@ -48,6 +48,19 @@ pub(crate) fn agg_implicit_label(expr: &Expr) -> Option<String> {
         Expr::Identifier(_, name) => Some(name.clone()),
         Expr::Aggregate(_, left, _) => agg_implicit_label(left),
         Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
+        // A qualified aggregate function such as `List.length` is a record
+        // selector applied to the structure; its label is the field (method)
+        // name. This must agree with `Expr::implicit_label`, which the
+        // compiler uses to find the aggregate's output slot — otherwise the
+        // scalar result is written to the wrong frame slot.
+        Expr::Apply(_, fx, _, _) => {
+            if let Expr::RecordSelector(t, slot) = fx.as_ref() {
+                let (param_type, _) = t.expect_fn();
+                param_type.field_name(*slot).map(ToString::to_string)
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }

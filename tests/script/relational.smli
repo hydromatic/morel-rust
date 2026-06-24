@@ -2420,6 +2420,16 @@ from (x, y, z) in [("a", "p", "e"), ("m", "a", "n"), ("a", "l", "e"), ("a", "w",
   group x compute {z = (fn ys => concat (x :: ys)) over y};
 > val it = [{x="a",z="aplw"},{x="m",z="ma"}] : {x:string, z:string} list
 
+(* A bare (non-record) `compute` whose aggregate is a qualified structure
+ * member (e.g. `List.length`, `Bag.hd`) writes its scalar result to the
+ * frame slot named by the member, both with an empty and a non-empty key. *)
+from e in [1, 2, 3] group {} compute List.length over e;
+> val it = [3] : int list
+from e in [1, 2, 3] group {} compute Bag.hd over e;
+> val it = [1] : int list
+from e in [1, 2, 3] group {k = e mod 2} compute List.length over e;
+> val it = [{k=1,length=2},{k=0,length=1}] : {k:int, length:int} list
+
 
 (*) similar, but with composite key
 from (x, y, z) in [("a", "p", "e"), ("m", "a", "n"), ("a", "l", "e"), ("a", "w", "e")]
