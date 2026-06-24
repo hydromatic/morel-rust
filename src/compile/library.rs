@@ -417,7 +417,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "`exn`"))]
     #[strum(props(constructor_ordinal = "3"))]
     ExnDomain,
-    #[strum(props(p = "List", name = "Empty"))]
+    #[strum(props(p = "List", name = "Empty", global = true))]
     #[strum(props(type = "`exn`"))]
     #[strum(props(constructor_ordinal = "4"))]
     ExnEmpty,
@@ -516,6 +516,15 @@ pub enum BuiltInFunction {
     #[strum(props(name = "*", alias = "op *"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GTimes,
+    #[strum(props(p = "General", name = "before", global = true))]
+    #[strum(props(type = "forall 1 'a * unit -> 'a"))]
+    GeneralBefore,
+    #[strum(props(p = "General", name = "exnMessage", global = true))]
+    #[strum(props(type = "exn -> string"))]
+    GeneralExnMessage,
+    #[strum(props(p = "General", name = "exnName", global = true))]
+    #[strum(props(type = "exn -> string"))]
+    GeneralExnName,
     #[strum(props(p = "General", name = "ignore", global = true))]
     #[strum(props(type = "forall 1 'a -> unit"))]
     GeneralIgnore,
@@ -541,13 +550,13 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Int", name = "fromString"))]
     #[strum(props(type = "string -> int option"))]
     IntFromString,
-    #[strum(props(name = ">=", type = "int * int -> bool"))]
+    #[strum(props(p = "Int", name = ">=", type = "int * int -> bool"))]
     IntGe,
-    #[strum(props(name = ">", type = "int * int -> bool"))]
+    #[strum(props(p = "Int", name = ">", type = "int * int -> bool"))]
     IntGt,
-    #[strum(props(name = "<=", type = "int * int -> bool"))]
+    #[strum(props(p = "Int", name = "<=", type = "int * int -> bool"))]
     IntLe,
-    #[strum(props(name = "<", type = "int * int -> bool"))]
+    #[strum(props(p = "Int", name = "<", type = "int * int -> bool"))]
     IntLt,
     #[strum(props(p = "Int", name = "max", type = "int * int -> int"))]
     IntMax,
@@ -557,7 +566,7 @@ pub enum BuiltInFunction {
     IntMin,
     #[strum(props(p = "Int", name = "minInt", type = "int option"))]
     IntMinInt,
-    #[strum(props(name = "-", type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "-", type = "int * int -> int"))]
     IntMinus,
     #[strum(props(p = "Int", name = "mod", alias = "op mod"))]
     #[strum(props(type = "int * int -> int"))]
@@ -578,7 +587,7 @@ pub enum BuiltInFunction {
     IntSameSign,
     #[strum(props(p = "Int", name = "sign", type = "int -> int"))]
     IntSign,
-    #[strum(props(name = "*", type = "int * int -> int"))]
+    #[strum(props(p = "Int", name = "*", type = "int * int -> int"))]
     IntTimes,
     #[strum(props(p = "Int", name = "toInt", type = "int -> int"))]
     IntToInt,
@@ -1102,7 +1111,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Real", name = "unordered"))]
     #[strum(props(type = "real * real -> bool"))]
     RealUnordered,
-    #[strum(props(p = "Relational", name = "compare"))]
+    #[strum(props(p = "Relational", name = "compare", global = "compare"))]
     #[strum(props(type = "forall 1 'a * 'a -> `order`"))]
     RelationalCompare,
     #[strum(props(p = "Relational", name = "count", global = true))]
@@ -1130,6 +1139,9 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Relational", name = "nonEmpty", global = true))]
     #[strum(props(type = "forall 1 'a bag -> bool"))]
     RelationalNonEmpty,
+    #[strum(props(p = "Relational", name = "only", global = "only"))]
+    #[strum(props(type = "forall 1 'a list -> 'a", throws = "Empty"))]
+    RelationalOnly,
     #[strum(props(p = "Relational", name = "sum", global = true))]
     #[strum(props(type = "forall 1 'a bag -> 'a"))]
     RelationalSum,
@@ -1197,7 +1209,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "extract", throws = "Subscript"))]
     #[strum(props(type = "string * int * int option -> string"))]
     StringExtract,
-    #[strum(props(p = "String", name = "fields"))]
+    #[strum(props(p = "String", name = "fields", global = "fields"))]
     #[strum(props(type = "(char -> bool) -> string -> string list"))]
     StringFields,
     #[strum(props(p = "String", name = ">="))]
@@ -1245,7 +1257,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "string * int * int -> string"))]
     #[strum(props(throws = "Subscript"))]
     StringSubstring,
-    #[strum(props(p = "String", name = "tokens"))]
+    #[strum(props(p = "String", name = "tokens", global = "tokens"))]
     #[strum(props(type = "(char -> bool) -> string -> string list"))]
     StringTokens,
     #[strum(props(p = "String", name = "translate"))]
@@ -1771,7 +1783,7 @@ pub enum BuiltInExn {
     Option,
     #[strum(props(p = "General", explain = "overflow"))]
     Overflow,
-    #[strum(props(p = "General"))]
+    #[strum(props(p = "General", explain = "size"))]
     Size,
     #[strum(props(p = "General"))]
     Span,

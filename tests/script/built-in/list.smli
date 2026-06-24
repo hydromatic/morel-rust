@@ -144,7 +144,7 @@ List.only [2];
 [2].only ();
 > val it = 2 : int
 List.only [1, 2, 3];
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.20
 List.only [];
 > uncaught exception Empty
@@ -325,7 +325,7 @@ List.app (fn x => ignore (x + 2)) [];
 > val it = () : unit
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.app, fn(bind(0) => apply(fnValue General.ignore, argCode apply2(fnValue +, get(0), constant(2)))), tuple())"
+>   "apply2(fnValue List.app, fn(bind(0) => apply(fnValue General.ignore, argCode apply2(fnValue Int.+, get(0), constant(2)))), tuple())"
 >   : string
 
 (*) val mapi : (int * 'a -> 'b) -> 'a list -> 'b list
@@ -347,7 +347,7 @@ List.map (fn x => x + 1) [];
 > val it = [] : int list
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.map, fn(bind(0) => apply2(fnValue +, get(0), constant(1))), tuple())"
+>   "apply2(fnValue List.map, fn(bind(0) => apply2(fnValue Int.+, get(0), constant(1))), tuple())"
 >   : string
 
 (*) map is alias for List.map
@@ -367,7 +367,7 @@ List.mapPartial (fn x => if x mod 2 = 0 then NONE else SOME (x + 1)) [];
 > val it = [] : int list
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.mapPartial, fn(bind(0) => case(apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0)), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply2(fnValue +, get(0), constant(1))))), tuple())"
+>   "apply2(fnValue List.mapPartial, fn(bind(0) => case(apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(2)), constant(0)), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply2(fnValue Int.+, get(0), constant(1))))), tuple())"
 >   : string
 
 (*) val find : ('a -> bool) -> 'a list -> 'a option
@@ -379,7 +379,7 @@ List.find (fn x => x mod 11 = 0) [2,3,5,8,13,21,34];
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.find, fn(bind(0) => apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(11)), constant(0))), tuple(constant(2), constant(3), constant(5), constant(8), constant(13), constant(21), constant(34)))"
+>   "apply2(fnValue List.find, fn(bind(0) => apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(11)), constant(0))), tuple(constant(2), constant(3), constant(5), constant(8), constant(13), constant(21), constant(34)))"
 >   : string
 
 (*) val filter : ('a -> bool) -> 'a list -> 'a list
@@ -393,7 +393,7 @@ List.filter (fn x => x mod 2 = 0) [];
 > val it = [] : int list
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.filter, fn(bind(0) => apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
+>   "apply2(fnValue List.filter, fn(bind(0) => apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
 >   : string
 
 (*) val partition : ('a -> bool) -> 'a list -> 'a list * 'a list
@@ -407,7 +407,7 @@ List.partition (fn x => x mod 2 = 0) [];
 > val it = ([],[]) : int list * int list
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.partition, fn(bind(0) => apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
+>   "apply2(fnValue List.partition, fn(bind(0) => apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
 >   : string
 
 (*) val foldl : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
@@ -423,7 +423,7 @@ List.foldl (fn (a, b) => a - b) 0 [1,2,3,4];
 > val it = 2 : int
 Sys.plan ();
 > val it =
->   "apply(fnValue List.foldl, argCode tuple(fn(bindTuple(bind(0), bind(1)) => apply2(fnValue Int.minus, get(0), get(1))), constant(0), tuple(constant(1), constant(2), constant(3), constant(4))))"
+>   "apply(fnValue List.foldl, argCode tuple(fn(bindTuple(bind(0), bind(1)) => apply2(fnValue Int.-, get(0), get(1))), constant(0), tuple(constant(1), constant(2), constant(3), constant(4))))"
 >   : string
 
 (*) val foldr : ('a * 'b -> 'b) -> 'b -> 'a list -> 'b
@@ -439,7 +439,7 @@ List.foldr (fn (a, b) => a - b) 0 [1,2,3,4];
 > val it = ~2 : int
 Sys.plan ();
 > val it =
->   "apply(fnValue List.foldr, argCode tuple(fn(bindTuple(bind(0), bind(1)) => apply2(fnValue Int.minus, get(0), get(1))), constant(0), tuple(constant(1), constant(2), constant(3), constant(4))))"
+>   "apply(fnValue List.foldr, argCode tuple(fn(bindTuple(bind(0), bind(1)) => apply2(fnValue Int.-, get(0), get(1))), constant(0), tuple(constant(1), constant(2), constant(3), constant(4))))"
 >   : string
 
 (*) val exists : ('a -> bool) -> 'a list -> bool
@@ -455,7 +455,7 @@ List.`exists` (fn x => x mod 2 = 0) [];
 > val it = false : bool
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.exists, fn(bind(0) => apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
+>   "apply2(fnValue List.exists, fn(bind(0) => apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
 >   : string
 
 (*) val all : ('a -> bool) -> 'a list -> bool
@@ -471,7 +471,7 @@ List.all (fn x => x mod 2 = 0) [];
 > val it = true : bool
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.all, fn(bind(0) => apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
+>   "apply2(fnValue List.all, fn(bind(0) => apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), tuple())"
 >   : string
 
 (*) val tabulate : int * (int -> 'a) -> 'a list
@@ -484,11 +484,11 @@ List.tabulate (1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact
 List.tabulate (0, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact end);
 > val it = [] : int list
 List.tabulate (~1, let fun fact n = if n = 0 then 1 else n * fact (n - 1) in fact end);
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.87
 Sys.plan ();
 > val it =
->   "apply(fnValue List.tabulate, argCode tuple(constant(~1), let(recValBindings(slot 0: createClosure(captures(self), body(case(apply2(fnValue Int.eq, get(1), constant(0)), true, constant(1), _, apply2(fnValue Int.times, get(1), applyClosure(fn get(0) arg apply2(fnValue Int.minus, get(1), constant(1)))))))) in get(0)), constant(stdIn:1.1-1.87)))"
+>   "apply(fnValue List.tabulate, argCode tuple(constant(~1), let(recValBindings(slot 0: createClosure(captures(self), body(case(apply2(fnValue =, get(1), constant(0)), true, constant(1), _, apply2(fnValue Int.*, get(1), applyClosure(fn get(0) arg apply2(fnValue Int.-, get(1), constant(1)))))))) in get(0)), constant(stdIn:1.1-1.87)))"
 >   : string
 
 (*) val collate : ('a * 'a -> order) -> 'a list * 'a list -> order
@@ -510,7 +510,7 @@ List.collate (fn (x, y) => if x < y then LESS else if x = y then EQUAL else GREA
 *)
 Sys.plan ();
 > val it =
->   "apply2(fnValue List.collate, fn(bindTuple(bind(0), bind(1)) => case(apply2(fnValue Int.lt, get(0), get(1)), true, constant(LESS), _, case(apply2(fnValue Int.eq, get(0), get(1)), true, constant(EQUAL), _, constant(GREATER)))), tuple(tuple(constant(1), constant(2), constant(3)), tuple()))"
+>   "apply2(fnValue List.collate, fn(bindTuple(bind(0), bind(1)) => case(apply2(fnValue <, get(0), get(1)), true, constant(LESS), _, case(apply2(fnValue =, get(0), get(1)), true, constant(EQUAL), _, constant(GREATER)))), tuple(tuple(constant(1), constant(2), constant(3)), tuple()))"
 >   : string
 
 (*) End list.smli

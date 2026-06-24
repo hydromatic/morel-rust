@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::syntax::parser::append_id;
 use crate::unify::unifier::Term;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
@@ -242,7 +243,12 @@ impl Type {
                     if i > 0 {
                         f.write_str(", ")?;
                     }
-                    write!(f, "{}:{}", name, field_type)?;
+                    // Quote reserved-word field names (e.g. `div`, `mod`,
+                    // `exists`), as morel-java does, but leave symbolic
+                    // operators (`*`, `+`, `<<`) unquoted.
+                    let mut label = String::new();
+                    append_id(&mut label, &name.to_string());
+                    write!(f, "{}:{}", label, field_type)?;
                 }
                 if *progressive {
                     if fields.is_empty() {

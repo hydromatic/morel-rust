@@ -85,7 +85,7 @@ Option.filter (fn x => x mod 2 = 0) 2;
 > val it = SOME 2 : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.filter, fn(bind(0) => apply2(fnValue Int.eq, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), constant(2))"
+>   "apply2(fnValue Option.filter, fn(bind(0) => apply2(fnValue =, apply2(fnValue Int.mod, get(0), constant(2)), constant(0))), constant(2))"
 >   : string
 
 (*) val join : 'a option option -> 'a option
@@ -131,7 +131,7 @@ Option.mapPartial (fn s => if s = "" then NONE else (SOME (String.size s))) (SOM
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.mapPartial, fn(bind(0) => case(apply2(fnValue String.eq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0))))), apply(fnValue Option.some, argCode constant()))"
+>   "apply2(fnValue Option.mapPartial, fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0))))), apply(fnValue Option.some, argCode constant()))"
 >   : string
 
 (*) val compose : ('a -> 'b) * ('c -> 'a option) -> 'c -> 'b option
@@ -154,7 +154,7 @@ Option.compose (String.size,
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.compose, tuple(constant(String.size), fn(bind(0) => case(apply2(fnValue String.eq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.substring, argCode tuple(get(0), constant(0), apply(fnValue String.size, argCode get(0)), constant(stdIn:3.29-3.67))))))), constant())"
+>   "apply2(fnValue Option.compose, tuple(constant(String.size), fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.substring, argCode tuple(get(0), constant(0), apply(fnValue String.size, argCode get(0)), constant(stdIn:3.29-3.67))))))), constant())"
 >   : string
 
 (*) val composePartial : ('a -> 'b option) * ('c -> 'a option) -> 'c -> 'b option
@@ -168,7 +168,7 @@ Option.composePartial (fn i => if i = 0 then NONE else (SOME i),
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.composePartial, tuple(fn(bind(0) => case(apply2(fnValue Int.eq, get(0), constant(0)), true, constant([NONE]), _, apply(fnValue Option.some, argCode get(0)))), fn(bind(0) => case(apply2(fnValue String.eq, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0)))))), constant())"
+>   "apply2(fnValue Option.composePartial, tuple(fn(bind(0) => case(apply2(fnValue =, get(0), constant(0)), true, constant([NONE]), _, apply(fnValue Option.some, argCode get(0)))), fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0)))))), constant())"
 >   : string
 
 (*) End option.smli

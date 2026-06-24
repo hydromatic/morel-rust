@@ -158,7 +158,7 @@ String.`^`;
 > val it = "abcdef" : string
 Sys.plan ();
 > val it =
->   "apply2(fnValue ^, apply2(fnValue ^, apply2(fnValue ^, constant(a), constant(bc)), constant()), constant(def))"
+>   "apply2(fnValue String.^, apply2(fnValue String.^, apply2(fnValue String.^, constant(a), constant(bc)), constant()), constant(def))"
 >   : string
 
 (*) val concat : string list -> string
@@ -226,7 +226,7 @@ String.map (fn c => if c = #"a" then #"A" else if c = #"c" then #"C" else c) "";
 > val it = "" : string
 Sys.plan ();
 > val it =
->   "apply2(fnValue String.map, fn(bind(0) => case(apply2(fnValue Char.eq, get(0), constant(a)), true, constant(A), _, case(apply2(fnValue Char.eq, get(0), constant(c)), true, constant(C), _, get(0)))), constant())"
+>   "apply2(fnValue String.map, fn(bind(0) => case(apply2(fnValue =, get(0), constant(a)), true, constant(A), _, case(apply2(fnValue =, get(0), constant(c)), true, constant(C), _, get(0)))), constant())"
 >   : string
 
 (*) val translate : (char -> string) -> string -> string
@@ -238,7 +238,7 @@ String.translate (fn c => if c = #"a" then "AA" else if c = #"c" then "CCC" else
 > val it = "" : string
 Sys.plan ();
 > val it =
->   "apply2(fnValue String.translate, fn(bind(0) => case(apply2(fnValue Char.eq, get(0), constant(a)), true, constant(AA), _, case(apply2(fnValue Char.eq, get(0), constant(c)), true, constant(CCC), _, constant(-)))), constant())"
+>   "apply2(fnValue String.translate, fn(bind(0) => case(apply2(fnValue =, get(0), constant(a)), true, constant(AA), _, case(apply2(fnValue =, get(0), constant(c)), true, constant(CCC), _, constant(-)))), constant())"
 >   : string
 
 (*) val tokens : (char -> bool) -> string -> string list

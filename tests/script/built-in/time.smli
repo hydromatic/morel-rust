@@ -139,7 +139,7 @@ Time.fmt 12 (Time.fromNanoseconds 123456789);
 > val it = "0.123456789000" : string
 (*) Negative n raises Size.
 Time.fmt (~1) Time.zeroTime;
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.28
 
 Time.fromString "1.5";

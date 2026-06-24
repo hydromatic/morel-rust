@@ -356,7 +356,7 @@ Real.signBit (~nan);
 > val it = false : bool
 Sys.plan ();
 > val it =
->   "apply(fnValue Real.signBit, argCode apply(fnValue Real.negate, argCode constant(NaN)))"
+>   "apply(fnValue Real.signBit, argCode apply(fnValue Real.~, argCode constant(NaN)))"
 >   : string
 Real.signBit (~(~nan));
 > val it = true : bool
@@ -1159,27 +1159,27 @@ Real.fmt (FIX (SOME 3)) (~1.0 / 0.0);
 
 (* Invalid precision raises Size. *)
 Real.fmt (SCI (SOME ~1)) 1.0;
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.29
 Real.fmt (FIX (SOME ~1)) 1.0;
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.29
 Real.fmt (GEN (SOME 0)) 1.0;
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.28
 Real.fmt (GEN (SOME ~1)) 1.0;
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.29
 (* Partial application validates the spec immediately,
  * before the second argument arrives. *)
 Real.fmt (SCI (SOME ~1));
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.25
 Real.fmt (FIX (SOME ~1));
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.25
 Real.fmt (GEN (SOME 0));
-> uncaught exception Size
+> uncaught exception Size [size]
 >   raised at: stdIn:1.1-1.24
 Real.fmt EXACT;
 > val it = fn : real -> string

@@ -2495,6 +2495,7 @@ pub enum EagerF1 {
     RealTrunc,
     RelationalMax,
     RelationalMin,
+    RelationalOnly,
     SysParseTree,
     SysPlanEx,
     SysShow,
@@ -2540,7 +2541,7 @@ impl EagerF1 {
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             BagHd => List::hd(a0.expect_list(), span.unwrap()),
-            BagOnly | ListOnly => {
+            BagOnly | ListOnly | RelationalOnly => {
                 Relational::only(a0.expect_list(), span.unwrap())
             }
             BagTl => List::tl(a0.expect_list(), span.unwrap()),
@@ -2750,6 +2751,8 @@ pub enum Eager1 {
     EitherProj,
     ExnFail,
     FnId,
+    GeneralExnMessage,
+    GeneralExnName,
     GeneralIgnore,
     IntFromInt,
     IntFromLarge,
@@ -2969,6 +2972,21 @@ impl Eager1 {
             EitherProj => Either::proj(&a0),
             ExnFail => BuiltInFunction::ExnFail.constructor_val(a0),
             FnId => a0,
+            GeneralExnMessage => {
+                let (exn, payload) = exn_from_val(&a0);
+                let message = if let Some(explain) = exn.explain() {
+                    explain.to_string()
+                } else if let Some(p) = payload {
+                    format!("{}: {}", exn, p)
+                } else {
+                    exn.to_string()
+                };
+                Val::String(message)
+            }
+            GeneralExnName => {
+                let (exn, _) = exn_from_val(&a0);
+                Val::String(exn.to_string())
+            }
             GeneralIgnore => Val::Unit,
             IntFromInt => a0,
             IntFromLarge => a0,
@@ -3254,6 +3272,7 @@ pub enum Eager2 {
     FnConst,
     FnEqual,
     FnNotEqual,
+    GeneralBefore,
     IntCompare,
     IntDiv,
     IntEq,
@@ -3323,11 +3342,7 @@ pub enum Eager2 {
 
 impl Eager2 {
     fn plan(&self) -> String {
-        match self {
-            Eager2::IntPlus => "+".to_string(),
-            Eager2::StringCaret => "^".to_string(),
-            _ => camel_to_dotted(&self.to_string()),
-        }
+        camel_to_dotted(&self.to_string())
     }
 
     // Passing Val by value is OK because it is small.
@@ -3378,6 +3393,8 @@ impl Eager2 {
             FnConst => a0,
             FnEqual => Val::Bool(a0 == a1),
             FnNotEqual => Val::Bool(a0 != a1),
+            // `a before b` evaluates both, returns the first.
+            GeneralBefore => a0,
             IntCompare => {
                 Val::Order(Int::compare(a0.expect_int(), a1.expect_int()))
             }
@@ -4311,11 +4328,42 @@ impl Custom {
     }
 }
 
+/// Maps an operator built-in's enum-variant name to the symbolic name used
+/// in plan dumps, matching Standard ML's spelling. Arithmetic operators keep
+/// their structure prefix (`Int.+`, `Real.~`); equality and comparison
+/// operators are polymorphic and render bare (`=`, `<`). Returns `None` for
+/// non-operator built-ins, which fall back to [`camel_to_dotted`].
+fn operator_plan_name(variant: &str) -> Option<&'static str> {
+    Some(match variant {
+        // Arithmetic: structure-qualified symbol.
+        "IntPlus" => "Int.+",
+        "IntMinus" => "Int.-",
+        "IntTimes" => "Int.*",
+        "IntNegate" => "Int.~",
+        "RealPlus" => "Real.+",
+        "RealMinus" => "Real.-",
+        "RealTimes" => "Real.*",
+        "RealNegate" => "Real.~",
+        "StringCaret" => "String.^",
+        // Equality and comparison: polymorphic, rendered bare.
+        "IntEq" | "RealEq" | "StringEq" | "CharEq" | "BoolEq" => "=",
+        "IntNe" | "RealNe" | "StringNe" | "CharNe" | "BoolNe" => "<>",
+        "IntLt" | "RealLt" | "StringLt" | "CharLt" => "<",
+        "IntGt" | "RealGt" | "StringGt" | "CharGt" => ">",
+        "IntLe" | "RealLe" | "StringLe" | "CharLe" => "<=",
+        "IntGe" | "RealGe" | "StringGe" | "CharGe" => ">=",
+        _ => return None,
+    })
+}
+
 /// Converts a camel-case enum variant name to a dotted function name.
 ///
 /// For example, `camel_to_dotted("StringFields")` returns `"String.fields"`;
 /// `camel_to_dotted("StringConcatWith")` returns `"String.concatWith"`.
 fn camel_to_dotted(s: &str) -> String {
+    if let Some(op) = operator_plan_name(s) {
+        return op.to_string();
+    }
     let mut result = String::new();
     let chars: Vec<char> = s.chars().collect();
     let mut dot_inserted = false;
@@ -4557,6 +4605,9 @@ fn build_library() -> Lib {
     Custom::GNegate.implements(&mut b, GNegate);
     Custom::GPlus.implements(&mut b, GPlus);
     Custom::GTimes.implements(&mut b, GTimes);
+    Eager2::GeneralBefore.implements(&mut b, GeneralBefore);
+    Eager1::GeneralExnMessage.implements(&mut b, GeneralExnMessage);
+    Eager1::GeneralExnName.implements(&mut b, GeneralExnName);
     Eager1::GeneralIgnore.implements(&mut b, GeneralIgnore);
     EagerF2::FnO.implements(&mut b, GeneralO);
     EagerF1::IntAbs.implements(&mut b, IntAbs);
@@ -4762,6 +4813,7 @@ fn build_library() -> Lib {
     EagerF1::RelationalMax.implements(&mut b, RelationalMax);
     EagerF1::RelationalMin.implements(&mut b, RelationalMin);
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
+    EagerF1::RelationalOnly.implements(&mut b, RelationalOnly);
     Eager1::RelationalSum.implements(&mut b, RelationalSum);
     Eager2::StringCaret.implements(&mut b, StringCaret);
     EagerF2::StringCollate.implements(&mut b, StringCollate);

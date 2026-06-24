@@ -2203,12 +2203,14 @@ impl<'a> Resolver<'a> {
         arg_type: &Type,
     ) -> BuiltInFunction {
         use BuiltInFunction::{
-            IntDiv, IntGe, IntGt, IntLe, IntLt, IntMinus, IntMod, IntPlus,
-            IntTimes, ListAt, ListCons, RealDivide, RealGe, RealGt, RealLe,
-            RealLt, RealMinus, RealPlus, RealTimes, StringCaret, StringGe,
-            StringGt, StringLe, StringLt,
+            GeneralO, IntDiv, IntGe, IntGt, IntLe, IntLt, IntMinus, IntMod,
+            IntPlus, IntTimes, ListAt, ListCons, RealDivide, RealGe, RealGt,
+            RealLe, RealLt, RealMinus, RealPlus, RealTimes, StringCaret,
+            StringGe, StringGt, StringLe, StringLt,
         };
         match (op_name, arg_type) {
+            // Function composition is polymorphic over its operand types.
+            ("o", _) => GeneralO,
             // Integer operators
             ("+", Type::Primitive(PrimitiveType::Int)) => IntPlus,
             ("-", Type::Primitive(PrimitiveType::Int)) => IntMinus,

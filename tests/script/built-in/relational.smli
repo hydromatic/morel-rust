@@ -27,10 +27,11 @@ Sys.set ("stringDepth", ~1);
 
 Relational;
 > val it =
->   {compare=fn,count=fn,empty=fn,iterate=fn,max=fn,min=fn,nonEmpty=fn,sum=fn}
+>   {compare=fn,count=fn,empty=fn,iterate=fn,max=fn,min=fn,nonEmpty=fn,only=fn,
+>    sum=fn}
 >   : {compare:'a * 'a -> order, count:'b bag -> int, empty:'c bag -> bool,
 >      iterate:'d -> ('d * 'd -> 'd) -> 'd, max:'e bag -> 'e, min:'f bag -> 'f,
->      nonEmpty:'g bag -> bool, sum:'h bag -> 'h}
+>      nonEmpty:'g bag -> bool, only:'h list -> 'h, sum:'i bag -> 'i}
 
 (* Descending:
      datatype descending = DESC of 'a

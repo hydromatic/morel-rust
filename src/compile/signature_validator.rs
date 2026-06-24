@@ -207,11 +207,8 @@ impl SignatureValidator {
 /// as the gaps close.
 const SKIP_SPEC_PAIRS: &[(&str, &str)] = &[
     // lint: sort until '#}' where '##\('
-    ("Bag", "nth"),            // exposed as List.nth
-    ("General", "before"),     // not yet implemented
-    ("General", "exnMessage"), // not yet implemented
-    ("General", "exnName"),    // not yet implemented
-    ("Relational", "only"),    // exposed as Bag.only overload
+    ("Bag", "nth"),         // exposed as List.nth
+    ("Relational", "only"), // exposed as Bag.only overload
 ];
 
 /// Walks a parsed `.sig` statement and returns the contained signature
