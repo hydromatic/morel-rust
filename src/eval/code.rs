@@ -2382,9 +2382,24 @@ impl EagerF0 {
                 // the environment, including built-in structures.
                 let mut pairs: Vec<(String, String)> = Vec::new();
 
+                // Compile the `excludeStructures` regex; structures whose
+                // name matches it (by default the synthetic `Test`
+                // structure) are hidden from the environment. An empty
+                // regex disables filtering.
+                let exclude = r
+                    .session
+                    .config
+                    .exclude_structures
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .and_then(|s| regex::Regex::new(s).ok());
+
                 // Add all built-in structures.
                 for record in BuiltInRecord::iter() {
                     let name = record.name();
+                    if exclude.as_ref().is_some_and(|re| re.is_match(name)) {
+                        continue;
+                    }
                     if let Some(ty) = record.get_type() {
                         pairs.push((name.to_string(), format!("{}", ty)));
                     }
@@ -2865,6 +2880,12 @@ pub enum Eager1 {
     StringImplode,
     StringSize,
     StringStr,
+    TestBagSum,
+    TestFoo,
+    TestListSum,
+    TestOverCountBag,
+    TestOverCountList,
+    TestOverSum,
     TimeFromMicroseconds,
     TimeFromMilliseconds,
     TimeFromNanoseconds,
@@ -3250,6 +3271,18 @@ impl Eager1 {
                 let c = a0.expect_char();
                 Val::String(c.to_string())
             }
+            TestBagSum | TestListSum | TestOverSum => {
+                // Sum the (numeric) collection, like `Relational.sum`.
+                let items = a0.expect_list();
+                if matches!(items.first(), Some(Val::Real(_))) {
+                    Val::Real(items.iter().map(Val::expect_real).sum())
+                } else {
+                    Val::Int(items.iter().map(Val::expect_int).sum())
+                }
+            }
+            TestFoo => a0.clone(),
+            TestOverCountBag => Val::Int(a0.expect_list().len() as i32),
+            TestOverCountList => Val::Int(a0.expect_list().len() as i32 + 1000),
             TimeFromMicroseconds => time::from_microseconds(a0.expect_int()),
             TimeFromMilliseconds => time::from_milliseconds(a0.expect_int()),
             TimeFromNanoseconds => time::from_nanoseconds(a0.expect_int()),
@@ -5067,6 +5100,12 @@ fn build_library() -> Lib {
     EagerF1::SysShow.implements(&mut b, SysShow);
     EagerF0::SysShowAll.implements(&mut b, SysShowAll);
     EagerF1::SysUnset.implements(&mut b, SysUnset);
+    Eager1::TestBagSum.implements(&mut b, TestBagSum);
+    Eager1::TestFoo.implements(&mut b, TestFoo);
+    Eager1::TestListSum.implements(&mut b, TestListSum);
+    Eager1::TestOverCountBag.implements(&mut b, TestOverCountBag);
+    Eager1::TestOverCountList.implements(&mut b, TestOverCountList);
+    Eager1::TestOverSum.implements(&mut b, TestOverSum);
     Eager2::TimeAdd.implements(&mut b, TimeAdd);
     Eager2::TimeCompare.implements(&mut b, TimeCompare);
     EagerF2::TimeFmt.implements(&mut b, TimeFmt);

@@ -47,7 +47,7 @@ use crate::syntax::ast::{
 };
 use crate::syntax::parser;
 use crate::unify::unifier::Var;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
@@ -260,6 +260,11 @@ pub struct Resolver<'a> {
     /// (or contains) `self`, so the postfix dispatcher can rewrite
     /// `x.name arg` into a direct application to `name`.
     self_fns: RefCell<HashSet<String>>,
+    /// Collection kind (`Some(true)` = bag, `Some(false)` = list) of the
+    /// input to the `compute`/`group`/`into` step currently being resolved.
+    /// Used to dispatch an overloaded aggregate function (e.g.
+    /// `Test.overCount`) to its bag or list variant. `None` elsewhere.
+    aggregate_input_is_bag: Cell<Option<bool>>,
 }
 
 /// Builds `F elem`, where `F` is the functor of `map` (`ListMap`, `BagMap`,
@@ -391,6 +396,7 @@ impl<'a> Resolver<'a> {
             base_line,
             errors: RefCell::new(Vec::new()),
             self_fns: RefCell::new(HashSet::new()),
+            aggregate_input_is_bag: Cell::new(None),
         }
     }
 
@@ -580,11 +586,18 @@ impl<'a> Resolver<'a> {
             Span::from_pest_span(&expr.span.to_pest_span(), self.base_line);
         match &expr.kind {
             // lint: sort until '#}' where '##ExprKind::'
-            ExprKind::Aggregate(a0, a1) => CoreExpr::Aggregate(
-                t,
-                Box::new(self.resolve_expr(a0)),
-                Box::new(self.resolve_expr(a1)),
-            ),
+            ExprKind::Aggregate(a0, a1) => {
+                let fn_core = self
+                    .aggregate_input_is_bag
+                    .get()
+                    .and_then(|is_bag| self.dispatch_collection_fn(a0, is_bag))
+                    .unwrap_or_else(|| self.resolve_expr(a0));
+                CoreExpr::Aggregate(
+                    t,
+                    Box::new(fn_core),
+                    Box::new(self.resolve_expr(a1)),
+                )
+            }
             ExprKind::AndAlso(a0, a1) => {
                 self.call2(t, BuiltInFunction::BoolAndAlso, &span, a0, a1)
             }
@@ -1128,6 +1141,34 @@ impl<'a> Resolver<'a> {
             expr.get_type(self.type_map).as_deref(),
             Some(Type::Primitive(PrimitiveType::Word))
         )
+    }
+
+    /// When an aggregate function `a0 over a1` is a qualified structure
+    /// member that has both a bag and a list variant (e.g.
+    /// `Test.overCount`), choose the variant matching the input
+    /// collection's kind, mirroring morel-java's rule "if both list and
+    /// bag forms exist, choose the one that matches the input collection
+    /// type". Returns `None` (so normal resolution applies) otherwise.
+    fn dispatch_collection_fn(
+        &self,
+        fn_expr: &Expr,
+        input_is_bag: bool,
+    ) -> Option<CoreExpr> {
+        // `fn_expr` must be `Structure.member`, i.e.
+        // `Apply(RecordSelector(member), Identifier(structure))`.
+        let ExprKind::Apply(func, recv) = &fn_expr.kind else {
+            return None;
+        };
+        let ExprKind::RecordSelector(member) = &func.kind else {
+            return None;
+        };
+        let ExprKind::Identifier(structure) = &recv.kind else {
+            return None;
+        };
+        let (bag_fn, list_fn) =
+            library::aggregate_collection_variants(structure, member)?;
+        let chosen = if input_is_bag { bag_fn } else { list_fn };
+        Some(CoreExpr::Literal(chosen.get_type(), Val::Fn(chosen)))
     }
 
     fn call1(
@@ -1763,8 +1804,12 @@ impl<'a> Resolver<'a> {
                 &self.type_map.datatype_constructors,
             );
 
-            // Apply the function to the query result.
-            let func = self.resolve_expr(func_expr);
+            // Apply the function to the query result. If the function is an
+            // overloaded aggregate (e.g. `Test.overCount`), dispatch it to
+            // the variant matching the query's collection kind.
+            let func = self
+                .dispatch_collection_fn(func_expr, !builder.is_ordered())
+                .unwrap_or_else(|| self.resolve_expr(func_expr));
 
             // Get the result type from the type_map for the
             // function application.
@@ -1805,7 +1850,9 @@ impl<'a> Resolver<'a> {
         match &step.kind {
             // lint: sort until '#}' where '##AstStepKind::'
             AstStepKind::Compute(expr) => {
+                self.aggregate_input_is_bag.set(Some(!builder.is_ordered()));
                 let resolved_expr = self.resolve_expr(expr);
+                self.aggregate_input_is_bag.set(None);
                 builder.compute(resolved_expr);
             }
             AstStepKind::Distinct => {
@@ -1820,9 +1867,12 @@ impl<'a> Resolver<'a> {
                 // Resolve the group key expression.
                 let resolved_key = self.resolve_expr(key_expr);
 
-                // Resolve the aggregate expression if present.
+                // Resolve the aggregate expression if present. Its `over`
+                // aggregates see the pre-group collection kind.
+                self.aggregate_input_is_bag.set(Some(!builder.is_ordered()));
                 let resolved_aggregate =
                     aggregate_expr.as_ref().map(|e| self.resolve_expr(e));
+                self.aggregate_input_is_bag.set(None);
 
                 // Add the group step to the builder.
                 builder.group(resolved_key, resolved_aggregate);

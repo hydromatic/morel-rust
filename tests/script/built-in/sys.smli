@@ -311,20 +311,20 @@ map
   (Sys.showAll ());
 > val it =
 >   [("banner",SOME "?"),("directory",SOME "?"),("echo",SOME "false"),
->    ("hybrid",SOME "true"),("idempotent",SOME "false"),
->    ("inlinePassCount",SOME "5"),("lineWidth",SOME "79"),
->    ("matchCoverageEnabled",SOME "true"),("matchStrict",SOME "false"),
->    ("mode",SOME "EVALUATE"),("now",SOME "2024-01-01T00:00:00Z"),
->    ("optionalInt",NONE),("output",SOME "CLASSIC"),("printDepth",SOME "5"),
->    ("printLength",SOME "12"),("productName",SOME "morel-rust"),
->    ("productVersion",SOME "?"),("relationalize",SOME "false"),
->    ("scriptDirectory",SOME "?"),("showBanner",SOME "true"),
->    ("stringDepth",SOME "70"),("stringFold",NONE),("timeZone",SOME "UTC")]
->   : (string * string option) list
+>    ("excludeStructures",SOME "^Test$"),("hybrid",SOME "true"),
+>    ("idempotent",SOME "false"),("inlinePassCount",SOME "5"),
+>    ("lineWidth",SOME "79"),("matchCoverageEnabled",SOME "true"),
+>    ("matchStrict",SOME "false"),("mode",SOME "EVALUATE"),
+>    ("now",SOME "2024-01-01T00:00:00Z"),("optionalInt",NONE),
+>    ("output",SOME "CLASSIC"),("printDepth",SOME "5"),("printLength",SOME "12"),
+>    ("productName",SOME "morel-rust"),("productVersion",SOME "?"),
+>    ("relationalize",SOME "false"),("scriptDirectory",SOME "?"),
+>    ("showBanner",SOME "true"),("stringDepth",SOME "70"),("stringFold",NONE),
+>    ("timeZone",SOME "UTC")] : (string * string option) list
 List.length (Sys.showAll ());
-> val it = 23 : int
+> val it = 24 : int
 List.length (showAll ());
-> val it = 23 : int
+> val it = 24 : int
 Sys.plan ();
 > val it = "apply(fnValue List.length, argCode apply0(fnValue Sys.showAll))"
 >   : string

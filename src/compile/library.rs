@@ -1356,6 +1356,32 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "unset", global = true))]
     #[strum(props(type = "string -> unit"))]
     SysUnset,
+    /// Test-only aggregate `Test.bagSum`, of type `'a bag -> 'a`.
+    #[strum(props(p = "Test", name = "bagSum"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a"))]
+    TestBagSum,
+    /// Test-only function `Test.foo`, of type `int -> int`.
+    #[strum(props(p = "Test", name = "foo", type = "int -> int"))]
+    TestFoo,
+    /// Test-only aggregate `Test.listSum`, of type `'a list -> 'a`.
+    #[strum(props(p = "Test", name = "listSum"))]
+    #[strum(props(type = "forall 1 'a list -> 'a"))]
+    TestListSum,
+    /// Test-only overloaded aggregate `Test.overCount`. The bag variant
+    /// returns the count; the list variant returns count + 1000, so tests
+    /// can verify which variant the `over`/`into` aggregate dispatch
+    /// selected for the input collection kind.
+    #[strum(props(p = "Test", name = "overCount", global = "overCount"))]
+    #[strum(props(type = "forall 1 'a bag -> int"))]
+    TestOverCountBag,
+    #[strum(props(p = "Test", name = "overCount", global = "overCount"))]
+    #[strum(props(type = "forall 1 'a list -> int"))]
+    TestOverCountList,
+    /// Test-only aggregate `Test.overSum`, overloaded over both bag and
+    /// list; both variants sum.
+    #[strum(props(p = "Test", name = "overSum"))]
+    #[strum(props(type = "forall 1 'a bag -> 'a"))]
+    TestOverSum,
     /// `Time.+ (t1, t2)`: time addition.
     #[strum(props(p = "Time", name = "+", type = "time * time -> time"))]
     TimeAdd,
@@ -1875,6 +1901,8 @@ pub enum BuiltInRecord {
     StringCvt,
     #[strum(props(name = "Sys"))]
     Sys,
+    #[strum(props(name = "Test"))]
+    Test,
     #[strum(props(name = "Time"))]
     Time,
     #[strum(props(name = "Variant"))]
@@ -2203,6 +2231,46 @@ static BY_NAME: LazyLock<BTreeMap<&str, BuiltIn>> = LazyLock::new(|| {
     }
     map
 });
+
+/// Returns the bag and list variants of an overloaded aggregate structure
+/// member (e.g. `Test.overCount`), if both exist. An aggregate applied via
+/// `over`/`into` dispatches to the variant matching the input collection's
+/// kind, mirroring morel-java's rule "if both list and bag forms exist,
+/// choose the one that matches the input collection type".
+pub(crate) fn aggregate_collection_variants(
+    structure: &str,
+    member: &str,
+) -> Option<(BuiltInFunction, BuiltInFunction)> {
+    let mut bag_fn = None;
+    let mut list_fn = None;
+    for f in BuiltInFunction::iter() {
+        if f.parent() == Some(structure) && f.name() == member {
+            match collection_param_kind(&f.get_type()) {
+                Some(true) => bag_fn = Some(f),
+                Some(false) => list_fn = Some(f),
+                None => {}
+            }
+        }
+    }
+    Some((bag_fn?, list_fn?))
+}
+
+/// For a function type `'a bag -> _` returns `Some(true)`, for `'a list -> _`
+/// returns `Some(false)`; otherwise `None`. Looks through a `forall`.
+fn collection_param_kind(t: &Type) -> Option<bool> {
+    let fn_type = match t {
+        Type::Forall(inner, _) => inner.as_ref(),
+        other => other,
+    };
+    match fn_type {
+        Type::Fn(param, _) => match param.as_ref() {
+            Type::Bag(_) => Some(true),
+            Type::List(_) => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
 
 pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
     LIBRARY.with(|lib| {

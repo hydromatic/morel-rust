@@ -298,6 +298,7 @@ impl Session {
 /// Configuration of a [Session].
 pub struct Config {
     pub directory: Option<Rc<PathBuf>>,
+    pub exclude_structures: Option<Rc<String>>,
     pub hybrid: Option<bool>,
     pub inline_pass_count: Option<i32>,
     pub now: Option<Rc<String>>,
@@ -313,6 +314,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             directory: None,
+            exclude_structures: Some(Rc::new(String::from("^Test$"))),
             hybrid: Some(false),
             inline_pass_count: Some(5),
             now: None,

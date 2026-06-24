@@ -294,6 +294,12 @@ impl FromBuilder {
         StepEnv::new(self.bindings.clone(), self.atom, ordered)
     }
 
+    /// Returns whether the collection after the most recent step is
+    /// ordered (a `list`); otherwise it is an unordered `bag`.
+    pub(crate) fn is_ordered(&self) -> bool {
+        self.steps.last().is_none_or(|s| s.env.ordered)
+    }
+
     /// Rewrites references to the `current` pseudo-field in a step expression
     /// into a reference to the single atom binding currently in scope, so that
     /// `current` and the atom's implicit-label name (e.g. `deptno` after

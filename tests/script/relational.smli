@@ -2415,6 +2415,9 @@ group {} compute {sumId = sum over e.id};
 from (k, v) in [(1, 5), (1, 6), (2, 7), (2, 10)]
 group k compute {x = (fn vs => k + List.length vs) over v};
 > val it = [{k=1,x=3},{k=2,x=4}] : {k:int, x:int} list
+from (k, v) in [(1, 5), (1, 6), (2, 7), (2, 10)]
+  group {k2 = k} compute {x = (fn vs => k2 + List.length vs) over v};
+> val it = [{k2=1,x=3},{k2=2,x=4}] : {k2:int, x:int} list
 
 from (x, y, z) in [("a", "p", "e"), ("m", "a", "n"), ("a", "l", "e"), ("a", "w", "e")]
   group x compute {z = (fn ys => concat (x :: ys)) over y};

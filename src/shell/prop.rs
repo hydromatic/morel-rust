@@ -304,6 +304,17 @@ define_props! {
         required: true,
     },
 
+    ExcludeStructures => {
+        doc: "String property 'excludeStructures' is a regular expression \
+               that controls which built-in structures are excluded from \
+               the environment. A structure whose name matches the regex \
+               is excluded. Default is '^Test$', which excludes the 'Test' \
+               structure.",
+        camel_name: "excludeStructures",
+        default: Some(PropVal::String(Rc::new(String::from("^Test$")))),
+        required: true,
+    },
+
     Hybrid => {
         doc: "Boolean property 'hybrid' controls whether to try to create a \
                hybrid execution plan that uses Apache Calcite relational \
@@ -588,7 +599,7 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 23);
+        assert_eq!(all_props.len(), 24);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
         assert!(all_props.contains(&Prop::Now));

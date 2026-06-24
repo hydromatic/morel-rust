@@ -472,6 +472,17 @@ impl Shell {
     ) -> Result<(), Error> {
         match prop {
             // lint: sort until '#}' where '##[^ }]'
+            "excludeStructures" => {
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.session.borrow_mut().config.exclude_structures =
+                    Some(Rc::new(s));
+                Ok(())
+            }
             "hybrid" => {
                 self.session.borrow_mut().config.hybrid =
                     Some(val.maybe_bool().ok_or_else(|| {
@@ -606,6 +617,12 @@ impl Shell {
     pub(crate) fn unset_prop(&mut self, prop: &str) -> Result<(), Error> {
         match prop {
             // lint: sort until '#}' where '##[^ }]'
+            "excludeStructures" => {
+                // Required property: unset reverts to the default regex.
+                self.session.borrow_mut().config.exclude_structures =
+                    Some(Rc::new(String::from("^Test$")));
+                Ok(())
+            }
             "hybrid" => {
                 self.session.borrow_mut().config.hybrid = None;
                 Ok(())
