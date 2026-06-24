@@ -202,6 +202,8 @@ Bag.drop (bag [1,2,3], 0);
 > val it = [1,2,3] : int bag
 Bag.drop (bag [1,2,3], 1);
 > val it = [2,3] : int bag
+(bag [1,2,3]).drop 1;
+> val it = [2,3] : int bag
 Bag.drop (bag [1,2,3], 3);
 > val it = [] : int bag
 Sys.plan ();

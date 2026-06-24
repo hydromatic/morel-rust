@@ -62,6 +62,8 @@ String.size;
 > val it = fn : string -> int
 String.size "abc";
 > val it = 3 : int
+"abc".size ();
+> val it = 3 : int
 String.size "";
 > val it = 0 : int
 Sys.plan ();
@@ -71,6 +73,8 @@ Sys.plan ();
 String.sub;
 > val it = fn : string * int -> char
 String.sub("abc", 0);
+> val it = #"a" : char
+"abc".sub 0;
 > val it = #"a" : char
 String.sub("abc", 2);
 > val it = #"c" : char
@@ -126,6 +130,8 @@ Sys.plan ();
 String.substring;
 > val it = fn : string * int * int -> string
 String.substring("hello, world", 2, 7);
+> val it = "llo, wo" : string
+"hello, world".substring (2, 7);
 > val it = "llo, wo" : string
 String.substring("hello, world", 0, 1);
 > val it = "h" : string

@@ -95,12 +95,16 @@ Char.ord;
 > val it = fn : char -> int
 Char.ord #"A";
 > val it = 65 : int
+#"A".ord ();
+> val it = 65 : int
 
 (* [succ c] returns the character immediately following c, or raises
    Chr if c = maxChar. *)
 Char.succ;
 > val it = fn : char -> char
 Char.succ #"A";
+> val it = #"B" : char
+#"A".succ ();
 > val it = #"B" : char
 Char.succ (chr 254);
 > val it = #"\255" : char
@@ -256,6 +260,8 @@ Char.toLower;
 > val it = fn : char -> char
 Char.toLower #"A";
 > val it = #"a" : char
+#"A".toLower ();
+> val it = #"a" : char
 Char.toLower #"a";
 > val it = #"a" : char
 Char.toLower #" ";
@@ -364,6 +370,8 @@ Char.fromString "\\009";
 Char.toString;
 > val it = fn : char -> string
 Char.toString #"A";
+> val it = "A" : string
+#"A".toString ();
 > val it = "A" : string
 Char.toString #"\\";
 > val it = "\\\\" : string

@@ -52,6 +52,8 @@ Sys.plan ();
 (*) val isSome : 'a option -> bool
 Option.isSome (SOME 1);
 > val it = true : bool
+(SOME 1).isSome ();
+> val it = true : bool
 Option.isSome NONE;
 > val it = false : bool
 Sys.plan ();

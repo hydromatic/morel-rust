@@ -77,6 +77,8 @@ Int.compare;
 > val it = fn : int * int -> order
 Int.compare (4, 3);
 > val it = GREATER : order
+4.compare 3;
+> val it = GREATER : order
 Int.`div`;
 > val it = fn : int * int -> int
 Int.`div` (14, 3);
@@ -119,11 +121,15 @@ Int.max;
 > val it = fn : int * int -> int
 Int.max (4, 3);
 > val it = 4 : int
+4.max 3;
+> val it = 4 : int
 Int.maxInt;
 > val it = SOME 2147483647 : int option
 Int.min;
 > val it = fn : int * int -> int
 Int.min (4, 3);
+> val it = 3 : int
+4.min 3;
 > val it = 3 : int
 Int.`mod`;
 > val it = fn : int * int -> int
@@ -177,6 +183,8 @@ Int.sign;
 > val it = fn : int -> int
 Int.sign ~3;
 > val it = ~1 : int
+(~3).sign ();
+> val it = ~1 : int
 Int.toInt;
 > val it = fn : int -> int
 Int.toInt 3;
@@ -188,6 +196,8 @@ Int.toLarge 3;
 Int.toString;
 > val it = fn : int -> string
 Int.toString ~345;
+> val it = "~345" : string
+(~345).toString ();
 > val it = "~345" : string
 
 (* Side-by-side comparison of how each Int.fmt radix renders a range of

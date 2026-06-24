@@ -45,7 +45,13 @@ regions by either:
 
 ### Verifying
 
-Run `/usr/local/bin/fullMake --no-clean` and confirm it passes
+Run `/usr/local/bin/fullMake --no-clean` and confirm it passes.
+
+A propagation must move every changed `.smli` section literally,
+adding any that do not yet exist — do not adapt or skip a section
+because the implementation is hard. Gate this with
+`etc/check-convergence.py HEAD`, which fails if any `.smli` file
+diverged further from morel-java. Both it and `fullMake` must pass
 before committing.
 
 ### Commit message

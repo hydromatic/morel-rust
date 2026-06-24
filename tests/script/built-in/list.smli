@@ -64,7 +64,11 @@ List.null;
 > val it = fn : 'a list -> bool
 List.null [];
 > val it = true : bool
+[].null ();
+> val it = true : bool
 List.null [1];
+> val it = false : bool
+[1].null ();
 > val it = false : bool
 Sys.plan ();
 > val it = "apply(fnValue List.null, argCode tuple(constant(1)))" : string
@@ -75,6 +79,8 @@ List.length;
 List.length [];
 > val it = 0 : int
 List.length [1,2];
+> val it = 2 : int
+[1,2].length ();
 > val it = 2 : int
 Sys.plan ();
 > val it = "apply(fnValue List.length, argCode tuple(constant(1), constant(2)))"
@@ -109,6 +115,8 @@ List.hd;
 > val it = fn : 'a list -> 'a
 List.hd [1,2,3];
 > val it = 1 : int
+[1,2,3].hd ();
+> val it = 1 : int
 List.hd [];
 > uncaught exception Empty
 >   raised at: stdIn:1.1-1.11
@@ -119,6 +127,8 @@ Sys.plan ();
 List.tl;
 > val it = fn : 'a list -> 'a list
 List.tl [1,2,3];
+> val it = [2,3] : int list
+[1,2,3].tl ();
 > val it = [2,3] : int list
 List.tl [];
 > uncaught exception Empty
@@ -171,6 +181,8 @@ List.nth;
 > val it = fn : 'a list * int -> 'a
 List.nth ([1,2,3], 2);
 > val it = 3 : int
+[1,2,3].nth 2;
+> val it = 3 : int
 List.nth ([1], 0);
 > val it = 1 : int
 List.nth ([1,2,3], 3);
@@ -211,6 +223,8 @@ List.drop ([1,2,3], 0);
 > val it = [1,2,3] : int list
 List.drop ([1,2,3], 1);
 > val it = [2,3] : int list
+[1,2,3].drop 1;
+> val it = [2,3] : int list
 List.drop ([1,2,3], 3);
 > val it = [] : int list
 Sys.plan ();
@@ -222,6 +236,8 @@ Sys.plan ();
 List.rev;
 > val it = fn : 'a list -> 'a list
 List.rev [1,2,3];
+> val it = [3,2,1] : int list
+[1,2,3].rev ();
 > val it = [3,2,1] : int list
 List.rev [2,1];
 > val it = [1,2] : int list

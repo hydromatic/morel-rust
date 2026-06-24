@@ -71,6 +71,22 @@ g 5;
 > val it = ~2147483648 : int
 2147483647;
 > val it = 2147483647 : int
+1.0;
+> val it = 1 : real
+0.0;
+> val it = 0 : real
+~0.0;
+> val it = ~0 : real
+~2.0;
+> val it = ~2 : real
+1.5;
+> val it = 1.5 : real
+1.0e10;
+> val it = 1E10 : real
+1.5e9;
+> val it = 1.5E9 : real
+(Real.posInf / Real.posInf, Real.posInf, Real.negInf, 0.0, ~0.0);
+> val it = (nan,inf,~inf,0,~0) : real * real * real * real * real
 "a string";
 > val it = "a string" : string
 "a \"quoted\" string\\with backslash";
@@ -967,24 +983,33 @@ in
   x + y
 end;
 > val it = 3 : int
-
+(* Set 'it' to a value of a distinct type before the next tests, so
+ * that the assertions that follow show whether the val declarations
+ * leave 'it' alone. *)
+"composite";
+> val it = "composite" : string
 val (x, y) = (1, 2);
 > val x = 1 : int
 > val y = 2 : int
+(*) Composite val declarations do not assign 'it'.
 it;
-> val it = 3 : int
+> val it = "composite" : string
 val (x, 2) = (1, 2);
 > val x = 1 : int
 it;
-> val it = 3 : int
+> val it = "composite" : string
 val h :: t = [1, 2, 3];
 > val h = 1 : int
 > val t = [2,3] : int list
 it;
-> val it = 3 : int
+> val it = "composite" : string
+(*) Empty (unit) value declarations do not assign 'it'.
+val () = ();
+it;
+> val it = "composite" : string
 val _ = 4;
 it;
-> val it = 3 : int
+> val it = "composite" : string
 
 val SOME i = SOME 1;
 > val i = 1 : int
@@ -1360,6 +1385,11 @@ val r = {name = "test", values = bag [10, 20, 30]};
 SOME (bag [5, 10]);
 > val it = SOME ([10,5]) : int bag option
 
+(* bag resulting from group-by (a common source of ordering issues);
+ * elements reordered *)
+from i in bag [1, 1, 2, 3, 2, 1] group i compute count over ();
+> val it = [{count=1,i=3},{count=3,i=1},{count=2,i=2}] : {count:int, i:int} bag
+
 (* long record values in a bag that wrap across lines;
  * extra whitespace in expected output *)
 bag [{a="aaaaaaaaaa", b="bbbbbbbbbb", c="cccccccccc", d="dddddddddd"}];
@@ -1372,6 +1402,14 @@ bag [{name="alice", age=25, city="wonderland"}];
 > val it =
 >   [{age=25,city="wonderland",name="alice"}]
 >   : {age:int, city:string, name:string} bag
+
+(* group-by with aggregate producing nested bag in output;
+ * elements reordered, output split across lines differently *)
+from r in bag [{x=1, y="a"}, {x=1, y="b"}, {x=2, y="c"}]
+  group r.x compute {ys = (fn v => v) over r.y};
+> val it =
+>   [{x=2,ys=["c"]},{x=1,ys=["a","b"]}]
+>   : {x:int, ys:string bag} bag
 
 (* Integer literals outside the 32-bit 'int' range (~2147483648 to
    2147483647) are rejected during validation. *)

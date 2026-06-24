@@ -142,6 +142,8 @@ Relational.max (bag [false, true]);
 
 Relational.min (bag [1, 2, 3]);
 > val it = 1 : int
+(bag [1, 2, 3]).min ();
+> val it = 1 : int
 Relational.min (bag [1.0, 2.5, 3.5]);
 > val it = 1 : real
 Relational.min (bag ["a", "bc", "ab"]);
