@@ -511,6 +511,9 @@ impl Real {
                 "~1.5707963" => "~1.5707964".to_string(),
                 "1.5430806" => "1.5430807".to_string(),
                 "~2.2877334E7" => "~2.2877332E7".to_string(),
+                // `Real.minPos`: SML reports 1.4e-45, not the shorter "1E~45".
+                "1E~45" => "1.4E~45".to_string(),
+                "~1E~45" => "~1.4E~45".to_string(),
                 _ => s,
             }
         }
@@ -628,17 +631,36 @@ fn format_fix(abs: f32, n: usize) -> String {
     let (digits, exp) = canonical(abs);
     // The number is `digits.0 * 10^exp` (where `digits.0` is the
     // mantissa with the implicit decimal after the first character).
-    // Equivalently, it is `digits * 10^(exp - digits.len() + 1)`.
-    // For FIX with `n` decimals, we round `digits` so that its
-    // implied position relative to the decimal point keeps exactly
-    // `n` fractional digits.
-    //
-    // Number of digits we want before truncation/rounding:
-    //   integer digits = max(1, exp + 1)
-    //   total significant digits to round to = integer_digits + n
-    let int_digits = (exp + 1).max(0) as usize;
-    let total_sig = int_digits + n;
-    let (rounded, exp_adj) = round_half_down_digits(&digits, total_sig);
+    // For FIX with `n` decimals, we round `digits` so that its implied
+    // position relative to the decimal point keeps exactly `n` fractional
+    // digits. The count of significant digits from the leading digit down
+    // to the n-th decimal place is `exp + 1 + n`.
+    let total_sig = exp + 1 + n as i32;
+    if total_sig <= 0 {
+        // The most significant digit lies at or below the n-th decimal
+        // place, so the value rounds to 0.000…0 — unless `total_sig == 0`
+        // and the leading digit rounds the n-th decimal up to 1 (e.g.
+        // `FIX 3` of 0.0006 is "0.001").
+        let round_up = total_sig == 0 && {
+            let first = digits.as_bytes()[0];
+            first > b'5'
+                || (first == b'5' && digits[1..].bytes().any(|b| b != b'0'))
+        };
+        if n == 0 {
+            return if round_up {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            };
+        }
+        let mut frac = vec![b'0'; n];
+        if round_up {
+            frac[n - 1] = b'1';
+        }
+        return format!("0.{}", String::from_utf8(frac).unwrap());
+    }
+    let (rounded, exp_adj) =
+        round_half_down_digits(&digits, total_sig as usize);
     let exp = exp + exp_adj;
     place_decimal(&rounded, exp, n, false)
 }
@@ -702,6 +724,12 @@ fn sml_exp(exp: i32) -> String {
 /// implicit after the first digit). Uses Rust's `{:e}` form, which
 /// emits the shortest round-tripping representation for `f32`.
 fn canonical(abs: f32) -> (String, i32) {
+    // The smallest positive subnormal, `Real.minPos`, round-trips from the
+    // one-digit "1e-45", so Rust's shortest `{:e}` reports it as "1E~45".
+    // SML's `Real.toString`/`Real.fmt` instead report it as 1.4e-45.
+    if abs == f32::from_bits(1) {
+        return ("14".to_string(), -45);
+    }
     let s = format!("{:e}", abs);
     let (mantissa, exp_str) = match s.find('e') {
         Some(i) => (&s[..i], &s[i + 1..]),

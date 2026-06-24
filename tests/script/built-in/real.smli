@@ -43,7 +43,7 @@ Real;
 >   {*=fn,+=fn,-=fn,/=fn,<=fn,<==fn,<>=fn,==fn,>=fn,>==fn,abs=fn,ceil=fn,
 >    checkFloat=fn,compare=fn,copySign=fn,floor=fn,fmt=fn,fromInt=fn,
 >    fromManExp=fn,fromString=fn,isFinite=fn,isNan=fn,isNormal=fn,max=fn,
->    maxFinite=3.4028235E38,min=fn,minNormalPos=1.1754944E~38,minPos=1E~45,
+>    maxFinite=3.4028235E38,min=fn,minNormalPos=1.1754944E~38,minPos=1.4E~45,
 >    negInf=~inf,posInf=inf,precision=24,radix=2,realCeil=fn,realFloor=fn,
 >    realMod=fn,realRound=fn,realTrunc=fn,rem=fn,round=fn,sameSign=fn,sign=fn,
 >    signBit=fn,split=fn,toManExp=fn,toString=fn,trunc=fn,unordered=fn,~=fn}
@@ -81,7 +81,7 @@ Real.maxFinite;
 
 (*) val minPos : real
 Real.minPos;
-> val it = 1E~45 : real
+> val it = 1.4E~45 : real
 
 (*) val minNormalPos : real
 Real.minNormalPos;
@@ -682,7 +682,7 @@ List.map (fn x => (x, Real.toManExp x, Real.fromManExp (Real.toManExp x)))
 >    (1.23456E~6,{exp=~19,man=0.647265},1.23456E~6),
 >    (1.23456E~7,{exp=~22,man=0.517812},1.23456E~7),
 >    (~1.23456E~6,{exp=~19,man=~0.647265},~1.23456E~6),
->    (1E~45,{exp=~126,man=1.1920929E~7},1E~45),
+>    (1.4E~45,{exp=~126,man=1.1920929E~7},1.4E~45),
 >    (1.1754944E~38,{exp=~125,man=0.5},1.1754944E~38),
 >    (3.4028235E38,{exp=129,man=0},nan),(~3.4028235E38,{exp=129,man=~0},nan),
 >    (inf,{exp=129,man=inf},inf),(~inf,{exp=129,man=~inf},~inf),
@@ -713,7 +713,7 @@ List.map (fn x => (x, Real.fromManExp (Real.toManExp x)))
 > val it =
 >   [(1,1),(0,0),(~0,~0),(~1,~1),(0.5,0.5),(2,2),(1.23456E~5,1.23456E~5),
 >    (1.23456E~6,1.23456E~6),(1.23456E~7,1.23456E~7),(~1.23456E~6,~1.23456E~6),
->    (1E~45,1E~45),(1.1754944E~38,1.1754944E~38),(3.4028235E38,nan),
+>    (1.4E~45,1.4E~45),(1.1754944E~38,1.1754944E~38),(3.4028235E38,nan),
 >    (~3.4028235E38,nan),(inf,inf),(~inf,~inf),(nan,nan)] : (real * real) list
 
 (* "split r" returns {whole, frac}, where frac and whole are the fractional and
@@ -796,7 +796,7 @@ Real.checkFloat Real.negInf;
 Real.checkFloat Real.minNormalPos;
 > val it = 1.1754944E~38 : real
 Real.checkFloat Real.minPos;
-> val it = 1E~45 : real
+> val it = 1.4E~45 : real
 Real.checkFloat nan;
 > uncaught exception Div [divide by zero]
 >   raised at: stdIn:1.1-1.20
@@ -1023,6 +1023,61 @@ Real.fromString "-inf";
 Real.fromString "nan";
 > val it = SOME nan : real option
 
+(* Side-by-side comparison of how each format handles a range of values.
+ * To run in SML, prepend `open StringCvt;` (Morel exposes the constructors
+ * at the top level). `Sys.set` is Morel-only; SML users will see the
+ * record list in non-tabular notation. *)
+Sys.set ("output", "tabular");
+> val it = () : unit
+List.map (fn (Name, X) =>
+             {Name = Name,
+              X = X,
+              toString = Real.toString X,
+              sci3 = Real.fmt (SCI (SOME 3)) X,
+              fix3 = Real.fmt (FIX (SOME 3)) X,
+              gen6 = Real.fmt (GEN (SOME 6)) X,
+              exact = Real.fmt EXACT X})
+  [("1.0", 1.0),
+   ("0.0", 0.0),
+   ("~0.0", ~0.0),
+   ("~1.0", ~1.0),
+   ("0.5", 0.5),
+   ("2.0", 2.0),
+   ("1.23456e~5", 0.0000123456),
+   ("1.23456e~6", 0.00000123456),
+   ("1.23456e~7", 0.000000123456),
+   ("~1.23456e~6", ~0.00000123456),
+   ("Real.minPos", Real.minPos),
+   ("Real.minNormalPos", Real.minNormalPos),
+   ("Real.maxFinite", Real.maxFinite),
+   ("~Real.maxFinite", ~Real.maxFinite),
+   ("Real.posInf", Real.posInf),
+   ("Real.negInf", Real.negInf),
+   ("nan", nan)];
+> Name              X             exact          fix3                                         gen6        sci3      toString
+> ----------------- ------------- -------------- -------------------------------------------- ----------- --------- -------------
+> 1.0                           1 0.1E1          1.000                                        1           1.000E0   1
+> 0.0                           0 0.0            0.000                                        0           0.000E0   0
+> ~0.0                         ~0 ~0.0           ~0.000                                       ~0          ~0.000E0  ~0
+> ~1.0                         ~1 ~0.1E1         ~1.000                                       ~1          ~1.000E0  ~1
+> 0.5                         0.5 0.5            0.500                                        0.5         5.000E~1  0.5
+> 2.0                           2 0.2E1          2.000                                        2           2.000E0   2
+> 1.23456e~5           1.23456E~5 0.123456E~4    0.000                                        1.23456E~5  1.235E~5  1.23456E~5
+> 1.23456e~6           1.23456E~6 0.123456E~5    0.000                                        1.23456E~6  1.235E~6  1.23456E~6
+> 1.23456e~7           1.23456E~7 0.123456E~6    0.000                                        1.23456E~7  1.235E~7  1.23456E~7
+> ~1.23456e~6         ~1.23456E~6 ~0.123456E~5   ~0.000                                       ~1.23456E~6 ~1.235E~6 ~1.23456E~6
+> Real.minPos             1.4E~45 0.14E~44       0.000                                        1.4E~45     1.400E~45 1.4E~45
+> Real.minNormalPos 1.1754944E~38 0.11754944E~37 0.000                                        1.17549E~38 1.175E~38 1.1754944E~38
+> Real.maxFinite     3.4028235E38 0.34028235E39  340282350000000000000000000000000000000.000  3.40282E38  3.403E38  3.4028235E38
+> ~Real.maxFinite   ~3.4028235E38 ~0.34028235E39 ~340282350000000000000000000000000000000.000 ~3.40282E38 ~3.403E38 ~3.4028235E38
+> Real.posInf                 inf inf            inf                                          inf         inf       inf
+> Real.negInf                ~inf ~inf           ~inf                                         ~inf        ~inf      ~inf
+> nan                         nan nan            nan                                          nan         nan       nan
+>
+> val it : {Name:string, X:real, exact:string, fix3:string, gen6:string, sci3:string, toString:string} list
+Sys.unset "output";
+> val it = () : unit
+
 List.map (fn x => (x, Real.fromString (Real.toString x)))
   [1.0, 0.0, ~0.0, ~1.0, 0.5, 2.0,
    1.23456E~5, 0.00000123456, 0.000000123456, ~0.00000123456,
@@ -1032,7 +1087,7 @@ List.map (fn x => (x, Real.fromString (Real.toString x)))
 >   [(1,SOME 1),(0,SOME 0),(~0,SOME ~0),(~1,SOME ~1),(0.5,SOME 0.5),(2,SOME 2),
 >    (1.23456E~5,SOME 1.23456E~5),(1.23456E~6,SOME 1.23456E~6),
 >    (1.23456E~7,SOME 1.23456E~7),(~1.23456E~6,SOME ~1.23456E~6),
->    (1E~45,SOME 1E~45),(1.1754944E~38,SOME 1.1754944E~38),
+>    (1.4E~45,SOME 1.4E~45),(1.1754944E~38,SOME 1.1754944E~38),
 >    (3.4028235E38,SOME 3.4028235E38),(~3.4028235E38,SOME ~3.4028235E38),
 >    (inf,SOME inf),(~inf,SOME ~inf),(nan,SOME nan)]
 >   : (real * real option) list
@@ -1222,7 +1277,7 @@ Real.toString ~1.0625e8;
 Real.toString ~0.000000021;
 > val it = "~2.1E~8" : string
 Real.toString Real.minPos;
-> val it = "1E~45" : string
+> val it = "1.4E~45" : string
 Real.toString Real.minNormalPos;
 > val it = "1.1754944E~38" : string
 Real.toString 1234567890123.45;
@@ -1262,7 +1317,7 @@ List.map (fn x => (x, Real.toString x))
 > val it =
 >   [(1,"1"),(0,"0"),(~0,"~0"),(~1,"~1"),(0.5,"0.5"),(2,"2"),
 >    (1.23456E~5,"1.23456E~5"),(1.23456E~6,"1.23456E~6"),
->    (1.23456E~7,"1.23456E~7"),(~1.23456E~6,"~1.23456E~6"),(1E~45,"1E~45"),
+>    (1.23456E~7,"1.23456E~7"),(~1.23456E~6,"~1.23456E~6"),(1.4E~45,"1.4E~45"),
 >    (1.1754944E~38,"1.1754944E~38"),(3.4028235E38,"3.4028235E38"),
 >    (~3.4028235E38,"~3.4028235E38"),(inf,"inf"),(~inf,"~inf"),(nan,"nan")]
 >   : (real * string) list
