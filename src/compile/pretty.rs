@@ -248,7 +248,12 @@ impl Pretty {
                 let mut prefix = String::new();
                 append_id(&mut prefix, &label.to_string());
                 prefix.push(':');
-                self.pretty1_typeless(
+                // Keep the field's type attached to its `label:` prefix and
+                // let it wrap internally (glue), rather than starting it on a
+                // fresh line. The enclosing record already back-tracks each
+                // field onto its own line; a second back-track here is what
+                // split `emps:` from its `{...}`.
+                self.pretty2_typeless(
                     buf,
                     indent,
                     line_end,
@@ -334,6 +339,26 @@ impl Pretty {
             )?;
         }
         Ok(())
+    }
+
+    /// Like [`Self::pretty1`], but never back-tracks to a new line before the
+    /// value: it stays attached to the preceding text (for example an opening
+    /// `[` or `: `) and is allowed to wrap internally, the way SML/NJ keeps
+    /// `[{` together and breaks within the record. (`pretty1` is `pretty2`
+    /// plus the back-track, so the glued form is just `pretty2`.)
+    #[allow(clippy::too_many_arguments)]
+    fn pretty1_glue(
+        &self,
+        buf: &mut String,
+        indent: usize,
+        line_end: &mut [i32],
+        depth: i32,
+        type_ref: &Type,
+        value: &Val,
+        left: u8,
+        right: u8,
+    ) -> Result<(), fmt::Error> {
+        self.pretty2(buf, indent, line_end, depth, type_ref, value, left, right)
     }
 
     fn indent(&self, buf: &mut String, indent: usize) {
@@ -1125,6 +1150,21 @@ impl Pretty {
             if self.print_length >= 0 && i >= self.print_length as usize {
                 self.pretty_raw(buf, indent + 1, line_end, depth + 1, "...")?;
                 break;
+            } else if i == 0 {
+                // Keep the first element attached to '[' (glue), so that a
+                // list whose sole element is too wide prints as "[{...}" and
+                // breaks inside the element, rather than putting "{" on its
+                // own line.
+                self.pretty1_glue(
+                    buf,
+                    indent + 1,
+                    line_end,
+                    depth + 1,
+                    element_type,
+                    value,
+                    0,
+                    0,
+                )?;
             } else {
                 self.pretty1(
                     buf,
@@ -1173,7 +1213,9 @@ impl Pretty {
             self.pretty_raw(buf, indent2, line_end, depth, ")")?;
             return Ok(());
         }
-        self.pretty1(
+        // Keep the element type attached to its prefix (e.g. ": ") and wrap
+        // it internally, rather than starting it on a fresh line.
+        self.pretty1_glue(
             buf,
             indent2,
             line_end,
