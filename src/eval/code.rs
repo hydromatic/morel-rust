@@ -24,6 +24,7 @@ use crate::compile::library;
 use crate::compile::library::{
     BuiltIn, BuiltInExn, BuiltInFunction, BuiltInRecord,
 };
+use crate::compile::lindig;
 use crate::compile::span::Span;
 use crate::compile::type_env::Binding;
 use crate::compile::type_parser;
@@ -2202,6 +2203,12 @@ pub enum Eager0 {
     OrderEqual,
     OrderGreater,
     OrderLess,
+    PpEmpty,
+    PpHardLine,
+    PpLine,
+    PpLineBreak,
+    PpSoftBreak,
+    PpSoftLine,
     RangeAll,
     RealMaxFinite,
     RealMinNormalPos,
@@ -2284,6 +2291,12 @@ impl Eager0 {
             OrderEqual => Val::Order(Order(Ordering::Equal)),
             OrderGreater => Val::Order(Order(Ordering::Greater)),
             OrderLess => Val::Order(Order(Ordering::Less)),
+            PpEmpty => Val::Doc(Rc::new(lindig::empty())),
+            PpHardLine => Val::Doc(Rc::new(lindig::hard_line())),
+            PpLine => Val::Doc(Rc::new(lindig::line())),
+            PpLineBreak => Val::Doc(Rc::new(lindig::line_break())),
+            PpSoftBreak => Val::Doc(Rc::new(lindig::soft_break())),
+            PpSoftLine => Val::Doc(Rc::new(lindig::soft_line())),
             RangeAll => BuiltInFunction::RangeAll.nullary_constructor_val(),
             RealMaxFinite => Val::Real(f32::MAX),
             RealMinNormalPos => Val::Real(f32::MIN_POSITIVE),
@@ -2789,6 +2802,21 @@ pub enum Eager1 {
     OptionIsSome,
     OptionJoin,
     OptionSome,
+    PpAlign,
+    PpBraces,
+    PpBrackets,
+    PpCat,
+    PpEncloseSep,
+    PpFillCat,
+    PpFillSep,
+    PpGroup,
+    PpHcat,
+    PpHsep,
+    PpParens,
+    PpSep,
+    PpText,
+    PpVcat,
+    PpVsep,
     RangeAtLeast,
     RangeAtMost,
     RangeClosed,
@@ -3033,6 +3061,33 @@ impl Eager1 {
             OptionIsSome => Val::Bool(Opt::is_some(&a0)),
             OptionJoin => Opt::join(&a0),
             OptionSome => Val::Some(Box::new(a0)),
+            PpAlign => Val::Doc(Rc::new(lindig::align(a0.expect_doc()))),
+            PpBraces => Val::Doc(Rc::new(lindig::braces(a0.expect_doc()))),
+            PpBrackets => Val::Doc(Rc::new(lindig::brackets(a0.expect_doc()))),
+            PpCat => Val::Doc(Rc::new(lindig::cat(a0.expect_doc_list()))),
+            PpEncloseSep => {
+                let args = a0.expect_list();
+                Val::Doc(Rc::new(lindig::enclose_sep(
+                    args[0].expect_doc(),
+                    args[1].expect_doc(),
+                    &args[2].expect_doc(),
+                    args[3].expect_doc_list(),
+                )))
+            }
+            PpFillCat => {
+                Val::Doc(Rc::new(lindig::fill_cat(a0.expect_doc_list())))
+            }
+            PpFillSep => {
+                Val::Doc(Rc::new(lindig::fill_sep(a0.expect_doc_list())))
+            }
+            PpGroup => Val::Doc(Rc::new(lindig::group(a0.expect_doc()))),
+            PpHcat => Val::Doc(Rc::new(lindig::hcat(a0.expect_doc_list()))),
+            PpHsep => Val::Doc(Rc::new(lindig::hsep(a0.expect_doc_list()))),
+            PpParens => Val::Doc(Rc::new(lindig::parens(a0.expect_doc()))),
+            PpSep => Val::Doc(Rc::new(lindig::sep(a0.expect_doc_list()))),
+            PpText => Val::Doc(Rc::new(lindig::text(&a0.expect_string()))),
+            PpVcat => Val::Doc(Rc::new(lindig::vcat(a0.expect_doc_list()))),
+            PpVsep => Val::Doc(Rc::new(lindig::vsep(a0.expect_doc_list()))),
             RangeAtLeast => BuiltInFunction::RangeAtLeast.constructor_val(a0),
             RangeAtMost => BuiltInFunction::RangeAtMost.constructor_val(a0),
             RangeClosed => BuiltInFunction::RangeClosed.constructor_val(a0),
@@ -3326,6 +3381,12 @@ pub enum Eager2 {
     MathAtan2,
     MathPow,
     OptionGetOpt,
+    PpBeside,
+    PpHang,
+    PpIndent,
+    PpNest,
+    PpPunctuate,
+    PpRender,
     RangeContains,
     RealCopySign,
     RealDivide,
@@ -3493,6 +3554,31 @@ impl Eager2 {
                 Val::Real(Math::pow(x, y))
             }
             OptionGetOpt => Opt::get_opt(&a0, &a1),
+            PpBeside => Val::Doc(Rc::new(lindig::beside(
+                a0.expect_doc(),
+                a1.expect_doc(),
+            ))),
+            PpHang => Val::Doc(Rc::new(lindig::hang(
+                a0.expect_int(),
+                a1.expect_doc(),
+            ))),
+            PpIndent => Val::Doc(Rc::new(lindig::indent(
+                a0.expect_int(),
+                a1.expect_doc(),
+            ))),
+            PpNest => Val::Doc(Rc::new(lindig::nest(
+                a0.expect_int(),
+                a1.expect_doc(),
+            ))),
+            PpPunctuate => Val::List(
+                lindig::punctuate(&a0.expect_doc(), a1.expect_doc_list())
+                    .into_iter()
+                    .map(|d| Val::Doc(Rc::new(d)))
+                    .collect(),
+            ),
+            PpRender => {
+                Val::String(lindig::render(a0.expect_int(), a1.expect_doc()))
+            }
             RangeContains => {
                 Val::Bool(range_contains(&NaturalComparator, &a0, &a1))
             }
@@ -4826,6 +4912,33 @@ fn build_library() -> Lib {
     Eager0::OrderEqual.implements(&mut b, OrderEqual);
     Eager0::OrderGreater.implements(&mut b, OrderGreater);
     Eager0::OrderLess.implements(&mut b, OrderLess);
+    Eager1::PpAlign.implements(&mut b, PpAlign);
+    Eager2::PpBeside.implements(&mut b, PpBeside);
+    Eager1::PpBraces.implements(&mut b, PpBraces);
+    Eager1::PpBrackets.implements(&mut b, PpBrackets);
+    Eager1::PpCat.implements(&mut b, PpCat);
+    Eager0::PpEmpty.implements(&mut b, PpEmpty);
+    Eager1::PpEncloseSep.implements(&mut b, PpEncloseSep);
+    Eager1::PpFillCat.implements(&mut b, PpFillCat);
+    Eager1::PpFillSep.implements(&mut b, PpFillSep);
+    Eager1::PpGroup.implements(&mut b, PpGroup);
+    Eager2::PpHang.implements(&mut b, PpHang);
+    Eager0::PpHardLine.implements(&mut b, PpHardLine);
+    Eager1::PpHcat.implements(&mut b, PpHcat);
+    Eager1::PpHsep.implements(&mut b, PpHsep);
+    Eager2::PpIndent.implements(&mut b, PpIndent);
+    Eager0::PpLine.implements(&mut b, PpLine);
+    Eager0::PpLineBreak.implements(&mut b, PpLineBreak);
+    Eager2::PpNest.implements(&mut b, PpNest);
+    Eager1::PpParens.implements(&mut b, PpParens);
+    Eager2::PpPunctuate.implements(&mut b, PpPunctuate);
+    Eager2::PpRender.implements(&mut b, PpRender);
+    Eager1::PpSep.implements(&mut b, PpSep);
+    Eager0::PpSoftBreak.implements(&mut b, PpSoftBreak);
+    Eager0::PpSoftLine.implements(&mut b, PpSoftLine);
+    Eager1::PpText.implements(&mut b, PpText);
+    Eager1::PpVcat.implements(&mut b, PpVcat);
+    Eager1::PpVsep.implements(&mut b, PpVsep);
     Eager0::RangeAll.implements(&mut b, RangeAll);
     Eager1::RangeAtLeast.implements(&mut b, RangeAtLeast);
     Eager1::RangeAtMost.implements(&mut b, RangeAtMost);

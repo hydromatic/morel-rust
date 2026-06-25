@@ -16,9 +16,14 @@
 // License.
 
 use crate::compile::library;
+use crate::compile::lindig::{
+    self, Doc, align, beside, fill, flatten, group, hard_line, line, nest,
+    render, text, union,
+};
 use crate::compile::tabular;
+use crate::compile::types::Label;
 use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
-use crate::eval::code;
+use crate::eval::code::Impl;
 use crate::eval::date;
 use crate::eval::real::Real;
 use crate::eval::val::Val;
@@ -26,10 +31,13 @@ use crate::shell::prop::Output as PropOutput;
 use crate::syntax::parser::{
     append_bare_id, append_id, char_to_string, string_to_string_append,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write};
-use std::iter::zip;
 use std::rc::Rc;
+
+/// Text used to print a relation (a foreign/progressive list value) that
+/// is not eagerly materialised.
+const RELATION: &str = "<relation>";
 
 /// Prints values prettily.
 pub struct Pretty {
@@ -104,19 +112,137 @@ impl Pretty {
         }
     }
 
-    /// Prints a value to a buffer.
+    /// Prints a binding `val name = value : type` to a buffer, choosing
+    /// line breaks with the Wadler-Leijen layout engine
+    /// ([`crate::compile::lindig`]).
     pub fn pretty(
         &self,
         buf: &mut String,
         type_: &Type,
         value: &Val,
     ) -> Result<(), fmt::Error> {
-        let line_end = if self.line_width < 0 {
-            -1
+        if let Val::Typed(b) = value {
+            let (name, v, t) = &**b;
+            // In tabular mode, a value whose type is a list of records
+            // prints as a table. The tabular printer may decline at
+            // runtime (e.g. when "printDepth" is too low to show the
+            // rows); then, and for every other value, use the classic
+            // printer.
+            if !matches!(self.output, PropOutput::Classic)
+                && tabular::can_print(t)
+                && matches!(v, Val::List(_))
+                && self.pretty_tabular(buf, name, t, v)
+            {
+                return Ok(());
+            }
+            self.pretty_classic(buf, name, t, v);
+            return Ok(());
+        }
+        // Fallback: render a bare value.
+        let doc = self.value_doc(type_, value, 0);
+        buf.push_str(&render(self.width(), doc));
+        Ok(())
+    }
+
+    /// Page width passed to the renderer. Rendering at `lineWidth - 1`
+    /// matches SML/NJ's right margin: its Oppen printer allows one more
+    /// column than ours before breaking.
+    fn width(&self) -> i32 {
+        if self.line_width < 0 {
+            i32::MAX
         } else {
-            buf.len() as i32 + self.line_width
+            self.line_width - 1
+        }
+    }
+
+    /// Renders a binding in classic (the default, non-tabular) style.
+    fn pretty_classic(
+        &self,
+        buf: &mut String,
+        name: &str,
+        type_: &Type,
+        value: &Val,
+    ) {
+        let mut prefix = String::from("val ");
+        // The binding name is printed without reserved-word quoting, matching
+        // SML/NJ and morel-java (e.g. `val it = ...`, not `val `it` = ...`).
+        append_bare_id(&mut prefix, name);
+        prefix.push_str(" =");
+        // The value is one level below the binding, so start at depth 1: at
+        // "printDepth" 0 the whole value prints as "#", matching SML/NJ.
+        let value_doc = self.value_doc(type_, value, 1);
+        // A "variant" value prints its declared type with a " variant"
+        // suffix, e.g. "INT 3 : int variant".
+        let type_body = if let Val::Variant(boxed) = value {
+            let display = boxed.as_ref().0.unqualified_quick().renumbered();
+            beside(self.type_doc(&display, 0, 0), text(" variant"))
+        } else {
+            let display = type_.unqualified_quick().renumbered();
+            self.type_doc(&display, 0, 0)
         };
-        self.pretty1(buf, 0, &mut [line_end], 0, type_, value, 0, 0)
+        // The value stays on the "val ... =" line only if it fits there
+        // entirely flat; otherwise the whole value moves to its own line,
+        // indented by 2, where it is free to wrap. Likewise the type stays
+        // on the value's last line if it fits flat there, otherwise it
+        // moves to its own line. The "wide" alternative is flattened so the
+        // decision is made on the value (or type) as a whole, not deferred
+        // to its internal line breaks. This matches how SML/NJ lays out a
+        // binding.
+        let value_part = union(
+            beside(text(" "), flatten(&value_doc)),
+            nest(2, beside(hard_line(), value_doc)),
+        );
+        let type_part = union(
+            beside(text(" : "), flatten(&type_body)),
+            nest(2, beside(hard_line(), beside(text(": "), type_body))),
+        );
+        let doc = beside(text(&prefix), beside(value_part, type_part));
+        buf.push_str(&render(self.width(), doc));
+    }
+
+    /// Tries to render a binding as a table, for "output = tabular". On
+    /// success the table is written to `buf`, followed by a "val name :
+    /// type" line, and returns true. If the tabular printer declines,
+    /// leaves `buf` unchanged and returns false.
+    fn pretty_tabular(
+        &self,
+        buf: &mut String,
+        name: &str,
+        type_: &Type,
+        value: &Val,
+    ) -> bool {
+        let start = buf.len();
+        let printed = tabular::print(
+            buf,
+            0,
+            type_,
+            value,
+            self.print_depth,
+            self.print_length,
+            self.string_depth,
+            self.string_fold,
+            self.newline,
+        );
+        if !printed {
+            buf.truncate(start);
+            return false;
+        }
+        let mut line = String::from("val ");
+        append_bare_id(&mut line, name);
+        line.push_str(" : ");
+        // A "variant" value prints its declared type with a " variant"
+        // suffix.
+        let (display, suffix) = match value {
+            Val::Variant(boxed) => (
+                boxed.as_ref().0.unqualified_quick().renumbered(),
+                " variant",
+            ),
+            _ => (type_.unqualified_quick().renumbered(), ""),
+        };
+        line.push_str(&render(i32::MAX, self.type_doc(&display, 0, 0)));
+        line.push_str(suffix);
+        buf.push_str(&line);
+        true
     }
 
     /// Substitutes `Type::Variable(i)` with `args[i]` throughout a type.
@@ -155,544 +281,417 @@ impl Pretty {
         }
     }
 
-    /// Prints a value to a buffer. If the first attempt goes beyond line_end,
-    /// back-tracks, adds a newline and indent, and tries again one time.
-    fn pretty_raw(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        value: &str,
-    ) -> Result<(), fmt::Error> {
-        self.pretty1_typeless(
-            buf,
-            indent,
-            line_end,
-            depth,
-            &Val::Raw(value.to_string()),
-            0,
-            0,
-        )
-    }
+    // -- Value documents ------------------------------------------------
 
-    /// Like [`Self::pretty1`] for `Val` variants that don't need an
-    /// external type: `Val::Raw` carries a literal string, `Val::Type`
-    /// carries its own type, `Val::Labeled` carries a (label, type)
-    /// pair.
-    fn pretty1_typeless(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        value: &Val,
-        left: u8,
-        right: u8,
-    ) -> Result<(), fmt::Error> {
-        let start = buf.len();
-        let end = line_end[0];
-
-        self.pretty2_typeless(
-            buf, indent, line_end, depth, value, left, right,
-        )?;
-
-        if end >= 0 && buf.len() as i32 > end {
-            buf.truncate(start);
-            while !buf.is_empty()
-                && (buf.ends_with(' ') || buf.ends_with(self.newline))
-            {
-                buf.pop();
-            }
-            if !buf.is_empty() {
-                buf.push(self.newline);
-            }
-            line_end[0] = if self.line_width < 0 {
-                -1
-            } else {
-                buf.len() as i32 + self.line_width
-            };
-            self.indent(buf, indent);
-            self.pretty2_typeless(
-                buf, indent, line_end, depth, value, left, right,
-            )?;
-        }
-        Ok(())
-    }
-
-    fn pretty2_typeless(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        value: &Val,
-        left: u8,
-        right: u8,
-    ) -> Result<(), fmt::Error> {
-        match value {
-            Val::Raw(s) => {
-                buf.push_str(s);
-                Ok(())
-            }
-            Val::Type(b) => {
-                let (prefix, type_, suffix) = &**b;
-                self.pretty_type(
-                    buf, indent, line_end, depth, prefix, type_, left, right,
-                )?;
-                buf.push_str(suffix);
-                Ok(())
-            }
-            Val::Labeled(b) => {
-                let (label, type_) = &**b;
-                let mut prefix = String::new();
-                append_id(&mut prefix, &label.to_string());
-                prefix.push(':');
-                // Keep the field's type attached to its `label:` prefix and
-                // let it wrap internally (glue), rather than starting it on a
-                // fresh line. The enclosing record already back-tracks each
-                // field onto its own line; a second back-track here is what
-                // split `emps:` from its `{...}`.
-                self.pretty2_typeless(
-                    buf,
-                    indent,
-                    line_end,
-                    depth,
-                    &Val::new_type(&prefix, type_),
-                    0,
-                    0,
-                )
-            }
-            _ => {
-                panic!("pretty1_typeless: variant {:?} requires a type", value)
-            }
-        }
-    }
-
-    /// Prints a value to a buffer. If the first attempt goes beyond line_end,
-    /// back-tracks, adds a newline and indent, and tries again one time.
-    /// Formats `inner`, the argument of a constructor application, wrapping it
-    /// in parentheses when it is itself a (non-nullary) constructor
-    /// application — e.g. the inner `SOME 7` of `SOME (SOME 7)`, or `INL x`,
-    /// `INR x`, `C x`. Standard ML requires the parentheses: `SOME SOME 7`
-    /// would parse as `(SOME SOME) 7`. Atomic values, tuples and lists are
-    /// already self-delimiting and are not wrapped.
-    fn pretty_con_arg(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        type_ref: &Type,
-        inner: &Val,
-    ) -> Result<(), fmt::Error> {
-        let paren = matches!(inner, Val::Some(_) | Val::Inl(_) | Val::Inr(_))
-            || matches!(inner, Val::Constructor(_, c) if **c != Val::Unit);
-        if paren {
-            self.pretty_raw(buf, indent, line_end, depth, "(")?;
-        }
-        self.pretty1(buf, indent, line_end, depth, type_ref, inner, 0, 0)?;
-        if paren {
-            self.pretty_raw(buf, indent, line_end, depth, ")")?;
-        }
-        Ok(())
-    }
-
-    fn pretty1(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        type_ref: &Type,
-        value: &Val,
-        left: u8,
-        right: u8,
-    ) -> Result<(), fmt::Error> {
-        let start = buf.len();
-        let end = line_end[0];
-
-        self.pretty2(
-            buf, indent, line_end, depth, type_ref, value, left, right,
-        )?;
-
-        if end >= 0 && buf.len() as i32 > end {
-            // Reset to start, remove trailing whitespace, add a newline
-            buf.truncate(start);
-            while !buf.is_empty()
-                && (buf.ends_with(' ') || buf.ends_with(self.newline))
-            {
-                buf.pop();
-            }
-            if !buf.is_empty() {
-                buf.push(self.newline);
-            }
-
-            line_end[0] = if self.line_width < 0 {
-                -1
-            } else {
-                buf.len() as i32 + self.line_width
-            };
-            self.indent(buf, indent);
-            self.pretty2(
-                buf, indent, line_end, depth, type_ref, value, left, right,
-            )?;
-        }
-        Ok(())
-    }
-
-    /// Like [`Self::pretty1`], but never back-tracks to a new line before the
-    /// value: it stays attached to the preceding text (for example an opening
-    /// `[` or `: `) and is allowed to wrap internally, the way SML/NJ keeps
-    /// `[{` together and breaks within the record. (`pretty1` is `pretty2`
-    /// plus the back-track, so the glued form is just `pretty2`.)
-    #[allow(clippy::too_many_arguments)]
-    fn pretty1_glue(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        type_ref: &Type,
-        value: &Val,
-        left: u8,
-        right: u8,
-    ) -> Result<(), fmt::Error> {
-        self.pretty2(buf, indent, line_end, depth, type_ref, value, left, right)
-    }
-
-    fn indent(&self, buf: &mut String, indent: usize) {
-        for _ in 0..indent {
-            buf.push(' ');
-        }
-    }
-
-    fn pretty2(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        type_ref: &Type,
-        value: &Val,
-        left: u8,
-        right: u8,
-    ) -> Result<(), fmt::Error> {
-        // Strip any alias
+    /// Builds a Doc for a value of the given type.
+    fn value_doc(&self, type_ref: &Type, value: &Val, depth: i32) -> Doc {
+        // Strip any alias.
         let mut current_type = type_ref;
         while let Type::Alias(_, inner, _) = current_type {
             current_type = inner;
         }
 
-        match value {
-            Val::Typed(b) => {
-                let (name, v2, t2) = &**b;
-                let mut buf2 = String::from("val ");
-                append_bare_id(&mut buf2, name.as_str());
-
-                if self.custom_print(buf, indent, line_end, depth, t2, v2)? {
-                    line_end[0] = -1; // no limit
-                    self.pretty_raw(buf, indent, line_end, depth, &buf2)?;
-                } else {
-                    buf2.push_str(" = ");
-                    self.pretty_raw(buf, indent, line_end, depth, &buf2)?;
-                    self.pretty1(
-                        buf,
-                        indent + 2,
-                        line_end,
-                        depth + 1,
-                        t2,
-                        v2,
-                        0,
-                        0,
-                    )?;
-                }
-                buf.push(' ');
-                // If the value is a `variant`, the static type is `variant`
-                // but we display the wrapped inner type with a " variant"
-                // suffix, e.g. `42 : int variant`. The suffix rides on the
-                // `Val::Type` so the prefix, type, and suffix wrap as one
-                // unit — wrapping just the trailing ` variant` is wrong.
-                let (display_type, type_suffix) = match v2 {
-                    Val::Variant(boxed) => {
-                        (boxed.as_ref().0.clone(), " variant")
-                    }
-                    _ => (t2.renumbered(), ""),
-                };
-                self.pretty1_typeless(
-                    buf,
-                    indent + 2,
-                    line_end,
-                    depth,
-                    &Val::new_type_with_suffix(
-                        ": ",
-                        &display_type,
-                        type_suffix,
-                    ),
-                    0,
-                    0,
-                )?;
-                return Ok(());
-            }
-            Val::Named(b) => {
-                let (name, inner_value) = &**b;
-                append_id(buf, name);
-                buf.push('=');
-                self.pretty1(
-                    buf,
-                    indent,
-                    line_end,
-                    depth,
-                    current_type,
-                    inner_value,
-                    0,
-                    0,
-                )?;
-                return Ok(());
-            }
-            Val::Labeled(b) => {
-                let (label, type_) = &**b;
-                let mut prefix = String::new();
-                append_id(&mut prefix, &label.to_string());
-                prefix.push(':');
-                self.pretty1_typeless(
-                    buf,
-                    indent,
-                    line_end,
-                    depth,
-                    &Val::new_type(&prefix, type_),
-                    0,
-                    0,
-                )?;
-                return Ok(());
-            }
-            Val::Type(b) => {
-                let (prefix, type_, suffix) = &**b;
-                self.pretty_type(
-                    buf, indent, line_end, depth, prefix, type_, left, right,
-                )?;
-                buf.push_str(suffix);
-                return Ok(());
-            }
-            _ => {}
+        // A "variant" value prints its wrapped value with the wrapped
+        // (inner) type.
+        if let Val::Variant(boxed) = value {
+            let (inner_type, inner_val) = boxed.as_ref();
+            return self.value_doc(inner_type, inner_val, depth);
         }
 
         if self.print_depth >= 0 && depth > self.print_depth {
-            buf.push('#');
-            return Ok(());
+            return text("#");
         }
 
         match current_type {
             // lint: sort until '#}' where '##Type::'
             Type::Bag(element_type) => {
-                self.print_list(
-                    buf,
-                    indent,
-                    line_end,
-                    depth,
-                    element_type,
-                    value.expect_list(),
-                )?;
+                if matches!(value, Val::File(_)) {
+                    text(RELATION)
+                } else {
+                    self.seq_doc(
+                        "[",
+                        "]",
+                        self.element_docs(
+                            element_type,
+                            value.expect_list(),
+                            depth,
+                        ),
+                    )
+                }
             }
-            Type::Data(name, arg_types) => {
-                self.pretty_data_type(
-                    buf, indent, line_end, depth, name, arg_types, value,
-                )?;
+            Type::Data(name, args) => {
+                self.data_type_doc(name, args, value, depth)
             }
-            Type::Fn(_, _) => {
-                buf.push_str("fn");
-            }
-            Type::Forall(type_, _size) => {
-                self.pretty2(
-                    buf,
-                    indent,
-                    line_end,
-                    depth + 1,
-                    type_,
-                    value,
-                    0,
-                    0,
-                )?;
+            Type::Fn(_, _) => text("fn"),
+            Type::Forall(inner, _size) => {
+                self.value_doc(inner, value, depth + 1)
             }
             Type::List(element_type) => {
                 // A data file appearing as a directory entry stays as
                 // `Val::File`; render it as `<relation>` rather than
                 // eagerly materialising every row.
                 if matches!(value, Val::File(_)) {
-                    buf.push_str("<relation>");
+                    text(RELATION)
                 } else {
-                    self.print_list(
-                        buf,
-                        indent,
-                        line_end,
-                        depth,
-                        element_type,
-                        value.expect_list(),
-                    )?;
+                    self.seq_doc(
+                        "[",
+                        "]",
+                        self.element_docs(
+                            element_type,
+                            value.expect_list(),
+                            depth,
+                        ),
+                    )
                 }
             }
-            Type::Named(_, name) => {
-                // For arbitrary named types (used as a placeholder for
-                // unknown `CONSTANT`/`CONSTRUCT` constructors), `name`
-                // is the constructor name and the value is either:
-                //   - `Val::Unit` for a nullary `CONSTANT`,
-                //   - a `Val::Variant` payload for a unary `CONSTRUCT`,
-                //     printed recursively with its own inner type, so
-                //     nested `CONSTANT`/`CONSTRUCT` round-trip cleanly.
-                self.pretty_raw(buf, indent, line_end, depth, name)?;
-                match value {
-                    Val::Unit => {}
-                    Val::Variant(boxed) => {
-                        buf.push(' ');
-                        let need_parens =
-                            !matches!(boxed.0, Type::Primitive(_));
-                        if need_parens {
-                            buf.push('(');
-                        }
-                        let (inner_type, inner_val) = boxed.as_ref();
-                        self.pretty1(
-                            buf, indent, line_end, depth, inner_type,
-                            inner_val, 0, 0,
-                        )?;
-                        if need_parens {
-                            buf.push(')');
-                        }
-                    }
-                    _ => {
-                        buf.push(' ');
-                        write!(buf, "{}", value)?;
-                    }
-                }
+            Type::Named(args, name) => {
+                self.named_value_doc(name, args, value, depth)
             }
-            Type::Primitive(prim_type) => {
-                self.pretty_primitive(buf, prim_type, value)?;
-            }
+            Type::Primitive(prim_type) => self.primitive_doc(prim_type, value),
             Type::Record(_progressive, arg_name_types) => {
-                // A `Val::File` carries its own state; map each type
-                // field through to the matching child file. Unknown
-                // child entries render as `Val::Unit` (printed as
-                // `{}` by the unit-typed printer) so the field list
-                // stays aligned with the type.
-                if let Val::File(file) = value {
-                    use crate::eval::file::FileState;
-                    let entries: Vec<(String, Val)> =
-                        match &*file.state.borrow() {
-                            FileState::Directory { entries } => entries
-                                .iter()
-                                .map(|(l, c)| {
-                                    (l.to_string(), Val::File(Rc::clone(c)))
-                                })
-                                .collect(),
-                            _ => Vec::new(),
-                        };
-                    buf.push('{');
-                    let start = buf.len();
-                    for (name, field_type) in arg_name_types {
-                        if buf.len() > start {
-                            buf.push(',');
-                        }
-                        let val2 = entries
-                            .iter()
-                            .find(|(n, _)| *n == name.to_string())
-                            .map_or(Val::Unit, |(_, v)| v.clone());
-                        self.pretty1(
-                            buf,
-                            indent + 1,
-                            line_end,
-                            depth + 1,
-                            field_type,
-                            &Val::new_named(&name.to_string(), val2),
-                            0,
-                            0,
-                        )?;
-                    }
-                    buf.push('}');
-                    return Ok(());
-                }
-                // Single-field records are stored as bare values, not
-                // wrapped in Val::List.
-                let list_owned;
-                let list = if let Val::List(l) = value {
-                    l.as_slice()
-                } else {
-                    list_owned = [value.clone()];
-                    &list_owned
-                };
-                buf.push('{');
-                let start = buf.len();
-                for ((name, field_type), val2) in zip(arg_name_types, list) {
-                    if buf.len() > start {
-                        buf.push(',');
-                    }
-                    self.pretty1(
-                        buf,
-                        indent + 1,
-                        line_end,
-                        depth + 1,
-                        field_type,
-                        &Val::new_named(&name.to_string(), val2.clone()),
-                        0,
-                        0,
-                    )?;
-                }
-                buf.push('}');
+                self.record_value_doc(arg_name_types, value, depth)
             }
             Type::Tuple(arg_types) => {
                 let list = value.expect_list();
-                buf.push('(');
-                let start = buf.len();
-                for (element_type, element_value) in zip(arg_types, list) {
-                    if buf.len() > start {
-                        buf.push(',');
-                    }
-                    self.pretty1(
-                        buf,
-                        indent + 1,
-                        line_end,
-                        depth + 1,
+                let mut elements = Vec::with_capacity(arg_types.len());
+                for (element_type, element_value) in arg_types.iter().zip(list)
+                {
+                    elements.push(self.value_doc(
                         element_type,
                         element_value,
-                        0,
-                        0,
-                    )?;
+                        depth + 1,
+                    ));
                 }
-                buf.push(')');
+                self.seq_doc("(", ")", elements)
             }
             Type::Variable(_) => {
                 // Type variable: no structural info, print value directly.
-                write!(buf, "{}", value)?;
+                text(&value.to_string())
             }
-            _ => todo!("{:?}", current_type),
+            // #}
+            _ => text(&value.to_string()),
         }
-        Ok(())
     }
 
-    fn custom_print(
+    /// Builds a Doc for a record value.
+    fn record_value_doc(
         &self,
-        buf: &mut String,
-        _indent: usize,
-        _line_end: &mut [i32],
-        depth: i32,
-        type_ref: &Type,
+        arg_name_types: &BTreeMap<Label, Rc<Type>>,
         value: &Val,
-    ) -> Result<bool, fmt::Error> {
-        if !matches!(self.output, PropOutput::Classic)
-            && tabular::can_print(type_ref)
-            && matches!(value, Val::List(_))
-        {
-            return Ok(tabular::print(
-                buf,
-                depth,
-                type_ref,
-                value,
-                self.print_depth,
-                self.print_length,
-                self.string_depth,
-                self.string_fold,
-                self.newline,
+        depth: i32,
+    ) -> Doc {
+        let field_depth = depth + 1;
+        // A `Val::File` carries its own state; map each type field through
+        // to the matching child file. Unknown child entries render as
+        // `Val::Unit` so the field list stays aligned with the type.
+        if let Val::File(file) = value {
+            use crate::eval::file::FileState;
+            let entries: Vec<(String, Val)> = match &*file.state.borrow() {
+                FileState::Directory { entries } => entries
+                    .iter()
+                    .map(|(l, c)| (l.to_string(), Val::File(Rc::clone(c))))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let mut fields = Vec::with_capacity(arg_name_types.len());
+            for (name, field_type) in arg_name_types {
+                let val2 = entries
+                    .iter()
+                    .find(|(n, _)| *n == name.to_string())
+                    .map_or(Val::Unit, |(_, v)| v.clone());
+                let mut prefix = String::new();
+                append_id(&mut prefix, &name.to_string());
+                prefix.push('=');
+                fields.push(beside(
+                    text(&prefix),
+                    self.value_doc(field_type, &val2, field_depth),
+                ));
+            }
+            return self.seq_doc("{", "}", fields);
+        }
+        // Single-field records are stored as bare values, not wrapped in
+        // Val::List.
+        let list_owned;
+        let list = if let Val::List(l) = value {
+            l.as_slice()
+        } else {
+            list_owned = [value.clone()];
+            &list_owned
+        };
+        let mut fields = Vec::with_capacity(arg_name_types.len());
+        for ((name, field_type), val2) in arg_name_types.iter().zip(list) {
+            let mut prefix = String::new();
+            append_id(&mut prefix, &name.to_string());
+            prefix.push('=');
+            fields.push(beside(
+                text(&prefix),
+                self.value_doc(field_type, val2, field_depth),
             ));
         }
-        Ok(false)
+        self.seq_doc("{", "}", fields)
+    }
+
+    /// Builds a Doc for an arbitrary named type used as a placeholder for
+    /// unknown `CONSTANT`/`CONSTRUCT` constructors: `name` is the
+    /// constructor name and the value is either `Val::Unit` (nullary
+    /// `CONSTANT`) or a `Val::Variant` payload (unary `CONSTRUCT`).
+    fn named_value_doc(
+        &self,
+        name: &str,
+        _args: &[Rc<Type>],
+        value: &Val,
+        depth: i32,
+    ) -> Doc {
+        match value {
+            Val::Unit => text(name),
+            Val::Variant(boxed) => {
+                let (inner_type, inner_val) = boxed.as_ref();
+                let need_parens = !matches!(inner_type, Type::Primitive(_));
+                let inner = self.value_doc(inner_type, inner_val, depth);
+                let inner = if need_parens {
+                    beside(text("("), beside(inner, text(")")))
+                } else {
+                    inner
+                };
+                beside(text(name), beside(text(" "), inner))
+            }
+            _ => {
+                beside(text(name), beside(text(" "), text(&value.to_string())))
+            }
+        }
+    }
+
+    /// Builds a Doc for a value of a data type: a "bag" or "vector" lays
+    /// out like a list, an opaque value prints directly, and a
+    /// constructor application prints its name followed by its (possibly
+    /// parenthesized) argument.
+    fn data_type_doc(
+        &self,
+        name: &str,
+        args: &[Rc<Type>],
+        value: &Val,
+        depth: i32,
+    ) -> Doc {
+        if name == "descending"
+            && let Val::Constructor(_, inner) = value
+        {
+            return beside(
+                text("DESC "),
+                self.value_doc(&args[0], inner, depth),
+            );
+        }
+        if name == "time"
+            && let Val::Time(t) = value
+        {
+            // `time` values display as their nanosecond count.
+            return text(&t.to_string());
+        }
+        if name == "date"
+            && let Val::Date(d, o) = value
+        {
+            return text(&date::format_iso(*d, *o));
+        }
+        // A "doc" (pretty-printer document) is abstract; print it as "-",
+        // as Standard ML prints a value of an abstract type.
+        if name == "doc" {
+            return text("-");
+        }
+        // Datatypes whose constructor values are `Val::Constructor(tag, _)`
+        // with a dense `base - i` ordinal scheme (weekday, month, exn,
+        // range): map back through the `BuiltInDatatype` registry to print
+        // the constructor name, then the argument (if any).
+        if let Val::Constructor(tag, inner) = value
+            && let Some(d) = library::BuiltInDatatype::from_name(name)
+            && let Some(label) = d.constructor_name_for_tag(*tag)
+        {
+            if **inner == Val::Unit {
+                return text(label);
+            }
+            let inner_type = match (d, label) {
+                (library::BuiltInDatatype::Exn, "Fail") => {
+                    Type::Primitive(PrimitiveType::String)
+                }
+                (
+                    library::BuiltInDatatype::Range,
+                    "CLOSED" | "CLOSED_OPEN" | "OPEN" | "OPEN_CLOSED",
+                ) => Type::Tuple(vec![args[0].clone(), args[0].clone()]),
+                (
+                    library::BuiltInDatatype::ContinuousSet
+                    | library::BuiltInDatatype::DiscreteSet,
+                    _,
+                ) => Type::List(Rc::new(Type::Data(
+                    "range".to_string(),
+                    vec![args[0].clone()],
+                ))),
+                _ => (*args[0]).clone(),
+            };
+            return beside(
+                text(label),
+                beside(text(" "), self.value_doc(&inner_type, inner, depth)),
+            );
+        }
+        match value {
+            Val::Fn(f) => {
+                // Nullary built-in constructors and constants (e.g.
+                // `EQUAL`, `LESS`, `Jan`, `Mon`) reach here as bare
+                // function references; their display is just their name.
+                if !matches!(f.get_impl(), Impl::E0(_)) {
+                    panic!("Expected list, got non-nullary Val::Fn({:?})", f);
+                }
+                text(f.name())
+            }
+            Val::Order(o) => text(o.name()),
+            Val::Inl(v) => {
+                beside(text("INL "), self.con_arg_doc(&args[0], v, depth))
+            }
+            Val::Inr(v) => {
+                beside(text("INR "), self.con_arg_doc(&args[1], v, depth))
+            }
+            Val::Some(v) => {
+                beside(text("SOME "), self.con_arg_doc(&args[0], v, depth))
+            }
+            Val::Unit => {
+                if name == "option" {
+                    text("NONE")
+                } else {
+                    panic!("Expected list")
+                }
+            }
+            Val::Constructor(ordinal, inner) => {
+                if let Some(constructors) = self.datatype_constructors.get(name)
+                {
+                    let con_name = &constructors[*ordinal];
+                    if **inner == Val::Unit {
+                        text(con_name)
+                    } else if let Some(arg_type) =
+                        self.constructor_arg_types.get(con_name)
+                    {
+                        let instantiated = Self::instantiate(arg_type, args);
+                        beside(
+                            text(con_name),
+                            beside(
+                                text(" "),
+                                self.con_arg_doc(&instantiated, inner, depth),
+                            ),
+                        )
+                    } else {
+                        beside(
+                            text(con_name),
+                            beside(text(" "), text(&inner.to_string())),
+                        )
+                    }
+                } else {
+                    text(&value.to_string())
+                }
+            }
+            Val::List(list) => {
+                if name == "vector" {
+                    beside(
+                        text("#"),
+                        self.seq_doc(
+                            "[",
+                            "]",
+                            self.element_docs(&args[0], list, depth),
+                        ),
+                    )
+                } else if name == "bag" {
+                    self.seq_doc(
+                        "[",
+                        "]",
+                        self.element_docs(&args[0], list, depth),
+                    )
+                } else {
+                    // Built-in constructed datatype stored as a list
+                    // `["TyCon", arg]` (e.g. a synthetic constructor).
+                    let ty_con_name = list[0].expect_string();
+                    if list.len() < 2 {
+                        text(&ty_con_name)
+                    } else {
+                        let arg = &list[1];
+                        let need_parens = matches!(arg, Val::List(_));
+                        let arg_doc = self.value_doc(
+                            &Type::Primitive(PrimitiveType::String),
+                            arg,
+                            depth + 1,
+                        );
+                        let arg_doc = if need_parens {
+                            beside(text("("), beside(arg_doc, text(")")))
+                        } else {
+                            arg_doc
+                        };
+                        beside(text(&ty_con_name), beside(text(" "), arg_doc))
+                    }
+                }
+            }
+            _ => panic!("Expected list"),
+        }
+    }
+
+    /// Formats `inner`, the argument of a constructor application,
+    /// wrapping it in parentheses when it is itself a (non-nullary)
+    /// constructor application — e.g. the inner `SOME 7` of `SOME (SOME
+    /// 7)`, or `INL x`, `INR x`, `C x`.
+    fn con_arg_doc(&self, type_ref: &Type, inner: &Val, depth: i32) -> Doc {
+        let paren = matches!(inner, Val::Some(_) | Val::Inl(_) | Val::Inr(_))
+            || matches!(inner, Val::Constructor(_, c) if **c != Val::Unit);
+        let doc = self.value_doc(type_ref, inner, depth);
+        if paren {
+            beside(text("("), beside(doc, text(")")))
+        } else {
+            doc
+        }
+    }
+
+    /// Builds Docs for list elements, applying the `printLength` limit.
+    fn element_docs(
+        &self,
+        element_type: &Type,
+        list: &[Val],
+        depth: i32,
+    ) -> Vec<Doc> {
+        let mut docs = Vec::new();
+        for (i, o) in list.iter().enumerate() {
+            if self.print_length >= 0 && i >= self.print_length as usize {
+                docs.push(text("..."));
+                break;
+            }
+            docs.push(self.value_doc(element_type, o, depth + 1));
+        }
+        docs
+    }
+
+    /// Builds a Doc for a bracketed sequence (a list, record, or tuple).
+    /// Renders flat as `(a,b,c)`, and when it does not fit, with each
+    /// element on its own line, aligned under the first.
+    fn seq_doc(&self, open: &str, close: &str, docs: Vec<Doc>) -> Doc {
+        if docs.is_empty() {
+            return text(&format!("{}{}", open, close));
+        }
+        // Elements fill across lines: as many as fit share a line, and each
+        // element is treated as a unit (a record in a list of records stays
+        // together, and the list wraps between records). There is no space
+        // after the comma, the way SML/NJ prints list, tuple, and record
+        // values. Continuation lines align under the first element.
+        let n = docs.len();
+        let mut items = Vec::with_capacity(n);
+        for (i, d) in docs.into_iter().enumerate() {
+            if i < n - 1 {
+                items.push(beside(d, text(",")));
+            } else {
+                items.push(d);
+            }
+        }
+        beside(
+            text(open),
+            beside(align(fill(&lindig::empty(), &items)), text(close)),
+        )
+    }
+
+    /// Builds a string for a primitive leaf value, then wraps it as text.
+    fn primitive_doc(&self, prim_type: &PrimitiveType, value: &Val) -> Doc {
+        let mut s = String::new();
+        let _ = self.pretty_primitive(&mut s, prim_type, value);
+        text(&s)
     }
 
     fn pretty_primitive(
@@ -753,483 +752,190 @@ impl Pretty {
         Ok(())
     }
 
-    fn pretty_data_type(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        name: &str,
-        args: &[Rc<Type>],
-        value: &Val,
-    ) -> Result<(), fmt::Error> {
-        if name == "descending" {
-            // Datatype "descending" has one constructor, "DESC".
-            // The value is Val::Constructor("DESC", inner).
-            if let Val::Constructor(_, inner) = value {
-                self.pretty_raw(buf, indent, line_end, depth, "DESC ")?;
-                return self.pretty1(
-                    buf, indent, line_end, depth, &args[0], inner, 0, 0,
-                );
-            }
-        }
-        if name == "time"
-            && let Val::Time(t) = value
-        {
-            // `time` values display as their nanosecond count (an integer),
-            // matching morel-java's opaque-Long form.
-            return write!(buf, "{}", t).map_err(|_| fmt::Error);
-        }
-        if name == "date"
-            && let Val::Date(d, o) = value
-        {
-            return write!(buf, "{}", date::format_iso(*d, *o))
-                .map_err(|_| fmt::Error);
-        }
-        // Datatypes whose constructor values are
-        // `Val::Constructor(ordinal, _)` with a dense `base - i`
-        // ordinal scheme (weekday, month, exn, range): map back
-        // through the `BuiltInDatatype` registry to print the
-        // constructor name, then the argument (if any).
-        if let Val::Constructor(tag, inner) = value
-            && let Some(d) = library::BuiltInDatatype::from_name(name)
-            && let Some(label) = d.constructor_name_for_tag(*tag)
-        {
-            self.pretty_raw(buf, indent, line_end, depth, label)?;
-            if **inner == Val::Unit {
-                return Ok(());
-            }
-            buf.push(' ');
-            // Determine the argument's pretty-print type.
-            // - `Fail` carries a string payload.
-            // - Range's bracket constructors carry a `(low, high)`
-            //   pair; the others carry a single point.
-            // - Otherwise the datatype's first (only) type
-            //   parameter, taken from `args`.
-            let inner_type = match (d, label) {
-                (library::BuiltInDatatype::Exn, "Fail") => {
-                    Type::Primitive(PrimitiveType::String)
-                }
-                (
-                    library::BuiltInDatatype::Range,
-                    "CLOSED" | "CLOSED_OPEN" | "OPEN" | "OPEN_CLOSED",
-                ) => Type::Tuple(vec![args[0].clone(), args[0].clone()]),
-                (
-                    library::BuiltInDatatype::ContinuousSet
-                    | library::BuiltInDatatype::DiscreteSet,
-                    _,
-                ) => Type::List(Rc::new(Type::Data(
-                    "range".to_string(),
-                    vec![args[0].clone()],
-                ))),
-                _ => (*args[0]).clone(),
-            };
-            return self.pretty1(
-                buf,
-                indent,
-                line_end,
-                depth,
-                &inner_type,
-                inner,
-                0,
-                0,
-            );
-        }
-        let list = match &value {
-            Val::Fn(f) => {
-                // Nullary built-in constructors and constants
-                // (e.g. `EQUAL`, `LESS`, `GREATER`, `Jan`, `Mon`)
-                // reach here as bare function references. Their
-                // display is just their declared name; any
-                // non-nullary `Val::Fn` here is a bug.
-                if !matches!(f.get_impl(), code::Impl::E0(_)) {
-                    panic!("Expected list, got non-nullary Val::Fn({:?})", f);
-                }
-                return self.pretty_raw(buf, indent, line_end, depth, f.name());
-            }
-            Val::List(list) => list,
-            Val::Order(o) => {
-                return self.pretty_raw(buf, indent, line_end, depth, o.name());
-            }
-            Val::Inl(v) => {
-                self.pretty_raw(buf, indent, line_end, depth, "INL ")?;
-                return self
-                    .pretty_con_arg(buf, indent, line_end, depth, &args[0], v);
-            }
-            Val::Inr(v) => {
-                self.pretty_raw(buf, indent, line_end, depth, "INR ")?;
-                return self
-                    .pretty_con_arg(buf, indent, line_end, depth, &args[1], v);
-            }
-            Val::Some(v) => {
-                self.pretty_raw(buf, indent, line_end, depth, "SOME ")?;
-                return self
-                    .pretty_con_arg(buf, indent, line_end, depth, &args[0], v);
-            }
-            Val::Unit => {
-                if name == "option" {
-                    return self
-                        .pretty_raw(buf, indent, line_end, depth, "NONE");
-                }
-                panic!("Expected list")
-            }
-            Val::Constructor(ordinal, inner) => {
-                if let Some(constructors) = self.datatype_constructors.get(name)
-                {
-                    let con_name = &constructors[*ordinal];
-                    self.pretty_raw(buf, indent, line_end, depth, con_name)?;
-                    if **inner != Val::Unit {
-                        buf.push(' ');
-                        if let Some(arg_type) =
-                            self.constructor_arg_types.get(con_name)
-                        {
-                            // Substitute type variables in the
-                            // constructor's generic arg type with the
-                            // datatype's actual type arguments.
-                            let instantiated =
-                                Self::instantiate(arg_type, args);
-                            self.pretty_con_arg(
-                                buf,
-                                indent,
-                                line_end,
-                                depth,
-                                &instantiated,
-                                inner,
-                            )?;
-                        } else {
-                            write!(buf, "{}", inner)?;
-                        }
-                    }
-                } else {
-                    write!(buf, "{}", value)?;
-                }
-                return Ok(());
-            }
-            Val::Variant(boxed) => {
-                // For a variant, recursively print the wrapped value with
-                // its inner type. The " variant" suffix on the type itself
-                // is added by the caller (see Pretty::pretty2).
-                let (inner_type, inner_val) = boxed.as_ref();
-                return self.pretty1(
-                    buf, indent, line_end, depth, inner_type, inner_val, 0, 0,
-                );
-            }
-            _ => panic!("Expected list"),
-        };
-        if name == "vector" {
-            let arg_type = args.first().unwrap();
-            buf.push('#');
-            return self
-                .print_list(buf, indent, line_end, depth, arg_type, list);
-        }
-        if name == "bag" {
-            let arg_type = args.first().unwrap();
-            return self
-                .print_list(buf, indent, line_end, depth, arg_type, list);
-        }
-        let ty_con_name = list.first().unwrap().expect_string();
-        buf.push_str(&ty_con_name);
-        if let Some(arg) = list.get(1) {
-            // This is a parameterized constructor. (For example, NONE is
-            // not parameterized, SOME x is parameterized with x.)
-            buf.push(' ');
-            let need_parentheses = matches!(arg, Val::List(_));
-            if need_parentheses {
-                buf.push('(');
-            }
-            self.pretty2(
-                buf,
-                indent,
-                line_end,
-                depth + 1,
-                &Type::Primitive(PrimitiveType::String),
-                arg,
-                0,
-                0,
-            )?;
-            if need_parentheses {
-                buf.push(')');
-            }
-        }
-        Ok(())
-    }
+    // -- Type documents -------------------------------------------------
 
-    fn pretty_type(
-        &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        prefix: &str,
-        type_ref: &Type,
-        left: u8,
-        right: u8,
-    ) -> Result<(), fmt::Error> {
-        if match type_ref {
-            Type::Fn(_, _) => left > Op::FN.left || right > Op::FN.right,
-            Type::Tuple(_) => left > Op::TUPLE.left || right > Op::TUPLE.right,
-            _ => false,
-        } {
-            self.pretty_raw(buf, indent, line_end, depth, "(")?;
-            self.pretty_type(
-                buf, indent, line_end, depth, prefix, type_ref, 0, 0,
-            )?;
-            self.pretty_raw(buf, indent, line_end, depth, ")")?;
-            return Ok(());
-        }
-
-        buf.push_str(if buf.ends_with(' ') {
-            prefix.trim_start()
-        } else {
-            prefix
-        });
-        let indent2 = indent + prefix.len();
-
+    /// Builds a Doc for a type. Record types fill their fields across
+    /// lines (as many per line as fit, aligned under the first field), the
+    /// way SML/NJ wraps a wide record type; other composite types follow
+    /// type-operator precedence, adding parentheses where needed.
+    fn type_doc(&self, type_ref: &Type, left: u8, right: u8) -> Doc {
         match type_ref {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(name, _inner, _args) => {
-                self.pretty_raw(buf, indent2, line_end, depth, name)
-            }
-            Type::Bag(element_type) => self.pretty_collection_type(
-                buf,
-                indent2,
-                line_end,
-                depth,
+            Type::Alias(name, _inner, _args) => text(name),
+            Type::Bag(element_type) => self.collection_type_doc(
                 type_ref,
-                "bag",
-                element_type,
                 left,
                 right,
+                element_type,
+                "bag",
             ),
+            Type::Data(name, args) | Type::Named(args, name) => {
+                self.named_type_doc(name, args, left, right)
+            }
             Type::Fn(param_type, result_type) => {
-                const OP: Op = Op::FN;
-                let v_param = Val::new_type("", param_type);
-                self.pretty1_typeless(
-                    buf, indent2, line_end, depth, &v_param, left, OP.left,
-                )?;
-                let v_result = Val::new_type(" -> ", result_type);
-                self.pretty1_typeless(
-                    buf, indent2, line_end, depth, &v_result, OP.right, right,
+                if wraps(Op::FN, left, right) {
+                    return parenthesize(self.type_doc(type_ref, 0, 0));
+                }
+                // A function type breaks before "->", which leads the
+                // continuation line (indented one column, like a record or
+                // tuple type). We use an explicit union rather than
+                // "group": "group" would defer to an inner breakable
+                // structure and leave this "->" flat. Flattening the wide
+                // branch makes the fit test honest, so the outermost "->"
+                // that does not fit breaks first, matching SML/NJ.
+                let param_doc = self.type_doc(param_type, left, Op::FN.left);
+                let result_doc =
+                    self.type_doc(result_type, Op::FN.right, right);
+                union(
+                    flatten(&beside(
+                        param_doc.clone(),
+                        beside(text(" -> "), result_doc.clone()),
+                    )),
+                    align(nest(
+                        1,
+                        beside(
+                            param_doc,
+                            beside(
+                                hard_line(),
+                                beside(text("-> "), result_doc),
+                            ),
+                        ),
+                    )),
                 )
             }
-            Type::List(element_type) => self.pretty_collection_type(
-                buf,
-                indent2,
-                line_end,
-                depth,
+            Type::Forall(inner, _size) => self.type_doc(inner, left, right),
+            Type::List(element_type) => self.collection_type_doc(
                 type_ref,
-                "list",
-                element_type,
                 left,
                 right,
+                element_type,
+                "list",
             ),
-            Type::Named(args, name) | Type::Data(name, args) => {
-                const OP: Op = Op::APPLY;
-                match args.len() {
-                    0 => {}
-                    1 => {
-                        let v_arg = Val::new_type("", &args[0]);
-                        self.pretty1_typeless(
-                            buf, indent2, line_end, depth, &v_arg, left,
-                            OP.right,
-                        )?;
-                        buf.push(' ');
-                    }
-                    _ => {
-                        buf.push('(');
-                        for (i, arg) in args.iter().enumerate() {
-                            if i > 0 {
-                                buf.push(',');
-                            }
-                            let v_arg = Val::new_type("", arg);
-                            self.pretty1_typeless(
-                                buf, indent2, line_end, depth, &v_arg, 0, 0,
-                            )?;
-                        }
-                        buf.push_str(") ");
-                    }
-                }
-                self.pretty_raw(buf, indent2, line_end, depth, name)
-            }
-            Type::Primitive(p) => {
-                self.pretty_raw(buf, indent2, line_end, depth, p.as_str())
-            }
+            Type::Primitive(p) => text(p.as_str()),
             Type::Record(progressive, arg_name_types) => {
-                buf.push('{');
-                let start = buf.len();
-                for (name, element_type) in arg_name_types {
-                    if buf.len() > start {
-                        buf.push_str(", ");
-                    }
-                    self.pretty1_typeless(
-                        buf,
-                        indent2 + 1,
-                        line_end,
-                        depth,
-                        &Val::new_labeled(name, element_type),
-                        0,
-                        0,
-                    )?;
+                let mut fields = Vec::new();
+                for (name, field_type) in arg_name_types {
+                    let mut prefix = String::new();
+                    append_id(&mut prefix, &name.to_string());
+                    prefix.push(':');
+                    fields.push(beside(
+                        text(&prefix),
+                        self.type_doc(field_type, 0, 0),
+                    ));
                 }
                 if *progressive {
-                    if buf.len() > start {
-                        buf.push_str(", ");
-                    }
-                    self.pretty_raw(buf, indent2 + 1, line_end, depth, "...")?;
+                    fields.push(text("..."));
                 }
-                buf.push('}');
-                Ok(())
+                // Fields fill across lines, joined by ", " when packed.
+                // SML/NJ indents continuation lines of a record type to one
+                // column past the first field, so we align and then nest by
+                // one.
+                let n = fields.len();
+                let mut field_items = Vec::with_capacity(n);
+                for (i, d) in fields.into_iter().enumerate() {
+                    if i < n - 1 {
+                        field_items.push(beside(d, text(",")));
+                    } else {
+                        field_items.push(d);
+                    }
+                }
+                let fields_doc = fill(&text(" "), &field_items);
+                beside(text("{"), beside(align(nest(1, fields_doc)), text("}")))
             }
             Type::Tuple(arg_types) => {
-                // `*` is non-associative — `(t1 * t2) * t3`,
-                // `t1 * (t2 * t3)`, and `t1 * t2 * t3` are three
-                // distinct types. So any tuple-typed element must be
-                // surrounded by parentheses.
-                const OP: Op = Op::TUPLE;
-                let start = buf.len();
-                for (i, arg_type) in arg_types.iter().enumerate() {
-                    if buf.len() > start {
-                        self.pretty_raw(buf, indent2, line_end, depth, " * ")?;
-                    }
-                    let wrap = matches!(&**arg_type, Type::Tuple(_));
-                    if wrap {
-                        self.pretty_raw(buf, indent2, line_end, depth, "(")?;
-                        self.pretty1_typeless(
-                            buf,
-                            indent2,
-                            line_end,
-                            depth,
-                            &Val::new_type("", arg_type),
-                            0,
-                            0,
-                        )?;
-                        self.pretty_raw(buf, indent2, line_end, depth, ")")?;
-                    } else {
-                        self.pretty1_typeless(
-                            buf,
-                            indent2,
-                            line_end,
-                            depth,
-                            &Val::new_type("", arg_type),
-                            if i == 0 { left } else { OP.right },
-                            if i == arg_types.len() - 1 {
-                                right
-                            } else {
-                                OP.left
-                            },
-                        )?;
-                    }
+                if wraps(Op::TUPLE, left, right) {
+                    return parenthesize(self.type_doc(type_ref, 0, 0));
                 }
-                Ok(())
+                // A tuple type fills across lines like SML/NJ, breaking
+                // before "*": the "*" leads the continuation line.
+                let len = arg_types.len();
+                let mut product_items = Vec::with_capacity(len);
+                for (i, arg_type) in arg_types.iter().enumerate() {
+                    // `*` is non-associative — `(t1 * t2) * t3`,
+                    // `t1 * (t2 * t3)`, and `t1 * t2 * t3` are three distinct
+                    // types — so any tuple-typed element is parenthesized.
+                    let arg_doc = if matches!(&**arg_type, Type::Tuple(_)) {
+                        parenthesize(self.type_doc(arg_type, 0, 0))
+                    } else {
+                        let left1 = if i == 0 { left } else { Op::TUPLE.right };
+                        let right1 =
+                            if i == len - 1 { right } else { Op::TUPLE.left };
+                        self.type_doc(arg_type, left1, right1)
+                    };
+                    product_items.push(if i == 0 {
+                        arg_doc
+                    } else {
+                        beside(text("* "), arg_doc)
+                    });
+                }
+                // Continuation lines indent one column past the first
+                // element, as SML/NJ does.
+                align(nest(1, fill(&text(" "), &product_items)))
             }
-            Type::Variable(ty_var) => {
-                let s = ty_var.name();
-                self.pretty_raw(buf, indent2, line_end, depth, s.as_str())
+            Type::Variable(ty_var) => text(&ty_var.name()),
+        }
+    }
+
+    /// Builds a Doc for a named type application, e.g. `int option`,
+    /// `(int, string) sum`, or a nullary type such as `doc`. Rendered flat
+    /// (the application itself introduces no line breaks), the way SML/NJ
+    /// prints a type's "moniker".
+    fn named_type_doc(
+        &self,
+        name: &str,
+        args: &[Rc<Type>],
+        left: u8,
+        _right: u8,
+    ) -> Doc {
+        let doc = match args.len() {
+            0 => text(name),
+            1 => {
+                let arg = self.type_doc(&args[0], left, Op::APPLY.left);
+                beside(arg, beside(text(" "), text(name)))
             }
             _ => {
-                todo!("unknown type {:?}", type_ref)
+                let mut inner = text("(");
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        inner = beside(inner, text(","));
+                    }
+                    inner = beside(inner, self.type_doc(arg, 0, 0));
+                }
+                beside(inner, beside(text(") "), text(name)))
             }
-        }
+        };
+        flatten(&doc)
     }
 
-    fn print_list(
+    /// Builds a Doc for a "list" or "bag" type, e.g. `int list`.
+    fn collection_type_doc(
         &self,
-        buf: &mut String,
-        indent: usize,
-        line_end: &mut [i32],
-        depth: i32,
-        element_type: &Type,
-        list: &[Val],
-    ) -> Result<(), fmt::Error> {
-        buf.push('[');
-        let start = buf.len();
-        for (i, value) in list.iter().enumerate() {
-            if buf.len() > start {
-                buf.push(',');
-            }
-            if self.print_length >= 0 && i >= self.print_length as usize {
-                self.pretty_raw(buf, indent + 1, line_end, depth + 1, "...")?;
-                break;
-            } else if i == 0 {
-                // Keep the first element attached to '[' (glue), so that a
-                // list whose sole element is too wide prints as "[{...}" and
-                // breaks inside the element, rather than putting "{" on its
-                // own line.
-                self.pretty1_glue(
-                    buf,
-                    indent + 1,
-                    line_end,
-                    depth + 1,
-                    element_type,
-                    value,
-                    0,
-                    0,
-                )?;
-            } else {
-                self.pretty1(
-                    buf,
-                    indent + 1,
-                    line_end,
-                    depth + 1,
-                    element_type,
-                    value,
-                    0,
-                    0,
-                )?;
-            }
-        }
-        buf.push(']');
-        Ok(())
-    }
-
-    fn pretty_collection_type(
-        &self,
-        buf: &mut String,
-        indent2: usize,
-        line_end: &mut [i32],
-        depth: i32,
         type_: &Type,
-        type_name: &str,
-        element_type: &Type,
         left: u8,
         right: u8,
-    ) -> Result<(), fmt::Error> {
-        // Use APPLY precedence for type printing (collection types have the
-        // same precedence as named type applications like "int list").
-        const OP: Op = Op::APPLY;
-        if left > OP.left || right > OP.right {
-            self.pretty_raw(buf, indent2, line_end, depth, "(")?;
-            self.pretty_collection_type(
-                buf,
-                indent2,
-                line_end,
-                depth,
-                type_,
-                type_name,
-                element_type,
-                0,
-                0,
-            )?;
-            self.pretty_raw(buf, indent2, line_end, depth, ")")?;
-            return Ok(());
+        element_type: &Type,
+        type_name: &str,
+    ) -> Doc {
+        if wraps(Op::APPLY, left, right) {
+            return parenthesize(self.type_doc(type_, 0, 0));
         }
-        // Keep the element type attached to its prefix (e.g. ": ") and wrap
-        // it internally, rather than starting it on a fresh line.
-        self.pretty1_glue(
-            buf,
-            indent2,
-            line_end,
-            depth,
-            type_,
-            &Val::new_type("", element_type),
-            left,
-            OP.left,
-        )?;
-        buf.push(' ');
-        buf.push_str(type_name);
-        Ok(())
+        let element_doc = self.type_doc(element_type, left, Op::APPLY.left);
+        // The "list"/"bag" keyword may break onto its own line when the
+        // element type does not leave room for it.
+        align(beside(element_doc, group(beside(line(), text(type_name)))))
     }
 }
+
+/// Returns whether an operator at the given outer precedences needs to be
+/// parenthesized.
+fn wraps(op: Op, left: u8, right: u8) -> bool {
+    left > op.left || right > op.right
+}
+
+fn parenthesize(doc: Doc) -> Doc {
+    beside(text("("), beside(doc, text(")")))
+}
+
 /// Visitor for renumbering type variables
 struct TypeVarRenumberer {
     var_map: HashMap<usize, Type>,

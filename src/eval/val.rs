@@ -16,7 +16,7 @@
 // License.
 
 use crate::compile::library::BuiltInFunction;
-use crate::compile::types::Label;
+use crate::compile::lindig::Doc;
 use crate::compile::types::Type;
 use crate::eval::code::{
     Code, EvalEnv, Frame as CodeFrame, Frame, Impl, LIBRARY,
@@ -86,9 +86,8 @@ pub const REALFMT_SCI: usize = BuiltInFunction::StringCvtRealfmtSci as usize;
 
 /// Runtime value.
 ///
-/// The [Val::Typed], [Val::Named], [Val::Labeled], and [Val::Type] variants are
-/// used to annotate values with additional information for pretty-printing.
-/// [Val::Raw] is also used for pretty-printing.
+/// The [Val::Typed] variant annotates a value with its name and type for
+/// pretty-printing a `val name = value : type` binding.
 ///
 /// Passing [Val] by value is OK because it is small.
 /// We box the arguments to [Val::Typed] to keep it small.
@@ -156,24 +155,6 @@ pub enum Val {
     /// ```
     Typed(Box<(String, Val, Type)>),
 
-    /// Wrapper that indicates that a value should be printed with its name.
-    ///
-    /// For example:
-    ///
-    /// ```sml
-    /// val name = value : type
-    /// ```
-    Named(Box<(String, Val)>),
-
-    Labeled(Box<(Label, Type)>),
-    /// `Type(prefix, type_, suffix)`. `prefix` is emitted before the type and
-    /// `suffix` after it, e.g. prefix `": "`, suffix `" variant"` produces
-    /// `": int variant"`. Both being part of the same `Val` lets the
-    /// pretty-printer treat them as a single wrappable unit.
-    Type(Box<(String, Type, String)>),
-    /// `Raw(value)` is printed to the output as-is, without any quoting.
-    Raw(String),
-
     /// A constant piece of code. TODO This is a short-term way of representing
     /// user-defined functions. Long-term, they should be handled by inlining.
     Code(Arc<Code>),
@@ -215,6 +196,12 @@ pub enum Val {
     /// type-resolver. See [`crate::eval::file::File`].
     File(Rc<file::File>),
 
+    /// A pretty-printer document, the value of the abstract `PP.doc`
+    /// type. Built by the `PP` structure's combinators and laid out by
+    /// `PP.render`. Wrapped in `Rc` for cheap cloning; compared by
+    /// pointer identity (documents have no structural equality).
+    Doc(Rc<Doc>),
+
     /// Sentinel returned by [`Code::TailApply`] from a tail-position
     /// function call. The trampoline in `Frame::create_bind_and_eval`
     /// (and `Frame::create_and_eval`) bounces on this so that
@@ -251,37 +238,9 @@ impl Val {
         }
     }
 
-    /// Creates a new Type value with the given prefix and type.
-    pub fn new_type(prefix: &str, type_: &Type) -> Self {
-        Val::Type(Box::new((prefix.to_string(), type_.clone(), String::new())))
-    }
-
-    /// Creates a new Type value with the given prefix, type, and suffix.
-    pub fn new_type_with_suffix(
-        prefix: &str,
-        type_: &Type,
-        suffix: &str,
-    ) -> Self {
-        Val::Type(Box::new((
-            prefix.to_string(),
-            type_.clone(),
-            suffix.to_string(),
-        )))
-    }
-
     /// Creates a new Typed value with the given name, value, and type.
     pub fn new_typed(name: &str, value: Val, type_: &Type) -> Self {
         Val::Typed(Box::new((name.to_string(), value, type_.clone())))
-    }
-
-    /// Creates a new Named value with the given name and value.
-    pub fn new_named(name: &str, value: Val) -> Self {
-        Val::Named(Box::new((name.to_string(), value)))
-    }
-
-    /// Creates a new Labeled value with the given label and type.
-    pub fn new_labeled(label: &Label, type_: &Type) -> Self {
-        Val::Labeled(Box::new((label.clone(), type_.clone())))
     }
 
     pub(crate) fn expect_bool(&self) -> bool {
@@ -345,6 +304,19 @@ impl Val {
             Val::Char(c) => *c,
             _ => panic!("Expected char"),
         }
+    }
+
+    /// Returns the pretty-printer document inside a [`Val::Doc`].
+    pub(crate) fn expect_doc(&self) -> Doc {
+        match self {
+            Val::Doc(d) => (**d).clone(),
+            _ => panic!("Expected doc"),
+        }
+    }
+
+    /// Extracts a list of [`Doc`]s from a `Val::List` of [`Val::Doc`]s.
+    pub(crate) fn expect_doc_list(&self) -> Vec<Doc> {
+        self.expect_list().iter().map(Val::expect_doc).collect()
     }
 
     pub(crate) fn expect_time(&self) -> i64 {
@@ -470,6 +442,7 @@ impl Display for Val {
                 }
             }
             Val::Date(d, o) => write!(f, "{}", date::format_iso(*d, *o)),
+            Val::Doc(_) => write!(f, "-"),
             Val::File(file) => write!(f, "{}", file::display_file(file)),
             Val::Fn(func) => {
                 let name = func.name();
@@ -523,7 +496,6 @@ impl Display for Val {
                 write!(f, "]")
             }
             Val::Order(o) => write!(f, "{}", o.name()),
-            Val::Raw(s) => write!(f, "{}", s),
             Val::Real(r) => {
                 // Use Real.toString to format real values
                 write!(f, "{}", Real::to_string(*r))
@@ -572,15 +544,12 @@ impl PartialEq for Val {
                 a == b && x == y
             }
             (Val::Typed(a), Val::Typed(b)) => a == b,
-            (Val::Named(a), Val::Named(b)) => a == b,
-            (Val::Labeled(a), Val::Labeled(b)) => a == b,
-            (Val::Type(a), Val::Type(b)) => a == b,
-            (Val::Raw(a), Val::Raw(b)) => a == b,
             (Val::Code(a), Val::Code(b)) => Arc::ptr_eq(a, b),
             (Val::Closure(a), Val::Closure(b)) => Arc::ptr_eq(a, b),
             (Val::ClosureWeak(a), Val::ClosureWeak(b)) => Weak::ptr_eq(a, b),
             (Val::RecCell(a), Val::RecCell(b)) => Arc::ptr_eq(a, b),
             (Val::File(a), Val::File(b)) => Rc::ptr_eq(a, b),
+            (Val::Doc(a), Val::Doc(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -669,29 +638,6 @@ impl Hash for Val {
                 val.hash(state);
                 // Skip type for hashing
             }
-            Val::Named(boxed) => {
-                14.hash(state);
-                let (name, val) = boxed.as_ref();
-                name.hash(state);
-                val.hash(state);
-            }
-            Val::Labeled(boxed) => {
-                15.hash(state);
-                let (label, _type) = boxed.as_ref();
-                label.hash(state);
-                // Skip type for hashing
-            }
-            Val::Type(boxed) => {
-                16.hash(state);
-                let (name, _type, suffix) = boxed.as_ref();
-                name.hash(state);
-                suffix.hash(state);
-                // Skip type for hashing
-            }
-            Val::Raw(s) => {
-                17.hash(state);
-                s.hash(state);
-            }
             Val::Code(code) => {
                 18.hash(state);
                 // Hash the pointer address
@@ -719,6 +665,10 @@ impl Hash for Val {
             Val::File(file) => {
                 23.hash(state);
                 Rc::as_ptr(file).hash(state);
+            }
+            Val::Doc(doc) => {
+                24.hash(state);
+                Rc::as_ptr(doc).hash(state);
             }
         }
     }

@@ -48,23 +48,24 @@ Real;
 >    realMod=fn,realRound=fn,realTrunc=fn,rem=fn,round=fn,sameSign=fn,sign=fn,
 >    signBit=fn,split=fn,toManExp=fn,toString=fn,trunc=fn,unordered=fn,~=fn}
 >   : {*:real * real -> real, +:real * real -> real, -:real * real -> real,
->      /:real * real -> real, <:real * real -> bool, <=:real * real -> bool,
->      <>:real * real -> bool, =:real * real -> bool, >:real * real -> bool,
->      >=:real * real -> bool, abs:real -> real, ceil:real -> int,
->      checkFloat:real -> real, compare:real * real -> order,
->      copySign:real * real -> real, floor:real -> int,
->      fmt:realfmt -> real -> string, fromInt:int -> real,
->      fromManExp:{exp:int, man:real} -> real, fromString:string -> real option,
->      isFinite:real -> bool, isNan:real -> bool, isNormal:real -> bool,
->      max:real * real -> real, maxFinite:real, min:real * real -> real,
->      minNormalPos:real, minPos:real, negInf:real, posInf:real, precision:int,
->      radix:int, realCeil:real -> real, realFloor:real -> real,
->      realMod:real -> real, realRound:real -> real, realTrunc:real -> real,
->      rem:real * real -> real, round:real -> int, sameSign:real * real -> bool,
->      sign:real -> int, signBit:real -> bool,
->      split:real -> {frac:real, whole:real},
->      toManExp:real -> {exp:int, man:real}, toString:real -> string,
->      trunc:real -> int, unordered:real * real -> bool, ~:real -> real}
+>       /:real * real -> real, <:real * real -> bool, <=:real * real -> bool,
+>       <>:real * real -> bool, =:real * real -> bool, >:real * real -> bool,
+>       >=:real * real -> bool, abs:real -> real, ceil:real -> int,
+>       checkFloat:real -> real, compare:real * real -> order,
+>       copySign:real * real -> real, floor:real -> int,
+>       fmt:realfmt -> real -> string, fromInt:int -> real,
+>       fromManExp:{exp:int, man:real} -> real,
+>       fromString:string -> real option, isFinite:real -> bool,
+>       isNan:real -> bool, isNormal:real -> bool, max:real * real -> real,
+>       maxFinite:real, min:real * real -> real, minNormalPos:real,
+>       minPos:real, negInf:real, posInf:real, precision:int, radix:int,
+>       realCeil:real -> real, realFloor:real -> real, realMod:real -> real,
+>       realRound:real -> real, realTrunc:real -> real,
+>       rem:real * real -> real, round:real -> int,
+>       sameSign:real * real -> bool, sign:real -> int, signBit:real -> bool,
+>       split:real -> {frac:real, whole:real},
+>       toManExp:real -> {exp:int, man:real}, toString:real -> string,
+>       trunc:real -> int, unordered:real * real -> bool, ~:real -> real}
 
 (*) val radix : int
 Real.radix;
@@ -1027,7 +1028,8 @@ List.map (fn x => (x, Real.fromString (Real.toString x)))
 >    (1.23456E~7,SOME 1.23456E~7),(~1.23456E~6,SOME ~1.23456E~6),
 >    (1E~45,SOME 1E~45),(1.1754944E~38,SOME 1.1754944E~38),
 >    (3.4028235E38,SOME 3.4028235E38),(~3.4028235E38,SOME ~3.4028235E38),
->    (inf,SOME inf),(~inf,SOME ~inf),(nan,SOME nan)] : (real * real option) list
+>    (inf,SOME inf),(~inf,SOME ~inf),(nan,SOME nan)]
+>   : (real * real option) list
 
 (* "toLarge r", "fromLarge r" convert between values of type real and type
    LargeReal.real. If r is too small or too large to be represented as a real,

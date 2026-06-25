@@ -399,6 +399,7 @@ Datatype:
 
 Eqtype:
 * `eqtype 'a bag = 'a bag` (in structure `Bag`)
+* `eqtype doc` (the abstract pretty-printer document, in structure `PP`)
 * `eqtype 'a vector = 'a vector` (in structure `Vector`)
 
 Exception:

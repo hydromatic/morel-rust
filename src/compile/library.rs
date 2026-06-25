@@ -910,6 +910,62 @@ pub enum BuiltInFunction {
     #[strum(props(type = "`order`"))]
     #[strum(props(constructor_ordinal = "0"))]
     OrderLess,
+    #[strum(props(p = "PP", name = "align", type = "doc -> doc"))]
+    PpAlign,
+    #[strum(props(p = "PP", name = "beside", type = "doc * doc -> doc"))]
+    PpBeside,
+    #[strum(props(p = "PP", name = "braces", type = "doc -> doc"))]
+    PpBraces,
+    #[strum(props(p = "PP", name = "brackets", type = "doc -> doc"))]
+    PpBrackets,
+    #[strum(props(p = "PP", name = "cat", type = "doc list -> doc"))]
+    PpCat,
+    #[strum(props(p = "PP", name = "empty", type = "doc"))]
+    PpEmpty,
+    #[strum(props(p = "PP", name = "encloseSep"))]
+    #[strum(props(type = "doc * doc * doc * doc list -> doc"))]
+    PpEncloseSep,
+    #[strum(props(p = "PP", name = "fillCat", type = "doc list -> doc"))]
+    PpFillCat,
+    #[strum(props(p = "PP", name = "fillSep", type = "doc list -> doc"))]
+    PpFillSep,
+    #[strum(props(p = "PP", name = "group", type = "doc -> doc"))]
+    PpGroup,
+    #[strum(props(p = "PP", name = "hang", type = "int * doc -> doc"))]
+    PpHang,
+    #[strum(props(p = "PP", name = "hardLine", type = "doc"))]
+    PpHardLine,
+    #[strum(props(p = "PP", name = "hcat", type = "doc list -> doc"))]
+    PpHcat,
+    #[strum(props(p = "PP", name = "hsep", type = "doc list -> doc"))]
+    PpHsep,
+    #[strum(props(p = "PP", name = "indent", type = "int * doc -> doc"))]
+    PpIndent,
+    #[strum(props(p = "PP", name = "line", type = "doc"))]
+    PpLine,
+    #[strum(props(p = "PP", name = "lineBreak", type = "doc"))]
+    PpLineBreak,
+    #[strum(props(p = "PP", name = "nest", type = "int * doc -> doc"))]
+    PpNest,
+    #[strum(props(p = "PP", name = "parens", type = "doc -> doc"))]
+    PpParens,
+    #[strum(props(p = "PP", name = "punctuate"))]
+    #[strum(props(type = "doc * doc list -> doc list"))]
+    PpPunctuate,
+    #[strum(props(p = "PP", name = "render", type = "int * doc -> string"))]
+    PpRender,
+    #[strum(props(p = "PP", name = "sep", type = "doc list -> doc"))]
+    PpSep,
+    #[strum(props(p = "PP", name = "softBreak", type = "doc"))]
+    PpSoftBreak,
+    #[strum(props(p = "PP", name = "softLine", type = "doc"))]
+    PpSoftLine,
+    #[strum(props(p = "PP", name = "text", type = "string -> doc"))]
+    PpText,
+    #[strum(props(p = "PP", name = "vcat", type = "doc list -> doc"))]
+    PpVcat,
+    #[strum(props(p = "PP", name = "vsep", type = "doc list -> doc"))]
+    PpVsep,
     #[strum(props(p = "Range", name = "ALL", global = true))]
     #[strum(props(type = "forall 1 'a range"))]
     #[strum(props(constructor_ordinal = "0"))]
@@ -1801,6 +1857,8 @@ pub enum BuiltInRecord {
     Math,
     #[strum(props(name = "Option"))]
     Option,
+    #[strum(props(name = "PP"))]
+    PP,
     #[strum(props(name = "Range"))]
     Range,
     #[strum(props(name = "Real"))]
@@ -2026,6 +2084,8 @@ pub enum BuiltInEqtype {
     Bag,
     #[strum(props(name = "date", varCount = "0"))]
     Date,
+    #[strum(props(name = "doc", varCount = "0"))]
+    Doc,
     #[strum(props(name = "list", varCount = "1"))]
     List,
     #[strum(props(name = "time", varCount = "0"))]

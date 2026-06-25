@@ -26,6 +26,7 @@ pub mod generator;
 pub mod generators;
 pub mod inliner;
 pub mod library;
+pub mod lindig;
 mod pat_coverage;
 pub mod postfix;
 mod pretty;

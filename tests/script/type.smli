@@ -743,14 +743,15 @@ fun quadratic_case () =
   end;
 > val quadratic_case = fn
 >   : unit
->     -> ('a -> 'a) * ('b -> 'b * 'b) * ('c -> 'c list) * ('d -> 'd option) *
->        ('e -> 'e * 'e * 'e) * ('f -> 'g -> 'f * 'g) * ('h -> {field:'h}) *
->        ('i -> 'i) * ('j -> 'j * 'j) * ('k -> 'k * 'k * 'k) * ('l -> 'l tree) *
->        ('m -> 'm tree) * ('n -> ('n,'o) either) * ('p -> ('q,'p) either) *
->        ('r -> 's -> 'r * ('s * 'r)) * ('t -> 'u -> 'u * 't * 't) *
->        ('v -> 'w -> 'x -> 'v * 'w * 'x) * ('y -> 'z -> 'y) *
->        ('ba -> 'bb -> 'bb) * ('bc -> ('bc -> 'bd) -> 'bd) *
->        ('be -> ('bf -> 'bg) -> ('be -> 'bf) -> 'bg)
+>      -> ('a -> 'a) * ('b -> 'b * 'b) * ('c -> 'c list) * ('d -> 'd option)
+>          * ('e -> 'e * 'e * 'e) * ('f -> 'g -> 'f * 'g) * ('h -> {field:'h})
+>          * ('i -> 'i) * ('j -> 'j * 'j) * ('k -> 'k * 'k * 'k)
+>          * ('l -> 'l tree) * ('m -> 'm tree) * ('n -> ('n,'o) either)
+>          * ('p -> ('q,'p) either) * ('r -> 's -> 'r * ('s * 'r))
+>          * ('t -> 'u -> 'u * 't * 't) * ('v -> 'w -> 'x -> 'v * 'w * 'x)
+>          * ('y -> 'z -> 'y) * ('ba -> 'bb -> 'bb)
+>          * ('bc -> ('bc -> 'bd) -> 'bd)
+>          * ('be -> ('bf -> 'bg) -> ('be -> 'bf) -> 'bg)
 
 (* Additional function to create nested applications. *)
 fun nested_quadratic_case () =
@@ -771,9 +772,10 @@ fun nested_quadratic_case () =
   end;
 > val nested_quadratic_case = fn
 >   : unit
->     -> ('a -> 'a) * ('b -> 'b * 'b) * ('c -> 'c list) * ('d -> 'd option) *
->        ('e -> 'e * 'e * 'e) * ('f -> 'g -> 'f * 'g) * ('h -> {field:'h}) *
->        ('i -> 'i) * ('j -> 'j tree) * ('k -> 'k tree) * ('l -> ('l,'m) either)
+>      -> ('a -> 'a) * ('b -> 'b * 'b) * ('c -> 'c list) * ('d -> 'd option)
+>          * ('e -> 'e * 'e * 'e) * ('f -> 'g -> 'f * 'g) * ('h -> {field:'h})
+>          * ('i -> 'i) * ('j -> 'j tree) * ('k -> 'k tree)
+>          * ('l -> ('l,'m) either)
 
 (* Cross-chain dependencies for even more complexity. *)
 fun cross_chain () =
@@ -874,33 +876,34 @@ fun quadratic_case2 () =
   end;
 > val quadratic_case2 = fn
 >   : unit
->     -> ('a -> 'a) * ('b -> 'b * 'b) * ('c -> 'c list) * ('d -> 'd option) *
->        ('e -> 'e * 'e * 'e) * ('f -> 'g -> 'f * 'g) * ('h -> {field:'h}) *
->        ('i -> 'i) * ('j -> 'j * 'j) * ('k -> 'k * 'k * 'k) * ('l -> 'l tree) *
->        ('m -> 'm tree) * ('n -> ('n,'o) either) * ('p -> ('q,'p) either) *
->        ('r -> 's -> 'r * ('s * 'r)) * ('t -> 'u -> 'u * 't * 't) *
->        ('v -> 'w -> 'x -> 'v * 'w * 'x) * ('y -> 'z -> 'y) *
->        ('ba -> 'bb -> 'bb) * ('bc -> ('bc -> 'bd) -> 'bd) *
->        ('be -> ('bf -> 'bg) -> ('be -> 'bf) -> 'bg) *
->        ('bh -> ('bi -> 'bj) -> ('bh -> 'bi) -> 'bj) *
->        ('bk -> ('bl -> 'bm) -> ('bk -> 'bl) -> 'bm) *
->        ('bn -> ('bo -> 'bp) -> ('bn -> 'bo) -> 'bp) *
->        ('bq -> ('br -> 'bs) -> ('bq -> 'br) -> 'bs) *
->        ('bt -> ('bu -> 'bv) -> ('bt -> 'bu) -> 'bv) *
->        ('bw -> ('bx -> 'by) -> ('bw -> 'bx) -> 'by) *
->        ('bz -> ('ca -> 'cb) -> ('bz -> 'ca) -> 'cb) *
->        ('cc -> ('cd -> 'ce) -> ('cc -> 'cd) -> 'ce) *
->        ('cf -> ('cg -> 'ch) -> ('cf -> 'cg) -> 'ch) *
->        ('ci -> ('cj -> 'ck) -> ('ci -> 'cj) -> 'ck) *
->        ('cl -> ('cm -> 'cn) -> ('cl -> 'cm) -> 'cn) *
->        ('co -> ('cp -> 'cq) -> ('co -> 'cp) -> 'cq) *
->        ('cr -> ('cs -> 'ct) -> ('cr -> 'cs) -> 'ct) *
->        ('cu -> ('cv -> 'cw) -> ('cu -> 'cv) -> 'cw) *
->        ('cx -> ('cy -> 'cz) -> ('cx -> 'cy) -> 'cz) *
->        ('da -> ('db -> 'dc) -> ('da -> 'db) -> 'dc) *
->        ('dd -> ('de -> 'df) -> ('dd -> 'de) -> 'df) *
->        ('dg -> ('dh -> 'di) -> ('dg -> 'dh) -> 'di) *
->        ('dj -> ('dk -> 'dl) -> ('dj -> 'dk) -> 'dl)
+>      -> ('a -> 'a) * ('b -> 'b * 'b) * ('c -> 'c list) * ('d -> 'd option)
+>          * ('e -> 'e * 'e * 'e) * ('f -> 'g -> 'f * 'g) * ('h -> {field:'h})
+>          * ('i -> 'i) * ('j -> 'j * 'j) * ('k -> 'k * 'k * 'k)
+>          * ('l -> 'l tree) * ('m -> 'm tree) * ('n -> ('n,'o) either)
+>          * ('p -> ('q,'p) either) * ('r -> 's -> 'r * ('s * 'r))
+>          * ('t -> 'u -> 'u * 't * 't) * ('v -> 'w -> 'x -> 'v * 'w * 'x)
+>          * ('y -> 'z -> 'y) * ('ba -> 'bb -> 'bb)
+>          * ('bc -> ('bc -> 'bd) -> 'bd)
+>          * ('be -> ('bf -> 'bg) -> ('be -> 'bf) -> 'bg)
+>          * ('bh -> ('bi -> 'bj) -> ('bh -> 'bi) -> 'bj)
+>          * ('bk -> ('bl -> 'bm) -> ('bk -> 'bl) -> 'bm)
+>          * ('bn -> ('bo -> 'bp) -> ('bn -> 'bo) -> 'bp)
+>          * ('bq -> ('br -> 'bs) -> ('bq -> 'br) -> 'bs)
+>          * ('bt -> ('bu -> 'bv) -> ('bt -> 'bu) -> 'bv)
+>          * ('bw -> ('bx -> 'by) -> ('bw -> 'bx) -> 'by)
+>          * ('bz -> ('ca -> 'cb) -> ('bz -> 'ca) -> 'cb)
+>          * ('cc -> ('cd -> 'ce) -> ('cc -> 'cd) -> 'ce)
+>          * ('cf -> ('cg -> 'ch) -> ('cf -> 'cg) -> 'ch)
+>          * ('ci -> ('cj -> 'ck) -> ('ci -> 'cj) -> 'ck)
+>          * ('cl -> ('cm -> 'cn) -> ('cl -> 'cm) -> 'cn)
+>          * ('co -> ('cp -> 'cq) -> ('co -> 'cp) -> 'cq)
+>          * ('cr -> ('cs -> 'ct) -> ('cr -> 'cs) -> 'ct)
+>          * ('cu -> ('cv -> 'cw) -> ('cu -> 'cv) -> 'cw)
+>          * ('cx -> ('cy -> 'cz) -> ('cx -> 'cy) -> 'cz)
+>          * ('da -> ('db -> 'dc) -> ('da -> 'db) -> 'dc)
+>          * ('dd -> ('de -> 'df) -> ('dd -> 'de) -> 'df)
+>          * ('dg -> ('dh -> 'di) -> ('dg -> 'dh) -> 'di)
+>          * ('dj -> ('dk -> 'dl) -> ('dj -> 'dk) -> 'dl)
 
 (* Function that creates a quadratic unification case. *)
 fun quadratic_case3 () =

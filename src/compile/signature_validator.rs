@@ -232,12 +232,14 @@ fn structure_from_sig_file_name(path: &Path) -> Option<String> {
 
 /// Title-cases a kebab-cased identifier. Splits at hyphens and
 /// upper-cases the first character of each segment, with the single
-/// exception of `"ieee"`, which uppercases to `"IEEE"`.
+/// exceptions of `"ieee"`, which uppercases to `"IEEE"`, and `"pp"`,
+/// which uppercases to `"PP"`.
 ///
 /// Examples:
 /// - `"ieee-real"` → `"IEEEReal"`
 /// - `"list-pair"` → `"ListPair"`
 /// - `"string-cvt"` → `"StringCvt"`
+/// - `"pp"` → `"PP"`
 /// - `"bool"` → `"Bool"`
 fn from_kebab(kebab: &str) -> String {
     let mut s = String::with_capacity(kebab.len());
@@ -247,6 +249,8 @@ fn from_kebab(kebab: &str) -> String {
         }
         if segment == "ieee" {
             s.push_str("IEEE");
+        } else if segment == "pp" {
+            s.push_str("PP");
         } else {
             let mut chars = segment.chars();
             if let Some(c) = chars.next() {
