@@ -501,17 +501,8 @@ impl Real {
                 // For non-whole numbers, use default formatting.
                 format!("{}", r).replace('-', "~")
             };
-            // Replace values that occur in tests and are different on various
-            // hardware platforms. We'd rather now do this; it would be better
-            // if the tests omitted the least significant digit(s).
+            // `Real.minPos`: SML reports 1.4e-45, not the shorter "1E~45".
             match s.as_str() {
-                "3.1415925" => "3.1415927".to_string(),
-                "~3.1415925" => "~3.1415927".to_string(),
-                "1.5707963" => "1.5707964".to_string(),
-                "~1.5707963" => "~1.5707964".to_string(),
-                "1.5430806" => "1.5430807".to_string(),
-                "~2.2877334E7" => "~2.2877332E7".to_string(),
-                // `Real.minPos`: SML reports 1.4e-45, not the shorter "1E~45".
                 "1E~45" => "1.4E~45".to_string(),
                 "~1E~45" => "~1.4E~45".to_string(),
                 _ => s,
