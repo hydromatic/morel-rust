@@ -246,6 +246,7 @@ pub enum ExprKind<SubExpr> {
     Current,
     Ordinal,
     Elements,
+    TypeString(Box<SubExpr>),
 
     // Infix binary operators
     Plus(Box<Expr>, Box<SubExpr>),
@@ -374,6 +375,7 @@ impl ExprKind<Expr> {
             ExprKind::SafeRecordSelector(..) => Op::ATOM,
             ExprKind::Times(..) => Op::TIMES_OP,
             ExprKind::Tuple(..) => Op::ATOM,
+            ExprKind::TypeString(..) => Op::TYPE_STRING,
         }
     }
 
@@ -581,6 +583,19 @@ impl ExprKind<Expr> {
                     write_sub(f, e, 0, 0)?;
                 }
                 f.write_str(")")
+            }
+            ExprKind::TypeString(e) => {
+                let op = Op::TYPE_STRING;
+                let paren = left > op.left || op.right < right;
+                if paren {
+                    f.write_str("(")?;
+                }
+                f.write_str("type_string ")?;
+                write_sub(f, e, op.right, if paren { 0 } else { right })?;
+                if paren {
+                    f.write_str(")")?;
+                }
+                Ok(())
             }
         }
     }

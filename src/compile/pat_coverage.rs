@@ -556,6 +556,7 @@ fn visit_expr(
         | ExprKind::SafeRecordSelector(_)
         | ExprKind::Current
         | ExprKind::Ordinal
+        | ExprKind::TypeString(_)
         | ExprKind::Elements => {}
 
         ExprKind::Negate(e)

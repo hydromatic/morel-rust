@@ -285,7 +285,56 @@ end;
 set("mode", "evaluate");
 > val it = () : unit
 
-(*) Function with unit arg
+(* type_string ---------------------------------------------------- *)
+(* The 'type_string' operator renders the inferred type of an expression as
+   a string, without evaluating the expression. *)
+type_string (1 + 2);
+> val it = "int" : string
+type_string (fn x => x);
+> val it = "'a -> 'a" : string
+type_string String.size;
+> val it = "string -> int" : string
+type_string [1, 2, 3];
+> val it = "int list" : string
+type_string {a = 1, b = "x"};
+> val it = "{a:int, b:string}" : string
+
+(*) The operand is not evaluated, so this does not raise 'Empty'.
+type_string (hd []);
+> val it = "'a" : string
+
+(*) Polymorphism is preserved.
+type_string (fn (x, y) => x);
+> val it = "'a * 'b -> 'a" : string
+
+(* Operand precedence is 9, so a dotted operand needs no parentheses, but an
+   application or infix operator does. *)
+val r = {a = 1, b = true};
+> val r = {a=1,b=true} : {a:int, b:bool}
+type_string r.b;
+> val it = "bool" : string
+type_string (String.size "hi");
+> val it = "int" : string
+
+type_string ("x" ^ "y") ^ "z";
+> val it = "stringz" : string
+
+fun foo list = (size list, type_string (true, list));
+> val foo = fn : string -> int * string
+foo "abc";
+> val it = (3,"bool * string") : int * string
+
+fun foo2 s = (size s, type_string (true, s));
+> val foo2 = fn : string -> int * string
+foo2 "abc";
+> val it = (3,"bool * string") : int * string
+
+fun foo3 list = (length list, type_string {b = list, a = 1});
+> val foo3 = fn : 'a list -> int * string
+foo3 [true, false];
+> val it = (2,"{a:int, b:'a list}") : int * string
+
+(* Function with unit arg ----------------------------------------- *)
 fun one () = 1;
 > val one = fn : unit -> int
 

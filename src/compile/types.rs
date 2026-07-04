@@ -577,6 +577,10 @@ impl Op {
 
     /// `over` (aggregate). Uses APPLY precedence to bind tightly.
     pub const OVER_OP: Op = Op::left_assoc(8, " over ");
+
+    /// `type_string` prefix operator. Precedence 9, so it binds tighter than
+    /// application; a lower-precedence operand (e.g. `1 + 2`) needs parens.
+    pub const TYPE_STRING: Op = Op::left_assoc(9, " ");
 }
 
 #[cfg(test)]

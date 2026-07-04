@@ -218,6 +218,7 @@ fn dump_expr_kind(b: &mut String, e: &ExprKind<Expr>) {
         }
         ExprKind::Times(a, c) => infix(b, "times", a, c),
         ExprKind::Tuple(args) => list(b, "tuple", args.iter(), dump_expr),
+        ExprKind::TypeString(e) => prefix(b, "type_string", e),
     }
 }
 

@@ -751,7 +751,7 @@ fn test_reserved_words() {
         .and_then(|(_, rest)| rest.split_once('}'))
         .map(|(block, _)| block)
         .expect("`keywords` rule not found in morel.pest");
-    let token_re = Regex::new(r"_[A-Za-z0-9]+").unwrap();
+    let token_re = Regex::new(r"_[A-Za-z0-9_]+").unwrap();
     let grammar_words: BTreeSet<String> = token_re
         .find_iter(kw_block)
         .map(|m| {

@@ -1129,6 +1129,13 @@ impl<'a> Resolver<'a> {
                 t,
                 elements.iter().map(|e| self.resolve_expr(e)).collect(),
             ),
+            ExprKind::TypeString(operand) => {
+                let moniker = operand
+                    .get_type(self.type_map)
+                    .map(|ty| ty.to_string())
+                    .unwrap_or_default();
+                CoreExpr::Literal(t, Val::String(moniker))
+            }
             _ => todo!("Unimplemented expression kind: {:?}", expr.kind),
         }
     }

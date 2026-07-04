@@ -165,6 +165,7 @@ In Standard ML but not in Morel:
     | <b>if</b> <i>exp<sub>1</sub></i> <b>then</b> <i>exp<sub>2</sub></i> <b>else</b> <i>exp<sub>3</sub></i>
                                 conditional
     | <b>case</b> <i>exp</i> <b>of</b> <i>match</i>         case analysis
+    | <b>type_string</b> <i>exp</i>           type of <i>exp</i> as a string (<i>exp</i> is not evaluated)
     | <b>fn</b> <i>match</i>                  function
 <i>exprow</i> &rarr; [ <i>exp</i> <b>with</b> ] <i>exprowItem</i> [<b>,</b> <i>exprowItem</i> ]*
                                 expression row

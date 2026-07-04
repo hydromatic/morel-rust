@@ -2685,6 +2685,14 @@ impl TypeResolver {
                     v,
                 )
             }
+            ExprKind::TypeString(operand) => {
+                let v_operand = self.variable();
+                let operand2 =
+                    self.deduce_expr_type(env, operand, &v_operand)?;
+                self.primitive_term(&PrimitiveType::String, v);
+                let x = ExprKind::TypeString(Box::new(operand2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             _ => todo!("{:?}", expr.kind),
         })
     }

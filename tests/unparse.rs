@@ -210,6 +210,8 @@ fn test_each_expr_kind() {
     k.check_kind("let val x = 1 in x end");
     k.check_kind("fn x => x");
     k.check_kind("raise Bind");
+    k.check_kind("type_string x");
+    k.check_kind("type_string (1 + 2)");
     k.check_kind("if x > 0 then y + 1 else y - 1");
     k.check_kind("let val x = 1 in x + 2 end");
     k.check_kind("fn x => x + 1");

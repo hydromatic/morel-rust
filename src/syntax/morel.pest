@@ -96,6 +96,7 @@ keywords = {
   | _then
   | _through
   | _type
+  | _type_string
   | _typeof
   | _union
   | _unorder
@@ -160,6 +161,7 @@ _take = @{ "take" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _then = @{ "then" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _through = @{ "through" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _type = @{ "type" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_type_string = @{ "type_string" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _typeof = @{ "typeof" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _union = @{ "union" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _unorder = @{ "unorder" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -300,6 +302,7 @@ atom = {
   | _current
   | _elements
   | _ordinal
+  | type_string_expr
   | tuple_expr
   | list_expr
   | record_expr
@@ -379,6 +382,9 @@ labeled_expr = {
 
 if_expr = { _if ~ expr ~ _then ~ expr ~ _else ~ expr }
 raise_expr = { _raise ~ expr }
+
+// `type_string e`: the operand is parsed at precedence 9 (`expr_postfix`).
+type_string_expr = { _type_string ~ expr_postfix }
 
 case_expr = { _case ~ expr ~ _of ~ match_list }
 fn_expr = { _fn ~ match_list }

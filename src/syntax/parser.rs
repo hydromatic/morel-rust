@@ -780,6 +780,7 @@ impl MorelParser {
             [_current(_)] => ExprKind::Current.wrap(input),
             [_elements(_)] => ExprKind::Elements.wrap(input),
             [_ordinal(_)] => ExprKind::Ordinal.wrap(input),
+            [type_string_expr(e)] => e,
             [tuple_expr(e)] => e,
             [list_expr(e)] => e,
             [record_expr(e)] => e,
@@ -844,6 +845,14 @@ impl MorelParser {
         Ok(match_nodes!(input.children();
             [_raise(_), expr(e)] => {
                 ExprKind::Raise(Box::new(e)).wrap(input)
+            },
+        ))
+    }
+
+    fn type_string_expr(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [_type_string(_), expr_postfix(e)] => {
+                ExprKind::TypeString(Box::new(e)).wrap(input)
             },
         ))
     }
@@ -2200,6 +2209,10 @@ impl MorelParser {
         Ok(())
     }
 
+    fn _type_string(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
     fn _typeof(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
@@ -2480,6 +2493,7 @@ pub const RESERVED_WORDS: &[&str] = &[
     "then",
     "through",
     "type",
+    "type_string",
     "typeof",
     "union",
     "unorder",
