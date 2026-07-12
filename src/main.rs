@@ -16,7 +16,7 @@
 // License.
 
 extern crate core;
-use crate::shell::{Kernel, ScriptRunner, ScriptTest};
+use crate::shell::{Kernel, ScriptRunner, ScriptTest, Shell};
 use std::env;
 use std::io::{IsTerminal, Read, Write, stdin, stdout};
 use std::process::exit;
@@ -296,15 +296,25 @@ fn main() {
 }
 
 fn run_interactive(directory: Option<&str>) {
+    let is_tty = IsTerminal::is_terminal(&stdin());
     let mut shell_args = vec!["--prompt".to_string(), "--banner".to_string()];
-    if IsTerminal::is_terminal(&stdin()) {
+    if is_tty {
         shell_args.push("--tty".to_string());
     }
     if let Some(dir) = directory {
         shell_args.push(format!("--directory={}", dir));
     }
-    let mut main = Kernel::new(&shell_args);
-    match ScriptRunner::new(&mut main).run(stdin(), stdout()) {
+    let mut kernel = Kernel::new(&shell_args);
+
+    // On a real terminal, use the rustyline front end (line editing and
+    // history). Piped or redirected input keeps the plain line reader, so
+    // scripted sessions behave exactly as before.
+    let result = if is_tty {
+        Shell::new(&mut kernel).run()
+    } else {
+        ScriptRunner::new(&mut kernel).run(stdin(), stdout())
+    };
+    match result {
         Ok(()) => {
             println!("Goodbye!");
         }

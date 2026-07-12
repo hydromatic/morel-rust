@@ -35,6 +35,7 @@ and then lists its built-in
 [functions](#built-in-functions).
 [Properties](#properties) affect the execution strategy and the
 behavior of the shell.
+The [shell](#the-shell) is Morel's interactive read-eval-print loop.
 
 As of release 0.2, Morel Rust (the Rust implementation of the Morel
 language) has fewer features than Morel Java (the
@@ -714,3 +715,35 @@ and unset using `Sys.unset name`.
 | showBanner           | bool   | true   | Whether to print the banner at the start of the shell. |
 | stringDepth          | int    | 70     | When printing, the length of strings at which ellipsis begins. |
 | timeZone             | string | null   | Overrides the local timezone. Value is a timezone ID (e.g. 'UTC' or 'America/New_York'). If not set, the JVM default timezone is used. |
+
+## The shell
+
+Morel includes an interactive shell (a read-eval-print loop, or REPL).
+Launch it by running `morel` with no arguments:
+
+```
+$ ./morel
+morel-rust version 0.2.0 (rust version 1.95.0)
+- "Hello, world!";
+val it = "Hello, world!" : string
+-
+```
+
+At the `-` prompt, type an expression or declaration followed by a
+semicolon, and Morel evaluates it and prints the result. A statement may
+span several lines; while it is incomplete, the prompt changes to `=`.
+Type `Ctrl-D` to quit.
+
+### Command history
+
+The shell remembers the commands you type, so that you can recall and
+edit earlier commands using the up and down arrow keys. History is saved
+between sessions in the file `~/.morel/history-rust`, and is reloaded
+when the shell starts. If the `~/.morel` directory does not exist, the
+shell creates it. (The file name differs from Morel-Java's
+`~/.morel/history` because the two shells store history in different
+formats.)
+
+If the history file cannot be created — for example, if the home
+directory is not writable — the shell prints a warning and continues
+without saving history for that session.

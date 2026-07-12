@@ -108,3 +108,10 @@ used_underscore_binding = "deny"
 #use_self = "deny"
 useless_conversion = "deny"
 wildcard_imports = "deny"
+
+# Interactive line editing for the terminal front end. Gated to native
+# targets: rustyline needs a terminal and filesystem, neither of which
+# exists on wasm32 (where the shell is driven statement-by-statement
+# from JavaScript instead).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rustyline = { version = "18.0.1", features = ["with-file-history"] }

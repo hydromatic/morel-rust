@@ -29,6 +29,13 @@ pub use kernel::Kernel;
 pub use runner::ScriptRunner;
 pub use script_test::ScriptTest;
 
+// The interactive terminal front end depends on rustyline, which is not
+// available on wasm32; keep it (and the `Shell` it exports) off that target.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod terminal;
+#[cfg(not(target_arch = "wasm32"))]
+pub use terminal::Shell;
+
 use error::Error;
 /// Result type for shell operations.
 pub type ShellResult<T> = Result<T, Error>;
