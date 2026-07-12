@@ -414,6 +414,23 @@ from i in [10, 20]
   yieldAll [i + ordinal + current, i + ordinal + current];
 > val it = [20,20,41,41] : int list
 
+(* A binder ('yieldAll r in e') names each flattened element 'r', a
+ * scan-variable-like name that combines with a following 'join'. *)
+from i in [1,2] yieldAll r in [i, i*10];
+> val it = [1,10,2,20] : int list
+from row in [{items=[1,2]},{items=[3]}] yieldAll r in row.items yield r + 1;
+> val it = [2,3,4] : int list
+from i in [1,2] yieldAll r in [i, i*10] where r > 5;
+> val it = [10,20] : int list
+from i in [1,2] yieldAll `x y` in [i, i*10] where `x y` > 15;
+> val it = [20] : int list
+from i in [1,2] yieldAll r in [i, i*10] where current > 15;
+> val it = [20] : int list
+from i in [1,2] yieldAll r in [i, i*10] join u in [3,4];
+> val it =
+>   [{r=1,u=3},{r=1,u=4},{r=10,u=3},{r=10,u=4},{r=2,u=3},{r=2,u=4},{r=20,u=3},
+>    {r=20,u=4}] : {r:int, u:int} list
+
 (* 'yieldAll' over a correlated subquery (the LATERAL/flatMap case):
  * the subquery references the outer row. This works because
  * 'yieldAll' desugars to a scan, '<prior>, v in e yield v'. *)
@@ -1120,6 +1137,39 @@ from e in emps
   yield {d = d};
 > val it = [{d=20},{d=30},{d=30}] : {d:int} list
 
+(* A binder ('yield r = e') names the whole output row 'r', a
+ * scan-variable-like name: the output type is unwrapped, fields are
+ * reached through 'r', 'current' equals 'r', and bare field names are
+ * not in scope. *)
+from i in [{a=1,b=2}] yield r = i;
+> val it = [{a=1,b=2}] : {a:int, b:int} list
+from i in [{a=1,b=2}] yield r = i yield r.a;
+> val it = [1] : int list
+from i in [1,2] yield i = i + 1;
+> val it = [2,3] : int list
+from i in [1,2] yield i = i + 1 where i > 2;
+> val it = [3] : int list
+from i in [1,2] yield `x y` = i + 1;
+> val it = [2,3] : int list
+from i in [1,2] yield `x y` = i + 1 where `x y` > 2;
+> val it = [3] : int list
+
+from i in [{a=1,b=2}] yield r = i where a > 0;
+> stdIn:1.41 Error: unbound variable or constructor: a
+>   raised at: stdIn:1.41
+
+from i in [{a=1,b=2}] yield r = i where current.a > 0;
+> val it = [{a=1,b=2}] : {a:int, b:int} list
+(*) A record expression becomes one named row, not scattered fields.
+from i in [{a=1,b=2}] yield r = {c=i.a, d=i.b} where r.c > 0 yield r.d;
+> val it = [2] : int list
+(*) The binder combines with a following 'join' into a record.
+from i in [1,2] yield r = i + 1 join u in [3,4];
+> val it = [{r=2,u=3},{r=2,u=4},{r=3,u=3},{r=3,u=4}] : {r:int, u:int} list
+(*) Equality is still available via parentheses.
+from i in [1,2,3] yield (i = 2);
+> val it = [false,true,false] : bool list
+
 (*) singleton record 'yield' followed by singleton 'group'
 from e in emps
   yield {d = e.deptno}
@@ -1214,6 +1264,46 @@ from e in emps
   group d compute {c = count over ()}
   order d;
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
+
+(* A binder ('group g = {keys} compute {aggs}') names the whole group
+ * row -- the union of the key and computed fields -- 'g'. *)
+from i in [1,2,3] group g = {x=i} compute {c = count over ()} order g.x;
+> val it = [{c=1,x=1},{c=1,x=2},{c=1,x=3}] : {c:int, x:int} list
+from i in [1,2,3] group g = {x=i} order g.x;
+> val it = [{x=1},{x=2},{x=3}] : {x:int} list
+from i in [1,2,3] group g = {} compute {c = count over ()};
+> val it = [{c=3}] : {c:int} list
+from i in [1,2] group g = i compute {c = count over ()} order g.i;
+> val it = [{c=1,i=1},{c=1,i=2}] : {c:int, i:int} list
+from i in [1,2,3]
+  group g = {x=i} compute {c = count over ()}
+  where current.x > 1
+  order g.x;
+> val it = [{c=1,x=2},{c=1,x=3}] : {c:int, x:int} list
+
+from i in [1,2,3]
+  group g = {x=i} compute {c = count over ()}
+  where g.c >= 1
+  order g.x;
+> val it = [{c=1,x=1},{c=1,x=2},{c=1,x=3}] : {c:int, x:int} list
+
+(*) A 'join' followed by a 'group' with a binder.
+from e in emps, d in depts
+  where e.deptno = d.deptno
+  group g = {dept = d.name} compute {total = sum over e.id}
+  order g.dept;
+> val it =
+>   [{dept="Engineering",total=205},{dept="HR",total=101},
+>    {dept="Sales",total=100}] : {dept:string, total:int} list
+
+(* A 'yield' binder before a 'group': the aggregate arguments in
+ * 'compute' reference fields through the binder 'r'. *)
+from e in emps
+  yield r = {dept = e.deptno, eid = e.id}
+  group g = {r.dept} compute {total = sum over r.eid}
+  order g.dept;
+> val it = [{dept=10,total=100},{dept=20,total=101},{dept=30,total=205}]
+>   : {dept:int, total:int} list
 
 (* a singleton compute expression does not need a derivable label
    if group key is empty *)
@@ -1500,6 +1590,97 @@ from e in [{x = 1, y = 5}]
   compute {c = sum over e.y, c = sum over e.x};
 > stdIn:3.30 Error: duplicate field 'c' in record
 >   raised at: stdIn:3.30
+
+(* -------------------------------------------------------------------
+ * A 'binder' is an identifier in a yield, yieldAll or group that
+ * names the whole row that is emitted. Other clauses (where, order,
+ * take, distinct, etc.) preserve their input variables, so don't need
+ * binder syntax. *)
+
+(* Binders that look like equality conditions, and real equality
+ * conditions in parentheses. *)
+val h = 2;
+> val h = 2 : int
+from i in [1,2,3] yield h = i;
+> val it = [1,2,3] : int list
+from i in [1,2,3] yield (h = i);
+> val it = [false,true,false] : bool list
+from i in [1,2,3] yield b = (h = i);
+> val it = [false,true,false] : bool list
+from i in [1,2,3] group h = i compute {c = count over ()};
+> val it = [{c=1,i=1},{c=1,i=2},{c=1,i=3}] : {c:int, i:int} list
+from i in [1,2,3] group h = i;
+> val it = [1,2,3] : int list
+from i in [1,2,3] group (h = i);
+> val it = [false,true] : bool list
+from i in [1,2,3] group b = (h = i);
+> val it = [false,true] : bool list
+
+(*) Binder applied to a record.
+from d in scott.depts yield f = d take 1;
+> val it = [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"}]
+>   : {deptno:int, dname:string, loc:string} bag
+from d in scott.depts yield f = d yield f.deptno;
+> val it = [10,20,30,40] : int bag
+from d in scott.depts yield f = d yield d.deptno;
+> stdIn:1.41 Error: unbound variable or constructor: d
+>   raised at: stdIn:1.41
+from d in scott.depts yield f = d yield deptno;
+> stdIn:1.41-1.47 Error: unbound variable or constructor: deptno
+>   raised at: stdIn:1.41-1.47
+
+(*) Binder followed by join, union, except, intersect, distinct, take.
+from d in scott.depts yield f = {d.deptno, two = 2} join g in ["a","b"];
+> val it =
+>   [{f={deptno=10,two=2},g="a"},{f={deptno=10,two=2},g="b"},
+>    {f={deptno=20,two=2},g="a"},{f={deptno=20,two=2},g="b"},
+>    {f={deptno=30,two=2},g="a"},{f={deptno=30,two=2},g="b"},
+>    {f={deptno=40,two=2},g="a"},{f={deptno=40,two=2},g="b"}]
+>   : {f:{deptno:int, two:int}, g:string} bag
+from d in scott.depts yield f = {d.deptno, two = 2} union [{deptno = 50, two = 1}];
+> val it =
+>   [{deptno=10,two=2},{deptno=20,two=2},{deptno=30,two=2},{deptno=40,two=2},
+>    {deptno=50,two=1}] : {deptno:int, two:int} bag
+from d in scott.depts yield f = {d.deptno, two = 2} union [{deptno = 50, two = 1}] yield f.deptno;
+> val it = [10,20,30,40,50] : int bag
+from d in scott.depts yield f = {d.deptno, two = 2} except [{deptno = 10, two = 2}];
+> val it = [{deptno=20,two=2},{deptno=30,two=2},{deptno=40,two=2}]
+>   : {deptno:int, two:int} bag
+from d in scott.depts yield f = {d.deptno, two = 2} except [{deptno = 10, two = 2}] yield f.deptno;
+> val it = [20,30,40] : int bag
+from d in scott.depts yield f = {d.deptno, two = 2} intersect [{deptno = 10, two = 2}];
+> val it = [{deptno=10,two=2}] : {deptno:int, two:int} bag
+from d in scott.depts yield f = {d.deptno, two = 2} intersect [{deptno = 10, two = 2}] yield f.deptno;
+> val it = [10] : int bag
+from e in scott.emps yield f = {e.deptno, two = 2} distinct;
+> val it = [{deptno=20,two=2},{deptno=30,two=2},{deptno=10,two=2}]
+>   : {deptno:int, two:int} bag
+from e in scott.emps yield f = {e.deptno, two = 2} distinct yield f.deptno;
+> val it = [20,30,10] : int bag
+from d in scott.depts order d.deptno yield f = d take 2;
+> val it =
+>   [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
+>    {deptno=20,dname="RESEARCH",loc="DALLAS"}]
+>   : {deptno:int, dname:string, loc:string} list
+from d in scott.depts order d.deptno yield f = d take 2 yield f.deptno;
+> val it = [10,20] : int list
+from d in scott.depts order d.deptno yield f = d skip 3;
+> val it = [{deptno=40,dname="OPERATIONS",loc="BOSTON"}]
+>   : {deptno:int, dname:string, loc:string} list
+from d in scott.depts order d.deptno yield f = d skip 3 yield f.deptno;
+> val it = [40] : int list
+
+(*) Single-field record, possibly capturing 'h' from environment.
+from i in [1,2,3] yield h = {x = i};
+> val it = [{x=1},{x=2},{x=3}] : {x:int} list
+from i in [1,2,3] yield h = {h = h};
+> val it = [{h=2},{h=2},{h=2}] : {h:int} list
+from i in [1,2,3] yield h = {h = (i = h)};
+> val it = [{h=false},{h=true},{h=false}] : {h:bool} list
+from i in [1,2,3] yield h = {i = h};
+> val it = [{i=2},{i=2},{i=2}] : {i:int} list
+from i in [{a=1,b=2}] yield r = {c=i.a} yield r.c;
+> val it = [1] : int list
 
 (* -------------------------------------------------------------------
  * List and bag aggregate functions can be applied to list and bag

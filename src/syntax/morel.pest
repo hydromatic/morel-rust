@@ -438,7 +438,7 @@ into_ = { _into ~ expr }
 through = { _through ~ pat ~ _in ~ expr }
 compute = { _compute ~ expr }
 except = { _except ~ _distinct? ~ expr ~ ("," ~ expr)* }
-group = { _group ~ expr ~ (_compute ~ expr)? }
+group = { _group ~ (identifier ~ "=")? ~ expr ~ (_compute ~ expr)? }
 intersect = { _intersect ~ _distinct? ~ expr ~ ("," ~ expr)* }
 order = { _order ~ expr }
 require = { _require ~ expr }
@@ -446,8 +446,8 @@ skip = { _skip ~ expr }
 take = { _take ~ expr }
 union = { _union ~ _distinct? ~ expr ~ ("," ~ expr)* }
 where_ = { _where ~ expr }
-yield_ = { _yield ~ expr }
-yield_all = { _yieldall ~ expr }
+yield_ = { _yield ~ (identifier ~ "=")? ~ expr }
+yield_all = { _yieldall ~ (identifier ~ _in)? ~ expr }
 
 // -- Patterns --------------------------------------------
 

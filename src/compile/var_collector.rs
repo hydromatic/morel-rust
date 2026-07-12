@@ -17,7 +17,6 @@
 
 use crate::compile::core::{Decl, Expr, Match, Pat, PatField, Step, StepKind};
 use crate::compile::type_env::Binding;
-use crate::compile::types::{Label, Type};
 use crate::eval::code::Code;
 use crate::eval::frame::FrameDef;
 use crate::eval::val::Val;
@@ -368,19 +367,19 @@ impl Step {
                 expr.collect_vars(collector);
             }
             StepKind::Yield(expr) => {
-                // If yielding a record, add field names as defs so that
-                // subsequent steps can reference them as frame variables
-                // (e.g., 'yield {x = e.deptno} where x > 10').
-                if let Type::Record(_, fields) = expr.type_().as_ref() {
-                    for label in fields.keys() {
-                        if let Label::String(name) = label {
-                            collector.add_def(Binding::of_name(name));
-                        }
+                // Add the step's output binding names as frame slot defs so
+                // that subsequent steps can reference them (e.g. 'yield {x =
+                // e.deptno} where x > 10'). The env bindings are authoritative:
+                // for a record yield they are the field names, for a scalar
+                // yield the implicit label, and for a row binder ('yield r =
+                // {..}') the single binder name -- which is not a field of the
+                // yielded record, so the whole row is reachable as 'r'. The
+                // pseudo-field 'current' (a label-less scalar yield) has a
+                // dedicated slot and is skipped here.
+                for binding in &self.env.bindings {
+                    if binding.id.name != "current" {
+                        collector.add_def(Binding::of_name(&binding.id.name));
                     }
-                } else if let Some(label) = expr.implicit_label() {
-                    // Scalar yield with implicit label (e.g.
-                    // 'yield e.deptno' creates binding 'deptno').
-                    collector.add_def(Binding::of_name(&label));
                 }
                 expr.collect_vars(collector);
             }

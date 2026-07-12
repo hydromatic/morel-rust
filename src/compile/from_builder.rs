@@ -32,6 +32,7 @@ use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::shell::error::Error;
 use crate::syntax::ast::JoinType;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
 
@@ -443,6 +444,19 @@ impl FromBuilder {
         self.yield_internal(false, None, exp)
     }
 
+    /// Yields `exp`, binding the whole row to the single atom name `binder`,
+    /// as produced by a `yield r = e` (or `group g = ...`) row binder. The
+    /// row is not scattered into fields; the binding is an atom named
+    /// `binder`, and `current` refers to it.
+    pub fn yield_binder(&mut self, binder: &str, exp: Expr) -> &mut Self {
+        let env = StepEnv::new(
+            vec![Binding::new(Id::new(binder, 0), exp.type_())],
+            true,
+            self.step_env().ordered,
+        );
+        self.yield_internal(false, Some(env), exp)
+    }
+
     /// Internal yield implementation with full control over optimization
     /// flags.
     ///
@@ -513,7 +527,15 @@ impl FromBuilder {
                     // trivial, but it converts a singleton record to an
                     // atom, so don't remove it.
                     && (self.steps.is_empty()
-                        || self.steps.last().unwrap().env.atom) =>
+                        || self.steps.last().unwrap().env.atom)
+                    // A binder ('yield r = i') renames the row via env2, so
+                    // it is not the identity even though exp is the input
+                    // binding; keep it.
+                    && env2.as_ref().is_none_or(|e2| {
+                        e2.bindings.len() == 1
+                            && e2.bindings[0].id.name
+                                == self.bindings[0].id.name
+                    }) =>
             {
                 return self;
             }
@@ -525,7 +547,12 @@ impl FromBuilder {
         // Compute output bindings for subsequent steps from the yield
         // expression's type. For example, 'yield {x = e.deptno}' makes 'x'
         // available after the yield, so 'where x > 10' can reference it.
-        let output_bindings: Vec<Binding> = if is_tuple_expr {
+        let output_bindings: Vec<Binding> = if let Some(env2) = env2.as_ref() {
+            // A binder ('yield r = e') names the whole row via env2, so the
+            // downstream bindings are exactly env2's single atom binding, not
+            // the scattered fields of a record expression.
+            env2.bindings.clone()
+        } else if is_tuple_expr {
             match exp.type_().as_ref() {
                 Type::Record(_, fields) => fields
                     .iter()
@@ -553,7 +580,10 @@ impl FromBuilder {
             vec![Binding::new(Id::new(&label, 0), exp.type_())]
         };
         self.bindings = output_bindings;
-        self.atom = self.bindings.len() == 1 && !is_tuple_expr;
+        self.atom = match env2.as_ref() {
+            Some(env2) => env2.atom,
+            None => self.bindings.len() == 1 && !is_tuple_expr,
+        };
 
         // Create the yield step.
         let step_env = env2.unwrap_or_else(|| {
@@ -611,8 +641,14 @@ impl FromBuilder {
     }
 
     /// Adds a "group" step.
+    ///
+    /// A binder (`group g = {..} compute {..}`) names the whole group row --
+    /// the union of the key and computed fields -- as an atom `g`. It is
+    /// implemented as the group step followed by a yield that collapses the
+    /// scattered group output into the single named row.
     pub fn group(
         &mut self,
+        binder: Option<&str>,
         key_expr: Expr,
         aggregate_expr: Option<Expr>,
     ) -> &mut Self {
@@ -680,8 +716,14 @@ impl FromBuilder {
                         // bindings; otherwise the input bindings would leak into
                         // the result (e.g. `group x + y` over `(x, y)` would
                         // wrongly yield `{x, y}` records instead of the scalar).
+                        // A binder ('group g = x + y') gives the otherwise
+                        // anonymous key a real name (the binder), so it has a
+                        // frame slot and needs no separate collapse yield;
+                        // otherwise it binds the slot-less pseudo-field
+                        // "current".
                         let name = key_expr
                             .implicit_label()
+                            .or_else(|| binder.map(String::from))
                             .unwrap_or_else(|| "current".to_string());
                         new_bindings.push(Binding::new(
                             Id::new(&name, 0),
@@ -764,6 +806,43 @@ impl FromBuilder {
             env,
         );
         self.add_step(step);
+
+        // A binder collapses the scattered group output into a single atom
+        // named `binder`. Build the identity row expression from the group's
+        // output bindings (an atom for a single unwrapped field, otherwise a
+        // record) and yield it under the binder name. When the group already
+        // produces a single atom named `binder` (an anonymous scalar key
+        // named after the binder above), no collapse is needed.
+        if let Some(binder) = binder
+            && !(self.atom
+                && self.bindings.len() == 1
+                && self.bindings[0].id.name == binder)
+        {
+            let row_expr = if self.atom && self.bindings.len() == 1 {
+                let b = &self.bindings[0];
+                Expr::Identifier(b.type_.clone(), b.id.name.clone())
+            } else {
+                let mut map: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
+                for b in &self.bindings {
+                    map.insert(
+                        Label::String(b.id.name.clone()),
+                        b.type_.clone(),
+                    );
+                }
+                let exprs: Vec<Expr> = map
+                    .iter()
+                    .map(|(label, t)| {
+                        let Label::String(name) = label else {
+                            unreachable!()
+                        };
+                        Expr::Identifier(t.clone(), name.clone())
+                    })
+                    .collect();
+                let row_type = Rc::new(Type::Record(false, map));
+                Expr::Tuple(row_type, exprs)
+            };
+            self.yield_binder(binder, row_expr);
+        }
 
         self
     }
@@ -1008,7 +1087,7 @@ mod tests {
             Val::Int(1),
         );
         let initial_len = builder.steps.len();
-        builder.group(key_expr, None);
+        builder.group(None, key_expr, None);
         // Group step should be added
         assert_eq!(builder.steps.len(), initial_len + 1);
         if let Some(step) = builder.steps.last() {

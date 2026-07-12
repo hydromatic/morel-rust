@@ -1870,7 +1870,7 @@ impl<'a> Resolver<'a> {
                     exprs.iter().map(|e| self.resolve_expr(e)).collect();
                 builder.except(*distinct, resolved_exprs);
             }
-            AstStepKind::Group(key_expr, aggregate_expr) => {
+            AstStepKind::Group(binder, key_expr, aggregate_expr) => {
                 // Resolve the group key expression.
                 let resolved_key = self.resolve_expr(key_expr);
 
@@ -1881,8 +1881,13 @@ impl<'a> Resolver<'a> {
                     aggregate_expr.as_ref().map(|e| self.resolve_expr(e));
                 self.aggregate_input_is_bag.set(None);
 
-                // Add the group step to the builder.
-                builder.group(resolved_key, resolved_aggregate);
+                // Add the group step to the builder. A binder ("group g =
+                // ...") names the whole group row 'g', an atom.
+                builder.group(
+                    binder.as_deref(),
+                    resolved_key,
+                    resolved_aggregate,
+                );
             }
             AstStepKind::Intersect(distinct, exprs) => {
                 let resolved_exprs: Vec<_> =
@@ -2026,11 +2031,20 @@ impl<'a> Resolver<'a> {
                 let resolved_expr = self.resolve_expr(expr);
                 builder.where_(resolved_expr);
             }
-            AstStepKind::Yield(expr) => {
+            AstStepKind::Yield(binder, expr) => {
                 let resolved_expr = self.resolve_expr(expr);
-                builder.yield_(resolved_expr);
+                // A binder ("yield r = e") names the whole output row 'r', an
+                // atom, instead of scattering the record's fields into scope.
+                match binder {
+                    Some(name) => {
+                        builder.yield_binder(name, resolved_expr);
+                    }
+                    None => {
+                        builder.yield_(resolved_expr);
+                    }
+                }
             }
-            AstStepKind::YieldAll(expr) => {
+            AstStepKind::YieldAll(binder, expr) => {
                 // Lower "yieldAll e" to a scan over the collection-valued
                 // expression "e" followed by a yield of the freshly-bound
                 // element. For example,
@@ -2051,10 +2065,17 @@ impl<'a> Resolver<'a> {
                 match resolved_expr.type_().as_ref() {
                     Type::List(elem) | Type::Bag(elem) => {
                         let elem_type = elem.clone();
-                        let name = format!(
-                            "v_{}",
-                            std::ptr::addr_of!(**expr) as usize
-                        );
+                        // A binder ("yieldAll r in e") names each flattened
+                        // element 'r', a real scan variable that combines with
+                        // a following 'join'; otherwise use a fresh unique
+                        // name so the element is visible only as 'current'.
+                        let name = match binder {
+                            Some(name) => name.clone(),
+                            None => format!(
+                                "v_{}",
+                                std::ptr::addr_of!(**expr) as usize
+                            ),
+                        };
                         let pat = CorePat::Identifier(
                             elem_type.clone(),
                             name.clone(),

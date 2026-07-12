@@ -2185,47 +2185,77 @@ impl<'a> Compiler<'a> {
                         None
                     };
 
-                    let yield_factory =
+                    // A record yield scatters its fields into their own frame
+                    // slots only when the record's field names match the
+                    // step's output bindings. A row binder ('yield r = {..}')
+                    // produces a single atom binding whose name is not a field
+                    // of the record, so the whole row is written to the
+                    // binder's slot instead (the `fieldsMatchBindings` rule).
+                    let record_scatter =
                         if let Type::Record(_, fields) = yield_type.as_ref() {
-                            // Record yield: unpack each field into its own
-                            // slot.
-                            let field_slots: Vec<usize> = fields
-                                .keys()
-                                .filter_map(|label| {
-                                    if let Label::String(name) = label {
-                                        Some(cx.frame_def.var_index(name))
-                                    } else {
-                                        None
-                                    }
+                            let bindings = &first_step.env.bindings;
+                            fields.len() == bindings.len()
+                                && bindings.iter().all(|b| {
+                                    fields.contains_key(&Label::String(
+                                        b.id.name.clone(),
+                                    ))
                                 })
-                                .collect();
-                            RowSinkFactory::new(move || {
-                                Box::new(YieldRowSink::new_record(
-                                    yield_code.clone(),
-                                    field_slots.clone(),
-                                    next_factory.create(),
-                                ))
-                            })
                         } else {
-                            // Scalar yield: write to the current slot
-                            // (slot 0 past bound vars). Also write to
-                            // the named slot if the yield has an implicit
-                            // label (e.g. 'yield e.deptno' also writes
-                            // to 'deptno' slot for 'where deptno > 10').
-                            let current_slot = cx.frame_def.bound_vars.len();
-                            let label_slot = expr
-                                .implicit_label()
-                                .and_then(|l| cx.frame_def.try_var_index(&l))
-                                .filter(|s| *s != current_slot);
-                            RowSinkFactory::new(move || {
-                                Box::new(YieldRowSink::new_scalar(
-                                    yield_code.clone(),
-                                    current_slot,
-                                    label_slot,
-                                    next_factory.create(),
-                                ))
-                            })
+                            false
                         };
+
+                    let yield_factory = if record_scatter {
+                        // Record yield: unpack each field into its own slot.
+                        let Type::Record(_, fields) = yield_type.as_ref()
+                        else {
+                            unreachable!()
+                        };
+                        let field_slots: Vec<usize> = fields
+                            .keys()
+                            .filter_map(|label| {
+                                if let Label::String(name) = label {
+                                    Some(cx.frame_def.var_index(name))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        RowSinkFactory::new(move || {
+                            Box::new(YieldRowSink::new_record(
+                                yield_code.clone(),
+                                field_slots.clone(),
+                                next_factory.create(),
+                            ))
+                        })
+                    } else {
+                        // Scalar yield, or a row binder over a record: write
+                        // the whole value to the current slot (slot 0 past
+                        // bound vars) and to the output binding's named slot.
+                        // For an atom binding (scalar yield or binder) that is
+                        // the binding's name -- e.g. 'yield e.deptno' also
+                        // writes the 'deptno' slot for 'where deptno > 10',
+                        // and 'yield r = e' writes the 'r' slot; otherwise
+                        // fall back to the expression's implicit label.
+                        let current_slot = cx.frame_def.bound_vars.len();
+                        let label = if first_step.env.bindings.len() == 1
+                            && first_step.env.bindings[0].id.name != "current"
+                        {
+                            Some(first_step.env.bindings[0].id.name.clone())
+                        } else {
+                            expr.implicit_label()
+                        };
+                        let label_slot = label
+                            .and_then(|l| cx.frame_def.try_var_index(&l))
+                            .filter(|s| *s != current_slot);
+                        RowSinkFactory::new(move || {
+                            Box::new(YieldRowSink::new_scalar(
+                                yield_code.clone(),
+                                current_slot,
+                                label_slot,
+                                next_factory.create(),
+                            ))
+                        })
+                    };
 
                     if let Some(slot) = ordinal_slot {
                         RowSinkFactory::new(move || {

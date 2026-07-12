@@ -1090,11 +1090,18 @@ impl MorelParser {
 
     fn group(input: ParseInput) -> ParseResult<Step> {
         Ok(match_nodes!(input.children();
-            [_group(_), expr(e)] => {
-                StepKind::Group(Box::new(e), None).wrap(input)
+            [_group(_), identifier(b), expr(e), _compute(_), expr(c)] => {
+                StepKind::Group(Some(b), Box::new(e), Some(Box::new(c)))
+                    .wrap(input)
+            },
+            [_group(_), identifier(b), expr(e)] => {
+                StepKind::Group(Some(b), Box::new(e), None).wrap(input)
             },
             [_group(_), expr(e), _compute(_), expr(c)] => {
-                StepKind::Group(Box::new(e), Some(Box::new(c))).wrap(input)
+                StepKind::Group(None, Box::new(e), Some(Box::new(c))).wrap(input)
+            },
+            [_group(_), expr(e)] => {
+                StepKind::Group(None, Box::new(e), None).wrap(input)
             },
         ))
     }
@@ -1179,16 +1186,22 @@ impl MorelParser {
 
     fn yield_(input: ParseInput) -> ParseResult<Step> {
         Ok(match_nodes!(input.children();
+            [_yield(_), identifier(b), expr(e)] => {
+                StepKind::Yield(Some(b), Box::new(e)).wrap(input)
+            },
             [_yield(_), expr(e)] => {
-                StepKind::Yield(Box::new(e)).wrap(input)
+                StepKind::Yield(None, Box::new(e)).wrap(input)
             },
         ))
     }
 
     fn yield_all(input: ParseInput) -> ParseResult<Step> {
         Ok(match_nodes!(input.children();
+            [_yieldall(_), identifier(b), _in(_), expr(e)] => {
+                StepKind::YieldAll(Some(b), Box::new(e)).wrap(input)
+            },
             [_yieldall(_), expr(e)] => {
-                StepKind::YieldAll(Box::new(e)).wrap(input)
+                StepKind::YieldAll(None, Box::new(e)).wrap(input)
             },
         ))
     }

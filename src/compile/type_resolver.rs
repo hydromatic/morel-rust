@@ -2822,9 +2822,10 @@ impl TypeResolver {
             | StepKind::Union(distinct, exprs) => self.deduce_set_step_type(
                 p, &step.kind, *distinct, exprs, &step.span, steps2,
             ),
-            StepKind::Group(key_expr, compute_expr) => self
+            StepKind::Group(binder, key_expr, compute_expr) => self
                 .deduce_group_step_type(
                     p,
+                    binder.as_deref(),
                     key_expr,
                     compute_expr.as_deref(),
                     &step.span,
@@ -2918,12 +2919,23 @@ impl TypeResolver {
                 steps2.push(step2.spanned(&step.span));
                 Ok(p.clone())
             }
-            StepKind::Yield(expr) => self.deduce_yield_step_type(
-                p, expr, &step.span, field_vars, steps2,
+            StepKind::Yield(binder, expr) => self.deduce_yield_step_type(
+                p,
+                binder.as_deref(),
+                expr,
+                &step.span,
+                field_vars,
+                steps2,
             ),
-            StepKind::YieldAll(expr) => self.deduce_yield_all_step_type(
-                p, expr, &step.span, field_vars, steps2,
-            ),
+            StepKind::YieldAll(binder, expr) => self
+                .deduce_yield_all_step_type(
+                    p,
+                    binder.as_deref(),
+                    expr,
+                    &step.span,
+                    field_vars,
+                    steps2,
+                ),
         }
     }
 
@@ -3126,9 +3138,16 @@ impl TypeResolver {
     }
 
     /// Deduces a Yield step's type (e.g., "yield i + 4").
+    ///
+    /// A binder (`yield r = e`) names the whole output row `r`, an atom that
+    /// behaves like a scan variable: the output type is unwrapped (no
+    /// `{r: ..}`), fields are reached through `r`, `current` equals `r`, and
+    /// bare field names are not in scope. A binder forces the atom path even
+    /// for a record literal, so its fields are not scattered.
     fn deduce_yield_step_type(
         &mut self,
         p: &Triple,
+        binder: Option<&str>,
         expr: &Expr,
         span: &Span,
         field_vars: &mut Vec<(String, Var)>,
@@ -3138,7 +3157,8 @@ impl TypeResolver {
         let v6 = self.variable();
         let expr2 = self.deduce_expr_type(&*p.env, expr, &v6)?;
 
-        let step = StepKind::Yield(Box::new(expr2.clone()));
+        let step =
+            StepKind::Yield(binder.map(String::from), Box::new(expr2.clone()));
         steps2.push(step.spanned(span));
 
         // Output collection kind matches the input (yield changes the
@@ -3152,7 +3172,9 @@ impl TypeResolver {
         self.is_list_or_bag_matching_input(&p.c.unwrap(), &p.v, &c6, &v6);
 
         let mut envs = p.env.builder();
-        if let ExprKind::Record(with, labeled_exprs) = expr2.kind {
+        if binder.is_none()
+            && let ExprKind::Record(with, labeled_exprs) = expr2.kind
+        {
             let mut v = None;
             if let Some(with) = with
                 && let Some(id) = with.id
@@ -3197,8 +3219,11 @@ impl TypeResolver {
             // environment from the root (outer) env, not the
             // current step env.
             envs = p.root_env.builder();
-            let label = expr
-                .implicit_label_opt()
+            // A binder ("yield r = e") names the whole row 'r'; otherwise use
+            // the expression's implicit label, falling back to "current".
+            let label = binder
+                .map(String::from)
+                .or_else(|| expr.implicit_label_opt())
                 .unwrap_or_else(|| ExprKind::Current.clause().to_string());
             envs.push(label.clone(), Term::Variable(v6));
             field_vars.clear();
@@ -3220,9 +3245,14 @@ impl TypeResolver {
     /// lowered to a scan followed by a yield in the resolver. Flatten
     /// semantics: the prior bindings are dropped, and each element of `e`
     /// becomes a row, visible downstream as `current`.
+    ///
+    /// A binder (`yieldAll r in e`) names each flattened element `r`, a
+    /// scan-variable-like name that combines with a following `join`;
+    /// otherwise the element is visible only as `current`.
     fn deduce_yield_all_step_type(
         &mut self,
         p: &Triple,
+        binder: Option<&str>,
         expr: &Expr,
         span: &Span,
         field_vars: &mut Vec<(String, Var)>,
@@ -3243,17 +3273,21 @@ impl TypeResolver {
         let c = self.unifier.variable();
         self.is_list_or_bag_matching_input(&c0, &elem, &c, &elem);
 
-        let step = StepKind::YieldAll(Box::new(expr2));
+        let step =
+            StepKind::YieldAll(binder.map(String::from), Box::new(expr2));
         steps2.push(step.spanned(span));
 
-        // The prior row bindings are dropped; `current` (and only
-        // `current`) is bound to the element type. Build the new
-        // environment from the root (outer) env.
+        // The prior row bindings are dropped. A binder ("yieldAll r in e")
+        // names each element 'r'; otherwise the element is visible only as
+        // "current". Either way `current` is bound to the element type.
+        // Build the new environment from the root (outer) env.
+        let label = binder.map_or_else(|| "current".to_string(), String::from);
         let mut envs = p.root_env.builder();
+        envs.push(label.clone(), Term::Variable(elem));
         envs.push("current".to_string(), Term::Variable(elem));
         let env = envs.build();
         field_vars.clear();
-        field_vars.push(("current".to_string(), elem));
+        field_vars.push((label, elem));
 
         let mut triple = Triple::new(p.root_env.clone(), env, elem, Some(c));
         triple.ordered = p.ordered && self.var_is_list(&c0);
@@ -3482,9 +3516,14 @@ impl TypeResolver {
     }
 
     /// Deduces a Group step's type.
+    ///
+    /// A binder (`group g = {keys} compute {aggs}`) names the whole group row
+    /// -- the union of the key and computed fields -- `g`, an atom; only `g`
+    /// is exposed downstream.
     fn deduce_group_step_type(
         &mut self,
         p: &Triple,
+        binder: Option<&str>,
         key_expr: &Expr,
         compute_expr: Option<&Expr>,
         span: &Span,
@@ -3628,6 +3667,14 @@ impl TypeResolver {
         } else {
             self.field_var(field_vars, false)
         };
+
+        // A binder ("group g = {..} compute {..}") names the whole group row
+        // (keys and computed fields) 'g', an atom; expose only 'g' downstream.
+        if let Some(binder) = binder {
+            field_vars.clear();
+            field_vars.push((binder.to_string(), v_result));
+        }
+
         let c_result = self.variable();
 
         // Output collection kind matches the input — group on a list
@@ -3642,7 +3689,11 @@ impl TypeResolver {
             &v_result,
         );
 
-        let step2 = StepKind::Group(Box::new(key_expr2), compute_expr2);
+        let step2 = StepKind::Group(
+            binder.map(String::from),
+            Box::new(key_expr2),
+            compute_expr2,
+        );
         steps2.push(step2.spanned(span));
 
         // Build the environment for subsequent steps (e.g. yield). It
@@ -3651,6 +3702,12 @@ impl TypeResolver {
         field_vars.iter().for_each(|(label, v)| {
             post_group_env_builder.push(label.clone(), Term::Variable(*v));
         });
+        // A binder ("group g = ...") makes `current` equal the binder row, so
+        // `current.f` and `g.f` are interchangeable in a following step.
+        if binder.is_some() {
+            post_group_env_builder
+                .push("current".to_string(), Term::Variable(v_result));
+        }
         let post_group_env = post_group_env_builder.build();
 
         Ok(Triple::new(

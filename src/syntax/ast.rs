@@ -851,7 +851,7 @@ pub enum StepKind {
     ScanExtent(Box<Pat>),
 
     Except(bool, Vec<Expr>),
-    Group(Box<Expr>, Option<Box<Expr>>),
+    Group(Option<String>, Box<Expr>, Option<Box<Expr>>),
     Intersect(bool, Vec<Expr>),
     Order(Box<Expr>),
     Require(Box<Expr>),
@@ -861,12 +861,12 @@ pub enum StepKind {
     Union(bool, Vec<Expr>),
     Unorder,
     Where(Box<Expr>),
-    Yield(Box<Expr>),
+    Yield(Option<String>, Box<Expr>),
 
     /// A `yieldAll` step in a `from` expression: a flatMap that evaluates
     /// a collection-valued expression for each input row and emits each of
     /// its elements, flattening the result.
-    YieldAll(Box<Expr>),
+    YieldAll(Option<String>, Box<Expr>),
 }
 
 impl StepKind {
@@ -877,7 +877,7 @@ impl StepKind {
             StepKind::Compute(_) => "compute",
             StepKind::Distinct => "distinct",
             StepKind::Except(_, _) => "except",
-            StepKind::Group(_, _) => "group",
+            StepKind::Group(_, _, _) => "group",
             StepKind::Intersect(_, _) => "intersect",
             StepKind::Into(_) => "into",
             StepKind::Order(_) => "order",
@@ -891,8 +891,8 @@ impl StepKind {
             StepKind::Union(_, _) => "union",
             StepKind::Unorder => "unorder",
             StepKind::Where(_) => "where",
-            StepKind::Yield(_) => "yield",
-            StepKind::YieldAll(_) => "yieldAll",
+            StepKind::Yield(_, _) => "yield",
+            StepKind::YieldAll(_, _) => "yieldAll",
         }
     }
 
@@ -940,9 +940,17 @@ impl Display for StepKind {
             StepKind::Except(distinct, args) => {
                 write_set_step(f, "except", *distinct, args)
             }
-            StepKind::Group(key, None) => write!(f, "group {}", key),
-            StepKind::Group(key, Some(agg)) => {
-                write!(f, "group {} compute {}", key, agg)
+            StepKind::Group(binder, key, None) => {
+                write!(f, "group {}{}", BinderPrefix(binder, "="), key)
+            }
+            StepKind::Group(binder, key, Some(agg)) => {
+                write!(
+                    f,
+                    "group {}{} compute {}",
+                    BinderPrefix(binder, "="),
+                    key,
+                    agg
+                )
             }
             StepKind::Intersect(distinct, args) => {
                 write_set_step(f, "intersect", *distinct, args)
@@ -974,8 +982,28 @@ impl Display for StepKind {
             }
             StepKind::Unorder => f.write_str("unorder"),
             StepKind::Where(e) => write!(f, "where {}", e),
-            StepKind::Yield(e) => write!(f, "yield {}", e),
-            StepKind::YieldAll(e) => write!(f, "yieldAll {}", e),
+            StepKind::Yield(binder, e) => {
+                write!(f, "yield {}{}", BinderPrefix(binder, "="), e)
+            }
+            StepKind::YieldAll(binder, e) => {
+                write!(f, "yieldAll {}{}", BinderPrefix(binder, "in"), e)
+            }
+        }
+    }
+}
+
+struct BinderPrefix<'a>(&'a Option<String>, &'a str);
+
+impl Display for BinderPrefix<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        use crate::syntax::parser::append_id;
+        match self.0 {
+            None => Ok(()),
+            Some(name) => {
+                let mut s = String::new();
+                append_id(&mut s, name);
+                write!(f, "{} {} ", s, self.1)
+            }
         }
     }
 }
