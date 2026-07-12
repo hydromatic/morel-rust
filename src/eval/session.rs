@@ -493,7 +493,7 @@ impl Clone for ResolvedTypeEnv {
 pub struct SessionAwareEnv {
     pub parent: Rc<dyn TypeEnv>,
     pub file: Rc<File>,
-    /// Snapshot of [`crate::shell::main::Environment::bindings`] at
+    /// Snapshot of [`crate::shell::kernel::Environment::bindings`] at
     /// the moment this env was built. Used to discover that a name
     /// from a previous statement is bound to a `Val::File`, which we
     /// then re-register as a [`TypedValue`] for the field-selector

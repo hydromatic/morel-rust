@@ -16,7 +16,7 @@
 // License.
 
 extern crate core;
-use crate::shell::{ScriptTest, Shell as ShellMain};
+use crate::shell::{Kernel, ScriptRunner, ScriptTest};
 use std::env;
 use std::io::{IsTerminal, Read, Write, stdin, stdout};
 use std::process::exit;
@@ -121,7 +121,7 @@ fn parse_args(args: &[String]) -> CliAction {
 /// wins if `Some`, otherwise the `.smli` suffix determines idempotent mode.
 /// Output from every file is written to `output`.
 fn run_scripts_with<R: Read, W: Write>(
-    shell: &mut ShellMain,
+    shell: &mut Kernel,
     files: &[String],
     force_idempotent: Option<bool>,
     stdin_reader: R,
@@ -142,9 +142,10 @@ fn run_scripts_with<R: Read, W: Write>(
         };
         shell.config.idempotent = Some(idempotent);
 
+        let mut runner = ScriptRunner::new(shell);
         let result = if file == "-" {
             match stdin_once.take() {
-                Some(s) => shell.run(s, &mut output),
+                Some(s) => runner.run(s, &mut output),
                 None => {
                     return Err((
                         file.clone(),
@@ -155,7 +156,7 @@ fn run_scripts_with<R: Read, W: Write>(
                 }
             }
         } else {
-            shell.run_file(file, &mut output)
+            runner.run_file(file, &mut output)
         };
         if let Err(e) = result {
             return Err((file.clone(), e.to_string()));
@@ -255,7 +256,7 @@ fn main() {
             }
         },
         CliAction::Command(cmd) => {
-            let mut shell = ShellMain::new(&[]);
+            let mut shell = Kernel::new(&[]);
             match shell.run_command(&cmd, stdout()) {
                 Ok(()) => exit(0),
                 Err(e) => {
@@ -276,7 +277,7 @@ fn main() {
             if let Some(dir) = &directory {
                 shell_args.push(format!("--directory={}", dir));
             }
-            let mut shell = ShellMain::new(&shell_args);
+            let mut shell = Kernel::new(&shell_args);
             match run_scripts_with(
                 &mut shell,
                 &files,
@@ -302,8 +303,8 @@ fn run_interactive(directory: Option<&str>) {
     if let Some(dir) = directory {
         shell_args.push(format!("--directory={}", dir));
     }
-    let mut main = ShellMain::new(&shell_args);
-    match main.run(stdin(), stdout()) {
+    let mut main = Kernel::new(&shell_args);
+    match ScriptRunner::new(&mut main).run(stdin(), stdout()) {
         Ok(()) => {
             println!("Goodbye!");
         }
@@ -537,7 +538,7 @@ mod tests {
         let path = temp_path("smli_suffix", "smli");
         fs::write(&path, "val x = 1;\n").unwrap();
 
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,
@@ -560,7 +561,7 @@ mod tests {
         let path = temp_path("sml_suffix", "sml");
         fs::write(&path, "val x = 1;\n").unwrap();
 
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,
@@ -584,7 +585,7 @@ mod tests {
         let path = temp_path("force_idempotent", "sml");
         fs::write(&path, "val x = 1;\n").unwrap();
 
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,
@@ -607,7 +608,7 @@ mod tests {
         let path = temp_path("force_no_idempotent", "smli");
         fs::write(&path, "val x = 1;\n").unwrap();
 
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,
@@ -632,7 +633,7 @@ mod tests {
         fs::write(&p1, "val x = 10;\n").unwrap();
         fs::write(&p2, "x + 1;\n").unwrap();
 
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,
@@ -669,7 +670,7 @@ mod tests {
         fs::write(&p_sml, "val a = 1;\n").unwrap();
         fs::write(&p_smli, "val b = 2;\n").unwrap();
 
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,
@@ -701,7 +702,7 @@ mod tests {
 
     #[test]
     fn test_run_scripts_stdin_reads_from_reader() {
-        let mut shell = ShellMain::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut output = Vec::new();
         run_scripts_with(
             &mut shell,

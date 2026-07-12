@@ -36,9 +36,9 @@ use crate::eval::link_table::LinkTable;
 use crate::eval::row_sink::{RowSink, RowSinkFactory};
 use crate::eval::session::Session;
 use crate::eval::val::Val;
-use crate::shell::Shell;
+use crate::shell::Kernel;
 use crate::shell::config::Config as ShellConfig;
-use crate::shell::main::{Environment, MorelError};
+use crate::shell::kernel::{Environment, MorelError};
 use crate::shell::prop::Prop;
 use crate::syntax::ast::JoinType;
 use library::BuiltInDatatype;
@@ -2770,7 +2770,7 @@ pub trait CompiledStatement {
     fn eval(
         &self,
         session: &Session,
-        shell: &Shell,
+        shell: &Kernel,
         _env: &Environment,
         effects: &mut Vec<Effect>,
         type_map: &TypeMap,
@@ -2785,7 +2785,7 @@ impl CompiledStatement for CompiledStatementImpl {
     fn eval(
         &self,
         session: &Session,
-        shell: &Shell,
+        shell: &Kernel,
         _env: &Environment,
         effects: &mut Vec<Effect>,
         _type_map: &TypeMap,

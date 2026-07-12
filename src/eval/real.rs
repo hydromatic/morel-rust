@@ -21,7 +21,7 @@ use crate::eval::order::Order;
 use crate::eval::val::{
     REALFMT_EXACT, REALFMT_FIX, REALFMT_GEN, REALFMT_SCI, Val,
 };
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use std::cmp::Ordering;
 
 /// Support for the `real` built-in type and the `Real` structure.

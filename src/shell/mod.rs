@@ -18,13 +18,15 @@
 // lint: sort until '^$' erase 'pub '
 pub mod config;
 pub mod error;
-pub mod main;
+pub mod kernel;
 pub mod output_matcher;
 pub mod prop;
+pub mod runner;
 pub mod script_test;
 pub mod statement;
 
-pub use main::Shell;
+pub use kernel::Kernel;
+pub use runner::ScriptRunner;
 pub use script_test::ScriptTest;
 
 use error::Error;

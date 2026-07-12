@@ -19,7 +19,7 @@ use crate::compile::library::BuiltInExn;
 use crate::compile::span::Span;
 use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 
 /// Support for the `option` built-in type and the `Option` structure.
 pub struct Opt;

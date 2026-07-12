@@ -19,9 +19,9 @@
 //! `DatalogEvaluator`.
 //!
 //! Pipeline: parse → analyze → translate → run translated Morel source
-//! in a fresh `Shell` → wrap last binding's value as `Val::Variant`.
+//! in a fresh `Kernel` → wrap last binding's value as `Val::Variant`.
 //!
-//! A fresh `Shell` is used per call so the inner program's bindings,
+//! A fresh `Kernel` is used per call so the inner program's bindings,
 //! type bindings, and overload state stay isolated from the outer
 //! session that triggered the `Datalog.execute` call. The morel-java
 //! implementation calls back into the same compile pipeline; in
@@ -40,7 +40,7 @@ use crate::datalog::error::DatalogError;
 use crate::datalog::{analyze, parse, translate};
 use crate::eval::val::Val;
 use crate::eval::variant::variant_of;
-use crate::shell::main::Shell;
+use crate::shell::kernel::Kernel;
 
 /// Runs a Datalog program and returns its output wrapped as a
 /// `Val::Variant`. On parse, analysis, or runtime failure, returns a
@@ -97,7 +97,7 @@ fn compile_and_run(
     }
     let morel_source = translate(&ast);
 
-    let mut shell = Shell::new(&[]);
+    let mut shell = Kernel::new(&[]);
     if let Err(e) = shell.process_statement(&morel_source, None) {
         return Err(format!(
             "Error executing Morel translation: {:?}\n\

@@ -21,7 +21,7 @@ use crate::eval::char::Char;
 use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use std::cmp::Ordering;
 
 /// Support for the `string` built-in type and the `String` structure.

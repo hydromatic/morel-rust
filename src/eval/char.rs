@@ -19,7 +19,7 @@ use crate::compile::library::BuiltInExn;
 use crate::compile::span::Span;
 use crate::eval::order::Order;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 
 /// Support for the `char` primitive type and the `Char` structure.
 pub struct Char;

@@ -20,7 +20,7 @@ use crate::compile::span::Span;
 use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use std::cmp::Ordering;
 
 /// Support for the `list` built-in type and the `List` structure.

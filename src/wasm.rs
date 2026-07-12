@@ -15,7 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::shell::Shell;
+use crate::shell::Kernel;
 use crate::shell::config::Config;
 use wasm_bindgen::prelude::*;
 
@@ -27,17 +27,17 @@ use wasm_bindgen::prelude::*;
 /// const result = shell.process_statement('val x = 42\n');
 /// ```
 #[wasm_bindgen]
-pub struct MorelShell(Shell);
+pub struct MorelShell(Kernel);
 
 #[wasm_bindgen]
 impl MorelShell {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         // In Wasm, we can't use filesystem operations like current_dir(),
-        // so we need `Shell::with_config` instead of `Shell::new`.
+        // so we need `Kernel::with_config` instead of `Kernel::new`.
         let config = Config::default();
 
-        Self(Shell::with_config(config))
+        Self(Kernel::with_config(config))
     }
 
     /// Process a complete Morel statement, which must end in a newline,

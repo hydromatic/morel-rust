@@ -20,7 +20,7 @@ use crate::compile::type_env::Binding;
 use crate::eval::code::Code;
 use crate::eval::frame::FrameDef;
 use crate::eval::val::Val;
-use crate::shell::main::Environment;
+use crate::shell::kernel::Environment;
 use std::collections::HashSet;
 
 /// Collects definitions of, and references to, variables.

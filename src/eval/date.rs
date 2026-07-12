@@ -27,7 +27,7 @@ use crate::compile::span::Span;
 use crate::eval::order::Order;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use crate::shell::prop::{Prop, PropVal};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;

@@ -20,7 +20,7 @@ use crate::compile::span::Span;
 use crate::eval::comparator::{Comparator, NaturalComparator};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 
 /// Support for the `Relational` structure.
 pub struct Relational;

@@ -60,7 +60,7 @@ use crate::eval::val::{self, ClosureData, Val};
 use crate::eval::variant;
 use crate::eval::vector::Vector;
 use crate::eval::word;
-use crate::shell::main::{MorelError, Shell};
+use crate::shell::kernel::{Kernel, MorelError};
 use crate::shell::prop::{Configurable, Prop};
 use crate::syntax::ast_dumper::dump as ast_dumper_dump;
 use crate::syntax::parser::parse_statement;
@@ -101,7 +101,7 @@ pub enum EvalMode {
 /// session.
 ///
 /// This allows evaluation to be pure while still describing side effects.
-/// Shell and session are immutable during statement execution; statements such
+/// Kernel and session are immutable during statement execution; statements such
 /// as `Sys.set("output", "tabular")` do not modify the session while the
 /// command is executing; the shell mutates its own and the session state after
 /// the command completes.
@@ -2119,14 +2119,14 @@ impl<'a> Frame<'a> {
 /// `r`.
 pub struct EvalEnv<'a> {
     pub session: &'a Session,
-    pub shell: &'a Shell,
+    pub shell: &'a Kernel,
     effects: &'a mut Vec<Effect>,
 }
 
 impl<'a> EvalEnv<'a> {
     pub(crate) fn new(
         session: &'a Session,
-        shell: &'a Shell,
+        shell: &'a Kernel,
         effects: &'a mut Vec<Effect>,
     ) -> Self {
         EvalEnv {

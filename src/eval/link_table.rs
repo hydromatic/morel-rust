@@ -74,7 +74,7 @@ use std::sync::Arc;
 /// The fix is to make the link table **persistent across
 /// statements**: every `Code::Link(slot, _)` ever produced
 /// references a slot in a single, append-only `LinkTable` owned
-/// by the [`Shell`](crate::shell::main::Shell). Older slots are
+/// by the [`Kernel`](crate::shell::kernel::Kernel). Older slots are
 /// never reused or freed, so any `Code` that captured a slot
 /// index in the past can still resolve it later.
 ///

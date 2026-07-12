@@ -26,7 +26,7 @@ use crate::eval::file;
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
 use crate::eval::real::Real;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use crate::syntax::parser;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};

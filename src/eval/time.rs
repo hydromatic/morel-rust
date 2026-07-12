@@ -25,7 +25,7 @@ use crate::compile::library::BuiltInExn;
 use crate::compile::span::Span;
 use crate::eval::session::Session;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use crate::shell::prop::{Prop, PropVal};
 use std::time::{SystemTime, UNIX_EPOCH};
 

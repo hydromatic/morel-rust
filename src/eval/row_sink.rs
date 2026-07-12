@@ -33,7 +33,7 @@
 use crate::eval::code::{Code, EvalEnv, Frame};
 use crate::eval::comparator::Comparator;
 use crate::eval::val::Val;
-use crate::shell::main::MorelError;
+use crate::shell::kernel::MorelError;
 use indexmap::IndexMap;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Arc;

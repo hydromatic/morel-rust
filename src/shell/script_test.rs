@@ -18,7 +18,7 @@
 use crate::eval::session::Config as SessionConfig;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::{Shell, ShellResult, utils};
+use crate::shell::{Kernel, ScriptRunner, ShellResult, utils};
 use std::env::temp_dir;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
@@ -98,14 +98,14 @@ impl ScriptTest {
         }
 
         // Create and run the shell
-        let mut shell = Shell::with_config(shell_config);
+        let mut shell = Kernel::with_config(shell_config);
 
         // Apply session config (script directory, etc.)
         shell.apply_session_config(&session_config);
 
         // Run the input file and capture output
         let mut output = Vec::new();
-        shell.run_file(&in_file, &mut output)?;
+        ScriptRunner::new(&mut shell).run_file(&in_file, &mut output)?;
 
         // Write output to file
         fs::write(&out_file, &output)?;

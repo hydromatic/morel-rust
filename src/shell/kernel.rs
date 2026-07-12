@@ -41,10 +41,9 @@ use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::output_matcher;
-use crate::shell::prop::{Mode, Output, create_banner};
-use crate::shell::statement::{comment_depth, is_complete};
-use crate::shell::utils::{prefix_lines, strip_prefix};
+use crate::shell::prop::{Mode, Output};
+use crate::shell::statement::is_complete;
+use crate::shell::utils::strip_prefix;
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
 use std::cell::{Ref, RefCell};
@@ -52,7 +51,7 @@ use std::collections::HashMap;
 use std::env::current_dir;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::fs;
-use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -383,8 +382,13 @@ fn leading_comment_lines(code: &str) -> usize {
     count
 }
 
-/// Main shell for Morel - Standard ML REPL.
-pub struct Shell {
+/// The Morel engine: it executes one statement at a time, holding the
+/// environment, session, and property state that persist between
+/// statements. Front ends — the
+/// [`ScriptRunner`](crate::shell::runner::ScriptRunner) for pipes and
+/// scripts, and the interactive terminal — drive it by feeding
+/// statements to [`process_statement`](Kernel::process_statement).
+pub struct Kernel {
     pub(crate) config: Config,
     environment: Environment,
     session: Rc<RefCell<Session>>,
@@ -465,7 +469,7 @@ impl Environment {
     }
 }
 
-impl Shell {
+impl Kernel {
     pub(crate) fn set_prop(
         &mut self,
         prop: &str,
@@ -715,7 +719,7 @@ impl Shell {
         shell
     }
 
-    /// Creates a Shell with a custom configuration.
+    /// Creates a Kernel with a custom configuration.
     pub fn with_config(config: Config) -> Self {
         Self {
             config,
@@ -747,157 +751,6 @@ impl Shell {
     /// type bindings produced by `process_statement`.
     pub fn session_borrow(&self) -> Ref<'_, Session> {
         self.session.borrow()
-    }
-
-    /// Runs the shell with given input/output streams.
-    pub fn run<R: Read, W: Write>(
-        &mut self,
-        input: R,
-        output: W,
-    ) -> ShellResult<()> {
-        let mut reader = BufReader::new(input);
-        let mut writer = BufWriter::new(output);
-
-        if self.config.banner.unwrap() {
-            writeln!(writer, "{}", create_banner().as_str())?;
-            writer.flush()?;
-        }
-
-        let mut line_buffer = String::new();
-        let mut line_buffer_ready = false;
-        let mut statement_buffer = String::new();
-        let mut expected_output_buffer = String::new();
-
-        let prompt_enabled = self.config.prompt.unwrap_or(false);
-        let echo_enabled = self.config.echo.unwrap_or(false);
-        let idempotent = self.config.idempotent.unwrap_or(false);
-        let stdin_is_tty = self.config.stdin_is_tty.unwrap_or(false);
-
-        loop {
-            if line_buffer_ready {
-                line_buffer_ready = false;
-            } else {
-                if prompt_enabled {
-                    // Prompt style matches SML-NJ:
-                    //   tty + fresh statement: '- '
-                    //   tty + continuation   : '= '
-                    //   pipe + fresh statement: '- '
-                    //   pipe + continuation  : (nothing; SML-NJ suppresses)
-                    let continuation = !statement_buffer.is_empty()
-                        || comment_depth(&statement_buffer) > 0;
-                    if !continuation {
-                        write!(writer, "- ")?;
-                        writer.flush()?;
-                    } else if stdin_is_tty {
-                        write!(writer, "= ")?;
-                        writer.flush()?;
-                    }
-                }
-
-                line_buffer.clear();
-                let bytes_read = reader.read_line(&mut line_buffer)?;
-                if bytes_read == 0 {
-                    // Terminate the dangling prompt so the caller's output
-                    // (e.g. "Goodbye!") starts on a new line.
-                    if prompt_enabled {
-                        writeln!(writer)?;
-                        writer.flush()?;
-                    }
-                    return Ok(()); // EOF reached
-                }
-            }
-
-            if echo_enabled {
-                write!(writer, "{}", line_buffer)?;
-                writer.flush()?;
-            }
-
-            let line = line_buffer.trim_end();
-            if line.is_empty() {
-                continue;
-            }
-
-            // Add a line to the statement buffer
-            statement_buffer.push_str(line);
-
-            // If we have a complete statement (the last line ends with a
-            // semicolon and is not inside a comment), execute it.
-            if is_complete(&statement_buffer) {
-                // In idempotent mode, look ahead for output lines.
-                if idempotent {
-                    // Strip out lines that are not part of the statement
-                    expected_output_buffer.clear();
-                    loop {
-                        if line_buffer_ready {
-                            line_buffer_ready = false;
-                        } else {
-                            line_buffer.clear();
-                            let bytes_read =
-                                reader.read_line(&mut line_buffer)?;
-                            if bytes_read == 0 {
-                                break; // EOF reached; no more expected output
-                            }
-                        }
-                        if !line_buffer.starts_with('>') {
-                            line_buffer_ready = true;
-                            break;
-                        } else {
-                            expected_output_buffer.push_str(&line_buffer);
-                        }
-                    }
-                }
-
-                // Remove the semicolon, then parse/execute the statement
-                statement_buffer.pop();
-                let raw = match self.process_statement(
-                    &statement_buffer,
-                    Some(&expected_output_buffer),
-                ) {
-                    Ok(s) => s,
-                    Err(e) => format!("{}\n", e),
-                };
-                // In idempotent mode, if the actual output is
-                // semantically equivalent to the expected output
-                // (modulo whitespace and bag reordering), emit the
-                // expected output verbatim so the .smli file stays
-                // idempotent across runs where bag iteration order
-                // or pretty-printer wrapping may differ. The
-                // 'matchStrict' property disables this, so that exact
-                // formatting (e.g. pretty-printing) can be tested.
-                let match_strict = self.config.match_strict.unwrap_or(false);
-                let to_write = if idempotent
-                    && !match_strict
-                    && !expected_output_buffer.is_empty()
-                    && !raw.is_empty()
-                {
-                    let expected_stripped =
-                        strip_prefix("> ", &expected_output_buffer);
-                    // The output line is "val ... : TYPE" but we
-                    // have the actual result from process_statement
-                    // already stripped of "> ". Compare as whole
-                    // output lines.
-                    let actual_line = raw.trim_end_matches('\n');
-                    let expected_line =
-                        expected_stripped.trim_end_matches('\n');
-                    if output_matcher::equivalent(actual_line, expected_line) {
-                        prefix_lines(">", &expected_stripped)
-                    } else {
-                        prefix_lines(">", &raw)
-                    }
-                } else if idempotent {
-                    prefix_lines(">", &raw)
-                } else {
-                    raw
-                };
-                write!(writer, "{}", to_write)?;
-                writer.flush()?;
-                statement_buffer.clear();
-            } else {
-                statement_buffer.push('\n');
-            }
-
-            writer.flush()?;
-        }
     }
 
     /// Processes a single statement.
@@ -1290,19 +1143,6 @@ impl Shell {
     }
 
     /// Runs a script file.
-    pub fn run_file<P: AsRef<Path>, W: Write>(
-        &mut self,
-        file_path: P,
-        output: W,
-    ) -> ShellResult<()> {
-        let content =
-            fs::read_to_string(&file_path).map_err(|e| Error::Io(e))?;
-
-        // Create a cursor from the string content
-        let cursor = Cursor::new(content.as_bytes());
-        self.run(cursor, output)
-    }
-
     /// Executes a single command and writes the output.
     pub fn run_command<W: Write>(
         &mut self,
@@ -1470,12 +1310,13 @@ impl Display for MorelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::ScriptRunner;
     use std::io::Cursor;
 
     #[test]
     fn test_main_creation() {
         let args = vec!["--echo".to_string()];
-        let main = Shell::new(&args);
+        let main = Kernel::new(&args);
         assert!(main.config.echo.unwrap());
     }
 
@@ -1483,9 +1324,9 @@ mod tests {
     /// (everything after the version banner line).
     fn run_interactive_piped(input: &str) -> Vec<String> {
         let args = vec!["--banner".to_string(), "--prompt".to_string()];
-        let mut shell = Shell::new(&args);
+        let mut shell = Kernel::new(&args);
         let mut output = Vec::new();
-        shell
+        ScriptRunner::new(&mut shell)
             .run(Cursor::new(input.as_bytes()), &mut output)
             .unwrap();
         let out = String::from_utf8(output).unwrap();
@@ -1555,12 +1396,14 @@ mod tests {
     #[test]
     fn test_simple_expression() {
         let args = Vec::new();
-        let mut main = Shell::new(&args);
+        let mut main = Kernel::new(&args);
         let input = "42;";
         let mut output = Vec::new();
 
         let cursor = Cursor::new(input.as_bytes());
-        main.run(cursor, &mut output).unwrap();
+        ScriptRunner::new(&mut main)
+            .run(cursor, &mut output)
+            .unwrap();
 
         let output_str = String::from_utf8(output).unwrap();
         assert!(output_str.contains("42"));
@@ -1576,7 +1419,7 @@ mod tests {
 
     #[test]
     fn test_line_mode() {
-        let mut shell = Shell::new(&[]);
+        let mut shell = Kernel::new(&[]);
         let mut result;
 
         let in_1 = "val x = 5\n\
