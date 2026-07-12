@@ -1,0 +1,533 @@
+(*
+ * Licensed to Julian Hyde under one or more contributor license
+ * agreements.  See the NOTICE file distributed with this work
+ * for additional information regarding copyright ownership.
+ * Julian Hyde licenses this file to you under the Apache
+ * License, Version 2.0 (the "License"); you may not use this
+ * file except in compliance with the License.  You may obtain a
+ * copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied.  See the License for the specific
+ * language governing permissions and limitations under the
+ * License.
+ *
+ * Queries that must give the same answer whether evaluated
+ * locally or pushed down to Apache Calcite.
+ *
+ * Morel-Java's suite runs this script twice (see
+ * ScriptTest.testScriptDual): once in local mode, and once in
+ * Calcite ("hybrid") mode with a tracer that fails if any query is
+ * not pushed down. So do not add queries that cannot be pushed down,
+ * and do not call Sys.plan (whose output differs between modes).
+ *
+ * Morel-Rust cannot push queries down to SQL, so runs this test
+ * only in local mode.
+ *)
+
+(* Configuration statements cannot be pushed down; the tracer's deny list
+ * exempts calls to the Sys structure. *)
+Sys.set ("printLength", 64);
+> val it = () : unit
+Sys.set ("stringDepth", ~1);
+> val it = () : unit
+Sys.set ("output", "tabular");
+> val it = () : unit
+
+from;
+> val it = [()] : unit list
+from e in scott.emps;
+> comm deptno empno ename  hiredate   job       mgr  sal
+> ---- ------ ----- ------ ---------- --------- ---- ----
+>    0     20  7369 SMITH  1980-12-17 CLERK     7902  800
+>  300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600
+>  500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250
+>    0     20  7566 JONES  1981-02-04 MANAGER   7839 2975
+> 1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250
+>    0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850
+>    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450
+>    0     20  7788 SCOTT  1987-04-19 ANALYST   7566 3000
+>    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000
+>    0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500
+>    0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100
+>    0     30  7900 JAMES  1981-12-03 CLERK     7698  950
+>    0     20  7902 FORD   1981-12-03 ANALYST   7566 3000
+>    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300
+>
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag
+
+from e in scott.emps yield e.deptno;
+> val it = [20,30,30,20,30,30,10,20,10,30,20,30,20,10] : int bag
+from e in scott.emps yield {e.deptno, e.ename};
+> deptno ename
+> ------ ------
+>     20 SMITH
+>     30 ALLEN
+>     30 WARD
+>     20 JONES
+>     30 MARTIN
+>     30 BLAKE
+>     10 CLARK
+>     20 SCOTT
+>     10 KING
+>     30 TURNER
+>     20 ADAMS
+>     30 JAMES
+>     20 FORD
+>     10 MILLER
+>
+> val it : {deptno:int, ename:string} bag
+
+from e in scott.emps yield {e.ename, e.deptno};
+> deptno ename
+> ------ ------
+>     20 SMITH
+>     30 ALLEN
+>     30 WARD
+>     20 JONES
+>     30 MARTIN
+>     30 BLAKE
+>     10 CLARK
+>     20 SCOTT
+>     10 KING
+>     30 TURNER
+>     20 ADAMS
+>     30 JAMES
+>     20 FORD
+>     10 MILLER
+>
+> val it : {deptno:int, ename:string} bag
+
+from e in scott.emps
+  yield {e.ename, x = e.deptno + e.empno, b = true, i = 3, r = 3.14,
+    s = "hello"};
+> b    ename  i r    s     x
+> ---- ------ - ---- ----- ----
+> true SMITH  3 3.14 hello 7389
+> true ALLEN  3 3.14 hello 7529
+> true WARD   3 3.14 hello 7551
+> true JONES  3 3.14 hello 7586
+> true MARTIN 3 3.14 hello 7684
+> true BLAKE  3 3.14 hello 7728
+> true CLARK  3 3.14 hello 7792
+> true SCOTT  3 3.14 hello 7808
+> true KING   3 3.14 hello 7849
+> true TURNER 3 3.14 hello 7874
+> true ADAMS  3 3.14 hello 7896
+> true JAMES  3 3.14 hello 7930
+> true FORD   3 3.14 hello 7922
+> true MILLER 3 3.14 hello 7944
+>
+> val it : {b:bool, ename:string, i:int, r:real, s:string, x:int} bag
+
+from e in scott.emps yield ();
+> val it = [(),(),(),(),(),(),(),(),(),(),(),(),(),()] : unit bag
+from e in scott.emps yield e;
+> comm deptno empno ename  hiredate   job       mgr  sal
+> ---- ------ ----- ------ ---------- --------- ---- ----
+>    0     20  7369 SMITH  1980-12-17 CLERK     7902  800
+>  300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600
+>  500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250
+>    0     20  7566 JONES  1981-02-04 MANAGER   7839 2975
+> 1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250
+>    0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850
+>    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450
+>    0     20  7788 SCOTT  1987-04-19 ANALYST   7566 3000
+>    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000
+>    0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500
+>    0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100
+>    0     30  7900 JAMES  1981-12-03 CLERK     7698  950
+>    0     20  7902 FORD   1981-12-03 ANALYST   7566 3000
+>    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300
+>
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag
+
+from e in scott.emps where e.job = "CLERK" yield e;
+> comm deptno empno ename  hiredate   job   mgr  sal
+> ---- ------ ----- ------ ---------- ----- ---- ----
+>    0     20  7369 SMITH  1980-12-17 CLERK 7902  800
+>    0     20  7876 ADAMS  1987-05-23 CLERK 7788 1100
+>    0     30  7900 JAMES  1981-12-03 CLERK 7698  950
+>    0     10  7934 MILLER 1982-01-23 CLERK 7782 1300
+>
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag
+
+from n in [1,2,3] yield n;
+> val it = [1,2,3] : int list
+from n in [1,2,3] where n mod 2 = 1 andalso n < 3 yield n;
+> val it = [1] : int list
+from n in [1,2,3] where false yield n;
+> val it = [] : int list
+from n in [1,2,3] where n < 2 orelse n > 2 yield n * 3;
+> val it = [3,9] : int list
+from r in [{a=1,b=2},{a=1,b=0},{a=2,b=1}]
+  order (DESC r.a, r.b)
+  yield {r.a, b10 = r.b * 10};
+> a b10
+> - ---
+> 2  10
+> 1   0
+> 1  20
+>
+> val it : {a:int, b10:int} list
+
+from r in [{a=2,b=3},{a=2,b=1},{a=1,b=1}]
+  group r.a
+  order a;
+> val it = [1,2] : int list
+
+from r in [{a=2,b=3},{a=2,b=1},{a=1,b=1}]
+  group {} compute sum over r.b;
+> val it = [5] : int list
+
+from r in [{a=2,b=3},{a=2,b=1},{a=1,b=1}]
+  group r.a
+  yield a
+  order a;
+> val it = [1,2] : int list
+
+from r in [{a=2,b=3}]
+group r.b compute {sb = sum over r.b,
+    mb = min over r.b, a = count over ()};
+> a b mb sb
+> - - -- --
+> 1 3  3  3
+>
+> val it : {a:int, b:int, mb:int, sb:int} list
+
+from r in [{a=2,b=3}]
+group r.b compute {sb = sum over r.b,
+    mb = min over r.b, a = count over ()}
+yield {a, a2 = a + b, sb};
+> a a2 sb
+> - -- --
+> 1  4  3
+>
+> val it : {a:int, a2:int, sb:int} list
+
+from e in scott.emps
+yield {e.ename, x = e.deptno * 2};
+> ename  x
+> ------ --
+> SMITH  40
+> ALLEN  60
+> WARD   60
+> JONES  40
+> MARTIN 60
+> BLAKE  60
+> CLARK  20
+> SCOTT  40
+> KING   20
+> TURNER 60
+> ADAMS  40
+> JAMES  60
+> FORD   40
+> MILLER 20
+>
+> val it : {ename:string, x:int} bag
+
+from e in scott.emps
+order e.ename;
+> comm deptno empno ename  hiredate   job       mgr  sal
+> ---- ------ ----- ------ ---------- --------- ---- ----
+>    0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100
+>  300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600
+>    0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850
+>    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450
+>    0     20  7902 FORD   1981-12-03 ANALYST   7566 3000
+>    0     30  7900 JAMES  1981-12-03 CLERK     7698  950
+>    0     20  7566 JONES  1981-02-04 MANAGER   7839 2975
+>    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000
+> 1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250
+>    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300
+>    0     20  7788 SCOTT  1987-04-19 ANALYST   7566 3000
+>    0     20  7369 SMITH  1980-12-17 CLERK     7902  800
+>    0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500
+>  500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250
+>
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} list
+
+from e in scott.emps
+order DESC e.ename
+take 3;
+> comm deptno empno ename  hiredate   job      mgr  sal
+> ---- ------ ----- ------ ---------- -------- ---- ----
+>  500     30  7521 WARD   1981-02-22 SALESMAN 7698 1250
+>    0     30  7844 TURNER 1981-09-08 SALESMAN 7698 1500
+>    0     20  7369 SMITH  1980-12-17 CLERK    7902  800
+>
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} list
+
+from e in scott.emps,
+  d in scott.depts
+where e.deptno = d.deptno
+yield {e.ename, d.dname};
+> dname      ename
+> ---------- ------
+> RESEARCH   SMITH
+> SALES      ALLEN
+> SALES      WARD
+> RESEARCH   JONES
+> SALES      MARTIN
+> SALES      BLAKE
+> ACCOUNTING CLARK
+> RESEARCH   SCOTT
+> ACCOUNTING KING
+> SALES      TURNER
+> RESEARCH   ADAMS
+> SALES      JAMES
+> RESEARCH   FORD
+> ACCOUNTING MILLER
+>
+> val it : {dname:string, ename:string} bag
+
+from e in scott.emps,
+  d in scott.depts
+where e.deptno = d.deptno;
+> d                          e
+> deptno dname      loc      comm deptno empno ename  hiredate   job       mgr  sal
+> ------ ---------- -------- ---- ------ ----- ------ ---------- --------- ---- ----
+>     20 RESEARCH   DALLAS      0     20  7369 SMITH  1980-12-17 CLERK     7902  800
+>     30 SALES      CHICAGO   300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600
+>     30 SALES      CHICAGO   500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250
+>     20 RESEARCH   DALLAS      0     20  7566 JONES  1981-02-04 MANAGER   7839 2975
+>     30 SALES      CHICAGO  1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250
+>     30 SALES      CHICAGO     0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850
+>     10 ACCOUNTING NEW YORK    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450
+>     20 RESEARCH   DALLAS      0     20  7788 SCOTT  1987-04-19 ANALYST   7566 3000
+>     10 ACCOUNTING NEW YORK    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000
+>     30 SALES      CHICAGO     0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500
+>     20 RESEARCH   DALLAS      0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100
+>     30 SALES      CHICAGO     0     30  7900 JAMES  1981-12-03 CLERK     7698  950
+>     20 RESEARCH   DALLAS      0     20  7902 FORD   1981-12-03 ANALYST   7566 3000
+>     10 ACCOUNTING NEW YORK    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300
+>
+> val it : {d:{deptno:int, dname:string, loc:string}, e:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real}} bag
+
+from e in scott.emps,
+  d in scott.depts
+where e.deptno = d.deptno
+yield e;
+> comm deptno empno ename  hiredate   job       mgr  sal
+> ---- ------ ----- ------ ---------- --------- ---- ----
+>    0     20  7369 SMITH  1980-12-17 CLERK     7902  800
+>  300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600
+>  500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250
+>    0     20  7566 JONES  1981-02-04 MANAGER   7839 2975
+> 1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250
+>    0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850
+>    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450
+>    0     20  7788 SCOTT  1987-04-19 ANALYST   7566 3000
+>    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000
+>    0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500
+>    0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100
+>    0     30  7900 JAMES  1981-12-03 CLERK     7698  950
+>    0     20  7902 FORD   1981-12-03 ANALYST   7566 3000
+>    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300
+>
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag
+
+from e in scott.emps,
+  d in scott.depts
+where e.deptno = d.deptno
+andalso e.job = "CLERK"
+yield d;
+> deptno dname      loc
+> ------ ---------- --------
+>     20 RESEARCH   DALLAS
+>     20 RESEARCH   DALLAS
+>     30 SALES      CHICAGO
+>     10 ACCOUNTING NEW YORK
+>
+> val it : {deptno:int, dname:string, loc:string} bag
+
+from e in scott.emps,
+  d in scott.depts
+where e.deptno = d.deptno
+andalso e.job = "CLERK"
+group e.mgr;
+> val it = [7902,7788,7698,7782] : int bag
+
+from e in scott.emps,
+  g in scott.salgrades
+where e.sal >= g.losal
+  andalso e.sal < g.hisal;
+> e                                                       g
+> comm deptno empno ename  hiredate   job       mgr  sal  grade hisal losal
+> ---- ------ ----- ------ ---------- --------- ---- ---- ----- ----- -----
+>    0     20  7369 SMITH  1980-12-17 CLERK     7902  800     1  1200   700
+>  300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600     3  2000  1401
+>  500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250     2  1400  1201
+>    0     20  7566 JONES  1981-02-04 MANAGER   7839 2975     4  3000  2001
+> 1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250     2  1400  1201
+>    0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850     4  3000  2001
+>    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450     4  3000  2001
+>    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000     5  9999  3001
+>    0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500     3  2000  1401
+>    0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100     1  1200   700
+>    0     30  7900 JAMES  1981-12-03 CLERK     7698  950     1  1200   700
+>    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300     2  1400  1201
+>
+> val it : {e:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real}, g:{grade:int, hisal:real, losal:real}} bag
+
+from e in scott.emps,
+  d in scott.depts,
+  g in scott.salgrades
+where e.sal >= g.losal
+  andalso e.sal < g.hisal
+  andalso d.deptno = e.deptno;
+> d                          e                                                       g
+> deptno dname      loc      comm deptno empno ename  hiredate   job       mgr  sal  grade hisal losal
+> ------ ---------- -------- ---- ------ ----- ------ ---------- --------- ---- ---- ----- ----- -----
+>     20 RESEARCH   DALLAS      0     20  7369 SMITH  1980-12-17 CLERK     7902  800     1  1200   700
+>     30 SALES      CHICAGO   300     30  7499 ALLEN  1981-02-20 SALESMAN  7698 1600     3  2000  1401
+>     30 SALES      CHICAGO   500     30  7521 WARD   1981-02-22 SALESMAN  7698 1250     2  1400  1201
+>     20 RESEARCH   DALLAS      0     20  7566 JONES  1981-02-04 MANAGER   7839 2975     4  3000  2001
+>     30 SALES      CHICAGO  1400     30  7654 MARTIN 1981-09-28 SALESMAN  7698 1250     2  1400  1201
+>     30 SALES      CHICAGO     0     30  7698 BLAKE  1981-01-05 MANAGER   7839 2850     4  3000  2001
+>     10 ACCOUNTING NEW YORK    0     10  7782 CLARK  1981-06-09 MANAGER   7839 2450     4  3000  2001
+>     10 ACCOUNTING NEW YORK    0     10  7839 KING   1981-11-17 PRESIDENT    0 5000     5  9999  3001
+>     30 SALES      CHICAGO     0     30  7844 TURNER 1981-09-08 SALESMAN  7698 1500     3  2000  1401
+>     20 RESEARCH   DALLAS      0     20  7876 ADAMS  1987-05-23 CLERK     7788 1100     1  1200   700
+>     30 SALES      CHICAGO     0     30  7900 JAMES  1981-12-03 CLERK     7698  950     1  1200   700
+>     10 ACCOUNTING NEW YORK    0     10  7934 MILLER 1982-01-23 CLERK     7782 1300     2  1400  1201
+>
+> val it : {d:{deptno:int, dname:string, loc:string}, e:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real}, g:{grade:int, hisal:real, losal:real}} bag
+
+from e in scott.emps,
+  d in scott.depts,
+  g in scott.salgrades
+where e.sal >= g.losal
+  andalso e.sal < g.hisal
+  andalso d.deptno = e.deptno
+group g.grade compute {c = count over ()}
+order grade;
+> c grade
+> - -----
+> 3     1
+> 3     2
+> 2     3
+> 3     4
+> 1     5
+>
+> val it : {c:int, grade:int} list
+
+from x in (from e in scott.emps yield {e.deptno, z = 1})
+  union (from d in scott.depts yield {d.deptno, z = 2})
+  order (x.deptno, x.z);
+> deptno z
+> ------ -
+>     10 1
+>     10 1
+>     10 1
+>     10 2
+>     20 1
+>     20 1
+>     20 1
+>     20 1
+>     20 1
+>     20 2
+>     30 1
+>     30 1
+>     30 1
+>     30 1
+>     30 1
+>     30 1
+>     30 2
+>     40 2
+>
+> val it : {deptno:int, z:int} list
+
+from x in (from e in scott.emps yield e.deptno)
+  union (from d in scott.depts yield d.deptno)
+  group x compute {c = count over ()}
+  order x;
+> c x
+> - --
+> 4 10
+> 6 20
+> 7 30
+> 1 40
+>
+> val it : {c:int, x:int} list
+
+from i in [1, 2, 3] union [2, 5, 4];
+> val it = [1,2,3,2,5,4] : int list
+from i in [1, 2, 3] union [2, 5, 4], [2, 1, 7];
+> val it = [1,2,3,2,5,4,2,1,7] : int list
+from i in [1, 2, 3] intersect [2, 5, 4];
+> val it = [2] : int list
+from i in [1, 2, 3] intersect [2, 5, 4], [2, 1, 6];
+> val it = [2] : int list
+from i in [1, 2, 3] intersect [1, 2, 3], [99];
+> val it = [] : int list
+from i in [1, 2, 3] except [2, 5, 4];
+> val it = [1,3] : int list
+from i in [1, 2, 3] except [2, 5, 4], [2, 1, 6];
+> val it = [3] : int list
+from i in [10, 15, 20] union (from d in scott.depts yield d.deptno);
+> val it = [10,15,20,10,20,30,40] : int bag
+from i in [10, 15, 20] except (from d in scott.depts yield d.deptno);
+> val it = [15] : int bag
+from i in [10, 15, 20] intersect (from d in scott.depts yield d.deptno);
+> val it = [10,20] : int bag
+
+(*) The following 4 are equivalent.
+from e in scott.emps where e.deptno = 30 yield e.empno;
+> val it = [7499,7521,7654,7698,7844,7900] : int bag
+let
+  val emps = #emps scott
+in
+  from e in emps
+  where e.deptno = 30
+  yield e.empno
+end;
+> val it = [7499,7521,7654,7698,7844,7900] : int bag
+
+let
+  val emps = #emps scott
+  val thirty = 30
+in
+  from e in emps
+  where e.deptno = thirty
+  yield e.empno
+end;
+> val it = [7499,7521,7654,7698,7844,7900] : int bag
+
+Bag.map (fn e => (#empno e))
+  (Bag.filter (fn e => (#deptno e) = 30) (#emps scott));
+> val it = [7499,7521,7654,7698,7844,7900] : int bag
+
+(*) Intersect, except, concat via List methods
+List.`except` [[1, 2, 3], [2, 5, 4]];
+> val it = [1,3] : int list
+List.`intersect` [[1, 2, 3], [2, 5, 4]];
+> val it = [2] : int list
+List.`except` [[1, 2, 3], [2, 5, 4], [2, 1, 6]];
+> val it = [3] : int list
+List.`intersect` [[1, 2, 3], [2, 5, 4], [2, 1, 6]];
+> val it = [2] : int list
+List.`except` [[1, 1, 2, 3], [1]];
+> val it = [1,2,3] : int list
+List.`intersect` [[1, 1, 2, 3], [1, 1, 5]];
+> val it = [1,1] : int list
+List.concat [[1, 2], [3], [4, 5]];
+> val it = [1,2,3,4,5] : int list
+
+(*) Collections of collections
+[[1, 2], [3]];
+> val it = [[1,2],[3]] : int list list
+[bag [1, 2], bag [3]];
+> val it = [[1,2],[3]] : int bag list
+from l in [[1, 2], [3]];
+> val it = [[1,2],[3]] : int list list
+from l in [[1, 2], [3]] yield List.length l;
+> val it = [2,1] : int list
+Bag.concat [bag [1, 2], bag [3]];
+> val it = [1,2,3] : int bag
+
+(*) End dual.smli

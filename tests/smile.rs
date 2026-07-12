@@ -228,6 +228,11 @@ fn datatype() {
 }
 
 #[test]
+fn dual() {
+    run_script("tests/script/dual.smli");
+}
+
+#[test]
 fn dummy() {
     run_script("tests/script/dummy.smli");
 }
