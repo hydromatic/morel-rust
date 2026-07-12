@@ -16,13 +16,13 @@
 // License.
 
 //! End-to-end CLI tests: run the `morel` binary as a subprocess and
-//! check stdout / exit status. Cargo populates `CARGO_BIN_EXE_main`
+//! check stdout / exit status. Cargo populates `CARGO_BIN_EXE_morel`
 //! with the path to the binary built for the current target.
 
 use std::process::Command;
 
 fn run(args: &[&str]) -> (String, i32) {
-    let bin = env!("CARGO_BIN_EXE_main");
+    let bin = env!("CARGO_BIN_EXE_morel");
     let out = Command::new(bin)
         .args(args)
         .output()

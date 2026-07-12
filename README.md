@@ -31,30 +31,30 @@ A functional query language.
 ```bash
 $ git clone git://github.com/hydromatic/morel-rust.git
 $ cd morel-rust
-$ cargo build; ./target/main
+$ cargo build; ./target/debug/morel
 ```
 
 ### Run the Morel shell
 
 ```bash
 $ cargo run
-morel-rust version 0.2.0 (rust version 1.90.0)
+morel-rust version 0.2.0 (rust version 1.95.0)
 - "Hello, world!";
 > val it = "Hello, world!" : string
 ```
 
 Type control+D to exit the shell.
 
-For quick testing, use the `-c` flag.
+For quick testing, use the `-e` flag.
 
 ```bash
-$ cargo run -- -c "1 + 2"
+$ cargo run -- -e "1 + 2"
 val it = 3 : int
 
-$ cargo run -- -c "from i in [1,2,3] where i > 1"
+$ cargo run -- -e "from i in [1,2,3] where i > 1"
 val it = [2,3] : int list
 
-$ cargo run -- -c 'let fun double x = x * 2 in map double [2,3,4] end'
+$ cargo run -- -e 'let fun double x = x * 2 in map double [2,3,4] end'
 val it = [4,6,8] : int list
 ```
 
@@ -66,7 +66,7 @@ val it = [4,6,8] : int list
 * [Change log](CHANGELOG.md)
 * Reading [test scripts](tests/script)
   can be instructive; try, for example,
-  [builtIn.smli](tests/script/builtIn.smli)
+  [built-in.smli](tests/script/built-in.smli)
 
 ## More information
 

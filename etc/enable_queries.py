@@ -24,7 +24,7 @@ Usage:
 Options:
   --help, -h          Show this message and exit.
   --file FILE         .smli file to process (default: tests/script/relational.smli)
-  --binary BIN        Morel binary path (default: target/debug/main)
+  --binary BIN        Morel binary path (default: target/debug/morel)
   --section N         Only process section N (1-based; default: all sections)
   --apply             Rewrite the file to enable passing queries.
   --verify            Run and report only; never modify the file (default).
@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 DEFAULT_FILE = "tests/script/relational.smli"
-DEFAULT_BINARY = "target/debug/main"
+DEFAULT_BINARY = "target/debug/morel"
 
 # Preamble used when testing queries from section 1 (emps/depts queries).
 # Has exactly PREAMBLE_STMT_COUNT statements so we can locate the query output.

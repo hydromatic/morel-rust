@@ -100,8 +100,8 @@ the process exits. Useful when reproducing a bug from a one-liner
 without needing a script file:
 
 ```
-$ ./target/debug/main -e '1 + 2'
+$ ./target/debug/morel -e '1 + 2'
 val it = 3 : int
-$ ./target/debug/main --eval='from x in [1,2,3] yield x * 2'
+$ ./target/debug/morel --eval='from x in [1,2,3] yield x * 2'
 val it = [2,4,6] : int list
 ```

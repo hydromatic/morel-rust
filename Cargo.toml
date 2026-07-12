@@ -32,7 +32,7 @@ license = "Apache-2.0"
 crate-type = ["cdylib","rlib"]
 
 [[bin]]
-name = "main"
+name = "morel"
 path = "src/main.rs"
 
 [dependencies]
