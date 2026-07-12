@@ -43,6 +43,7 @@ use crate::shell::config::Config;
 use crate::shell::error::Error;
 use crate::shell::output_matcher;
 use crate::shell::prop::{Mode, Output, create_banner};
+use crate::shell::statement::{comment_depth, is_complete};
 use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::syntax::ast::Statement;
 use crate::syntax::parser;
@@ -821,9 +822,7 @@ impl Shell {
 
             // If we have a complete statement (the last line ends with a
             // semicolon and is not inside a comment), execute it.
-            if statement_buffer.ends_with(';')
-                && comment_depth(statement_buffer.as_str()) == 0
-            {
+            if is_complete(&statement_buffer) {
                 // In idempotent mode, look ahead for output lines.
                 if idempotent {
                     // Strip out lines that are not part of the statement
@@ -1376,9 +1375,7 @@ impl Shell {
                 continue;
             }
             statement_buffer.push_str(trimmed);
-            if statement_buffer.ends_with(';')
-                && comment_depth(&statement_buffer) == 0
-            {
+            if is_complete(&statement_buffer) {
                 // Remove the trailing semicolon.
                 statement_buffer.pop();
                 match self.process_statement(&statement_buffer, None) {
@@ -1402,72 +1399,6 @@ impl Shell {
         self.config.mode = saved_mode;
         Ok(output)
     }
-}
-
-/// Returns the level comment nesting the end of the string.
-///
-/// Examples:
-/// * Depth 0: `(* comment *)`
-/// * Depth 1: `(* comment (* nested *)`
-/// * Depth 1: `(*) line comment`
-/// * Depth 0: `(*) line comment\n`
-/// * Depth -1: `code; *)`
-/// * Depth 0: `"(*)" ^ "(*)"`  (parentheses inside strings are not comments)
-fn comment_depth(code: &str) -> i32 {
-    let mut depth = 0;
-    let mut buf = [' '; 3]; // cyclic buffer
-    let n = 3;
-    let mut i = n;
-    let mut in_line_comment = false;
-    let mut in_string = false;
-    let mut in_string_escape = false;
-    for c in code.chars() {
-        if in_string {
-            // Inside a string literal: track escape sequences and closing
-            // quote; do not interpret comment syntax.
-            if in_string_escape {
-                in_string_escape = false;
-            } else if c == '\\' {
-                in_string_escape = true;
-            } else if c == '"' {
-                in_string = false;
-                buf = [' '; 3]; // reset look-back to avoid false positives
-            }
-            continue;
-        }
-
-        // Opening a string literal (only when not inside any comment).
-        if c == '"' && depth == 0 && !in_line_comment {
-            in_string = true;
-            continue;
-        }
-
-        if buf[i % n] == '(' && c == '*' && !in_line_comment {
-            // We say "(*", which is a block comment.
-            // (It may turn out to be "(*)", a line comment.)
-            depth += 1;
-        } else if buf[i % n] == '*' && c == ')' {
-            if buf[(i - 1) % n] == '(' {
-                // We saw "(*)", which is a line comment.
-                // We already increased the depth when we saw "(*".
-                // Now we set a flag to decrease the depth when we next see a
-                // newline.
-                in_line_comment = true;
-            } else {
-                // "*)" closes a block comment when depth > 0. Outside a comment
-                // (e.g., "(op *)") it's code, not a closer — leave depth at 0.
-                if !in_line_comment && depth > 0 {
-                    depth -= 1;
-                }
-            }
-        } else if c == '\n' && in_line_comment {
-            depth -= 1;
-            in_line_comment = false;
-        }
-        i += 1;
-        buf[i % n] = c;
-    }
-    depth
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -1641,41 +1572,6 @@ mod tests {
         let val = Val::String("42".to_string());
         env.bind("x".to_string(), &val);
         assert_eq!(env.get("x"), Some(&val));
-    }
-
-    #[test]
-    fn test_comment_depth() {
-        assert_eq!(comment_depth("(* comment *)"), 0);
-        assert_eq!(comment_depth("(* comment (* nested *)"), 1);
-        // A bare `*)` not preceded by an open `(*` is treated as
-        // ordinary code (not a stray comment-closer); depth stays
-        // at 0. This is what the parenthesised operator `(op *)`
-        // looks like to `comment_depth` after stripping the `(`
-        // and identifier — the closing `*)` must not turn a
-        // statement-buffer's depth negative.
-        assert_eq!(comment_depth("code; *)"), 0);
-        assert_eq!(comment_depth("(* (* nested (* deeper *) *) *)"), 0);
-        assert_eq!(comment_depth("(*) line comment"), 1);
-        assert_eq!(comment_depth("(*) line comment\n"), 0);
-        let s = r#"(* If a block comment
-   contains a (*) comment close *) in a line comment
-   then it is ignored. *)
-"#;
-        assert_eq!(comment_depth(s), 0);
-        // Parentheses inside string literals are not comments.
-        assert_eq!(comment_depth(r#""(*)" ^ "(*)""#), 0);
-        assert_eq!(comment_depth(r#""(*)" ^ "(*)""#), 0);
-        assert_eq!(comment_depth(r#"val x = "(*) not a comment""#), 0);
-        // Escaped quote inside a string does not end the string.
-        assert_eq!(comment_depth(r#""a\"(*) not a comment\"b""#), 0);
-        // A (*) line comment with (*fake block*) inside it:
-        // the fake (*) should NOT increment depth; only the \n matters.
-        assert_eq!(comment_depth("(*) line comment with (* fake\n"), 0);
-        // Multi-line: expression ^ (*) line comment with fake (* \n ^ rest;
-        assert_eq!(
-            comment_depth("\"a\" ^ (*) line comment (* fake\n\"b\";\n"),
-            0
-        );
     }
 
     #[test]
