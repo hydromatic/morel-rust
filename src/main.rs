@@ -16,6 +16,7 @@
 // License.
 
 extern crate core;
+use crate::eval::val::Val;
 use crate::shell::{Kernel, ScriptRunner, ScriptTest, Shell};
 use std::env;
 use std::io::{IsTerminal, Read, Write, stdin, stdout};
@@ -37,6 +38,7 @@ enum CliAction {
     Test(Vec<String>),
     Interactive {
         directory: Option<String>,
+        color_scheme: Option<String>,
     },
     Scripts {
         /// Non-empty; "-" means stdin.
@@ -80,6 +82,7 @@ fn parse_args(args: &[String]) -> CliAction {
     // '--' ends flag parsing.
     let mut force_idempotent: Option<bool> = None;
     let mut directory: Option<String> = None;
+    let mut color_scheme: Option<String> = None;
     let mut files: Vec<String> = Vec::new();
     let mut end_of_flags = false;
     for arg in args {
@@ -95,6 +98,11 @@ fn parse_args(args: &[String]) -> CliAction {
                 directory =
                     Some(arg.strip_prefix("--directory=").unwrap().to_string());
             }
+            _ if arg.starts_with("--color-scheme=") => {
+                color_scheme = Some(
+                    arg.strip_prefix("--color-scheme=").unwrap().to_string(),
+                );
+            }
             _ if arg.starts_with("--") => {
                 return CliAction::Error(format!("Unknown option: {}", arg));
             }
@@ -103,7 +111,10 @@ fn parse_args(args: &[String]) -> CliAction {
     }
 
     if files.is_empty() && force_idempotent.is_none() {
-        CliAction::Interactive { directory }
+        CliAction::Interactive {
+            directory,
+            color_scheme,
+        }
     } else {
         if files.is_empty() {
             files.push("-".to_string());
@@ -265,8 +276,11 @@ fn main() {
                 }
             }
         }
-        CliAction::Interactive { directory } => {
-            run_interactive(directory.as_deref());
+        CliAction::Interactive {
+            directory,
+            color_scheme,
+        } => {
+            run_interactive(directory.as_deref(), color_scheme.as_deref());
         }
         CliAction::Scripts {
             files,
@@ -295,7 +309,7 @@ fn main() {
     }
 }
 
-fn run_interactive(directory: Option<&str>) {
+fn run_interactive(directory: Option<&str>, color_scheme: Option<&str>) {
     let is_tty = IsTerminal::is_terminal(&stdin());
     let mut shell_args = vec!["--prompt".to_string(), "--banner".to_string()];
     if is_tty {
@@ -305,6 +319,16 @@ fn run_interactive(directory: Option<&str>) {
         shell_args.push(format!("--directory={}", dir));
     }
     let mut kernel = Kernel::new(&shell_args);
+
+    // The --color-scheme flag fixes the syntax-highlighting scheme, so the
+    // shell does not deduce one from the terminal background.
+    if let Some(scheme) = color_scheme
+        && let Err(e) =
+            kernel.set_prop("colorScheme", &Val::String(scheme.to_string()))
+    {
+        eprintln!("Shell error: {}", e);
+        exit(1);
+    }
 
     // On a real terminal, use the rustyline front end (line editing and
     // history). Piped or redirected input keeps the plain line reader, so
@@ -341,7 +365,13 @@ mod tests {
 
     #[test]
     fn test_parse_args_empty_is_interactive() {
-        assert_eq!(parse_args(&[]), CliAction::Interactive { directory: None });
+        assert_eq!(
+            parse_args(&[]),
+            CliAction::Interactive {
+                directory: None,
+                color_scheme: None,
+            }
+        );
     }
 
     #[test]

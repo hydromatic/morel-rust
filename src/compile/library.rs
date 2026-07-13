@@ -1326,6 +1326,17 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "clearEnv", global = true))]
     #[strum(props(type = "unit -> unit"))]
     SysClearEnv,
+    #[strum(props(p = "Sys", name = "colorSchemes", global = true))]
+    #[strum(props(
+        type = "unit -> {comment:string, constant:string, error:string, \
+                identifier:string, keyword:string, name:string, \
+                numeric:string, string:string, symbol:string, \
+                typeVar:string} list"
+    ))]
+    SysColorSchemes,
+    #[strum(props(p = "Sys", name = "deduceColorScheme", global = true))]
+    #[strum(props(type = "unit -> string"))]
+    SysDeduceColorScheme,
     #[strum(props(p = "Sys", name = "env", global = true))]
     #[strum(props(type = "unit -> (string * string) list"))]
     SysEnv,

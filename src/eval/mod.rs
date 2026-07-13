@@ -20,6 +20,7 @@ pub mod bool;
 pub mod bound;
 pub mod char;
 pub mod code;
+pub mod color_scheme;
 pub mod comparator;
 pub mod date;
 pub mod discrete;

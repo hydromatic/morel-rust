@@ -30,18 +30,63 @@
 //!
 //! [rustyline]: https://crates.io/crates/rustyline
 
+use crate::eval::session::Session;
 use crate::shell::ShellResult;
 use crate::shell::error::Error;
+use crate::shell::highlight;
 use crate::shell::kernel::Kernel;
 use crate::shell::prop::create_banner;
 use crate::shell::statement::is_complete;
 use rustyline::Editor;
+use rustyline::Helper;
+use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
+use rustyline::highlight::{CmdKind, Highlighter};
+use rustyline::hint::Hinter;
 use rustyline::history::FileHistory;
+use rustyline::validate::Validator;
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::mem;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::time::Duration;
+
+/// The rustyline helper. It syntax-highlights the input line; completion,
+/// hinting and validation use the trait defaults (no-ops — statement
+/// assembly and prompts are handled by the read loop, not rustyline).
+struct MorelHelper {
+    session: Rc<RefCell<Session>>,
+}
+
+impl Highlighter for MorelHelper {
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        // Read the color scheme afresh, so `Sys.set ("colorScheme", …)` takes
+        // effect immediately. The `none` scheme leaves the line unchanged.
+        let scheme = self.session.borrow().color_scheme();
+        if scheme.name == "none" {
+            Cow::Borrowed(line)
+        } else {
+            Cow::Owned(highlight::highlight(line, scheme))
+        }
+    }
+
+    fn highlight_char(&self, _line: &str, _pos: usize, _kind: CmdKind) -> bool {
+        // Re-highlight on every change.
+        true
+    }
+}
+
+impl Completer for MorelHelper {
+    type Candidate = String;
+}
+impl Hinter for MorelHelper {
+    type Hint = String;
+}
+impl Validator for MorelHelper {}
+impl Helper for MorelHelper {}
 
 /// The prompt for the next input line: `- ` when starting a fresh
 /// statement (the buffer is empty) and `= ` when continuing an
@@ -109,14 +154,43 @@ impl<'a> Shell<'a> {
             .map(|h| PathBuf::from(h).join(".morel").join("history-rust"))
     }
 
+    /// Detects the terminal's background color for syntax highlighting and
+    /// records it in the `terminalBackground` property, so a color scheme can
+    /// be deduced when `colorScheme` is not set.
+    ///
+    /// Does nothing if color is disabled (`NO_COLOR` is set or `TERM` is
+    /// "dumb") or if the terminal does not answer the query, in which case the
+    /// deduced scheme is "none". Queries with the OSC 11 escape sequence via
+    /// the `termbg` crate; must run before the line reader takes over the
+    /// terminal.
+    fn detect_background(&self) {
+        if env::var_os("NO_COLOR").is_some()
+            || env::var("TERM").is_ok_and(|t| t == "dumb")
+        {
+            return;
+        }
+        if let Ok(rgb) = termbg::rgb(Duration::from_millis(100)) {
+            let bg = format!("rgb:{:04x}/{:04x}/{:04x}", rgb.r, rgb.g, rgb.b);
+            self.kernel
+                .session_rc()
+                .borrow_mut()
+                .config
+                .terminal_background = Some(Rc::new(bg));
+        }
+    }
+
     /// Runs the read-eval-print loop until end-of-file (Ctrl-D).
     pub fn run(&mut self) -> ShellResult<()> {
+        self.detect_background();
         if self.kernel.config.banner.unwrap_or(false) {
             println!("{}", create_banner());
         }
 
-        let mut editor: Editor<(), FileHistory> =
+        let mut editor: Editor<MorelHelper, FileHistory> =
             Editor::new().map_err(|e| Error::Runtime(e.to_string()))?;
+        editor.set_helper(Some(MorelHelper {
+            session: self.kernel.session_rc(),
+        }));
 
         let history_path = Self::history_path();
         if let Some(path) = &history_path {

@@ -2352,6 +2352,8 @@ pub enum EagerF0 {
     // lint: sort until '#}'
     DateLocalOffset,
     SysClearEnv,
+    SysColorSchemes,
+    SysDeduceColorScheme,
     SysEnv,
     SysFile,
     SysPlan,
@@ -2376,6 +2378,36 @@ impl EagerF0 {
                 // Emit an effect to clear the environment.
                 r.emit_effect(Effect::ClearEnv);
                 Val::Unit
+            }
+            SysColorSchemes => {
+                use crate::eval::color_scheme::{Category, builtins};
+                // One record per built-in scheme, fields in alphabetical
+                // (record) order: comment, constant, error, identifier,
+                // keyword, name, numeric, string, symbol, typeVar.
+                let vals: Vec<Val> = builtins()
+                    .iter()
+                    .map(|scheme| {
+                        let s = |c: Category| {
+                            Val::String(scheme.spec(c).to_string())
+                        };
+                        Val::List(vec![
+                            s(Category::Comment),
+                            s(Category::Constant),
+                            s(Category::Error),
+                            s(Category::Identifier),
+                            s(Category::Keyword),
+                            Val::String(scheme.name.to_string()),
+                            s(Category::Numeric),
+                            s(Category::String),
+                            s(Category::Symbol),
+                            s(Category::TypeVar),
+                        ])
+                    })
+                    .collect();
+                Val::List(vals)
+            }
+            SysDeduceColorScheme => {
+                Val::String(r.session.color_scheme().name.to_string())
             }
             SysEnv => {
                 // Return a list of (name, type) pairs for all variables in
@@ -5091,6 +5123,8 @@ fn build_library() -> Lib {
     EagerF2::StringTokens.implements(&mut b, StringTokens);
     EagerF2::StringTranslate.implements(&mut b, StringTranslate);
     EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
+    EagerF0::SysColorSchemes.implements(&mut b, SysColorSchemes);
+    EagerF0::SysDeduceColorScheme.implements(&mut b, SysDeduceColorScheme);
     EagerF0::SysEnv.implements(&mut b, SysEnv);
     EagerF0::SysFile.implements(&mut b, SysFile);
     EagerF1::SysParseTree.implements(&mut b, SysParseTree);

@@ -28,6 +28,7 @@ use crate::compile::type_env::{
 use crate::compile::type_resolver::{BindingKind, Resolved, TypeResolver};
 use crate::compile::types::Type;
 use crate::eval::code::Code;
+use crate::eval::color_scheme;
 use crate::eval::file::{self, File, TypedValue};
 use crate::eval::val::Val;
 use crate::shell::error::Error;
@@ -168,6 +169,21 @@ impl Session {
         rc
     }
 
+    /// Returns the color scheme in effect for syntax highlighting: the
+    /// `colorScheme` property if it names a built-in scheme, otherwise the
+    /// scheme deduced from the terminal's background (the `terminalBackground`
+    /// property). Shared by the shell's highlighter and
+    /// `Sys.deduceColorScheme`.
+    pub fn color_scheme(&self) -> &'static color_scheme::ColorScheme {
+        color_scheme::resolve(
+            self.config.color_scheme.as_deref().map(String::as_str),
+            self.config
+                .terminal_background
+                .as_deref()
+                .map(String::as_str),
+        )
+    }
+
     /// Returns the cached inliner `Env` populated with all built-in
     /// functions and structures. Built lazily on first call and
     /// reused thereafter; callers clone it before layering
@@ -297,6 +313,7 @@ impl Session {
 
 /// Configuration of a [Session].
 pub struct Config {
+    pub color_scheme: Option<Rc<String>>,
     pub directory: Option<Rc<PathBuf>>,
     pub exclude_structures: Option<Rc<String>>,
     pub hybrid: Option<bool>,
@@ -307,12 +324,14 @@ pub struct Config {
     pub output: Option<Output>,
     pub script_directory: Option<Rc<PathBuf>>,
     pub string_fold: Option<i32>,
+    pub terminal_background: Option<Rc<String>>,
     pub time_zone: Option<Rc<String>>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            color_scheme: None,
             directory: None,
             exclude_structures: Some(Rc::new(String::from("^Test$"))),
             hybrid: Some(false),
@@ -323,6 +342,7 @@ impl Default for Config {
             match_coverage_enabled: None,
             script_directory: None,
             string_fold: None,
+            terminal_background: None,
             time_zone: None,
         }
     }
@@ -333,9 +353,13 @@ impl Config {
     /// if it has not been set.
     pub fn get_optional(&self, prop: Prop) -> Option<PropVal> {
         match prop {
+            Prop::ColorScheme => self.color_scheme.clone().map(PropVal::String),
             Prop::Now => self.now.clone().map(PropVal::String),
             Prop::OptionalInt => self.optional_int.map(PropVal::Int),
             Prop::StringFold => self.string_fold.map(PropVal::Int),
+            Prop::TerminalBackground => {
+                self.terminal_background.clone().map(PropVal::String)
+            }
             Prop::TimeZone => self.time_zone.clone().map(PropVal::String),
             _ => None,
         }
@@ -346,6 +370,9 @@ impl Configurable for Config {
     fn set(&mut self, prop: Prop, val: &PropVal) {
         match (prop, val) {
             // lint: sort until '#}' where '##\('
+            (Prop::ColorScheme, PropVal::String(s)) => {
+                self.color_scheme = Some(s.clone());
+            }
             (Prop::Directory, PropVal::PathBuf(b)) => {
                 self.directory = Some(b.clone());
             }
@@ -366,6 +393,9 @@ impl Configurable for Config {
             }
             (Prop::ScriptDirectory, PropVal::PathBuf(b)) => {
                 self.script_directory = Some(b.clone());
+            }
+            (Prop::TerminalBackground, PropVal::String(s)) => {
+                self.terminal_background = Some(s.clone());
             }
             (Prop::TimeZone, PropVal::String(s)) => {
                 self.time_zone = Some(s.clone());

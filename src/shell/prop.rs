@@ -284,6 +284,17 @@ define_props! {
         required: true,
     },
 
+    ColorScheme => {
+        doc: "String property 'colorScheme' selects the color scheme used for \
+               syntax highlighting in the shell: a built-in scheme ('dark', \
+               'light' or 'none'), or the name of a user-defined scheme. If \
+               unset (the default), the scheme is deduced from the \
+               environment (see Sys.deduceColorScheme).",
+        camel_name: "colorScheme",
+        default: None as Option<PropVal>,
+        required: false,
+    },
+
     Directory => {
         doc: "File property 'directory' is the path of the directory that the \
                `file` variable maps to in this connection. The default value \
@@ -493,6 +504,16 @@ define_props! {
         required: false,
     },
 
+    TerminalBackground => {
+        doc: "String property 'terminalBackground' is the terminal's \
+               background color, of the form 'rgb:RRRR/GGGG/BBBB'. Set by the \
+               shell at startup by querying the terminal; used to deduce the \
+               color scheme when 'colorScheme' is unset.",
+        camel_name: "terminalBackground",
+        default: None as Option<PropVal>,
+        required: false,
+    },
+
     TimeZone => {
         doc: "String property 'timeZone' overrides the local timezone used by \
                Date.fromTimeLocal(), Date.localOffset(), and Date.date when \
@@ -599,7 +620,7 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 24);
+        assert_eq!(all_props.len(), 26);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
         assert!(all_props.contains(&Prop::Now));

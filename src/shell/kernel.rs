@@ -477,6 +477,17 @@ impl Kernel {
     ) -> Result<(), Error> {
         match prop {
             // lint: sort until '#}' where '##[^ }]'
+            "colorScheme" => {
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.session.borrow_mut().config.color_scheme =
+                    Some(Rc::new(s));
+                Ok(())
+            }
             "excludeStructures" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
@@ -605,6 +616,17 @@ impl Kernel {
                 self.session.borrow_mut().config.string_fold = Some(i);
                 Ok(())
             }
+            "terminalBackground" => {
+                let s = val.maybe_string().ok_or_else(|| {
+                    Error::Runtime(
+                        "value for property must have type 'string'"
+                            .to_string(),
+                    )
+                })?;
+                self.session.borrow_mut().config.terminal_background =
+                    Some(Rc::new(s));
+                Ok(())
+            }
             "timeZone" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
@@ -622,6 +644,10 @@ impl Kernel {
     pub(crate) fn unset_prop(&mut self, prop: &str) -> Result<(), Error> {
         match prop {
             // lint: sort until '#}' where '##[^ }]'
+            "colorScheme" => {
+                self.session.borrow_mut().config.color_scheme = None;
+                Ok(())
+            }
             "excludeStructures" => {
                 // Required property: unset reverts to the default regex.
                 self.session.borrow_mut().config.exclude_structures =
@@ -676,6 +702,10 @@ impl Kernel {
             "stringFold" => {
                 self.config.string_fold = None;
                 self.session.borrow_mut().config.string_fold = None;
+                Ok(())
+            }
+            "terminalBackground" => {
+                self.session.borrow_mut().config.terminal_background = None;
                 Ok(())
             }
             "timeZone" => {
@@ -751,6 +781,12 @@ impl Kernel {
     /// type bindings produced by `process_statement`.
     pub fn session_borrow(&self) -> Ref<'_, Session> {
         self.session.borrow()
+    }
+
+    /// Returns a shared handle to the session, so that (for example) the
+    /// terminal's syntax highlighter can read the current color scheme.
+    pub fn session_rc(&self) -> Rc<RefCell<Session>> {
+        self.session.clone()
     }
 
     /// Processes a single statement.

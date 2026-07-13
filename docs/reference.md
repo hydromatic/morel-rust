@@ -702,6 +702,7 @@ and unset using `Sys.unset name`.
 | Name                 | Type | Default | Description |
 | -------------------- | ---- |---------| ----------- |
 | banner               | string | morel-rust version x.y.z | The startup banner message displayed when launching the Morel shell. Read-only. |
+| colorScheme          | string | null | Color scheme for syntax highlighting in the shell: a built-in scheme ('dark', 'light' or 'none'), or a user-defined scheme. If unset, the scheme is deduced from the environment. |
 | hybrid               | bool | false   | Whether to try to create a hybrid execution plan that uses Apache Calcite relational algebra. |
 | inlinePassCount      | int  | 5       | Maximum number of inlining passes. |
 | lineWidth            | int  | 79      | When printing, the length at which lines are wrapped. |
@@ -714,6 +715,7 @@ and unset using `Sys.unset name`.
 | productVersion       | string | x.y.z | The current version of Morel. Read-only. |
 | showBanner           | bool   | true   | Whether to print the banner at the start of the shell. |
 | stringDepth          | int    | 70     | When printing, the length of strings at which ellipsis begins. |
+| terminalBackground   | string | null   | The terminal's background color, of the form 'rgb:RRRR/GGGG/BBBB'. Set by the shell at startup; used to deduce the color scheme when 'colorScheme' is unset. |
 | timeZone             | string | null   | Overrides the local timezone. Value is a timezone ID (e.g. 'UTC' or 'America/New_York'). If not set, the JVM default timezone is used. |
 
 ## The shell
@@ -747,3 +749,39 @@ formats.)
 If the history file cannot be created — for example, if the home
 directory is not writable — the shell prints a warning and continues
 without saving history for that session.
+
+### Color schemes
+
+In an interactive terminal, the shell highlights the code you type,
+coloring each token according to its category: keyword, symbol, numeric,
+constant, string, comment, and type variable. (Plain identifiers are
+left in the terminal's default color.)
+
+The color scheme is chosen by the [`colorScheme`](#properties) property,
+whose value is one of:
+
+* `dark` — colors tuned for a dark terminal background;
+* `light` — colors tuned for a light terminal background;
+* `none` — no highlighting.
+
+`Sys.colorSchemes ()` returns the built-in schemes and their styles.
+
+If the property is unset (the default), the scheme is deduced from the
+environment by `Sys.deduceColorScheme`: `none` if the terminal does not
+support color (`NO_COLOR` is set or `TERM` is `dumb`), otherwise `light`
+or `dark` according to the terminal's background. The shell learns the
+background by asking the terminal for its background color (the OSC 11
+escape sequence, recorded in the `terminalBackground` property); if the
+terminal does not answer, no scheme is chosen and highlighting is off.
+
+Choose a scheme at startup with the `--color-scheme` flag:
+
+```bash
+$ ./target/debug/morel --color-scheme=light
+```
+
+or at any time from within the shell:
+
+```
+- Sys.set ("colorScheme", "none");
+```

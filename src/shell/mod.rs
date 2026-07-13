@@ -31,6 +31,9 @@ pub use script_test::ScriptTest;
 
 // The interactive terminal front end depends on rustyline, which is not
 // available on wasm32; keep it (and the `Shell` it exports) off that target.
+// `highlight` is used only by the terminal, so gate it the same way.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod highlight;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod terminal;
 #[cfg(not(target_arch = "wasm32"))]
