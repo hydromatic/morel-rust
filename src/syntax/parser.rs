@@ -2353,10 +2353,7 @@ pub fn unquote_string(s: &str) -> Result<String, String> {
     let mut result = String::new();
 
     while parser.i < parser.s.len() {
-        match parser.parse_char() {
-            Ok(c) => result.push(c),
-            Err(e) => return Err(e),
-        }
+        result.push(parser.parse_char()?);
     }
     Ok(result)
 }

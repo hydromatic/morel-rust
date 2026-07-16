@@ -947,10 +947,7 @@ impl Env {
             if frame.map.contains_key(s) {
                 return None;
             }
-            match &frame.parent {
-                Some(p) => frame = p,
-                None => return None,
-            }
+            frame = frame.parent.as_ref()?;
         }
     }
 
@@ -982,10 +979,7 @@ impl Env {
             if let Some(v) = frame.map.get(s) {
                 return Some(v.clone());
             }
-            match &frame.parent {
-                Some(p) => frame = p,
-                None => return None,
-            }
+            frame = frame.parent.as_ref()?;
         }
     }
 
