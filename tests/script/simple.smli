@@ -147,6 +147,20 @@ true;
 > val it = {1=1,2=2,3=3,5=5,6=6,7=7,8=8,9=9,10=10,11=11}
 >   : {1:int, 2:int, 3:int, 5:int, 6:int, 7:int, 8:int, 9:int, 10:int, 11:int}
 
+(*) Character literals and patterns must have length 1.
+#"";
+> stdIn:1.1-1.4 Error: character constant not length one
+>   raised at: stdIn:1.1-1.4
+#"ab";
+> stdIn:1.1-1.6 Error: character constant not length one
+>   raised at: stdIn:1.1-1.6
+case #"a" of #"ab" => 1 | _ => 2;
+> stdIn:1.14-1.19 Error: character constant not length one
+>   raised at: stdIn:1.14-1.19
+case #"a" of #"" => 1 | _ => 2;
+> stdIn:1.14-1.17 Error: character constant not length one
+>   raised at: stdIn:1.14-1.17
+
 (*) Comments
 1;
 > val it = 1 : int

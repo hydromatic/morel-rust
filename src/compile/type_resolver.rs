@@ -760,6 +760,21 @@ fn literal_range_error(kind: &LiteralKind) -> Option<String> {
     }
 }
 
+/// Returns an error message if a character constant does not contain exactly
+/// one character (e.g. `#""` or `#"ab"`), using Standard ML's wording. The
+/// parser accepts any content between the quotes; this check, run at type
+/// resolution, rejects a constant that is not length one, whether it is used
+/// as an expression or a pattern. Returns `None` for a valid character
+/// constant or a non-character literal.
+fn char_literal_error(kind: &LiteralKind) -> Option<String> {
+    match kind {
+        LiteralKind::Char(s) => parser::unquote_char_literal(s)
+            .is_err()
+            .then(|| "character constant not length one".to_string()),
+        _ => None,
+    }
+}
+
 fn join_source_walk(
     e: &Expr,
     input: &HashSet<String>,
@@ -2437,8 +2452,11 @@ impl TypeResolver {
                     self.equiv(&Term::Variable(v_builtin), v);
                     self.reg_expr(&expr.kind, &expr.span, expr.id, v)
                 } else {
-                    // Reject numeric literals outside their type's range.
-                    if let Some(msg) = literal_range_error(&lit.kind) {
+                    // Reject numeric literals outside their type's range, and
+                    // character constants that are not exactly one character.
+                    if let Some(msg) = literal_range_error(&lit.kind)
+                        .or_else(|| char_literal_error(&lit.kind))
+                    {
                         return Err(Error::Compile(msg, expr.span.clone()));
                     }
                     let resolved_type = Self::literal_type(&lit.kind);
@@ -5988,6 +6006,15 @@ impl TypeResolver {
                 self.reg_pat(&PatKind::List(pats2), &pat.span, pat.id, &v)
             }
             PatKind::Literal(literal) => {
+                // Reject a character constant that is not exactly one
+                // character (e.g. `#"ab"`). Recorded rather than returned
+                // because `deduce_pat_type` cannot fail; caught at the end of
+                // `deduce`, before the pattern is resolved.
+                if let Some(msg) = char_literal_error(&literal.kind) {
+                    self.field_errors
+                        .borrow_mut()
+                        .push((msg, pat.span.clone()));
+                }
                 self.primitive_term(&Self::literal_type(&literal.kind), v);
                 self.reg_pat(&pat.kind, &pat.span, pat.id, &v)
             }
