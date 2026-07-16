@@ -52,7 +52,7 @@ fn visit_expr(
 ) {
     match expr {
         // lint: sort until '#}' where '##Expr::'
-        Expr::Aggregate(_, e1, e2) => {
+        Expr::Aggregate(_, e1, e2, _) => {
             visit_expr(e1, bound, out);
             visit_expr(e2, bound, out);
         }

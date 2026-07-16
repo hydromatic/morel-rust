@@ -1544,6 +1544,21 @@ from (i, j) in [(2, 5), (1, 1), (2, 7)]
   group i compute {mid = ((min over j) + (max over j)) div 2};
 > val it = [{i=2,mid=6},{i=1,mid=1}] : {i:int, mid:int} list
 
+(* 'max' and 'min' over an empty collection raise 'Empty', like 'List.hd
+ * []', rather than crashing with a Java exception. *)
+from i in ([] : int list) compute max over i;
+> uncaught exception Empty
+>   raised at: stdIn:1.35-1.45
+from i in ([] : int list) compute min over i;
+> uncaught exception Empty
+>   raised at: stdIn:1.35-1.45
+
+(* The same holds when the element type is a datatype ('int option') and the
+ * 'int option bag' is emptied by a filter: the empty check happens before any
+ * comparison, so the datatype value is never compared. *)
+from x in (Bag.fromList [SOME 1, NONE, SOME 3]) where false compute max over x;
+> uncaught exception Empty
+>   raised at: stdIn:1.69-1.79
 
 from i in [2, 1, 2]
   compute 1;

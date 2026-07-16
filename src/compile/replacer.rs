@@ -46,10 +46,11 @@ fn visit_expr(
 ) -> Expr {
     match expr {
         // lint: sort until '#}' where '##Expr::'
-        Expr::Aggregate(t, e1, e2) => Expr::Aggregate(
+        Expr::Aggregate(t, e1, e2, s) => Expr::Aggregate(
             t.clone(),
             Box::new(visit_expr(e1, map, shadow)),
             Box::new(visit_expr(e2, map, shadow)),
+            s.clone(),
         ),
         Expr::Apply(t, f, a, span) => Expr::Apply(
             t.clone(),

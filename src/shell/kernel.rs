@@ -145,7 +145,7 @@ fn expr_contains_reference(expr: &Expr, name: &str) -> bool {
         | Expr::Current(_)
         | Expr::Ordinal(_)
         | Expr::RecordSelector(_, _) => false,
-        Expr::Aggregate(_, a, b) => {
+        Expr::Aggregate(_, a, b, _) => {
             expr_contains_reference(a, name) || expr_contains_reference(b, name)
         }
         Expr::Apply(_, f, a, _) => {
@@ -209,7 +209,7 @@ fn expr_contains_recursive_decl(expr: &Expr) -> bool {
         Expr::Apply(_, f, a, _) => {
             expr_contains_recursive_decl(f) || expr_contains_recursive_decl(a)
         }
-        Expr::Aggregate(_, a, b) => {
+        Expr::Aggregate(_, a, b, _) => {
             expr_contains_recursive_decl(a) || expr_contains_recursive_decl(b)
         }
         Expr::Tuple(_, args) | Expr::List(_, args) => {
@@ -246,7 +246,7 @@ fn fn_has_free_variables(expr: &Expr, env: &Environment) -> bool {
             Expr::Apply(_, f, a, _) => {
                 check(f, bound, env) || check(a, bound, env)
             }
-            Expr::Aggregate(_, a, b) => {
+            Expr::Aggregate(_, a, b, _) => {
                 check(a, bound, env) || check(b, bound, env)
             }
             Expr::Tuple(_, args) | Expr::List(_, args) => {

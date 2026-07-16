@@ -291,12 +291,14 @@ pub enum Code {
     /// collects the results. The `scan_slots` specify which frame
     /// slots receive the element values.
     MapElements(Box<Code>, Box<Code>, Vec<usize>),
-    /// `Max(comparator, list_code)` evaluates the list and returns
-    /// its maximum element using the type-directed comparator.
-    Max(CmpRef, Box<Code>),
-    /// `Min(comparator, list_code)` evaluates the list and returns
-    /// its minimum element using the type-directed comparator.
-    Min(CmpRef, Box<Code>),
+    /// `Max(comparator, list_code, span)` evaluates the list and returns
+    /// its maximum element using the type-directed comparator. Raises
+    /// `Empty` at `span` (the position of the `max` aggregate) if empty.
+    Max(CmpRef, Box<Code>, Span),
+    /// `Min(comparator, list_code, span)` evaluates the list and returns
+    /// its minimum element using the type-directed comparator. Raises
+    /// `Empty` at `span` (the position of the `min` aggregate) if empty.
+    Min(CmpRef, Box<Code>, Span),
     Native0(Eager0),
     Native1(Eager1, Box<Code>),
     /// `Native2(eager, code0, code1, gather)`: if `gather` is true,
@@ -734,8 +736,8 @@ impl Code {
             Code::Let(_, _) => *mode == EvalMode::Eager0,
             Code::Link(_, _) => *mode == EvalMode::EagerF0,
             Code::MapElements(_, _, _) => *mode == EvalMode::EagerF0,
-            Code::Max(_, _) => *mode == EvalMode::EagerF0,
-            Code::Min(_, _) => *mode == EvalMode::EagerF0,
+            Code::Max(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::Min(_, _, _) => *mode == EvalMode::EagerF0,
             Code::Native0(_) => *mode == EvalMode::Eager0,
             Code::Native1(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
@@ -994,13 +996,13 @@ impl Code {
                 }
                 Ok(Val::List(mapped))
             }
-            Code::Max(cmp, list_code) => {
+            Code::Max(cmp, list_code, span) => {
                 let list = list_code.eval_f0(r, f)?;
                 let items = list.expect_list();
                 if items.is_empty() {
                     return Err(MorelError::Runtime(
                         BuiltInExn::Empty,
-                        Span::new("Relational.max"),
+                        span.clone(),
                     ));
                 }
                 Ok(items
@@ -1009,13 +1011,13 @@ impl Code {
                     .unwrap()
                     .clone())
             }
-            Code::Min(cmp, list_code) => {
+            Code::Min(cmp, list_code, span) => {
                 let list = list_code.eval_f0(r, f)?;
                 let items = list.expect_list();
                 if items.is_empty() {
                     return Err(MorelError::Runtime(
                         BuiltInExn::Empty,
-                        Span::new("Relational.min"),
+                        span.clone(),
                     ));
                 }
                 Ok(items

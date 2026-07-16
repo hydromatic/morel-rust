@@ -167,7 +167,7 @@ impl Analyzer {
             | Expr::Current(_)
             | Expr::Ordinal(_)
             | Expr::RecordSelector(_, _) => {}
-            Expr::Aggregate(_, a, b) => {
+            Expr::Aggregate(_, a, b, _) => {
                 self.visit_expr(a);
                 self.visit_expr(b);
             }
@@ -563,10 +563,11 @@ impl Expr {
     fn visit(&self, env: &Env, x: &dyn Transformer) -> Expr {
         match &self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(t, a0, a1) => Expr::Aggregate(
+            Expr::Aggregate(t, a0, a1, s) => Expr::Aggregate(
                 t.clone(),
                 Box::new(x.transform_expr(env, a0)),
                 Box::new(x.transform_expr(env, a1)),
+                s.clone(),
             ),
             Expr::Apply(result_type, f, a, span) => {
                 let f2 = x.transform_expr(env, f);

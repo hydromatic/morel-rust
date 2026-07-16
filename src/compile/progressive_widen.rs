@@ -107,7 +107,7 @@ fn walk_expr(e: &mut Expr, env: &HashMap<String, Val>, file_root: &Rc<File>) {
                 Rc::new(Type::Fn(widened_arg_ty, widened_field_ty.clone()));
             *apply_ty = widened_field_ty;
         }
-        Expr::Aggregate(_, l, r) => {
+        Expr::Aggregate(_, l, r, _) => {
             walk_expr(l, env, file_root);
             walk_expr(r, env, file_root);
         }
@@ -248,7 +248,7 @@ fn project(v: &Val, slot: usize) -> Option<Val> {
 fn set_expr_type(e: &mut Expr, t: Rc<Type>) {
     match e {
         // lint: sort until '#}' where '##Expr::'
-        Expr::Aggregate(et, _, _) => *et = t,
+        Expr::Aggregate(et, _, _, _) => *et = t,
         Expr::Apply(et, _, _, _) => *et = t,
         Expr::Case(et, _, _, _) => *et = t,
         Expr::Current(et) => *et = t,

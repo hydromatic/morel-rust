@@ -209,6 +209,24 @@ yield {a, a2 = a + b, sb};
 >
 > val it : {a:int, a2:int, sb:int} list
 
+(* 'max' and 'min' over an empty collection raise 'Empty', in both local and
+ * Calcite mode, and at the same position. Here the collection is empty
+ * because the filter removes every row. *)
+from e in scott.emps where e.deptno < 0 compute max over e.empno;
+> uncaught exception Empty
+>   raised at: stdIn:1.49-1.65
+from e in scott.emps where e.deptno < 0 compute min over e.empno;
+> uncaught exception Empty
+>   raised at: stdIn:1.49-1.65
+
+(* In a record 'compute', 'max' over the empty collection still raises
+ * 'Empty' (though 'count' would return 0); both modes raise it at the
+ * 'max over e.sal' call. *)
+from e in scott.emps where e.deptno < 0
+  compute {c = count over (), m = max over e.sal};
+> uncaught exception Empty
+>   raised at: stdIn:2.35-2.49
+
 from e in scott.emps
 yield {e.ename, x = e.deptno * 2};
 > ename  x

@@ -200,7 +200,7 @@ impl Expr {
     pub(crate) fn collect_vars(&self, collector: &mut VarCollector) {
         match self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(_, f, _e) => {
+            Expr::Aggregate(_, f, _e, _) => {
                 // `f over e`: f is applied to 'elements'. Collect vars from f,
                 // and ensure 'elements' has a frame slot.
                 f.collect_vars(collector);

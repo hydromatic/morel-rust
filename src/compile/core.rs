@@ -36,7 +36,9 @@ pub enum Expr {
     RecordSelector(Rc<Type>, usize),
     Current(Rc<Type>),
     Ordinal(Rc<Type>),
-    Aggregate(Rc<Type>, Box<Expr>, Box<Expr>), // 'over'
+    // 'over'; the `Span` is the position of the aggregate call (e.g.
+    // `max over e.sal`), used to raise `Empty` there for an empty `max`/`min`.
+    Aggregate(Rc<Type>, Box<Expr>, Box<Expr>, Span),
 
     /// `Apply(f, a)` represents `f a`, applying a function to an argument.
     Apply(Rc<Type>, Box<Expr>, Box<Expr>, Span),
@@ -91,7 +93,7 @@ impl Expr {
                     None
                 }
             }
-            Expr::Aggregate(_, left, _) => left.implicit_label(),
+            Expr::Aggregate(_, left, _, _) => left.implicit_label(),
             Expr::Identifier(_, name) => Some(name.clone()),
             Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
             _ => None,
@@ -102,7 +104,7 @@ impl Expr {
     pub fn type_(&self) -> Rc<Type> {
         match self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(t, _, _) => t.clone(),
+            Expr::Aggregate(t, _, _, _) => t.clone(),
             Expr::Apply(t, _, _, _) => t.clone(),
             Expr::Case(t, _, _, _) => t.clone(),
             Expr::Current(t) => t.clone(),
@@ -135,7 +137,7 @@ impl Display for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(_, a0, a1) => {
+            Expr::Aggregate(_, a0, a1, _) => {
                 write!(f, "({} over {})", a0, a1)
             }
             Expr::Apply(_, fx, arg, _) => {

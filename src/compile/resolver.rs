@@ -150,7 +150,7 @@ fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
                     check_expr(i, errors);
                 }
             }
-            CoreExpr::Aggregate(_, l, r) => {
+            CoreExpr::Aggregate(_, l, r, _) => {
                 check_expr(l, errors);
                 check_expr(r, errors);
             }
@@ -596,6 +596,7 @@ impl<'a> Resolver<'a> {
                     t,
                     Box::new(fn_core),
                     Box::new(self.resolve_expr(a1)),
+                    span.clone(),
                 )
             }
             ExprKind::AndAlso(a0, a1) => {

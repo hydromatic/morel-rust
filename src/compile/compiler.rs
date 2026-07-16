@@ -738,7 +738,7 @@ impl<'a> Compiler<'a> {
     ) -> Code {
         match expr {
             // lint: sort until '#}' where '##Expr::'
-            Expr::Aggregate(_, f, e) => {
+            Expr::Aggregate(_, f, e, span) => {
                 // `f over e`: apply f to a mapped elements list.
                 let elements_slot = cx.frame_def.var_index("elements");
                 let elements_code =
@@ -766,7 +766,7 @@ impl<'a> Compiler<'a> {
 
                 if let Expr::Literal(_t, Val::Fn(func)) = f.as_ref() {
                     let impl_ = func.get_impl();
-                    Code::new_native(impl_, &[mapped_code], &Span::new(""))
+                    Code::new_native(impl_, &[mapped_code], span)
                 } else {
                     let fn_code = self.compile_expr(cx, None, f);
                     Code::new_apply(&fn_code, &mapped_code, &[])
@@ -796,9 +796,9 @@ impl<'a> Compiler<'a> {
                             ));
                             let arg = self.compile_arg(cx, a);
                             return if *f == BuiltInFunction::RelationalMax {
-                                Code::Max(cmp, Box::new(arg))
+                                Code::Max(cmp, Box::new(arg), span.clone())
                             } else {
-                                Code::Min(cmp, Box::new(arg))
+                                Code::Min(cmp, Box::new(arg), span.clone())
                             };
                         }
                         // Intercept Range.toList / Range.toBag to build

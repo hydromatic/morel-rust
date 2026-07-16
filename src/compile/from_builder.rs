@@ -47,7 +47,7 @@ fn is_list_type(type_: &Type) -> bool {
 pub(crate) fn agg_implicit_label(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Identifier(_, name) => Some(name.clone()),
-        Expr::Aggregate(_, left, _) => agg_implicit_label(left),
+        Expr::Aggregate(_, left, _, _) => agg_implicit_label(left),
         Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
         // A qualified aggregate function such as `List.length` is a record
         // selector applied to the structure; its label is the field (method)
@@ -82,10 +82,11 @@ fn replace_current(expr: &Expr, repl: &Expr) -> Expr {
         | Expr::RecordSelector(..)
         | Expr::Ordinal(_)
         | Expr::Extent(..) => expr.clone(),
-        Expr::Aggregate(t, a, b) => Expr::Aggregate(
+        Expr::Aggregate(t, a, b, s) => Expr::Aggregate(
             t.clone(),
             Box::new(replace_current(a, repl)),
             Box::new(replace_current(b, repl)),
+            s.clone(),
         ),
         Expr::Apply(t, f, a, s) => Expr::Apply(
             t.clone(),

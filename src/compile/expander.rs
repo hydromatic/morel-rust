@@ -445,7 +445,7 @@ fn walk_expr_with_scope(
                 })
                 .collect(),
         ),
-        Expr::Aggregate(t, e1, e2) => Expr::Aggregate(
+        Expr::Aggregate(t, e1, e2, s) => Expr::Aggregate(
             t,
             Box::new(walk_expr_with_scope(
                 *e1,
@@ -461,6 +461,7 @@ fn walk_expr_with_scope(
                 datatypes,
                 outer_scope,
             )),
+            s,
         ),
         other => other,
     }
@@ -1406,7 +1407,7 @@ fn from_has_extent(expr: &Expr) -> bool {
 fn body_has_extent(expr: &Expr) -> bool {
     match expr {
         Expr::Extent(_, _) => true,
-        Expr::Aggregate(_, e1, e2) => {
+        Expr::Aggregate(_, e1, e2, _) => {
             body_has_extent(e1) || body_has_extent(e2)
         }
         Expr::Apply(_, f, a, _) => body_has_extent(f) || body_has_extent(a),
@@ -1617,10 +1618,11 @@ fn normalize_tuple_id_param(pat: &Pat, body: &Expr) -> (Pat, Expr) {
 /// to the component variable.
 fn simplify_tuple_projections(expr: &Expr) -> Expr {
     match expr {
-        Expr::Aggregate(t, e1, e2) => Expr::Aggregate(
+        Expr::Aggregate(t, e1, e2, s) => Expr::Aggregate(
             t.clone(),
             Box::new(simplify_tuple_projections(e1)),
             Box::new(simplify_tuple_projections(e2)),
+            s.clone(),
         ),
         Expr::Apply(t, f, a, span) => {
             let f2 = simplify_tuple_projections(f);
@@ -1815,7 +1817,7 @@ fn contains_self_call(body: &Expr, name: &str) -> bool {
                 }
                 _ => false,
             }),
-            Expr::Aggregate(_, l, r) => walk(l, name) || walk(r, name),
+            Expr::Aggregate(_, l, r, _) => walk(l, name) || walk(r, name),
             _ => false,
         }
     }
@@ -1921,7 +1923,7 @@ fn contains_self_call_under_negation(body: &Expr, name: &str) -> bool {
                 }
                 _ => false,
             }),
-            Expr::Aggregate(_, l, r) => {
+            Expr::Aggregate(_, l, r, _) => {
                 walk(l, name, neg) || walk(r, name, neg)
             }
             _ => false,
