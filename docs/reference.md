@@ -718,6 +718,16 @@ and unset using `Sys.unset name`.
 | terminalBackground   | string | null   | The terminal's background color, of the form 'rgb:RRRR/GGGG/BBBB'. Set by the shell at startup; used to deduce the color scheme when 'colorScheme' is unset. |
 | timeZone             | string | null   | Overrides the local timezone. Value is a timezone ID (e.g. 'UTC' or 'America/New_York'). If not set, the JVM default timezone is used. |
 
+### Apache Calcite adapter
+
+When the `hybrid` property is set, Morel tries to translate each query
+into [Apache Calcite](https://calcite.apache.org/) relational algebra,
+falling back to its own evaluator for any part it cannot translate.
+Limitations include:
+
+* `min` and `max` cannot be pushed down for `word` values or composite
+  values (tuples, records, lists, and datatypes such as `option`).
+
 ## The shell
 
 Morel includes an interactive shell (a read-eval-print loop, or REPL).

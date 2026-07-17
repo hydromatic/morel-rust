@@ -140,6 +140,14 @@ Relational.max (bag ["a", "bc", "ab"]);
 Relational.max (bag [] : int bag);
 > uncaught exception Empty
 >   raised at: stdIn:1.1-1.34
+Relational.max (bag [0w1, 0wxFFFFFFFFFFFFFFFF]);
+> val it = 0wxFFFFFFFFFFFFFFFF : word
+Relational.max (bag [(1, 2), (2, 1), (1, 9)]);
+> val it = (2,1) : int * int
+Relational.max (bag [SOME 1, NONE, SOME 3]);
+> val it = SOME 3 : int option
+Relational.max (bag [INL 1, INR "a", INL 2]);
+> val it = INR "a" : (int,string) either
 Relational.max (bag [false, true]);
 > val it = true : bool
 
@@ -154,6 +162,14 @@ Relational.min (bag ["a", "bc", "ab"]);
 Relational.min (bag [] : int bag);
 > uncaught exception Empty
 >   raised at: stdIn:1.1-1.34
+Relational.min (bag [0w1, 0wxFFFFFFFFFFFFFFFF]);
+> val it = 0wx1 : word
+Relational.min (bag [(1, 2), (2, 1), (1, 9)]);
+> val it = (1,2) : int * int
+Relational.min (bag [SOME 1, NONE, SOME 3]);
+> val it = NONE : int option
+Relational.min (bag [INL 1, INR "a", INL 2]);
+> val it = INL 1 : (int,string) either
 Relational.min (bag [false, true]);
 > val it = false : bool
 
