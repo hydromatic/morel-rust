@@ -42,8 +42,13 @@ impl Real {
     /// Produces ceil(r), the smallest int not less than `r`.
     #[allow(clippy::if_same_then_else)]
     pub(crate) fn ceil(r: f32, span: &Span) -> Result<Val, MorelError> {
+        // NaN raises Domain; an out-of-int-range result (in particular an
+        // infinity) raises Overflow, per the Standard ML Basis.
+        if r.is_nan() {
+            return Err(MorelError::Runtime(BuiltInExn::Domain, span.clone()));
+        }
         let result = r.ceil();
-        if result.is_infinite() || result.is_nan() {
+        if result.is_infinite() {
             Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
         } else if result < i32::MIN as f32 || result > i32::MAX as f32 {
             Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
@@ -101,8 +106,13 @@ impl Real {
     /// Produces floor(r), the largest int not larger than `r`.
     #[allow(clippy::if_same_then_else)]
     pub(crate) fn floor(r: f32, span: &Span) -> Result<Val, MorelError> {
+        // NaN raises Domain; an out-of-int-range result (in particular an
+        // infinity) raises Overflow, per the Standard ML Basis.
+        if r.is_nan() {
+            return Err(MorelError::Runtime(BuiltInExn::Domain, span.clone()));
+        }
         let result = r.floor();
-        if result.is_infinite() || result.is_nan() {
+        if result.is_infinite() {
             Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
         } else if result < i32::MIN as f32 || result > i32::MAX as f32 {
             Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
@@ -515,8 +525,13 @@ impl Real {
     /// Rounds r towards zero.
     #[allow(clippy::if_same_then_else)]
     pub(crate) fn trunc(r: f32, span: &Span) -> Result<Val, MorelError> {
+        // NaN raises Domain; an out-of-int-range result (in particular an
+        // infinity) raises Overflow, per the Standard ML Basis.
+        if r.is_nan() {
+            return Err(MorelError::Runtime(BuiltInExn::Domain, span.clone()));
+        }
         let result = r.trunc();
-        if result.is_infinite() || result.is_nan() {
+        if result.is_infinite() {
             Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
         } else if result < i32::MIN as f32 || result > i32::MAX as f32 {
             Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))

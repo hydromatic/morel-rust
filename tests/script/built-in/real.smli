@@ -863,6 +863,16 @@ fun f x = (Real.floor x, Real.ceil x, Real.trunc x, Real.round x);
 > val f = fn : real -> int * int * int * int
 f 0.0;
 > val it = (0,0,0,0) : int * int * int * int
+f 0.5;
+> val it = (0,1,0,0) : int * int * int * int
+f 1.75;
+> val it = (1,2,1,2) : int * int * int * int
+f 2.25;
+> val it = (2,3,2,2) : int * int * int * int
+f 2.5;
+> val it = (2,3,2,2) : int * int * int * int
+f 3.5;
+> val it = (3,4,3,4) : int * int * int * int
 f ~2.0;
 > val it = (~2,~2,~2,~2) : int * int * int * int
 f ~1.75;
@@ -880,7 +890,7 @@ f Real.posInf;
 > uncaught exception Overflow [overflow]
 >   raised at: stdIn:1.12-1.24
 f nan;
-> uncaught exception Overflow [overflow]
+> uncaught exception Domain [domain error]
 >   raised at: stdIn:1.12-1.24
 
 Real.floor Real.posInf;
@@ -908,13 +918,13 @@ Real.round Real.negInf;
 > uncaught exception Overflow [overflow]
 >   raised at: stdIn:1.1-1.23
 Real.floor nan;
-> uncaught exception Overflow [overflow]
+> uncaught exception Domain [domain error]
 >   raised at: stdIn:1.1-1.15
 Real.ceil nan;
-> uncaught exception Overflow [overflow]
+> uncaught exception Domain [domain error]
 >   raised at: stdIn:1.1-1.14
 Real.trunc nan;
-> uncaught exception Overflow [overflow]
+> uncaught exception Domain [domain error]
 >   raised at: stdIn:1.1-1.15
 Real.round nan;
 > uncaught exception Domain [domain error]
