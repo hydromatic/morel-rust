@@ -269,8 +269,6 @@ set("mode", "evaluate");
 val m = 5;
 > val m = 5 : int
 
-set("mode", "validate");
-> val it = () : unit
 let
   val rec fact =
     fn n : typeof m =>
@@ -281,9 +279,6 @@ in
 end;
 > val it = 120 : int
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* type_string ---------------------------------------------------- *)
 (* The 'type_string' operator renders the inferred type of an expression as
@@ -377,8 +372,6 @@ fun g [] = NONE
 fun f {a = c, b} = b + c;
 > val f = fn : {a:int, b:int} -> int
 
-set("mode", "validate");
-> val it = () : unit
 f {a = 5, b = 6};
 > val it = 11 : int
 
@@ -391,9 +384,6 @@ f2 {a = 2, b = 6};
 > val it = 18 : int
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 fun f3 {a = 1, b} = b * 2;
@@ -401,14 +391,9 @@ fun f3 {a = 1, b} = b * 2;
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
 f3 {a = 1, b = 6};
 > val it = 12 : int
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* The following correctly throws
  *   unbound variable or constructor: a
@@ -419,14 +404,9 @@ set("mode", "evaluate");
 val x = map;
 > val x = fn : ('a -> 'b) -> 'a list -> 'b list
 
-set("mode", "validate");
-> val it = () : unit
 x explode ["ab", "c"];
 > val it = [[#"a",#"b"],[#"c"]] : char list list
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Has polymorphic type
 val rec len = fn x =>
@@ -569,9 +549,6 @@ fun r0 (a, b, c, d, e, f, g, h, i, j, k, l, m, n, `o`, p, q, r, s, t, u, v, w, x
 >     'p * 'q * 'r * 's * 't * 'u * 'v * 'w * 'x * 'y * 'z * 'ba * 'bb * 'bc
 >     -> {a:'a, b:'b, c:'c}
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Highly curried function with lots of type variables returns record type.
 fun r0 a b c d e f g h i j k l m n p q r s = {a=a,b=b,c=c};
 > val r0 = fn
@@ -594,9 +571,6 @@ fun r0 a b c d e f g h i j k l m n p q r s = {a=a,b=b,c=c};
 >                                                  -> 'q
 >                                                     -> 'r -> {a:'a, b:'b, c:'c}
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* When printing a type, 'forall' is omitted. Sometimes that eliminates
  * type variables. The following tests make sure that type variables are
@@ -625,21 +599,14 @@ fun divides (n: int, d: int): bool =
   n mod d = 0;
 > val divides = fn : int * int -> bool
 
-set("mode", "validate");
-> val it = () : unit
 divides (10, 4): bool;
 > val it = false : bool
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* An expression whose type is complicated to infer. *)
 fun f1 x = x;
 > val f1 = fn : 'a -> 'a
 
-set("mode", "validate");
-> val it = () : unit
 fun f2 x = f1 (f1 x);
 > val f2 = fn : 'a -> 'a
 fun f3 x = f2 (f2 x);
@@ -685,16 +652,11 @@ fun g2 y =
 (* Identity function, and chain functions that apply the identity
    function multiple times. *)
 
-set("mode", "evaluate");
-> val it = () : unit
-
 fun id x = x;
 > val id = fn : 'a -> 'a
 fun chain0 f = f;
 > val chain0 = fn : 'a -> 'a
 
-set("mode", "validate");
-> val it = () : unit
 fun chain1 f = fn x => f (id x);
 > val chain1 = fn : ('a -> 'b) -> 'a -> 'b
 fun chain2 f = fn x => f (id (id x));
@@ -739,9 +701,6 @@ fun chain20 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (i
 *)
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (* Helper functions for creating more complex type constraints. *)
 fun apply f x = f x;
 > val apply = fn : ('a -> 'b) -> 'a -> 'b
@@ -759,9 +718,6 @@ datatype ('a, 'b) either = LEFT of 'a | RIGHT of 'b;
 > datatype ('a,'b) either = LEFT of 'a | RIGHT of 'b
 datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree;
 > datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree
-
-set("mode", "validate");
-> val it = () : unit
 
 (* Function that creates a quadratic unification case. *)
 fun quadratic_case () =
@@ -1034,9 +990,6 @@ fun quadratic_case3 () =
 >        ('cr -> 'cs -> 'cr * 'cs) * ('ct -> {field:'ct}) * ('cu -> 'cu)
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 let
   val v01 = 1
   val v02 = 2
@@ -1048,9 +1001,6 @@ in
   v01 + v02 + v03 + v04 + v05 + v06
 end;
 > val it = 21 : int
-
-set("mode", "validate");
-> val it = () : unit
 
 
 (* Factorize a number. *)
@@ -1087,13 +1037,7 @@ factorize 101;
 > val it = [101] : int list
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 Sys.set ("stringDepth", 1000000);
-> val it = () : unit
-
-set("mode", "validate");
 > val it = () : unit
 
 (* Generates a program of length 'n', to stress the unifier. *)
@@ -1140,8 +1084,6 @@ let  val i0 = 0; val i1 = 1; val i2 = 2; val i3 = 3; val i4 = i2 * i2; val i5 = 
 >     int * int * int * int * int
 
 (*) 'typeof' in evaluate mode
-set("mode", "evaluate");
-> val it = () : unit
 
 fn x: typeof 1 => true;
 > val it = fn : int -> bool

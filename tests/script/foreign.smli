@@ -297,7 +297,4 @@ set("mode", "evaluate");
 "end";
 > val it = "end" : string
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) End foreign.smli

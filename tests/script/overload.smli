@@ -24,8 +24,6 @@ Sys.set ("printLength", 64);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
-set("mode", "validate");
-> val it = () : unit
 
 (* -------------------------------------------------------------------
  * Example based on "A Second Look at Overloading" by Martin Odersky,
@@ -68,8 +66,6 @@ demo (3,"four");
 (* -------------------------------------------------------------------
  * Two overloads, bool -> bool and int -> int. We call with bool argument,
  * expect bool result. *)
-set("mode", "evaluate");
-> val it = () : unit
 let
   over o1
   val inst o1 = fn i: int => i
@@ -250,15 +246,10 @@ datatype 'a multiset =
   | MULTI_CONS of ('a * 'a multiset);
 > datatype 'a multiset = MULTI_NIL | MULTI_CONS of 'a * 'a multiset
 
-set("mode", "validate");
-> val it = () : unit
 fun listToMultiset [] = MULTI_NIL
   | listToMultiset (h :: t) = MULTI_CONS (h, listToMultiset t);
 > val listToMultiset = fn : 'a list -> 'a multiset
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Declare that 'unsort' is overloaded. *)
 over unsort;
@@ -267,8 +258,6 @@ over unsort;
 val inst unsort = fn SOME x => [x] | NONE => [];
 > val unsort = fn : 'a option -> 'a list
 
-set("mode", "validate");
-> val it = () : unit
 unsort (SOME 1);
 > val it = [1] : int list
 
@@ -278,9 +267,6 @@ val inst unsort = fn aList => listToMultiset aList;
 unsort [1, 2];
 > val it = MULTI_CONS (1,MULTI_CONS (2,MULTI_NIL)) : int multiset
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Declare an instance of 'unsort' that leaves a multiset as a multiset. *)
 val inst unsort = fn aBag: 'a multiset => aBag;

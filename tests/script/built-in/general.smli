@@ -26,13 +26,10 @@ Sys.set ("printLength", 999);
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
-
 General;
-> val it = {before=fn,exnMessage=fn,exnName=fn,ignore=fn,o=fn}
+> val it = {before=fn,exnMessage=fn,exnName=fn,ignore=fn,`o`=fn}
 >   : {before:'a * unit -> 'a, exnMessage:exn -> string, exnName:exn -> string,
->      ignore:'b -> unit, o:('c -> 'd) * ('e -> 'c) -> 'e -> 'd}
+>       ignore:'b -> unit, `o`:('c -> 'd) * ('e -> 'c) -> 'e -> 'd}
 
 (*) val exnMessage : exn -> string
 General.exnMessage;
@@ -59,10 +56,6 @@ General.exnName Overflow;
 > val it = "Overflow" : string
 General.exnName (Fail "x");
 > val it = "Fail" : string
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) op o - function composition
 General.`o`;

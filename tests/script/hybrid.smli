@@ -347,7 +347,4 @@ from i in iterate
 "end";
 > val it = "end" : string
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) End hybrid.smli

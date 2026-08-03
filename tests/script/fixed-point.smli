@@ -132,9 +132,6 @@ val coastal_states = ["WA", "OR", "CA", "TX", "LA", "MS",
 >   ["WA","OR","CA","TX","LA","MS","AL","GA","FL","SC","NC","VA","MD","DE","NJ",
 >    "NY","CT","RI","MA","ME","NH","AK","HI"] : string list
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Pairs of states that share a border
 val pairs =
   from s in adjacent_states,
@@ -239,9 +236,6 @@ from s in states_within "ME" 2 order s;
 > val it = ["MA","ME","VT"] : string list
 from s in states_within "ME" 3 order s;
 > val it = ["CT","MA","NH","NY","RI","VT"] : string list
-
-set("mode", "evaluate");
-> val it = () : unit
 
  (*) maine is not 3 steps from itself
 
@@ -395,8 +389,6 @@ val edges =
 >    {source="d",target="b",weight=~1}]
 >   : {source:string, target:string, weight:int} list
 
-set("mode", "validate");
-> val it = () : unit
 fun shortest_path edges =
   let
     val _ = List.length edges (* force edges to be a list *)

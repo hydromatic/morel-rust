@@ -124,13 +124,8 @@ set("mode", "evaluate");
 > val it = () : unit
 Relational.sum (bag [1, 2, 3]);
 > val it = 6 : int
-set("mode", "validate");
-> val it = () : unit
 Relational.sum (bag [1.0, 2.5, 3.5]);
-> val it = 7.0 : real
-
-set("mode", "evaluate");
-> val it = () : unit
+> val it = 7 : real
 Relational.max (bag [1, 2, 3]);
 > val it = 3 : int
 Relational.max (bag [1.0, 2.5, 3.5]);

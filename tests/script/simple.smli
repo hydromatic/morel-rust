@@ -818,9 +818,6 @@ in
 end;
 > val it = 11 : int
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) Closure
 let
   fun f x = 1 + x; (*)
@@ -897,9 +894,6 @@ end;
 > val it = 13 : int
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) A fun in a fun (test case for [MOREL-19])
 fun foo arg =
   let
@@ -909,21 +903,14 @@ fun foo arg =
   end;
 > val foo = fn : 'a -> 'a
 
-set("mode", "validate");
-> val it = () : unit
 foo 3;
 > val it = 3 : int
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Define a function using higher-order functions
 val longest = foldl (fn (s, t) => if size s > size t then s else t) "";
 > val longest = fn : string list -> string
 
-set("mode", "validate");
-> val it = () : unit
 longest ["ab", "cde", "", "f"];
 > val it = "cde" : string
 longest [];
@@ -974,21 +961,13 @@ end;
 > val it = (false,false,true) : bool * bool * bool
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) An example where identifiers with primes (') are more readable
 fun distance (x, y) (x', y') =
   Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
 > val distance = fn : real * real -> real * real -> real
 
-set("mode", "validate");
-> val it = () : unit
 distance (0.0, 1.0) (4.0, 4.0);
 > val it = 5.0 : real
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Composite declarations
 let
@@ -1032,9 +1011,6 @@ val SOME i = NONE;
 > uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.18
 
-set("mode", "validate");
-> val it = () : unit
-
 val SOME (q as (1, i), SOME true) = SOME ((1, 2), SOME true);
 > val q = (1,2) : int * int
 > val i = 2 : int
@@ -1044,14 +1020,9 @@ val SOME (i, NONE) = SOME (1, SOME false);
 >   raised at: stdIn:1.5-1.42
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
 val (i, true) = (1, true);
 > val i = 1 : int
 val (i, false) = (1, true);
@@ -1065,9 +1036,6 @@ end;
 > uncaught exception Bind
 >   raised at: stdIn:2.7-2.29
 
-set("mode", "evaluate");
-> val it = () : unit
-
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit
 
@@ -1079,17 +1047,12 @@ Sys.unset "matchCoverageEnabled";
 val x = (( "foo", true ), 17 );
 > val x = (("foo",true),17) : (string * bool) * int
 
-set("mode", "validate");
-> val it = () : unit
 val ( l as (ll,lr), r ) = x;
 > val l = ("foo",true) : string * bool
 > val ll = "foo" : string
 > val lr = true : bool
 > val r = 17 : int
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
@@ -1098,13 +1061,8 @@ fun f (true, []) = ~1
   | f (false, list) = 0;
 > val f = fn : bool * 'a list -> int
 
-set("mode", "validate");
-> val it = () : unit
 f (true, ["a","b","c"]);
 > val it = 3 : int
-
-set("mode", "evaluate");
-> val it = () : unit
 
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit

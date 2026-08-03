@@ -151,9 +151,6 @@ false implies true implies false;
 false implies (true implies false);
 > val it = true : bool
 
-set("mode", "validate");
-> val it = () : unit
-
 (* All departments are not department 30 or are called
    "SALES". *)
 from d in scott.depts
@@ -175,9 +172,6 @@ from d in scott.depts
 >    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
 >   : {deptno:int, dname:string, loc:string} bag
 
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* --- Exists ----------------------------------------------------- *)
 
@@ -223,9 +217,6 @@ exists where false;
 not exists where false;
 > val it = true : bool
 
-set("mode", "validate");
-> val it = () : unit
-
 (*) 'exists' must not have 'into'
 (*
 exists e in scott.emps where e.deptno = 20 into sum;
@@ -252,9 +243,6 @@ forall i in [2, 4, 6] require i mod 2 = 0;
 > val it = true : bool
 
 
-set("mode", "evaluate");
-> val it = () : unit
-
 forall i in [2, 3, 4] require i mod 2 = 0;
 > val it = false : bool
 forall i in [] require i mod 2 = 0;
@@ -269,9 +257,6 @@ forall require true;
 > val it = true : bool
 forall require false;
 > val it = false : bool
-
-set("mode", "validate");
-> val it = () : unit
 
 (*) 'forall' requires 'require'
 (*

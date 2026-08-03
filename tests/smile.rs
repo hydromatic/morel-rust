@@ -24,9 +24,12 @@ use std::thread::Builder;
 ///
 /// `type.smli`'s type inference recurses deeply enough to overflow libtest's
 /// default thread stack in debug builds (release stack frames are smaller and
-/// fit), so it gets a larger stack in debug builds only.
+/// fit), so it gets a larger stack in debug builds only. `match.smli`
+/// evaluates `ack 3 3`, which also recurses deeply.
 fn custom_stack_size(file_name: &str) -> Option<usize> {
-    if cfg!(debug_assertions) && file_name.ends_with("/type.smli") {
+    if file_name.ends_with("/match.smli")
+        || cfg!(debug_assertions) && file_name.ends_with("/type.smli")
+    {
         Some(64 * 1024 * 1024)
     } else {
         None
