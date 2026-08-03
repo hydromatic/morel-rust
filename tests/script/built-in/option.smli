@@ -77,9 +77,7 @@ Option.valOf noneInt;
 > uncaught exception Option
 >   raised at: stdIn:1.1-1.21
 Sys.plan ();
-> val it =
->   "apply2(fnValue Option.valOf, constant([NONE]), constant(stdIn:1.1-1.21))"
->   : string
+> val it = "apply(fnValue Option.valOf, argCode constant([NONE]))" : string
 
 (*) val filter : ('a -> bool) -> 'a -> 'a option
 Option.filter (fn x => x mod 2 = 0) 1;
@@ -134,7 +132,7 @@ Option.mapPartial (fn s => if s = "" then NONE else (SOME (String.size s))) (SOM
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.mapPartial, fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0))))), apply(fnValue Option.some, argCode constant()))"
+>   "apply2(fnValue Option.mapPartial, fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.SOME, argCode apply(fnValue String.size, argCode get(0))))), apply(fnValue Option.SOME, argCode constant()))"
 >   : string
 
 (*) val compose : ('a -> 'b) * ('c -> 'a option) -> 'c -> 'b option
@@ -157,7 +155,7 @@ Option.compose (String.size,
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.compose, tuple(constant(String.size), fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.substring, argCode tuple(get(0), constant(0), apply(fnValue String.size, argCode get(0)), constant(stdIn:3.29-3.67))))))), constant())"
+>   "apply2(fnValue Option.compose, tuple(constant(String.size), fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.SOME, argCode apply3(fnValue String.substring, get(0), constant(0), apply(fnValue String.size, argCode get(0))))))), constant())"
 >   : string
 
 (*) val composePartial : ('a -> 'b option) * ('c -> 'a option) -> 'c -> 'b option
@@ -171,7 +169,7 @@ Option.composePartial (fn i => if i = 0 then NONE else (SOME i),
 > val it = NONE : int option
 Sys.plan ();
 > val it =
->   "apply2(fnValue Option.composePartial, tuple(fn(bind(0) => case(apply2(fnValue =, get(0), constant(0)), true, constant([NONE]), _, apply(fnValue Option.some, argCode get(0)))), fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.some, argCode apply(fnValue String.size, argCode get(0)))))), constant())"
+>   "apply2(fnValue Option.composePartial, tuple(fn(bind(0) => case(apply2(fnValue =, get(0), constant(0)), true, constant([NONE]), _, apply(fnValue Option.SOME, argCode get(0)))), fn(bind(0) => case(apply2(fnValue =, get(0), constant()), true, constant([NONE]), _, apply(fnValue Option.SOME, argCode apply(fnValue String.size, argCode get(0)))))), constant())"
 >   : string
 
 (*) End option.smli

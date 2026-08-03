@@ -1781,11 +1781,17 @@ impl Display for Code {
             Self::BindAnd(codes) => {
                 Self::write_codes(f, "bindAnd(", codes, ")")
             }
+            Self::BindCons(head, tail) => {
+                write!(f, "bindCons({}, {})", head, tail)
+            }
             Self::BindConstructor(name, inner) => {
                 write!(f, "bindCon({}, {})", name, inner)
             }
             Self::BindConstructor2(tag, _) => {
                 write!(f, "bindCon2(#{})", tag)
+            }
+            Self::BindList(codes) => {
+                Self::write_codes(f, "bindList(", codes, ")")
             }
             Self::BindLiteral(v) => write!(f, "{}", v),
             Self::BindSlot(_, slot) => write!(f, "bind({})", slot),
@@ -1798,9 +1804,14 @@ impl Display for Code {
             Self::Constant(_, v) => match v {
                 Val::Char(c) => write!(f, "constant({})", c),
                 Val::Fn(fun) => write!(f, "constant({})", fun.full_name()),
-                Val::Real(x) => write!(f, "constant({})", x),
+                Val::Real(x) => {
+                    write!(f, "constant({})", real_plan_constant(*x))
+                }
                 Val::String(s) => write!(f, "constant({})", s),
                 Val::Unit => write!(f, "constant([NONE])"),
+                // Plans render integers Java-style (`-1`), not with morel's
+                // unary-minus spelling (`~1`) that `Val`'s own `Display` uses.
+                Val::Int(i) => write!(f, "constant({})", i),
                 _ => write!(f, "constant({})", v),
             },
             Self::ConstructorWrap(tag) => {
@@ -1835,12 +1846,25 @@ impl Display for Code {
                 }
                 write!(f, ")")
             }
+            Self::FromRowSink(factory) => {
+                write!(f, "from(sink ")?;
+                factory.create().fmt_plan(f)?;
+                write!(f, ")")
+            }
             Self::GetLocal(_, slot) => write!(f, "get({})", slot),
             Self::Let(codes, result_code) => {
                 Self::write_codes(f, "let(", codes, "")?;
                 write!(f, " in {})", result_code)
             }
             Self::Link(slot, name) => write!(f, "link({}, {})", slot, name),
+            Self::MapElements(elements_code, over_code, _slots) => {
+                write!(f, "mapElements({}, {})", elements_code, over_code)
+            }
+            Self::Max(_, code, _) => write!(f, "max({})", code),
+            Self::Min(_, code, _) => write!(f, "min({})", code),
+            Self::Native0(eager) => {
+                write!(f, "apply(fnValue {})", plan_label(&eager.to_string()))
+            }
             Self::Native1(eager, code0) => {
                 write!(f, "apply(fnValue {}, argCode {})", eager.plan(), code0)
             }
@@ -1853,65 +1877,73 @@ impl Display for Code {
                     code1,
                 )
             }
+            Self::Native3(eager, code0, code1, code2) => {
+                write!(
+                    f,
+                    "apply3(fnValue {}, {}, {}, {})",
+                    eager.plan(),
+                    code0,
+                    code1,
+                    code2
+                )
+            }
+            Self::NativeCustom(custom, codes) => Self::write_codes(
+                f,
+                &format!(
+                    "apply(fnValue {}, argCode tuple(",
+                    plan_label(&custom.to_string())
+                ),
+                codes,
+                "))",
+            ),
             Self::NativeF0(eager) => {
                 write!(f, "apply0(fnValue {})", eager.plan(),)
             }
-            Self::NativeF1(eager, code0, span) => {
-                if let Some(s) = span {
-                    write!(
-                        f,
-                        "apply2(fnValue {}, {}, constant({}))",
-                        eager.plan(),
-                        code0,
-                        s,
-                    )
-                } else {
-                    write!(f, "apply(fnValue {}, {})", eager.plan(), code0,)
-                }
+            Self::NativeF1(eager, code0, _span) => {
+                // The span is threaded for error reporting; morel-java does
+                // not surface it in the plan, so it is dropped here.
+                write!(f, "apply(fnValue {}, argCode {})", eager.plan(), code0)
             }
-            Self::NativeF2(eager, code0, code1, span) => {
-                if let Some(s) = span {
-                    write!(
-                        f,
-                        "apply(fnValue {}, argCode tuple(\
-                         {}, {}, constant({})))",
-                        eager.plan(),
-                        code0,
-                        code1,
-                        s,
-                    )
-                } else {
-                    write!(
-                        f,
-                        "apply2(fnValue {}, {}, {})",
-                        eager.plan(),
-                        code0,
-                        code1,
-                    )
-                }
+            Self::NativeF2(eager, code0, code1, _span) => {
+                write!(
+                    f,
+                    "apply2(fnValue {}, {}, {})",
+                    eager.plan(),
+                    code0,
+                    code1,
+                )
             }
-            Self::NativeF3(eager, code0, code1, code2, span) => {
-                if let Some(s) = span {
-                    write!(
-                        f,
-                        "apply(fnValue {}, argCode tuple(\
-                         {}, {}, {}, constant({})))",
-                        eager.plan(),
-                        code0,
-                        code1,
-                        code2,
-                        s,
-                    )
-                } else {
-                    write!(
-                        f,
-                        "apply(fnValue {}, argCode tuple({}, {}, {}))",
-                        eager.plan(),
-                        code0,
-                        code1,
-                        code2
-                    )
-                }
+            Self::NativeF3(eager, code0, code1, code2, _span) => {
+                write!(
+                    f,
+                    "apply3(fnValue {}, {}, {}, {})",
+                    eager.plan(),
+                    code0,
+                    code1,
+                    code2,
+                )
+            }
+            Self::Nth(_, slot) => write!(f, "nth:{}", slot),
+            Self::Raise(code, _) => write!(f, "raise({})", code),
+            Self::RaiseCompileError(msg, _) => {
+                write!(f, "raiseCompileError({})", msg)
+            }
+            Self::RaiseIllegalArgument(msg, _) => {
+                write!(f, "raiseIllegalArgument({})", msg)
+            }
+            Self::RangeContains(_, range_code, code) => {
+                write!(f, "rangeContains({}, {})", range_code, code)
+            }
+            Self::RangeCsOf(_, code) => write!(f, "rangeCsOf({})", code),
+            Self::RangeDsComplement(_, code) => {
+                write!(f, "rangeDsComplement({})", code)
+            }
+            Self::RangeDsOf(_, _, code) => write!(f, "rangeDsOf({})", code),
+            Self::RangeEnumerate(_, _, code) => {
+                write!(f, "rangeEnumerate({})", code)
+            }
+            Self::RangeFlatten(_, _, code) => {
+                write!(f, "rangeFlatten({})", code)
             }
             Self::RecValBindings(items) => {
                 write!(f, "recValBindings(")?;
@@ -1924,11 +1956,21 @@ impl Display for Code {
                 write!(f, ")")
             }
             Self::SelfRef => write!(f, "self"),
-            Self::Tuple(codes) => Self::write_codes(f, "tuple(", codes, ")"),
+            Self::TailApply(fn_code, arg_code) => {
+                write!(f, "tailApply({}, {})", fn_code, arg_code)
+            }
+            Self::Tuple(codes) => {
+                // morel-java's describer prints a node with no arguments as
+                // its bare name, so an empty tuple is `tuple`, not `tuple()`.
+                if codes.is_empty() {
+                    write!(f, "tuple")
+                } else {
+                    Self::write_codes(f, "tuple(", codes, ")")
+                }
+            }
             Self::ValidatePartialArg1(func, code, _span) => {
                 write!(f, "validate({}, {})", func.full_name(), code)
             }
-            _ => todo!("fmt: {:?}", self),
         }
     }
 }
@@ -2169,7 +2211,7 @@ pub enum Impl {
 }
 
 /// Function implementation that takes no arguments (constants).
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum Eager0 {
     // lint: sort until '#}'
     BoolFalse,
@@ -2371,7 +2413,7 @@ pub enum EagerF0 {
 
 impl EagerF0 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) -> Val {
@@ -2589,7 +2631,7 @@ pub enum EagerF1 {
 
 impl EagerF1 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
@@ -2928,6 +2970,8 @@ pub enum Eager1 {
     RelationalEmpty,
     RelationalNonEmpty,
     RelationalSum,
+    RelationalSumInt,
+    RelationalSumReal,
     StringConcat,
     StringCvtRealfmtFix,
     StringCvtRealfmtGen,
@@ -2982,7 +3026,7 @@ pub enum Eager1 {
 
 impl Eager1 {
     pub(crate) fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     // Passing Val by value is OK because it is small.
@@ -3313,6 +3357,12 @@ impl Eager1 {
                     Val::Int(items.iter().map(Val::expect_int).sum())
                 }
             }
+            RelationalSumInt => {
+                Val::Int(a0.expect_list().iter().map(Val::expect_int).sum())
+            }
+            RelationalSumReal => {
+                Val::Real(a0.expect_list().iter().map(Val::expect_real).sum())
+            }
             StringConcat => {
                 let strings = a0.expect_list();
                 Val::String((Str::concat(strings)).into())
@@ -3551,7 +3601,7 @@ pub enum Eager2 {
 
 impl Eager2 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     // Passing Val by value is OK because it is small.
@@ -3888,7 +3938,7 @@ pub enum EagerF2 {
 
 impl EagerF2 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
@@ -4244,7 +4294,7 @@ pub enum EagerF3 {
 
 impl EagerF3 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
@@ -4395,7 +4445,7 @@ pub enum EagerF4 {
 
 impl EagerF4 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     fn implements(&self, b: &mut LibBuilder, f: BuiltInFunction) {
@@ -4432,7 +4482,7 @@ pub enum Eager3 {
 
 impl Eager3 {
     fn plan(&self) -> String {
-        camel_to_dotted(&self.to_string())
+        plan_label(&self.to_string())
     }
 
     // Passing Val by value is OK because it is small.
@@ -4471,7 +4521,7 @@ impl Eager3 {
 
 /// Built-in functions that have a custom implementation.
 #[allow(clippy::enum_variant_names)]
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, strum_macros::Display)]
 pub enum Custom {
     // lint: sort until '#}'
     GAbs,
@@ -4619,71 +4669,68 @@ impl Custom {
     }
 }
 
-/// Maps an operator built-in's enum-variant name to the symbolic name used
-/// in plan dumps, matching Standard ML's spelling. Arithmetic operators keep
-/// their structure prefix (`Int.+`, `Real.~`); equality and comparison
-/// operators are polymorphic and render bare (`=`, `<`). Returns `None` for
-/// non-operator built-ins, which fall back to [`camel_to_dotted`].
-fn operator_plan_name(variant: &str) -> Option<&'static str> {
-    Some(match variant {
-        // Arithmetic: structure-qualified symbol.
-        "IntPlus" => "Int.+",
-        "IntMinus" => "Int.-",
-        "IntTimes" => "Int.*",
-        "IntNegate" => "Int.~",
-        "RealPlus" => "Real.+",
-        "RealMinus" => "Real.-",
-        "RealTimes" => "Real.*",
-        "RealNegate" => "Real.~",
-        "StringCaret" => "String.^",
-        // Equality and comparison: polymorphic, rendered bare.
-        "IntEq" | "RealEq" | "StringEq" | "CharEq" | "BoolEq" => "=",
-        "IntNe" | "RealNe" | "StringNe" | "CharNe" | "BoolNe" => "<>",
-        "IntLt" | "RealLt" | "StringLt" | "CharLt" => "<",
-        "IntGt" | "RealGt" | "StringGt" | "CharGt" => ">",
-        "IntLe" | "RealLe" | "StringLe" | "CharLe" => "<=",
-        "IntGe" | "RealGe" | "StringGe" | "CharGe" => ">=",
-        _ => return None,
-    })
+/// The label a native function shows in plan dumps, matching morel-java's
+/// `Codes.BaseApplicable.name()`: the built-in's structure-qualified name
+/// (`List.map`, `Int.+`), or its bare name for operators (`elem`, `+`, `=`).
+/// The label is sourced from the built-in's strum props via
+/// [`BuiltInFunction::full_name`], keyed by the eager impl's variant name.
+///
+/// A few eager impls are shared or renamed and so do not name a built-in
+/// directly: the shift impls carry a different variant name, and
+/// `WordIdentity` backs several word conversions (`Word.toLarge`,
+/// `Word.fromLarge`, ...) that are identity at runtime — the `Code` node no
+/// longer records which, so it borrows one representative label.
+/// Renders a real constant as it appears in a plan dump: always with a
+/// decimal point (`13.0`, `-0.0`), and `Infinity`/`-Infinity`/`NaN` for
+/// the special values, rather than morel's `13`/`inf`/`nan` value form.
+fn real_plan_constant(x: f32) -> String {
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x < 0.0 { "-Infinity" } else { "Infinity" }.to_string();
+    }
+    let s = format!("{}", x);
+    if s.contains(['.', 'e', 'E']) {
+        s.replace('e', "E")
+    } else {
+        format!("{}.0", s)
+    }
 }
 
-/// Converts a camel-case enum variant name to a dotted function name.
-///
-/// For example, `camel_to_dotted("StringFields")` returns `"String.fields"`;
-/// `camel_to_dotted("StringConcatWith")` returns `"String.concatWith"`.
-fn camel_to_dotted(s: &str) -> String {
-    if let Some(op) = operator_plan_name(s) {
-        return op.to_string();
+fn plan_label(variant: &str) -> String {
+    // Internal overload instances whose label is a `structure.name$type`
+    // form that does not follow from a structure `p` prop.
+    match variant {
+        "RelationalSumInt" => return "Relational.sum$int".to_string(),
+        "RelationalSumReal" => return "Relational.sum$real".to_string(),
+        _ => {}
     }
-    let mut result = String::new();
-    let chars: Vec<char> = s.chars().collect();
-    let mut dot_inserted = false;
-
-    for (i, &c) in chars.iter().enumerate() {
-        if i > 0 && c.is_uppercase() {
-            let prev = chars[i - 1];
-            // Insert dot when transitioning from lowercase to uppercase
-            if prev.is_lowercase() {
-                if !dot_inserted {
-                    // First dot - this separates structure from function name
-                    result.push('.');
-                    dot_inserted = true;
-                    // Lowercase the first character of the function name
-                    result.push(c.to_lowercase().next().unwrap());
-                } else {
-                    // Already inserted dot, just add character as-is (preserves
-                    // camelCase)
-                    result.push(c);
-                }
-            } else {
-                result.push(c);
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
+    let variant = match variant {
+        "WordShiftLeft" => "WordOpShiftLeft",
+        "WordShiftRight" => "WordOpShiftRight",
+        "WordArithShiftRight" => "WordOpShiftRightArith",
+        "WordIdentity" => "WordToLarge",
+        // The comparison operators are polymorphic in morel-java (`op <`,
+        // `op =`, ...) and so render bare in plans. morel-rust specializes
+        // them per type at runtime (`IntLt`, `RealEq`, ...); map those back
+        // to the polymorphic variant (`GLt`, `GEq`, ...) whose props give
+        // the bare label.
+        "IntEq" | "RealEq" | "StringEq" | "CharEq" | "BoolEq" => "GEq",
+        "IntNe" | "RealNe" | "StringNe" | "CharNe" | "BoolNe" => "GNe",
+        "IntLt" | "RealLt" | "StringLt" | "CharLt" => "GLt",
+        "IntGt" | "RealGt" | "StringGt" | "CharGt" => "GGt",
+        "IntLe" | "RealLe" | "StringLe" | "CharLe" => "GLe",
+        "IntGe" | "RealGe" | "StringGe" | "CharGe" => "GGe",
+        // A `bag [...]` literal is `Bag.fromList (...)`, and `Bag.hd`/`Bag.tl`
+        // are the `List` functions, as morel-java's plans show.
+        "Bag" => "BagFromList",
+        "BagHd" => "ListHd",
+        "BagTl" => "ListTl",
+        other => other,
+    };
+    BuiltInFunction::from_str(variant)
+        .map_or_else(|_| variant.to_string(), |b| b.full_name())
 }
 
 pub struct Lib {
@@ -5135,6 +5182,8 @@ fn build_library() -> Lib {
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
     EagerF1::RelationalOnly.implements(&mut b, RelationalOnly);
     Eager1::RelationalSum.implements(&mut b, RelationalSum);
+    Eager1::RelationalSumInt.implements(&mut b, RelationalSumInt);
+    Eager1::RelationalSumReal.implements(&mut b, RelationalSumReal);
     Eager2::StringCaret.implements(&mut b, StringCaret);
     EagerF2::StringCollate.implements(&mut b, StringCollate);
     Eager2::StringCompare.implements(&mut b, StringCompare);

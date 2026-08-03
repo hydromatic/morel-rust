@@ -1205,6 +1205,16 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Relational", name = "sum", global = true))]
     #[strum(props(type = "forall 1 'a bag -> 'a"))]
     RelationalSum,
+    // Type-specific instances of the overloaded `sum`, chosen by the
+    // resolver so plans read `Relational.sum$int`/`$real`, as in morel-java.
+    // They are internal (no structure `p`, not global): the resolver
+    // references them directly, and `plan_label` supplies their label.
+    #[strum(props(name = "sum$int"))]
+    #[strum(props(type = "int bag -> int"))]
+    RelationalSumInt,
+    #[strum(props(name = "sum$real"))]
+    #[strum(props(type = "real bag -> real"))]
+    RelationalSumReal,
     #[strum(props(p = "String", name = "^", alias = "op ^"))]
     #[strum(props(type = "string * string -> string"))]
     StringCaret,

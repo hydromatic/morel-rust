@@ -88,9 +88,7 @@ String.sub("abc", ~1);
 > uncaught exception Subscript [subscript out of bounds]
 >   raised at: stdIn:1.1-1.22
 Sys.plan ();
-> val it =
->   "apply(fnValue String.sub, argCode tuple(constant(abc), constant(~1), constant(stdIn:1.1-1.22)))"
->   : string
+> val it = "apply2(fnValue String.sub, constant(abc), constant(-1))" : string
 
 (*) val extract: string * int * int option -> string
 String.extract;
@@ -121,10 +119,14 @@ String.extract("abc", 1, SOME ~1);
 String.extract("abc", 1, SOME 99);
 > uncaught exception Subscript [subscript out of bounds]
 >   raised at: stdIn:1.1-1.34
+set("mode", "validate");
+> val it = () : unit
 Sys.plan ();
 > val it =
->   "apply(fnValue String.extract, argCode tuple(constant(abc), constant(1), apply(fnValue Option.some, argCode constant(99)), constant(stdIn:1.1-1.34)))"
+>   "globalMarshal(globals [SOME], body apply3(fnValue String.extract, constant(abc), constant(1), apply(fnValue tyCon, argCode constant(99))))"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) val substring : string * int * int -> string
 String.substring;
@@ -152,7 +154,7 @@ String.substring("hello", 1, 5);
 >   raised at: stdIn:1.1-1.32
 Sys.plan ();
 > val it =
->   "apply(fnValue String.substring, argCode tuple(constant(hello), constant(1), constant(5), constant(stdIn:1.1-1.32)))"
+>   "apply3(fnValue String.substring, constant(hello), constant(1), constant(5))"
 >   : string
 
 (*) val ^ : string * string -> string
@@ -179,7 +181,7 @@ String.concat ["a"];
 String.concat [];
 > val it = "" : string
 Sys.plan ();
-> val it = "apply(fnValue String.concat, argCode tuple())" : string
+> val it = "apply(fnValue String.concat, argCode tuple)" : string
 
 (*) val concatWith : string -> string list -> string
 String.concatWith;
@@ -193,7 +195,7 @@ String.concatWith "," ["", ""];
 String.concatWith "," [];
 > val it = "" : string
 Sys.plan ();
-> val it = "apply2(fnValue String.concatWith, constant(,), tuple())" : string
+> val it = "apply2(fnValue String.concatWith, constant(,), tuple)" : string
 
 (*) val str : char -> string
 String.str;
@@ -211,7 +213,7 @@ String.implode [#"a", #"b", #"c"];
 String.implode [];
 > val it = "" : string
 Sys.plan ();
-> val it = "apply(fnValue String.implode, argCode tuple())" : string
+> val it = "apply(fnValue String.implode, argCode tuple)" : string
 
 (*) val explode : string -> char list
 String.explode;
@@ -220,10 +222,8 @@ String.explode "abc";
 > val it = [#"a",#"b",#"c"] : char list
 String.explode "";
 > val it = [] : char list
-(*
 Sys.plan ();
 > val it = "apply(fnValue String.explode, argCode constant())" : string
-*)
 
 (*) val map : (char -> char) -> string -> string
 String.map;
@@ -232,10 +232,14 @@ String.map (fn c => if c = #"a" then #"A" else if c = #"c" then #"C" else c) "ab
 > val it = "AbC" : string
 String.map (fn c => if c = #"a" then #"A" else if c = #"c" then #"C" else c) "";
 > val it = "" : string
+set("mode", "validate");
+> val it = () : unit
 Sys.plan ();
 > val it =
->   "apply2(fnValue String.map, fn(bind(0) => case(apply2(fnValue =, get(0), constant(a)), true, constant(A), _, case(apply2(fnValue =, get(0), constant(c)), true, constant(C), _, get(0)))), constant())"
+>   "apply2(fnValue String.map, match(c, tailApply(fnCode match(true, constant(A), _, tailApply(fnCode match(true, constant(C), _, stack(offset 1, name c)), argCode apply2(fnValue =, stack(offset 1, name c), constant(c)))), argCode apply2(fnValue =, stack(offset 1, name c), constant(a)))), constant())"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) val translate : (char -> string) -> string -> string
 String.translate;
@@ -244,10 +248,14 @@ String.translate (fn c => if c = #"a" then "AA" else if c = #"c" then "CCC" else
 > val it = "AA-CCC" : string
 String.translate (fn c => if c = #"a" then "AA" else if c = #"c" then "CCC" else "-") "";
 > val it = "" : string
+set("mode", "validate");
+> val it = () : unit
 Sys.plan ();
 > val it =
->   "apply2(fnValue String.translate, fn(bind(0) => case(apply2(fnValue =, get(0), constant(a)), true, constant(AA), _, case(apply2(fnValue =, get(0), constant(c)), true, constant(CCC), _, constant(-)))), constant())"
+>   "apply2(fnValue String.translate, match(c, tailApply(fnCode match(true, constant(AA), _, tailApply(fnCode match(true, constant(CCC), _, constant(-)), argCode apply2(fnValue =, stack(offset 1, name c), constant(c)))), argCode apply2(fnValue =, stack(offset 1, name c), constant(a)))), constant())"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) val tokens : (char -> bool) -> string -> string list
 String.tokens;
@@ -292,10 +300,12 @@ Sys.plan ();
 (*) Partial evaluation
 val p = String.isPrefix "he";
 > val p = fn : string -> bool
+set("mode", "validate");
+> val it = () : unit
 Sys.plan ();
-> val it =
->   "createClosure(captures(constant(he)), body(apply2(fnValue String.isPrefix, get(0), get(1))))"
->   : string
+> val it = "apply1(fnValue String.isPrefix, constant(he))" : string
+set("mode", "evaluate");
+> val it = () : unit
 p "hello";
 > val it = true : bool
 p "goodbye";

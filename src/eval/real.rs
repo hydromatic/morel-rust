@@ -157,8 +157,24 @@ impl Real {
     /// Computes the Morel expression `Real.fromManExp {exp, man}`.
     ///
     /// Returns the real value constructed from mantissa and exponent.
+    /// Constructs the result at the bit level; a large `exp` would
+    /// overflow an intermediate `2^exp` to infinity.
     pub(crate) fn from_man_exp(man: f32, exp: i32) -> f32 {
-        man * 2_f32.powi(exp)
+        // f32: MIN_EXPONENT = -126, MAX_EXPONENT = 127.
+        if !man.is_finite() {
+            return man;
+        }
+        if exp >= 127 {
+            // Overwrite the mantissa's exponent field directly, so a large
+            // `exp` cannot overflow an intermediate `2^exp`.
+            let exp2 = ((exp - (-126)) & 0xFF) as u32;
+            let bits = (man.to_bits() & !(0xFFu32 << 23)) | (exp2 << 23);
+            f32::from_bits(bits)
+        } else {
+            let exp2 = ((exp - (-126) + 1) & 0xFF) as u32;
+            let two_pow_exp = f32::from_bits(exp2 << 23);
+            man * two_pow_exp
+        }
     }
 
     /// Computes the Morel expression `Real.fromString s`.
@@ -167,25 +183,19 @@ impl Real {
     pub(crate) fn from_string(s: &str) -> Val {
         let trimmed = s.trim_start();
 
-        // Handle special values.
-        if trimmed.starts_with("inf") {
-            return Val::Some(Box::new(Val::Real(f32::INFINITY)));
-        } else if trimmed.starts_with("~inf") || trimmed.starts_with("-inf") {
-            return Val::Some(Box::new(Val::Real(f32::NEG_INFINITY)));
-        } else if trimmed.starts_with("nan")
-            || trimmed.starts_with("~nan")
-            || trimmed.starts_with("-nan")
-        {
-            return Val::Some(Box::new(Val::Real(f32::NAN)));
-        }
-
         // Replace ~ with - for parsing.
         // (Standard ML uses ~ for negation.)
         let normalized = trimmed.replace('~', "-");
 
-        // Try to parse the entire string first.
-        if let Ok(r) = normalized.parse::<f32>() {
-            return Val::Some(Box::new(Val::Real(r)));
+        // A valid number needs at least one digit, so `"inf"`, `"nan"`
+        // and `"infinity"` return `NONE` even though Rust's own parser
+        // would accept them. An overflowing but digit-bearing string like
+        // `"1e40"` still yields `SOME inf`.
+        if normalized.bytes().any(|b| b.is_ascii_digit()) {
+            // Try to parse the entire string first.
+            if let Ok(r) = normalized.parse::<f32>() {
+                return Val::Some(Box::new(Val::Real(r)));
+            }
         }
 
         // If that fails, try to parse as much as possible.
@@ -348,7 +358,9 @@ impl Real {
     ///
     /// Rounds `r` towards zero.
     pub(crate) fn real_trunc(r: f32) -> f32 {
-        r.trunc()
+        // Truncating an infinity gives NaN (unlike floor/ceil/round,
+        // which return the infinity).
+        if r.is_infinite() { f32::NAN } else { r.trunc() }
     }
 
     /// Computes the Morel expression `Real.rem (x, y)`.
@@ -423,9 +435,10 @@ impl Real {
     /// and integral parts of `r`, respectively.
     pub(crate) fn split(r: f32) -> Val {
         let (frac, whole) = if r == 0.0 {
-            // split ~0.0 -> (~0.0, ~0.0)
-            // split 0.0 -> (0.0, 0.0)
-            (r, r)
+            // split ~0.0 -> (~0.0, 0.0); split 0.0 -> (0.0, 0.0).
+            // The fraction keeps the sign of the zero; the whole part is
+            // always positive zero.
+            (r, 0.0_f32)
         } else if r.is_infinite() {
             // split posInf -> (0.0, inf)
             // split negInf -> (~0.0, ~inf)
@@ -449,26 +462,23 @@ impl Real {
     /// Satisfies: r = man * 2^exp, where man is in [0.5, 1.0) or (-1.0, -0.5]
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_man_exp(r: f32) -> Val {
-        if r.is_nan() || r.is_infinite() {
-            // Special cases: NaN, infinity use exp = 129
-            Val::List(Rc::new(vec![Val::Int(129), Val::Real(r)]))
-        } else if r == 0.0 {
-            // Zero uses exp = -126
-            Val::List(Rc::new(vec![Val::Int(-126), Val::Real(r)]))
-        } else if !r.is_normal() {
-            // Subnormal numbers: use exp = -126 and compute mantissa
-            // accordingly. For subnormal: r = man * 2^(-126).
-            let man = r * 2_f32.powi(126);
-            Val::List(Rc::new(vec![Val::Int(-126), Val::Real(man)]))
+        // Read the IEEE fields directly; `log2`/`powi` lose precision and
+        // overflow near the top of the range (e.g. `Real.maxFinite` gave
+        // `{exp=129, man=0}` instead of `{exp=128, man=0.99999994}`).
+        let bits = r.to_bits();
+        let exp = ((bits >> 23) & 0xFF) as i32;
+        let mantissa = if exp == 0 {
+            // Zero or subnormal: shift into [0.5, 1.0) via MIN_NORMAL.
+            r / f32::MIN_POSITIVE
+        } else if r.is_finite() {
+            // Replace the exponent field with 126 (the exponent of a value
+            // in [0.5, 1.0)), keeping the sign and mantissa bits.
+            f32::from_bits((bits & !(0xFFu32 << 23)) | (0x7Eu32 << 23))
         } else {
-            // Normal numbers: use frexp-like calculation.
-            // Satisfies: r = man * 2^exp, where man is in [0.5, 1.0) or
-            // (-1.0, -0.5].
-            let abs = r.abs();
-            let exp = abs.log2().floor() as i32 + 1;
-            let man = r / 2_f32.powi(exp);
-            Val::List(Rc::new(vec![Val::Int(exp), Val::Real(man)]))
-        }
+            // NaN and infinity pass through with exp field 0xFF -> 129.
+            r
+        };
+        Val::List(Rc::new(vec![Val::Int(exp + (-126)), Val::Real(mantissa)]))
     }
 
     /// Computes the Morel expression `Real.toString r`.

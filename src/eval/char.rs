@@ -157,14 +157,14 @@ impl Char {
     ///
     /// Returns true if `c` is a letter (lowercase or uppercase).
     pub(crate) fn is_alpha(c: char) -> bool {
-        c.is_alphabetic()
+        c.is_ascii_alphabetic()
     }
 
     /// Computes the Morel expression `Char.isAlphaNum c`.
     ///
     /// Returns true if `c` is alphanumeric (a letter or a decimal digit).
     pub(crate) fn is_alpha_num(c: char) -> bool {
-        c.is_alphanumeric()
+        c.is_ascii_alphanumeric()
     }
 
     /// Computes the Morel expression `Char.isAscii c`.
@@ -178,7 +178,7 @@ impl Char {
     ///
     /// Returns true if `c` is a control character.
     pub(crate) fn is_cntrl(c: char) -> bool {
-        c.is_control()
+        c.is_ascii_control()
     }
 
     /// Computes the Morel expression `Char.isDigit c`.
@@ -193,7 +193,7 @@ impl Char {
     /// Returns true if `c` is a graphical character (printable and
     /// not whitespace).
     pub(crate) fn is_graph(c: char) -> bool {
-        !c.is_whitespace() && !c.is_control()
+        c.is_ascii_graphic()
     }
 
     /// Computes the Morel expression `Char.isHexDigit c`.
@@ -207,7 +207,7 @@ impl Char {
     ///
     /// Returns true if `c` is a lowercase letter (a to z).
     pub(crate) fn is_lower(c: char) -> bool {
-        c.is_lowercase()
+        c.is_ascii_lowercase()
     }
 
     /// Computes the Morel expression `Char.isOctDigit c`.
@@ -221,7 +221,7 @@ impl Char {
     ///
     /// Returns true if `c` is a printable character (space or visible).
     pub(crate) fn is_print(c: char) -> bool {
-        !c.is_control()
+        c.is_ascii_graphic() || c == ' '
     }
 
     /// Computes the Morel expression `Char.isPunct c`.
@@ -236,14 +236,14 @@ impl Char {
     ///
     /// Returns true if `c` is a whitespace character.
     pub(crate) fn is_space(c: char) -> bool {
-        c.is_whitespace()
+        matches!(c, ' ' | '\t' | '\n' | '\x0b' | '\x0c' | '\r')
     }
 
     /// Computes the Morel expression `Char.isUpper c`.
     ///
     /// Returns true if `c` is an uppercase letter (A to Z).
     pub(crate) fn is_upper(c: char) -> bool {
-        c.is_uppercase()
+        c.is_ascii_uppercase()
     }
 
     /// Computes the Morel expression `Char.notContains s c`.

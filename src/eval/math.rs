@@ -83,6 +83,11 @@ impl Math {
 
     /// Computes x^y.
     pub(crate) fn pow(x: f32, y: f32) -> f32 {
+        // SML's `Math.pow` returns NaN for `pow(±1, ±inf)`, unlike C's
+        // `powf`, which returns 1.
+        if x.abs() == 1.0 && y.is_infinite() {
+            return f32::NAN;
+        }
         (x as f64).powf(y as f64) as f32
     }
 

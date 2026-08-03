@@ -641,6 +641,41 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
+                // Dispatch `Relational.sum coll` to sum$int/sum$real by the
+                // element type, so plans read `Relational.sum$int` as in
+                // morel-java. The bare-identifier `sum` is handled by
+                // `specialize_sum` in the identifier arm.
+                if let ExprKind::Apply(sel, recv) = &func.kind
+                    && let ExprKind::RecordSelector(member) = &sel.kind
+                    && member == "sum"
+                    && let ExprKind::Identifier(structure) = &recv.kind
+                    && structure == "Relational"
+                    && let Some(ty) = arg.get_type(self.type_map)
+                {
+                    let elem = match ty.as_ref() {
+                        Type::Bag(e) | Type::List(e) => Some(e.as_ref()),
+                        _ => None,
+                    };
+                    match elem {
+                        Some(Type::Primitive(PrimitiveType::Int)) => {
+                            return self.call1(
+                                t,
+                                BuiltInFunction::RelationalSumInt,
+                                arg,
+                                &span,
+                            );
+                        }
+                        Some(Type::Primitive(PrimitiveType::Real)) => {
+                            return self.call1(
+                                t,
+                                BuiltInFunction::RelationalSumReal,
+                                arg,
+                                &span,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
                 // Try postfix method-call rewriting. Pattern: outer
                 // Apply wraps an
                 // inner `Apply(RecordSelector(name), recv)` that

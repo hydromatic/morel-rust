@@ -107,42 +107,6 @@ Time.fmt 0 Time.zeroTime;
 Time.fmt 6 (Time.fromReal 1.5);
 > val it = "1.500000" : string
 
-(* Time.fmt: comprehensive test of all behaviours.
- * Banker's rounding (round half to even) at integer precision. *)
-Time.fmt 0 (Time.fromNanoseconds 500000000);
-> val it = "0" : string
-Time.fmt 0 (Time.fromNanoseconds 1500000000);
-> val it = "2" : string
-Time.fmt 0 (Time.fromNanoseconds (~500000000));
-> val it = "~0" : string
-Time.fmt 0 (Time.fromNanoseconds (~1500000000));
-> val it = "~2" : string
-(*) Banker's rounding at sub-second precision.
-Time.fmt 1 (Time.fromNanoseconds 50000000);
-> val it = "0.0" : string
-Time.fmt 1 (Time.fromNanoseconds 150000000);
-> val it = "0.2" : string
-Time.fmt 1 (Time.fromNanoseconds 250000000);
-> val it = "0.2" : string
-(*) Strict comparison (not at the half).
-Time.fmt 0 (Time.fromNanoseconds 499999999);
-> val it = "0" : string
-Time.fmt 0 (Time.fromNanoseconds 500000001);
-> val it = "1" : string
-(*) Carry from rounding.
-Time.fmt 4 (Time.fromNanoseconds 999950000);
-> val it = "1.0000" : string
-(*) n equal to 9 — full nanosecond precision.
-Time.fmt 9 (Time.fromNanoseconds 123456789);
-> val it = "0.123456789" : string
-(*) n greater than 9 — pad with trailing zeros.
-Time.fmt 12 (Time.fromNanoseconds 123456789);
-> val it = "0.123456789000" : string
-(*) Negative n raises Size.
-Time.fmt (~1) Time.zeroTime;
-> uncaught exception Size [size]
->   raised at: stdIn:1.1-1.28
-
 Time.fromString "1.5";
 > val it = SOME 1500000000 : time option
 

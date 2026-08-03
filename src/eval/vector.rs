@@ -143,7 +143,7 @@ impl Vector {
 
     /// Maximum length of a vector.
     pub(crate) fn max_len() -> i32 {
-        i32::MAX
+        (1 << 24) - 1
     }
 
     /// Returns the element at index `i` in vector `vec`.

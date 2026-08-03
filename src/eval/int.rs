@@ -57,8 +57,34 @@ impl Int {
     }
 
     pub(crate) fn from_string(s: &str) -> Option<i32> {
-        let s_converted = s.replace('~', "-");
-        s_converted.parse::<i32>().ok()
+        // Standard ML scans a leading integer and ignores any trailing
+        // characters: after optional whitespace, an optional `~`/`-`/`+`
+        // sign, then one or more digits. `"83a"` yields `SOME 83`, `"bad"`
+        // yields `NONE`.
+        let s = s.trim_start();
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        let neg = match bytes.first() {
+            Some(b'~' | b'-') => {
+                i = 1;
+                true
+            }
+            Some(b'+') => {
+                i = 1;
+                false
+            }
+            _ => false,
+        };
+        let start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == start {
+            return None;
+        }
+        let magnitude = s[start..i].parse::<i64>().ok()?;
+        let value = if neg { -magnitude } else { magnitude };
+        i32::try_from(value).ok()
     }
 
     /// Performs Standard ML's `mod` operation.
