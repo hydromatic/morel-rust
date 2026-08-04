@@ -23,6 +23,7 @@ use crate::eval::val::{
 };
 use crate::shell::kernel::MorelError;
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 /// Support for the `real` built-in type and the `Real` structure.
 pub struct Real;
@@ -438,7 +439,7 @@ impl Real {
             let w = r.trunc();
             (r - w, w)
         };
-        Val::List(vec![Val::Real(frac), Val::Real(whole)])
+        Val::List(Rc::new(vec![Val::Real(frac), Val::Real(whole)]))
     }
 
     /// Computes the Morel expression `Real.toManExp r`.
@@ -450,15 +451,15 @@ impl Real {
     pub(crate) fn to_man_exp(r: f32) -> Val {
         if r.is_nan() || r.is_infinite() {
             // Special cases: NaN, infinity use exp = 129
-            Val::List(vec![Val::Int(129), Val::Real(r)])
+            Val::List(Rc::new(vec![Val::Int(129), Val::Real(r)]))
         } else if r == 0.0 {
             // Zero uses exp = -126
-            Val::List(vec![Val::Int(-126), Val::Real(r)])
+            Val::List(Rc::new(vec![Val::Int(-126), Val::Real(r)]))
         } else if !r.is_normal() {
             // Subnormal numbers: use exp = -126 and compute mantissa
             // accordingly. For subnormal: r = man * 2^(-126).
             let man = r * 2_f32.powi(126);
-            Val::List(vec![Val::Int(-126), Val::Real(man)])
+            Val::List(Rc::new(vec![Val::Int(-126), Val::Real(man)]))
         } else {
             // Normal numbers: use frexp-like calculation.
             // Satisfies: r = man * 2^exp, where man is in [0.5, 1.0) or
@@ -466,7 +467,7 @@ impl Real {
             let abs = r.abs();
             let exp = abs.log2().floor() as i32 + 1;
             let man = r / 2_f32.powi(exp);
-            Val::List(vec![Val::Int(exp), Val::Real(man)])
+            Val::List(Rc::new(vec![Val::Int(exp), Val::Real(man)]))
         }
     }
 

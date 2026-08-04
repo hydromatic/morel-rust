@@ -518,7 +518,7 @@ impl Pat {
                 {
                     head.bind_recurse(&vs[0], consumer)
                         && tail.bind_recurse(
-                            &Val::List(vs[1..].to_vec()),
+                            &Val::List(Rc::new(vs[1..].to_vec())),
                             consumer,
                         )
                 } else {

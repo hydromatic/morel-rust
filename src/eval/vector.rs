@@ -20,6 +20,7 @@ use crate::compile::span::Span;
 use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::val::Val;
 use crate::shell::kernel::MorelError;
+use std::rc::Rc;
 
 /// Support for the `Vector` structure.
 ///
@@ -52,7 +53,7 @@ impl Vector {
         vec: &[Val],
     ) -> Result<(), MorelError> {
         for (i, v) in vec.iter().enumerate() {
-            let pair = Val::List(vec![Val::Int(i as i32), v.clone()]);
+            let pair = Val::List(Rc::new(vec![Val::Int(i as i32), v.clone()]));
             func.apply_f1(r, f, &pair)?;
         }
         Ok(())
@@ -63,11 +64,11 @@ impl Vector {
         let mut result = Vec::new();
         for v in lists {
             match v {
-                Val::List(inner) => result.extend(inner.clone()),
+                Val::List(inner) => result.extend(inner.iter().cloned()),
                 _ => panic!("Expected list"),
             }
         }
-        Val::List(result)
+        Val::List(Rc::new(result))
     }
 
     /// Finds an element and its index satisfying predicate `f`.
@@ -78,7 +79,7 @@ impl Vector {
         vec: &[Val],
     ) -> Result<Val, MorelError> {
         for (i, v) in vec.iter().enumerate() {
-            let pair = Val::List(vec![Val::Int(i as i32), v.clone()]);
+            let pair = Val::List(Rc::new(vec![Val::Int(i as i32), v.clone()]));
             if func.apply_f1(r, f, &pair)?.expect_bool() {
                 return Ok(Val::Some(Box::new(pair)));
             }
@@ -96,7 +97,8 @@ impl Vector {
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for (i, v) in vec.iter().enumerate() {
-            let triple = Val::List(vec![Val::Int(i as i32), v.clone(), acc]);
+            let triple =
+                Val::List(Rc::new(vec![Val::Int(i as i32), v.clone(), acc]));
             acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
@@ -112,7 +114,8 @@ impl Vector {
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for (i, v) in vec.iter().enumerate().rev() {
-            let triple = Val::List(vec![Val::Int(i as i32), v.clone(), acc]);
+            let triple =
+                Val::List(Rc::new(vec![Val::Int(i as i32), v.clone(), acc]));
             acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
@@ -132,10 +135,10 @@ impl Vector {
     ) -> Result<Val, MorelError> {
         let mut result = Vec::new();
         for (i, v) in vec.iter().enumerate() {
-            let pair = Val::List(vec![Val::Int(i as i32), v.clone()]);
+            let pair = Val::List(Rc::new(vec![Val::Int(i as i32), v.clone()]));
             result.push(func.apply_f1(r, f, &pair)?);
         }
-        Ok(Val::List(result))
+        Ok(Val::List(Rc::new(result)))
     }
 
     /// Maximum length of a vector.
@@ -169,7 +172,7 @@ impl Vector {
         } else {
             let mut new_vec = vec.to_vec();
             new_vec[i as usize] = x;
-            Ok(Val::List(new_vec))
+            Ok(Val::List(Rc::new(new_vec)))
         }
     }
 }

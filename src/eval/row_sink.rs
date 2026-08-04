@@ -36,6 +36,7 @@ use crate::eval::val::Val;
 use crate::shell::kernel::MorelError;
 use indexmap::IndexMap;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Factory for creating row sink pipelines.
@@ -429,7 +430,7 @@ impl RowSink for WhereRowSink {
 /// record/tuple value (`Val::List`); otherwise the single slot holds the row.
 fn read_set_op_row(slots: &[usize], wrap: bool, f: &Frame) -> Val {
     if wrap {
-        Val::List(slots.iter().map(|&s| f.vals[s].clone()).collect())
+        Val::List(Rc::new(slots.iter().map(|&s| f.vals[s].clone()).collect()))
     } else {
         f.vals[slots[0]].clone()
     }
@@ -602,7 +603,7 @@ impl RowSink for CollectRowSink {
         _r: &mut EvalEnv,
         _f: &mut Frame,
     ) -> Result<Val, MorelError> {
-        Ok(Val::List(self.list.clone()))
+        Ok(Val::List(Rc::new(self.list.clone())))
     }
 }
 
@@ -649,7 +650,8 @@ impl OrderRowSink {
                 self.binding_slots
                     .iter()
                     .map(|&s| f.vals[s].clone())
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into(),
             )
         }
     }
@@ -1110,7 +1112,11 @@ impl RowSink for GroupRowSink {
             f.vals[self.scan_slots[0]].clone()
         } else {
             Val::List(
-                self.scan_slots.iter().map(|&s| f.vals[s].clone()).collect(),
+                self.scan_slots
+                    .iter()
+                    .map(|&s| f.vals[s].clone())
+                    .collect::<Vec<_>>()
+                    .into(),
             )
         };
 
@@ -1129,7 +1135,7 @@ impl RowSink for GroupRowSink {
         // This handles queries like
         // "from e in [] group {} compute count" → [0]
         if self.map.is_empty() && self.key_slots.is_empty() {
-            self.map.insert(Val::List(vec![]), vec![]);
+            self.map.insert(Val::List(Rc::new(vec![])), vec![]);
         }
 
         // For each group, evaluate aggregates and emit.
@@ -1149,7 +1155,7 @@ impl RowSink for GroupRowSink {
 
             // 2. Evaluate the aggregate expression (if present).
             if let Some(agg_code) = &self.aggregate_code {
-                let rows_val = Val::List(rows.clone());
+                let rows_val = Val::List(Rc::new(rows.clone()));
 
                 // Bind 'elements' to rows_val if the aggregate uses it.
                 if let Some(slot) = self.elements_slot {
@@ -1236,7 +1242,8 @@ impl RowSink for ComputeRowSink {
                     self.scan_slots
                         .iter()
                         .map(|&s| f.vals[s].clone())
-                        .collect(),
+                        .collect::<Vec<_>>()
+                        .into(),
                 )
             };
             self.rows.push(row_val);
@@ -1251,7 +1258,7 @@ impl RowSink for ComputeRowSink {
     ) -> Result<Val, MorelError> {
         // Bind 'elements' to the accumulated rows if needed.
         if let Some(slot) = self.elements_slot {
-            f.vals[slot] = Val::List(self.rows.clone());
+            f.vals[slot] = Val::List(Rc::new(self.rows.clone()));
         }
 
         // Evaluate the compute expression once and return the scalar result.

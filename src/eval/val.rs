@@ -100,7 +100,7 @@ pub enum Val {
     Int(i32),
     Order(Order),
     Real(f32),
-    String(String),
+    String(Rc<str>),
     /// `Word(bits)` represents Standard ML's unsigned 64-bit `word` type.
     /// Printed in hexadecimal, e.g. `0wxFF`.
     Word(u64),
@@ -113,7 +113,7 @@ pub enum Val {
     /// `Date.year` use the local broken-down time (`utc_nanos +
     /// offset_secs * 1e9`).
     Date(i64, i32),
-    List(Vec<Val>),
+    List(Rc<Vec<Val>>),
     /// Built-in function.
     Fn(BuiltInFunction),
 
@@ -215,7 +215,7 @@ pub enum Val {
 #[derive(Clone, Debug)]
 pub struct ClosureData {
     pub frame_def: Arc<FrameDef>,
-    pub matches: Vec<(Code, Code)>,
+    pub matches: Arc<[(Code, Code)]>,
     pub bound_vals: Vec<Val>,
     pub no_match: Option<MorelError>,
 }
@@ -292,9 +292,9 @@ impl Val {
         }
     }
 
-    pub(crate) fn expect_string(&self) -> String {
+    pub(crate) fn expect_string(&self) -> &str {
         match self {
-            Val::String(s) => s.clone(),
+            Val::String(s) => s,
             _ => panic!("Expected string"),
         }
     }
@@ -349,7 +349,7 @@ impl Val {
 
     pub(crate) fn maybe_string(&self) -> Option<String> {
         match self {
-            Val::String(s) => Some(s.clone()),
+            Val::String(s) => Some(s.to_string()),
             _ => None,
         }
     }
@@ -485,7 +485,7 @@ impl Display for Val {
             Val::List(l) => {
                 let mut first = true;
                 write!(f, "[")?;
-                for v in l {
+                for v in l.iter() {
                     if first {
                         first = false;
                     } else {

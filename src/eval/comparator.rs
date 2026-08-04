@@ -415,10 +415,7 @@ mod tests {
     fn test_natural_comparator_strings() {
         let cmp = NaturalComparator;
         assert_eq!(
-            cmp.compare(
-                &Val::String("a".to_string()),
-                &Val::String("b".to_string())
-            ),
+            cmp.compare(&Val::String("a".into()), &Val::String("b".into())),
             Ordering::Less
         );
     }
@@ -430,8 +427,8 @@ mod tests {
             Arc::new(NaturalComparator),
         ]);
 
-        let tuple1 = Val::List(vec![Val::Int(1), Val::Int(2)]);
-        let tuple2 = Val::List(vec![Val::Int(1), Val::Int(3)]);
+        let tuple1 = Val::List(Rc::new(vec![Val::Int(1), Val::Int(2)]));
+        let tuple2 = Val::List(Rc::new(vec![Val::Int(1), Val::Int(3)]));
 
         assert_eq!(cmp.compare(&tuple1, &tuple2), Ordering::Less);
     }
@@ -458,8 +455,10 @@ mod tests {
             Rc::new(Type::Primitive(PrimitiveType::String)),
         ]));
 
-        let tuple1 = Val::List(vec![Val::Int(1), Val::String("a".to_string())]);
-        let tuple2 = Val::List(vec![Val::Int(1), Val::String("b".to_string())]);
+        let tuple1 =
+            Val::List(Rc::new(vec![Val::Int(1), Val::String("a".into())]));
+        let tuple2 =
+            Val::List(Rc::new(vec![Val::Int(1), Val::String("b".into())]));
 
         assert_eq!(cmp.compare(&tuple1, &tuple2), Ordering::Less);
     }

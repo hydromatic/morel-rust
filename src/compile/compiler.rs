@@ -1028,7 +1028,7 @@ impl<'a> Compiler<'a> {
                         let inner_pat = Code::BindSlot(inner_frame.clone(), 2);
                         let inner_create = Code::CreateClosure(
                             inner_frame,
-                            vec![(inner_pat, inner_body)],
+                            [(inner_pat, inner_body)].into(),
                             vec![
                                 Code::GetLocal(outer_frame.clone(), 0),
                                 Code::GetLocal(outer_frame.clone(), 1),
@@ -1038,7 +1038,7 @@ impl<'a> Compiler<'a> {
                         let outer_pat = Code::BindSlot(outer_frame.clone(), 1);
                         return Code::CreateClosure(
                             outer_frame,
-                            vec![(outer_pat, inner_create)],
+                            [(outer_pat, inner_create)].into(),
                             vec![cap_code],
                             None,
                         );
@@ -1077,7 +1077,7 @@ impl<'a> Compiler<'a> {
                         let pat = Code::BindSlot(frame_def.clone(), 1);
                         return Code::CreateClosure(
                             frame_def,
-                            vec![(pat, body)],
+                            [(pat, body)].into(),
                             vec![*codes[0].clone()],
                             None,
                         );
@@ -1277,7 +1277,7 @@ impl<'a> Compiler<'a> {
                         let pat = Code::BindSlot(frame_def.clone(), 2);
                         return Code::CreateClosure(
                             frame_def,
-                            vec![(pat, body)],
+                            [(pat, body)].into(),
                             vec![cap1_code, cap2_code],
                             None,
                         );

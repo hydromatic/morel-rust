@@ -32,6 +32,7 @@ use crate::shell::prop::{Prop, PropVal};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use std::fmt::Write;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const NS_PER_SEC: i64 = 1_000_000_000;
@@ -444,7 +445,7 @@ pub(crate) fn make_date(
 /// `Date.toString d`: e.g. `"Wed Dec 31 00:00:00 1969"`.
 pub(crate) fn to_string(utc_nanos: i64, offset_secs: i32) -> Val {
     let b = break_down(utc_nanos, offset_secs);
-    Val::String(format!(
+    Val::String(Rc::from(format!(
         "{} {} {:02} {:02}:{:02}:{:02} {:04}",
         WEEKDAY_NAMES_SHORT[b.weekday as usize],
         MONTH_NAMES_SHORT[(b.month - 1) as usize],
@@ -453,7 +454,7 @@ pub(crate) fn to_string(utc_nanos: i64, offset_secs: i32) -> Val {
         b.minute,
         b.second,
         b.year
-    ))
+    )))
 }
 
 /// `Date.fmt fmt d`: format with strftime-style directives, matching
@@ -466,7 +467,7 @@ pub(crate) fn to_string(utc_nanos: i64, offset_secs: i32) -> Val {
 /// `%` is preserved.
 pub(crate) fn fmt(format: &str, utc_nanos: i64, offset_secs: i32) -> Val {
     let b = break_down(utc_nanos, offset_secs);
-    Val::String(strftime(format, &b))
+    Val::String((strftime(format, &b)).into())
 }
 
 fn strftime(format: &str, b: &Broken) -> String {

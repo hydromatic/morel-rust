@@ -1448,7 +1448,7 @@ mod tests {
     #[test]
     fn test_environment() {
         let mut env = Environment::new();
-        let val = Val::String("42".to_string());
+        let val = Val::String("42".into());
         env.bind("x".to_string(), &val);
         assert_eq!(env.get("x"), Some(&val));
     }

@@ -122,7 +122,7 @@ fn compile_and_run(
 fn error_variant(msg: &str) -> Val {
     variant_of(
         Type::Primitive(PrimitiveType::String),
-        Val::String(msg.to_string()),
+        Val::String((msg.to_string()).into()),
     )
 }
 

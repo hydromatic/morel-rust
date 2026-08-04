@@ -99,12 +99,12 @@ pub(crate) fn fmt(n: i32, v: i64, span: &Span) -> Result<Val, MorelError> {
     if n < 0 {
         return Err(MorelError::Runtime(BuiltInExn::Size, span.clone()));
     }
-    Ok(Val::String(format(n, v)))
+    Ok(Val::String((format(n, v)).into()))
 }
 
 /// `Time.toString t`: equivalent to `fmt 3 t`.
 pub(crate) fn to_string(v: i64) -> Val {
-    Val::String(format(3, v))
+    Val::String((format(3, v)).into())
 }
 
 /// `Time.fromString s`: parse a decimal-seconds string into `time

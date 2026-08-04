@@ -18,6 +18,7 @@
 use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::val::Val;
 use crate::shell::kernel::MorelError;
+use std::rc::Rc;
 
 /// Support for the `Either` structure.
 pub struct Either;
@@ -175,11 +176,13 @@ impl Either {
     ) -> Result<Val, MorelError> {
         match val {
             Val::Inl(v) => {
-                let pair = Val::List(vec![v.as_ref().clone(), init.clone()]);
+                let pair =
+                    Val::List(Rc::new(vec![v.as_ref().clone(), init.clone()]));
                 fl.apply_f1(r, f, &pair)
             }
             Val::Inr(v) => {
-                let pair = Val::List(vec![v.as_ref().clone(), init.clone()]);
+                let pair =
+                    Val::List(Rc::new(vec![v.as_ref().clone(), init.clone()]));
                 fr.apply_f1(r, f, &pair)
             }
             _ => panic!("Expected either value"),
@@ -208,6 +211,9 @@ impl Either {
                 _ => panic!("Expected either value"),
             }
         }
-        Val::List(vec![Val::List(lefts), Val::List(rights)])
+        Val::List(Rc::new(vec![
+            Val::List(Rc::new(lefts)),
+            Val::List(Rc::new(rights)),
+        ]))
     }
 }

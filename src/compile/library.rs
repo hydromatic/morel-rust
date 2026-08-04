@@ -2318,7 +2318,7 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
                                 || f == &BuiltInFunction::BagNil
                             {
                                 // Both List.nil and Bag.nil are empty Val::List
-                                Some(Val::List(Vec::new()))
+                                Some(Val::List(Rc::new(Vec::new())))
                             } else {
                                 None
                             },

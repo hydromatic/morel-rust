@@ -391,15 +391,15 @@ pub fn file_as_val(file: &Rc<File>) -> Val {
                         ParsedField::Int(n) => Val::Int(n),
                         ParsedField::Real(x) => Val::Real(x),
                         ParsedField::Bool(b) => Val::Bool(b),
-                        ParsedField::String(s) => Val::String(s),
+                        ParsedField::String(s) => Val::String((s).into()),
                     });
                 }
-                vals.push(Val::List(fields));
+                vals.push(Val::List(Rc::new(fields)));
             }
             // `row_type` is unused at runtime — kept only to placate
             // the type-resolver. Silence the unused-binding warning.
             let _ = row_type;
-            Val::List(vals)
+            Val::List(Rc::new(vals))
         }
     }
 }

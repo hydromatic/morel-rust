@@ -181,7 +181,7 @@ impl TupleDiscrete {
                     };
                     *slot = extreme?;
                 }
-                return Some(Val::List(result));
+                return Some(Val::List(Rc::new(result)));
             }
         }
         None
@@ -193,7 +193,7 @@ impl TupleDiscrete {
             let x = if min { d.min_value() } else { d.max_value() }?;
             out.push(x);
         }
-        Some(Val::List(out))
+        Some(Val::List(Rc::new(out)))
     }
 }
 
@@ -598,9 +598,12 @@ mod tests {
         assert_eq!(seen.len(), 4);
         assert_eq!(
             seen[0],
-            Val::List(vec![Val::Bool(false), Val::Bool(false)])
+            Val::List(Rc::new(vec![Val::Bool(false), Val::Bool(false)]))
         );
-        assert_eq!(seen[3], Val::List(vec![Val::Bool(true), Val::Bool(true)]));
+        assert_eq!(
+            seen[3],
+            Val::List(Rc::new(vec![Val::Bool(true), Val::Bool(true)]))
+        );
     }
 
     #[test]

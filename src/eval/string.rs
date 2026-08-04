@@ -23,6 +23,7 @@ use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::kernel::MorelError;
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 /// Support for the `string` built-in type and the `String` structure.
 pub struct Str;
@@ -52,7 +53,7 @@ impl Str {
             let result = match func_val {
                 Val::Code(fn_code) => {
                     // User-defined function: apply to tuple
-                    let tuple = Val::List(vec![c1, c2]);
+                    let tuple = Val::List(Rc::new(vec![c1, c2]));
                     fn_code.eval_f1(r, f, &tuple)?
                 }
                 Val::Fn(builtin_fn) => {
@@ -151,7 +152,9 @@ impl Str {
         } else {
             chars.len()
         };
-        Ok(Val::String(chars[start..end].iter().collect()))
+        Ok(Val::String(
+            chars[start..end].iter().collect::<String>().into(),
+        ))
     }
 
     /// Computes the Morel expression `String.fields f s`.
@@ -173,7 +176,7 @@ impl Str {
             if is_delimiter.expect_bool() {
                 // This is a delimiter
                 // Always save the current field (even if empty)
-                fields.push(Val::String(current_field.clone()));
+                fields.push(Val::String((current_field.clone()).into()));
                 current_field.clear();
             } else {
                 // Not a delimiter, add to current field
@@ -182,9 +185,9 @@ impl Str {
         }
 
         // Always add the last field (even if empty)
-        fields.push(Val::String(current_field));
+        fields.push(Val::String((current_field).into()));
 
-        Ok(Val::List(fields))
+        Ok(Val::List(Rc::new(fields)))
     }
 
     /// Computes the Morel expression `String.implode l`.
@@ -232,7 +235,7 @@ impl Str {
                 Ok(result.expect_char())
             })
             .collect();
-        Ok(Val::String(chars?))
+        Ok(Val::String((chars?).into()))
     }
 
     /// Computes the Morel expression `StringCvt.padLeft c i s`. Returns
@@ -278,11 +281,17 @@ impl Str {
         index: i32,
         span: &Span,
     ) -> Result<Val, MorelError> {
-        let chars: Vec<char> = s.chars().collect();
-        if index < 0 || index as usize >= chars.len() {
-            Err(MorelError::Runtime(BuiltInExn::Subscript, span.clone()))
-        } else {
-            Ok(Val::Char(chars[index as usize]))
+        if index < 0 {
+            return Err(MorelError::Runtime(
+                BuiltInExn::Subscript,
+                span.clone(),
+            ));
+        }
+        match s.chars().nth(index as usize) {
+            Some(c) => Ok(Val::Char(c)),
+            None => {
+                Err(MorelError::Runtime(BuiltInExn::Subscript, span.clone()))
+            }
         }
     }
 
@@ -296,18 +305,43 @@ impl Str {
         j: i32,
         span: &Span,
     ) -> Result<Val, MorelError> {
-        let chars: Vec<char> = s.chars().collect();
-        let start = i as usize;
-        let end = (i + j) as usize;
-
-        if i < 0 || j < 0 || end > chars.len() {
+        if i < 0 || j < 0 {
             return Err(MorelError::Runtime(
                 BuiltInExn::Subscript,
                 span.clone(),
             ));
         }
-
-        Ok(Val::String(chars[start..end].iter().collect()))
+        // Walk once to the start, then to the end, slicing rather than
+        // materializing the characters.
+        let mut iter = s.char_indices().skip(i as usize);
+        let start = match iter.next() {
+            Some((b, _)) => b,
+            None if i as usize == s.chars().count() => s.len(),
+            None => {
+                return Err(MorelError::Runtime(
+                    BuiltInExn::Subscript,
+                    span.clone(),
+                ));
+            }
+        };
+        let mut end = start;
+        let mut taken = 0;
+        if j > 0 {
+            for (b, c) in s[start..].char_indices() {
+                if taken == j as usize {
+                    break;
+                }
+                end = start + b + c.len_utf8();
+                taken += 1;
+            }
+        }
+        if taken < j as usize {
+            return Err(MorelError::Runtime(
+                BuiltInExn::Subscript,
+                span.clone(),
+            ));
+        }
+        Ok(Val::String(s[start..end].into()))
     }
 
     /// Computes the Morel expression `String.tokens f s`.
@@ -330,7 +364,7 @@ impl Str {
             if is_delimiter.expect_bool() {
                 // This is a delimiter
                 if !current_token.is_empty() {
-                    tokens.push(Val::String(current_token.clone()));
+                    tokens.push(Val::String((current_token.clone()).into()));
                     current_token.clear();
                 }
             } else {
@@ -341,10 +375,10 @@ impl Str {
 
         // Don't forget the last token if it's non-empty
         if !current_token.is_empty() {
-            tokens.push(Val::String(current_token));
+            tokens.push(Val::String((current_token).into()));
         }
 
-        Ok(Val::List(tokens))
+        Ok(Val::List(Rc::new(tokens)))
     }
 
     /// Computes the Morel expression `String.translate f s`.
@@ -360,8 +394,8 @@ impl Str {
         let mut result = String::new();
         for c in s.chars() {
             let str_val = func.apply_f1(r, f, &Val::Char(c))?;
-            result.push_str(&str_val.expect_string());
+            result.push_str(str_val.expect_string());
         }
-        Ok(Val::String(result))
+        Ok(Val::String((result).into()))
     }
 }

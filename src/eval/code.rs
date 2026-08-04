@@ -247,7 +247,7 @@ pub enum Code {
     /// application of this closure has no matching clause.
     CreateClosure(
         Arc<FrameDef>,
-        Vec<(Code, Code)>,
+        Arc<[(Code, Code)]>,
         Vec<Code>,
         Option<MorelError>,
     ),
@@ -264,7 +264,7 @@ pub enum Code {
     /// pairs until it can bind the argument to a pattern and finally
     /// evaluates the expression. `no_match` is the error to return when
     /// no pattern matches.
-    Fn(Arc<FrameDef>, Vec<(Code, Code)>, Option<MorelError>),
+    Fn(Arc<FrameDef>, Arc<[(Code, Code)]>, Option<MorelError>),
 
     /// `FromRowSink(factory)` evaluates a query using push-based row sinks.
     /// The factory creates a fresh row sink pipeline for each evaluation.
@@ -540,7 +540,7 @@ impl Code {
         }
         Code::CreateClosure(
             frame_def.clone(),
-            pat_expr_codes.to_vec(),
+            pat_expr_codes.into(),
             bind_codes.to_vec(),
             span.map(|s| MorelError::Runtime(BuiltInExn::Match, s)),
         )
@@ -563,7 +563,7 @@ impl Code {
         }
         Code::Fn(
             frame_def.clone(),
-            pat_expr_codes.to_vec(),
+            pat_expr_codes.into(),
             span.map(|s| MorelError::Runtime(BuiltInExn::Match, s)),
         )
     }
@@ -994,7 +994,7 @@ impl Code {
                 for (i, &s) in scan_slots.iter().enumerate() {
                     f.vals[s] = saved[i].clone();
                 }
-                Ok(Val::List(mapped))
+                Ok(Val::List(Rc::new(mapped)))
             }
             Code::Max(cmp, list_code, span) => {
                 let list = list_code.eval_f0(r, f)?;
@@ -1103,7 +1103,7 @@ impl Code {
                 let ranges = ranges_code.eval_f0(r, f)?;
                 let merged = from_ranges(ranges.expect_list(), &*cmp.0, None);
                 Ok(BuiltInFunction::RangeContinuousSet
-                    .constructor_val(Val::List(merged)))
+                    .constructor_val(Val::List(Rc::new(merged))))
             }
             Code::RangeDsComplement(discrete, set_code) => {
                 let set = set_code.eval_f0(r, f)?;
@@ -1118,7 +1118,7 @@ impl Code {
                 };
                 let complemented = complement(ranges, Some(&*discrete.0));
                 Ok(BuiltInFunction::RangeDiscreteSet
-                    .constructor_val(Val::List(complemented)))
+                    .constructor_val(Val::List(Rc::new(complemented))))
             }
             Code::RangeDsOf(cmp, discrete, ranges_code) => {
                 let ranges = ranges_code.eval_f0(r, f)?;
@@ -1128,7 +1128,7 @@ impl Code {
                     Some(&*discrete.0),
                 );
                 Ok(BuiltInFunction::RangeDiscreteSet
-                    .constructor_val(Val::List(merged)))
+                    .constructor_val(Val::List(Rc::new(merged))))
             }
             Code::RangeEnumerate(cmp, discrete, set_code) => {
                 let set = set_code.eval_f0(r, f)?;
@@ -1142,7 +1142,7 @@ impl Code {
                     ),
                 };
                 let out = enumerate_ranges(ranges, &*discrete.0, &*cmp.0);
-                Ok(Val::List(out))
+                Ok(Val::List(Rc::new(out)))
             }
             Code::RangeFlatten(cmp, discrete, list_code) => {
                 let list = list_code.eval_f0(r, f)?;
@@ -1186,7 +1186,7 @@ impl Code {
                         }
                     }
                 }
-                Ok(Val::List(out))
+                Ok(Val::List(Rc::new(out)))
             }
             Code::RecValBindings(items) => {
                 // Phase 1: allocate one cell per binding and pre-bind
@@ -1252,7 +1252,7 @@ impl Code {
                 for code in codes {
                     values.push(code.eval_f0(r, f)?);
                 }
-                Ok(Val::List(values))
+                Ok(Val::List(Rc::new(values)))
             }
             Code::ValidatePartialArg1(func, code, span) => {
                 let v = code.eval_f0(r, f)?;
@@ -1333,7 +1333,7 @@ impl Code {
                 if !head_result.expect_bool() {
                     return Ok(Val::Bool(false));
                 }
-                let tail = Val::List(list[1..].to_vec());
+                let tail = Val::List(Rc::new(list[1..].to_vec()));
                 let tail_result = tail_code.eval_f1(r, f, &tail)?;
                 Ok(tail_result)
             }
@@ -1623,7 +1623,7 @@ fn wrap_collection_elements(elem_type: &Type, value: &Val) -> Val {
             _ => Val::Variant(Box::new((elem_type.clone(), v.clone()))),
         })
         .collect();
-    Val::List(wrapped)
+    Val::List(Rc::new(wrapped))
 }
 
 /// Re-wraps the fields of a RECORD variant value as the list of
@@ -1648,7 +1648,10 @@ fn wrap_record_pairs(inner_type: &Type, value: &Val) -> Option<Val> {
                         v.clone(),
                     ))),
                 };
-                Val::List(vec![Val::String(label.to_string()), inner])
+                Val::List(Rc::new(vec![
+                    Val::String((label.to_string()).into()),
+                    inner,
+                ]))
             })
             .collect(),
         Type::Tuple(types) => types
@@ -1663,13 +1666,16 @@ fn wrap_record_pairs(inner_type: &Type, value: &Val) -> Option<Val> {
                         v.clone(),
                     ))),
                 };
-                Val::List(vec![Val::String((i + 1).to_string()), inner])
+                Val::List(Rc::new(vec![
+                    Val::String(((i + 1).to_string()).into()),
+                    inner,
+                ]))
             })
             .collect(),
         Type::Primitive(PrimitiveType::Unit) => Vec::new(),
         _ => return None,
     };
-    Some(Val::List(pairs))
+    Some(Val::List(Rc::new(pairs)))
 }
 
 fn capture_bound_vals(
@@ -1819,7 +1825,7 @@ impl Display for Code {
             Self::Fn(_, matches, _) => {
                 write!(f, "fn(")?;
                 let mut first = true;
-                for (pat, expr) in matches {
+                for (pat, expr) in matches.iter() {
                     if first {
                         first = false;
                     } else {
@@ -2274,7 +2280,7 @@ impl Eager0 {
             IntMaxInt => Val::Some(Box::new(Val::Int(i32::MAX))),
             IntMinInt => Val::Some(Box::new(Val::Int(i32::MIN))),
             IntPrecision => Val::Some(Box::new(Val::Int(32))),
-            ListNil => Val::List(vec![]),
+            ListNil => Val::List(Rc::new(vec![])),
             MathE => Val::Real(Math::E),
             MathPi => Val::Real(Math::PI),
             MonthApr => BuiltInFunction::MonthApr.nullary_constructor_val(),
@@ -2390,26 +2396,26 @@ impl EagerF0 {
                     .iter()
                     .map(|scheme| {
                         let s = |c: Category| {
-                            Val::String(scheme.spec(c).to_string())
+                            Val::String((scheme.spec(c).to_string()).into())
                         };
-                        Val::List(vec![
+                        Val::List(Rc::new(vec![
                             s(Category::Comment),
                             s(Category::Constant),
                             s(Category::Error),
                             s(Category::Identifier),
                             s(Category::Keyword),
-                            Val::String(scheme.name.to_string()),
+                            Val::String((scheme.name.to_string()).into()),
                             s(Category::Numeric),
                             s(Category::String),
                             s(Category::Symbol),
                             s(Category::TypeVar),
-                        ])
+                        ]))
                     })
                     .collect();
-                Val::List(vals)
+                Val::List(Rc::new(vals))
             }
             SysDeduceColorScheme => {
-                Val::String(r.session.color_scheme().name.to_string())
+                Val::String((r.session.color_scheme().name.to_string()).into())
             }
             SysEnv => {
                 // Return a list of (name, type) pairs for all variables in
@@ -2468,10 +2474,13 @@ impl EagerF0 {
                 let vals: Vec<Val> = pairs
                     .into_iter()
                     .map(|(name, ty)| {
-                        Val::List(vec![Val::String(name), Val::String(ty)])
+                        Val::List(Rc::new(vec![
+                            Val::String((name).into()),
+                            Val::String((ty).into()),
+                        ]))
                     })
                     .collect();
-                Val::List(vals)
+                Val::List(Rc::new(vals))
             }
             // Returns the session's progressive root `File`, cached
             // so successive references share state and accumulated
@@ -2489,7 +2498,7 @@ impl EagerF0 {
                 } else {
                     "".to_string()
                 };
-                Val::String(s)
+                Val::String((s).into())
             }
             SysShowAll => {
                 // Return a list of (property_name, SOME value | NONE) pairs.
@@ -2500,18 +2509,25 @@ impl EagerF0 {
                         let name = prop.camel_name().to_string();
                         let value = if prop.is_required() {
                             let val = r.session.config.get(*prop);
-                            Val::Some(Box::new(Val::String(val.to_string())))
+                            Val::Some(Box::new(Val::String(
+                                (val.to_string()).into(),
+                            )))
                         } else if let Some(val) =
                             r.session.config.get_optional(*prop)
                         {
-                            Val::Some(Box::new(Val::String(val.to_string())))
+                            Val::Some(Box::new(Val::String(
+                                (val.to_string()).into(),
+                            )))
                         } else {
                             Val::Unit // NONE is represented as Unit
                         };
-                        Val::List(vec![Val::String(name), value])
+                        Val::List(Rc::new(vec![
+                            Val::String((name).into()),
+                            value,
+                        ]))
                     })
                     .collect();
-                Val::List(vals)
+                Val::List(Rc::new(vals))
             }
             TimeNow => time::now(r.session),
         }
@@ -2620,7 +2636,7 @@ impl EagerF1 {
                     .directory
                     .as_ref()
                     .map(|d| d.as_path().to_path_buf());
-                Ok(datalog_execute(&a0.expect_string(), dir.as_deref()))
+                Ok(datalog_execute(a0.expect_string(), dir.as_deref()))
             }
             DatalogValidate => {
                 let dir = r
@@ -2629,10 +2645,10 @@ impl EagerF1 {
                     .directory
                     .as_ref()
                     .map(|d| d.as_path().to_path_buf());
-                Ok(Val::String(datalog_validate(
-                    &a0.expect_string(),
-                    dir.as_deref(),
-                )))
+                Ok(Val::String(
+                    (datalog_validate(a0.expect_string(), dir.as_deref()))
+                        .into(),
+                ))
             }
             DateDate => {
                 date::make_date(a0.expect_list(), span.unwrap(), r.session)
@@ -2654,13 +2670,13 @@ impl EagerF1 {
             InteractUse => {
                 let path = a0.expect_string();
                 r.emit_effect(Effect::EmitLine(format!("[opening {}]", path)));
-                r.emit_effect(Effect::UseFile(path, false));
+                r.emit_effect(Effect::UseFile(path.to_string(), false));
                 Ok(Val::Unit)
             }
             InteractUseSilently => {
                 let path = a0.expect_string();
                 r.emit_effect(Effect::EmitLine(format!("[opening {}]", path)));
-                r.emit_effect(Effect::UseFile(path, true));
+                r.emit_effect(Effect::UseFile(path.to_string(), true));
                 Ok(Val::Unit)
             }
             ListHd => List::hd(a0.expect_list(), span.unwrap()),
@@ -2683,10 +2699,12 @@ impl EagerF1 {
                 // input round-trips to "()". A parse error raises `Fail`.
                 let source = a0.expect_string();
                 if source.trim().is_empty() {
-                    Ok(Val::String("()".to_string()))
+                    Ok(Val::String(("()".to_string()).into()))
                 } else {
-                    match parse_statement(&source) {
-                        Ok(stmt) => Ok(Val::String(ast_dumper_dump(&stmt))),
+                    match parse_statement(source) {
+                        Ok(stmt) => {
+                            Ok(Val::String((ast_dumper_dump(&stmt)).into()))
+                        }
                         Err(_) => Err(MorelError::Runtime(
                             BuiltInExn::Fail,
                             span.unwrap().clone(),
@@ -2724,19 +2742,23 @@ impl EagerF1 {
                         .map(|d| format!("{}", d))
                         .unwrap_or_default(),
                 };
-                Ok(Val::String(s))
+                Ok(Val::String((s).into()))
             }
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
-                let result = if let Some(prop) = Prop::lookup(&prop_name) {
+                let result = if let Some(prop) = Prop::lookup(prop_name) {
                     if prop.is_required() {
                         let val = r.session.config.get(prop);
-                        Val::Some(Box::new(Val::String(val.to_string())))
+                        Val::Some(Box::new(Val::String(
+                            (val.to_string()).into(),
+                        )))
                     } else if let Some(val) =
                         r.session.config.get_optional(prop)
                     {
-                        Val::Some(Box::new(Val::String(val.to_string())))
+                        Val::Some(Box::new(Val::String(
+                            (val.to_string()).into(),
+                        )))
                     } else {
                         Val::Unit // NONE is represented as Unit
                     }
@@ -2747,7 +2769,7 @@ impl EagerF1 {
             }
             SysUnset => {
                 let prop = a0.expect_string();
-                r.emit_effect(Effect::UnsetShellProp(prop));
+                r.emit_effect(Effect::UnsetShellProp(prop.to_string()));
                 Ok(Val::Unit)
             }
             TimeFromReal => time::from_real(a0.expect_real(), span.unwrap()),
@@ -2972,18 +2994,20 @@ impl Eager1 {
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
             Bag => a0, // as BagFromList
-            BagConcat => Val::List(List::concat(a0.expect_list())),
+            BagConcat => Val::List(Rc::new(List::concat(a0.expect_list()))),
             BagFromList => a0, // Already a Val::List
             BagGetItem => List::get_item(a0.expect_list()),
             BagLength => Val::Int(List::length(a0.expect_list())),
             BagNull => Val::Bool(List::null(a0.expect_list())),
             BagToList => a0, // Already a Val::List
-            BoolFromString => Bool::from_string(&a0.expect_string()),
+            BoolFromString => Bool::from_string(a0.expect_string()),
             BoolNot => Val::Bool(Bool::not(a0.expect_bool())),
-            BoolToString => Val::String(Bool::to_string(a0.expect_bool())),
-            CharFromCString => Char::from_c_string(&a0.expect_string()),
+            BoolToString => {
+                Val::String((Bool::to_string(a0.expect_bool())).into())
+            }
+            CharFromCString => Char::from_c_string(a0.expect_string()),
             CharFromInt => Char::from_int(a0.expect_int()),
-            CharFromString => Char::from_string(&a0.expect_string()),
+            CharFromString => Char::from_string(a0.expect_string()),
             CharIsAlpha => Val::Bool(Char::is_alpha(a0.expect_char())),
             CharIsAlphaNum => Val::Bool(Char::is_alpha_num(a0.expect_char())),
             CharIsAscii => Val::Bool(Char::is_ascii(a0.expect_char())),
@@ -2998,19 +3022,23 @@ impl Eager1 {
             CharIsSpace => Val::Bool(Char::is_space(a0.expect_char())),
             CharIsUpper => Val::Bool(Char::is_upper(a0.expect_char())),
             CharOrd => Val::Int(Char::ord(a0.expect_char())),
-            CharToCString => Val::String(Char::to_c_string(a0.expect_char())),
+            CharToCString => {
+                Val::String((Char::to_c_string(a0.expect_char())).into())
+            }
             CharToLower => Val::Char(Char::to_lower(a0.expect_char())),
-            CharToString => Val::String(Char::to_string(a0.expect_char())),
+            CharToString => {
+                Val::String((Char::to_string(a0.expect_char())).into())
+            }
             CharToUpper => Val::Char(Char::to_upper(a0.expect_char())),
-            DatalogTranslate => match datalog_translate(&a0.expect_string()) {
-                Some(s) => Val::Some(Box::new(Val::String(s))),
+            DatalogTranslate => match datalog_translate(a0.expect_string()) {
+                Some(s) => Val::Some(Box::new(Val::String((s).into()))),
                 None => Val::Unit,
             },
             DateDay => {
                 let (n, o) = a0.expect_date();
                 date::day(n, o)
             }
-            DateFromString => date::from_string(&a0.expect_string()),
+            DateFromString => date::from_string(a0.expect_string()),
             DateFromTimeUniv => date::from_time_univ(a0.expect_time()),
             DateHour => {
                 let (n, o) = a0.expect_date();
@@ -3074,16 +3102,16 @@ impl Eager1 {
                 } else {
                     exn.to_string()
                 };
-                Val::String(message)
+                Val::String((message).into())
             }
             GeneralExnName => {
                 let (exn, _) = exn_from_val(&a0);
-                Val::String(exn.to_string())
+                Val::String((exn.to_string()).into())
             }
             GeneralIgnore => Val::Unit,
             IntFromInt => a0,
             IntFromLarge => a0,
-            IntFromString => match Int::from_string(&a0.expect_string()) {
+            IntFromString => match Int::from_string(a0.expect_string()) {
                 Some(n) => Val::Some(Box::new(Val::Int(n))),
                 None => Val::Unit,
             },
@@ -3091,15 +3119,19 @@ impl Eager1 {
             IntSign => Val::Int(Int::sign(a0.expect_int())),
             IntToInt => a0,
             IntToLarge => a0,
-            IntToString => Val::String(Int::_to_string(a0.expect_int())),
+            IntToString => {
+                Val::String((Int::_to_string(a0.expect_int())).into())
+            }
             LPUnzip => ListPair::unzip(a0.expect_list()),
-            ListConcat => Val::List(List::concat(a0.expect_list())),
-            ListExcept => Val::List(List::except(a0.expect_list())),
+            ListConcat => Val::List(Rc::new(List::concat(a0.expect_list()))),
+            ListExcept => Val::List(Rc::new(List::except(a0.expect_list()))),
             ListGetItem => List::get_item(a0.expect_list()),
-            ListIntersect => Val::List(List::intersect(a0.expect_list())),
+            ListIntersect => {
+                Val::List(Rc::new(List::intersect(a0.expect_list())))
+            }
             ListLength => Val::Int(List::length(a0.expect_list())),
             ListNull => Val::Bool(List::null(a0.expect_list())),
-            ListRev => Val::List(List::rev(a0.expect_list())),
+            ListRev => Val::List(Rc::new(List::rev(a0.expect_list()))),
             MathAcos => Val::Real(Math::acos(a0.expect_real())),
             MathAsin => Val::Real(Math::asin(a0.expect_real())),
             MathAtan => Val::Real(Math::atan(a0.expect_real())),
@@ -3140,7 +3172,7 @@ impl Eager1 {
             PpHsep => Val::Doc(Rc::new(lindig::hsep(a0.expect_doc_list()))),
             PpParens => Val::Doc(Rc::new(lindig::parens(a0.expect_doc()))),
             PpSep => Val::Doc(Rc::new(lindig::sep(a0.expect_doc_list()))),
-            PpText => Val::Doc(Rc::new(lindig::text(&a0.expect_string()))),
+            PpText => Val::Doc(Rc::new(lindig::text(a0.expect_string()))),
             PpVcat => Val::Doc(Rc::new(lindig::vcat(a0.expect_doc_list()))),
             PpVsep => Val::Doc(Rc::new(lindig::vsep(a0.expect_doc_list()))),
             RangeAtLeast => BuiltInFunction::RangeAtLeast.constructor_val(a0),
@@ -3166,7 +3198,7 @@ impl Eager1 {
                 };
                 let complemented = complement(&inner, None);
                 BuiltInFunction::RangeContinuousSet
-                    .constructor_val(Val::List(complemented))
+                    .constructor_val(Val::List(Rc::new(complemented)))
             }
             RangeCsOf => {
                 // Fallback when the compiler did not intercept the
@@ -3177,7 +3209,7 @@ impl Eager1 {
                 let merged =
                     from_ranges(a0.expect_list(), &NaturalComparator, None);
                 BuiltInFunction::RangeContinuousSet
-                    .constructor_val(Val::List(merged))
+                    .constructor_val(Val::List(Rc::new(merged)))
             }
             RangeCsRanges => {
                 // `ranges : 'a continuous_set -> 'a range list`. The
@@ -3252,7 +3284,7 @@ impl Eager1 {
             }
             RealAbs => Val::Real(Real::abs(a0.expect_real())),
             RealFromInt => Val::Real(Real::from_int(a0.expect_int())),
-            RealFromString => Real::from_string(&a0.expect_string()),
+            RealFromString => Real::from_string(a0.expect_string()),
             RealIsFinite => Val::Bool(Real::is_finite(a0.expect_real())),
             RealIsNan => Val::Bool(Real::is_nan(a0.expect_real())),
             RealIsNormal => Val::Bool(Real::is_normal(a0.expect_real())),
@@ -3265,7 +3297,9 @@ impl Eager1 {
             RealSignBit => Val::Bool(Real::sign_bit(a0.expect_real())),
             RealSplit => Real::split(a0.expect_real()),
             RealToManExp => Real::to_man_exp(a0.expect_real()),
-            RealToString => Val::String(Real::to_string(a0.expect_real())),
+            RealToString => {
+                Val::String((Real::to_string(a0.expect_real())).into())
+            }
             RelationalCount => Val::Int(a0.expect_list().len() as i32),
             RelationalEmpty => Val::Bool(a0.expect_list().is_empty()),
             RelationalNonEmpty => Val::Bool(!a0.expect_list().is_empty()),
@@ -3281,7 +3315,7 @@ impl Eager1 {
             }
             StringConcat => {
                 let strings = a0.expect_list();
-                Val::String(Str::concat(strings))
+                Val::String((Str::concat(strings)).into())
             }
             StringCvtRealfmtFix => {
                 BuiltInFunction::StringCvtRealfmtFix.constructor_val(a0)
@@ -3294,16 +3328,16 @@ impl Eager1 {
             }
             StringExplode => {
                 let s = a0.expect_string();
-                Val::List(Str::explode(&s))
+                Val::List(Rc::new(Str::explode(s)))
             }
             StringImplode => {
                 let chars = a0.expect_list();
-                Val::String(Str::implode(chars))
+                Val::String((Str::implode(chars)).into())
             }
             StringSize => Val::Int(a0.expect_string().len() as i32),
             StringStr => {
                 let c = a0.expect_char();
-                Val::String(c.to_string())
+                Val::String((c.to_string()).into())
             }
             TestBagSum | TestListSum | TestOverSum => {
                 // Sum the (numeric) collection, like `Relational.sum`.
@@ -3321,7 +3355,7 @@ impl Eager1 {
             TimeFromMilliseconds => time::from_milliseconds(a0.expect_int()),
             TimeFromNanoseconds => time::from_nanoseconds(a0.expect_int()),
             TimeFromSeconds => time::from_seconds(a0.expect_int()),
-            TimeFromString => time::from_string(&a0.expect_string()),
+            TimeFromString => time::from_string(a0.expect_string()),
             TimeToMicroseconds => time::to_microseconds(a0.expect_time()),
             TimeToMilliseconds => time::to_milliseconds(a0.expect_time()),
             TimeToNanoseconds => time::to_nanoseconds(a0.expect_time()),
@@ -3370,7 +3404,7 @@ impl Eager1 {
             // `Word.fromInt`/`fromLargeInt`: sign-extend the 32-bit int to
             // the 64-bit word.
             WordFromInt => Val::Word(a0.expect_int() as i64 as u64),
-            WordFromString => match word::from_string(&a0.expect_string()) {
+            WordFromString => match word::from_string(a0.expect_string()) {
                 Some(w) => Val::Some(Box::new(Val::Word(w))),
                 None => Val::Unit,
             },
@@ -3382,7 +3416,9 @@ impl Eager1 {
             // `Word.toInt`/`toIntX`/`toLargeInt`/`toLargeIntX`: truncate to
             // the low 32 bits, as morel-java's `(int)(long) w`.
             WordToInt => Val::Int(a0.expect_word() as i32),
-            WordToString => Val::String(word::to_string(a0.expect_word())),
+            WordToString => {
+                Val::String((word::to_string(a0.expect_word())).into())
+            }
         }
     }
 
@@ -3526,9 +3562,10 @@ impl Eager2 {
 
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
-            BagAt => {
-                Val::List(List::append(a0.expect_list(), a1.expect_list()))
-            }
+            BagAt => Val::List(Rc::new(List::append(
+                a0.expect_list(),
+                a1.expect_list(),
+            ))),
             BoolAndAlso => Val::Bool(a0.expect_bool() && a1.expect_bool()),
             BoolEq => Val::Bool(a0.expect_bool() == a1.expect_bool()),
             BoolGt => Val::Bool(a0.expect_bool() & !a1.expect_bool()),
@@ -3542,7 +3579,7 @@ impl Eager2 {
                 Val::Order(Char::compare(a0.expect_char(), a1.expect_char()))
             }
             CharContains => {
-                Val::Bool(Char::contains(&a0.expect_string(), a1.expect_char()))
+                Val::Bool(Char::contains(a0.expect_string(), a1.expect_char()))
             }
             CharEq => Val::Bool(a0.expect_char() == a1.expect_char()),
             CharGe => Val::Bool(a0.expect_char() >= a1.expect_char()),
@@ -3551,7 +3588,7 @@ impl Eager2 {
             CharLt => Val::Bool(a0.expect_char() < a1.expect_char()),
             CharNe => Val::Bool(a0.expect_char() != a1.expect_char()),
             CharNotContains => Val::Bool(Char::not_contains(
-                &a0.expect_string(),
+                a0.expect_string(),
                 a1.expect_char(),
             )),
             DateCompare => {
@@ -3561,7 +3598,7 @@ impl Eager2 {
             }
             DateFmt => {
                 let (n, o) = a1.expect_date();
-                date::fmt(&a0.expect_string(), n, o)
+                date::fmt(a0.expect_string(), n, o)
             }
             FnConst => a0,
             FnEqual => Val::Bool(a0 == a1),
@@ -3573,7 +3610,7 @@ impl Eager2 {
             }
             IntDiv => Val::Int(Int::div(a0.expect_int(), a1.expect_int())),
             IntEq => Val::Bool(a0.expect_int() == a1.expect_int()),
-            IntFmt => Val::String(Int::fmt(&a0, a1.expect_int())),
+            IntFmt => Val::String((Int::fmt(&a0, a1.expect_int())).into()),
             IntGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
             IntGt => Val::Bool(a0.expect_int() > a1.expect_int()),
             IntLe => Val::Bool(a0.expect_int() <= a1.expect_int()),
@@ -3601,15 +3638,17 @@ impl Eager2 {
             }
             IntTimes => Val::Int(a0.expect_int() * a1.expect_int()),
             LPZip => ListPair::zip(a0.expect_list(), a1.expect_list()),
-            ListAt => {
-                Val::List(List::append(a0.expect_list(), a1.expect_list()))
-            }
-            ListCons => Val::List(List::cons(&a0, a1.expect_list())),
+            ListAt => Val::List(Rc::new(List::append(
+                a0.expect_list(),
+                a1.expect_list(),
+            ))),
+            ListCons => Val::List(Rc::new(List::cons(&a0, a1.expect_list()))),
             ListElem => Val::Bool(a1.expect_list().iter().any(|x| x == &a0)),
             ListNotElem => Val::Bool(a1.expect_list().iter().all(|x| x != &a0)),
-            ListRevAppend => {
-                Val::List(List::rev_append(a0.expect_list(), a1.expect_list()))
-            }
+            ListRevAppend => Val::List(Rc::new(List::rev_append(
+                a0.expect_list(),
+                a1.expect_list(),
+            ))),
             MathAtan2 => {
                 let y = a0.expect_real();
                 let x = a1.expect_real();
@@ -3641,11 +3680,12 @@ impl Eager2 {
                 lindig::punctuate(&a0.expect_doc(), a1.expect_doc_list())
                     .into_iter()
                     .map(|d| Val::Doc(Rc::new(d)))
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into(),
             ),
-            PpRender => {
-                Val::String(lindig::render(a0.expect_int(), a1.expect_doc()))
-            }
+            PpRender => Val::String(
+                (lindig::render(a0.expect_int(), a1.expect_doc())).into(),
+            ),
             RangeContains => {
                 Val::Bool(range_contains(&NaturalComparator, &a0, &a1))
             }
@@ -3654,7 +3694,7 @@ impl Eager2 {
             }
             RealDivide => Val::Real(a0.expect_real() / a1.expect_real()),
             RealEq => Val::Bool(a0.expect_real() == a1.expect_real()),
-            RealFmt => Val::String(Real::fmt(&a0, a1.expect_real())),
+            RealFmt => Val::String((Real::fmt(&a0, a1.expect_real())).into()),
             RealFromManExp => {
                 // Type: {exp:int, man:real} -> real
                 // Record fields are passed in order: a0 = exp, a1 = man
@@ -3678,29 +3718,28 @@ impl Eager2 {
                 Val::Bool(Real::unordered(a0.expect_real(), a1.expect_real()))
             }
             RelationalCompare => Relational::compare(&a0, &a1),
-            StringCaret => Val::String(format!(
+            StringCaret => Val::String(Rc::from(format!(
                 "{}{}",
                 a0.expect_string(),
                 a1.expect_string()
-            )),
-            StringCompare => Val::Order(Str::compare(
-                &a0.expect_string(),
-                &a1.expect_string(),
-            )),
+            ))),
+            StringCompare => {
+                Val::Order(Str::compare(a0.expect_string(), a1.expect_string()))
+            }
             StringEq => Val::Bool(a0.expect_string() == a1.expect_string()),
             StringGe => Val::Bool(a0.expect_string() >= a1.expect_string()),
             StringGt => Val::Bool(a0.expect_string() > a1.expect_string()),
             StringIsPrefix => Val::Bool(Str::is_prefix(
-                &a0.expect_string(),
-                &a1.expect_string(),
+                a0.expect_string(),
+                a1.expect_string(),
             )),
             StringIsSubstring => Val::Bool(Str::is_substring(
-                &a0.expect_string(),
-                &a1.expect_string(),
+                a0.expect_string(),
+                a1.expect_string(),
             )),
             StringIsSuffix => Val::Bool(Str::is_suffix(
-                &a0.expect_string(),
-                &a1.expect_string(),
+                a0.expect_string(),
+                a1.expect_string(),
             )),
             StringLe => Val::Bool(a0.expect_string() <= a1.expect_string()),
             StringLt => Val::Bool(a0.expect_string() < a1.expect_string()),
@@ -3728,7 +3767,7 @@ impl Eager2 {
                 Val::Order(Order(a0.expect_word().cmp(&a1.expect_word())))
             }
             WordDiv => Val::Word(a0.expect_word() / a1.expect_word()),
-            WordFmt => Val::String(word::fmt(&a0, a1.expect_word())),
+            WordFmt => Val::String((word::fmt(&a0, a1.expect_word())).into()),
             WordMax => Val::Word(a0.expect_word().max(a1.expect_word())),
             WordMin => Val::Word(a0.expect_word().min(a1.expect_word())),
             WordMod => Val::Word(a0.expect_word() % a1.expect_word()),
@@ -3929,8 +3968,10 @@ impl EagerF2 {
             // Result is f (a, b).
             FnFlip => {
                 let tuple = a1.expect_list();
-                let swapped =
-                    Val::List(vec![tuple[1].clone(), tuple[0].clone()]);
+                let swapped = Val::List(Rc::new(vec![
+                    tuple[1].clone(),
+                    tuple[0].clone(),
+                ]));
                 a0.apply_f1(r, f, &swapped)
             }
             // Fn.o (f, g) x — curried 2-arg: a0 = (f, g), a1 = x.
@@ -4082,10 +4123,10 @@ impl EagerF2 {
                 let mut list: Vec<Val> = a0.expect_list().to_vec();
                 let mut new_list: Vec<Val> = list.clone();
                 loop {
-                    let pair = Val::List(vec![
-                        Val::List(list.clone()),
-                        Val::List(new_list.clone()),
-                    ]);
+                    let pair = Val::List(Rc::new(vec![
+                        Val::List(Rc::new(list.clone())),
+                        Val::List(Rc::new(new_list.clone())),
+                    ]));
                     let next = a1.apply_f1(r, f, &pair)?;
                     let next_vec = next.expect_list().to_vec();
                     let mut genuinely_new: Vec<Val> = Vec::new();
@@ -4095,7 +4136,7 @@ impl EagerF2 {
                         }
                     }
                     if genuinely_new.is_empty() {
-                        return Ok(Val::List(list));
+                        return Ok(Val::List(Rc::new(list)));
                     }
                     list.extend(genuinely_new.iter().cloned());
                     new_list = genuinely_new;
@@ -4108,36 +4149,36 @@ impl EagerF2 {
                 }
                 let s1 = tuple[0].expect_string();
                 let s2 = tuple[1].expect_string();
-                Ok(Val::Order(Str::collate(r, f, &a0, &s1, &s2)?))
+                Ok(Val::Order(Str::collate(r, f, &a0, s1, s2)?))
             }
             StringConcatWith => {
                 let sep = a0.expect_string();
                 let strings = a1.expect_list();
-                Ok(Val::String(Str::concat_with(&sep, strings)))
+                Ok(Val::String((Str::concat_with(sep, strings)).into()))
             }
             StringFields => {
                 let s = a1.expect_string();
-                Str::fields(r, f, &a0, &s)
+                Str::fields(r, f, &a0, s)
             }
             StringMap => {
                 let s = a1.expect_string();
-                Str::map(r, f, &a0, &s)
+                Str::map(r, f, &a0, s)
             }
             StringSub => {
-                Str::sub(&a0.expect_string(), a1.expect_int(), span.unwrap())
+                Str::sub(a0.expect_string(), a1.expect_int(), span.unwrap())
             }
             StringTokens => {
                 let s = a1.expect_string();
-                Str::tokens(r, f, &a0, &s)
+                Str::tokens(r, f, &a0, s)
             }
             StringTranslate => {
                 let s = a1.expect_string();
-                Str::translate(r, f, &a0, &s)
+                Str::translate(r, f, &a0, s)
             }
             SysSet => {
                 let prop = a0.expect_string();
                 let val = a1;
-                r.emit_effect(Effect::SetShellProp(prop, val));
+                r.emit_effect(Effect::SetShellProp(prop.to_string(), val));
                 Ok(Val::Unit)
             }
             TimeFmt => {
@@ -4248,7 +4289,7 @@ impl EagerF3 {
             }
             // Fn.curry f x y: a0 = f, a1 = x, a2 = y. Result is f (x, y).
             FnCurry => {
-                let tuple = Val::List(vec![a1, a2]);
+                let tuple = Val::List(Rc::new(vec![a1, a2]));
                 a0.apply_f1(r, f, &tuple)
             }
             // Fn.repeat n f x: a0 = n, a1 = f, a2 = x. Apply f to x n times.
@@ -4323,10 +4364,10 @@ impl EagerF3 {
                     Val::Some(v) => Some(v.expect_int()),
                     _ => panic!("Expected int option"),
                 };
-                Str::extract(&s, i, j, span.unwrap())
+                Str::extract(s, i, j, span.unwrap())
             }
             StringSubstring => Str::substring(
-                &a0.expect_string(),
+                a0.expect_string(),
                 a1.expect_int(),
                 a2.expect_int(),
                 span.unwrap(),
@@ -4402,16 +4443,22 @@ impl Eager3 {
 
         match self {
             // lint: sort until '#}' where '##[A-Z]'
-            StringCvtPadLeft => Val::String(Str::pad_left(
-                a0.expect_char(),
-                a1.expect_int(),
-                a2.expect_string(),
-            )),
-            StringCvtPadRight => Val::String(Str::pad_right(
-                a0.expect_char(),
-                a1.expect_int(),
-                a2.expect_string(),
-            )),
+            StringCvtPadLeft => Val::String(
+                (Str::pad_left(
+                    a0.expect_char(),
+                    a1.expect_int(),
+                    a2.expect_string().to_string(),
+                ))
+                .into(),
+            ),
+            StringCvtPadRight => Val::String(
+                (Str::pad_right(
+                    a0.expect_char(),
+                    a1.expect_int(),
+                    a2.expect_string().to_string(),
+                ))
+                .into(),
+            ),
         }
     }
 
@@ -5299,7 +5346,7 @@ fn exn_from_val(value: &Val) -> (BuiltInExn, Option<String>) {
             .unwrap_or_else(|_| panic!("unknown exn constructor: {}", name));
         let payload = if exn == BuiltInExn::Fail {
             match inner.as_ref() {
-                Val::String(s) => Some(s.clone()),
+                Val::String(s) => Some(s.to_string()),
                 _ => None,
             }
         } else {
@@ -5411,7 +5458,7 @@ impl LibBuilder {
                 name_types.insert(Label::String(n.clone()), Rc::clone(t));
             }
             let t = intern(Type::Record(false, name_types.clone()));
-            structure_map.insert(*r, (t, Val::List(vals)));
+            structure_map.insert(*r, (t, Val::List(Rc::new(vals))));
         }
 
         // Inject the `scott` sample database. It is a structure (record)
@@ -5508,18 +5555,18 @@ fn build_scott() -> (Type, Val) {
     // depts data: 4 rows. Each row is alphabetical by field name:
     // deptno, dname, loc.
     let dept = |deptno: i32, dname: &str, loc: &str| -> Val {
-        Val::List(vec![
+        Val::List(Rc::new(vec![
             Val::Int(deptno),
-            Val::String(dname.to_string()),
-            Val::String(loc.to_string()),
-        ])
+            Val::String((dname.to_string()).into()),
+            Val::String((loc.to_string()).into()),
+        ]))
     };
-    let depts = Val::List(vec![
+    let depts = Val::List(Rc::new(vec![
         dept(10, "ACCOUNTING", "NEW YORK"),
         dept(20, "RESEARCH", "DALLAS"),
         dept(30, "SALES", "CHICAGO"),
         dept(40, "OPERATIONS", "BOSTON"),
-    ]);
+    ]));
 
     // Schema for one row of `emps`: {comm:real, deptno:int, empno:int,
     // ename:string, hiredate:string, job:string, mgr:int, sal:real}
@@ -5572,18 +5619,18 @@ fn build_scott() -> (Type, Val) {
                mgr: i32,
                sal: f32|
      -> Val {
-        Val::List(vec![
+        Val::List(Rc::new(vec![
             Val::Real(comm),
             Val::Int(deptno),
             Val::Int(empno),
-            Val::String(ename.to_string()),
-            Val::String(hiredate.to_string()),
-            Val::String(job.to_string()),
+            Val::String((ename.to_string()).into()),
+            Val::String((hiredate.to_string()).into()),
+            Val::String((job.to_string()).into()),
             Val::Int(mgr),
             Val::Real(sal),
-        ])
+        ]))
     };
-    let emps = Val::List(vec![
+    let emps = Val::List(Rc::new(vec![
         emp(0.0, 20, 7369, "SMITH", "1980-12-17", "CLERK", 7902, 800.0),
         emp(
             300.0,
@@ -5670,7 +5717,7 @@ fn build_scott() -> (Type, Val) {
         emp(0.0, 30, 7900, "JAMES", "1981-12-03", "CLERK", 7698, 950.0),
         emp(0.0, 20, 7902, "FORD", "1981-12-03", "ANALYST", 7566, 3000.0),
         emp(0.0, 10, 7934, "MILLER", "1982-01-23", "CLERK", 7782, 1300.0),
-    ]);
+    ]));
 
     // Schema for one row of `salgrades`: {grade:int, hisal:real, losal:real}
     let salgrade_fields: BTreeMap<Label, Rc<Type>> = [
@@ -5691,15 +5738,19 @@ fn build_scott() -> (Type, Val) {
     .collect();
     let salgrade_row_type = Type::Record(false, salgrade_fields);
     let salgrade = |grade: i32, hisal: f32, losal: f32| -> Val {
-        Val::List(vec![Val::Int(grade), Val::Real(hisal), Val::Real(losal)])
+        Val::List(Rc::new(vec![
+            Val::Int(grade),
+            Val::Real(hisal),
+            Val::Real(losal),
+        ]))
     };
-    let salgrades = Val::List(vec![
+    let salgrades = Val::List(Rc::new(vec![
         salgrade(1, 1200.0, 700.0),
         salgrade(2, 1400.0, 1201.0),
         salgrade(3, 2000.0, 1401.0),
         salgrade(4, 3000.0, 2001.0),
         salgrade(5, 9999.0, 3001.0),
-    ]);
+    ]));
 
     // The outer record. Field order must be alphabetical: bonuses, depts,
     // emps, salgrades.
@@ -5724,11 +5775,11 @@ fn build_scott() -> (Type, Val) {
     .into_iter()
     .collect();
     let scott_type = Type::Record(false, scott_fields);
-    let scott_val = Val::List(vec![
-        Val::List(vec![]), // bonuses (empty bag)
+    let scott_val = Val::List(Rc::new(vec![
+        Val::List(Rc::new(vec![])), // bonuses (empty bag)
         depts,
         emps,
         salgrades,
-    ]);
+    ]));
     (scott_type, scott_val)
 }

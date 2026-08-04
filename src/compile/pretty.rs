@@ -605,7 +605,7 @@ impl Pretty {
                     // `["TyCon", arg]` (e.g. a synthetic constructor).
                     let ty_con_name = list[0].expect_string();
                     if list.len() < 2 {
-                        text(&ty_con_name)
+                        text(ty_con_name)
                     } else {
                         let arg = &list[1];
                         let need_parens = matches!(arg, Val::List(_));
@@ -619,7 +619,7 @@ impl Pretty {
                         } else {
                             arg_doc
                         };
-                        beside(text(&ty_con_name), beside(text(" "), arg_doc))
+                        beside(text(ty_con_name), beside(text(" "), arg_doc))
                     }
                 }
             }

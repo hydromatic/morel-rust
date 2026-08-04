@@ -20,6 +20,7 @@ use crate::compile::span::Span;
 use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::val::Val;
 use crate::shell::kernel::MorelError;
+use std::rc::Rc;
 
 /// Support for the `ListPair` structure.
 pub struct ListPair;
@@ -37,7 +38,7 @@ impl ListPair {
         l2: &[Val],
     ) -> Result<bool, MorelError> {
         for (v1, v2) in l1.iter().zip(l2.iter()) {
-            let pair = Val::List(vec![v1.clone(), v2.clone()]);
+            let pair = Val::List(Rc::new(vec![v1.clone(), v2.clone()]));
             let result = func.apply_f1(r, f, &pair)?;
             if !result.expect_bool() {
                 return Ok(false);
@@ -70,7 +71,7 @@ impl ListPair {
         l2: &[Val],
     ) -> Result<(), MorelError> {
         for (v1, v2) in l1.iter().zip(l2.iter()) {
-            let pair = Val::List(vec![v1.clone(), v2.clone()]);
+            let pair = Val::List(Rc::new(vec![v1.clone(), v2.clone()]));
             func.apply_f1(r, f, &pair)?;
         }
         Ok(())
@@ -105,7 +106,7 @@ impl ListPair {
         l2: &[Val],
     ) -> Result<bool, MorelError> {
         for (v1, v2) in l1.iter().zip(l2.iter()) {
-            let pair = Val::List(vec![v1.clone(), v2.clone()]);
+            let pair = Val::List(Rc::new(vec![v1.clone(), v2.clone()]));
             let result = func.apply_f1(r, f, &pair)?;
             if result.expect_bool() {
                 return Ok(true);
@@ -126,7 +127,7 @@ impl ListPair {
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for (v1, v2) in l1.iter().zip(l2.iter()) {
-            let triple = Val::List(vec![v1.clone(), v2.clone(), acc]);
+            let triple = Val::List(Rc::new(vec![v1.clone(), v2.clone(), acc]));
             acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
@@ -165,7 +166,8 @@ impl ListPair {
         let mut acc = init.clone();
         let min_len = l1.len().min(l2.len());
         for i in (0..min_len).rev() {
-            let triple = Val::List(vec![l1[i].clone(), l2[i].clone(), acc]);
+            let triple =
+                Val::List(Rc::new(vec![l1[i].clone(), l2[i].clone(), acc]));
             acc = func.apply_f1(r, f, &triple)?;
         }
         Ok(acc)
@@ -201,10 +203,10 @@ impl ListPair {
     ) -> Result<Val, MorelError> {
         let mut result = Vec::new();
         for (v1, v2) in l1.iter().zip(l2.iter()) {
-            let pair = Val::List(vec![v1.clone(), v2.clone()]);
+            let pair = Val::List(Rc::new(vec![v1.clone(), v2.clone()]));
             result.push(func.apply_f1(r, f, &pair)?);
         }
-        Ok(Val::List(result))
+        Ok(Val::List(Rc::new(result)))
     }
 
     /// Maps f over pairs from l1 and l2, returning list of results.
@@ -238,7 +240,10 @@ impl ListPair {
                 list2.push(pair_vals[1].clone());
             }
         }
-        Val::List(vec![Val::List(list1), Val::List(list2)])
+        Val::List(Rc::new(vec![
+            Val::List(Rc::new(list1)),
+            Val::List(Rc::new(list2)),
+        ]))
     }
 
     /// Combines two lists into a list of pairs.
@@ -247,9 +252,9 @@ impl ListPair {
         let result: Vec<Val> = l1
             .iter()
             .zip(l2.iter())
-            .map(|(v1, v2)| Val::List(vec![v1.clone(), v2.clone()]))
+            .map(|(v1, v2)| Val::List(Rc::new(vec![v1.clone(), v2.clone()])))
             .collect();
-        Val::List(result)
+        Val::List(Rc::new(result))
     }
 
     /// Combines two lists into a list of pairs.

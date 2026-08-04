@@ -22,6 +22,7 @@ use crate::eval::order::Order;
 use crate::eval::val::Val;
 use crate::shell::kernel::MorelError;
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 /// Support for the `list` built-in type and the `List` structure.
 pub struct List;
@@ -77,7 +78,7 @@ impl List {
         list2: &[Val],
     ) -> Result<Order, MorelError> {
         for (v1, v2) in list1.iter().zip(list2.iter()) {
-            let pair = Val::List(vec![v1.clone(), v2.clone()]);
+            let pair = Val::List(Rc::new(vec![v1.clone(), v2.clone()]));
             let result = func.apply_f1(r, f, &pair)?;
             let order = result.expect_order();
             if order.0 != Ordering::Equal {
@@ -117,7 +118,7 @@ impl List {
         if i < 0 || i > list.len() as i32 {
             Err(MorelError::Runtime(BuiltInExn::Subscript, span.clone()))
         } else {
-            Ok(Val::List(list[i as usize..].to_vec()))
+            Ok(Val::List(Rc::new(list[i as usize..].to_vec())))
         }
     }
 
@@ -194,7 +195,7 @@ impl List {
                 result.push(v.clone());
             }
         }
-        Ok(Val::List(result))
+        Ok(Val::List(Rc::new(result)))
     }
 
     /// Applies f to each element x of the list l, from left to right, until
@@ -226,7 +227,7 @@ impl List {
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for v in list {
-            let pair = Val::List(vec![v.clone(), acc]);
+            let pair = Val::List(Rc::new(vec![v.clone(), acc]));
             acc = func.apply_f1(r, f, &pair)?;
         }
         Ok(acc)
@@ -243,7 +244,7 @@ impl List {
     ) -> Result<Val, MorelError> {
         let mut acc = init.clone();
         for v in list.iter().rev() {
-            let pair = Val::List(vec![v.clone(), acc]);
+            let pair = Val::List(Rc::new(vec![v.clone(), acc]));
             acc = func.apply_f1(r, f, &pair)?;
         }
         Ok(acc)
@@ -254,10 +255,10 @@ impl List {
         if list.is_empty() {
             Val::Unit // NONE
         } else {
-            Val::Some(Box::new(Val::List(vec![
+            Val::Some(Box::new(Val::List(Rc::new(vec![
                 list[0].clone(),
-                Val::List(list[1..].to_vec()),
-            ])))
+                Val::List(Rc::new(list[1..].to_vec())),
+            ]))))
         }
     }
 
@@ -345,7 +346,7 @@ impl List {
     ) -> Result<Val, MorelError> {
         let results: Result<Vec<Val>, _> =
             list.iter().map(|v| func.apply_f1(r, f, v)).collect();
-        Ok(Val::List(results?))
+        Ok(Val::List(Rc::new(results?)))
     }
 
     /// Applies f to each element of l from left to right, returning a list
@@ -365,7 +366,7 @@ impl List {
             }
             // If NONE (Val::Unit), skip it.
         }
-        Ok(Val::List(result))
+        Ok(Val::List(Rc::new(result)))
     }
 
     /// Applies the function f to the elements of the argument list,
@@ -378,11 +379,12 @@ impl List {
     ) -> Result<Val, MorelError> {
         let mut result = Vec::with_capacity(list.len());
         for (i, v) in list.iter().enumerate() {
-            let index_and_val = Val::List(vec![Val::Int(i as i32), v.clone()]);
+            let index_and_val =
+                Val::List(Rc::new(vec![Val::Int(i as i32), v.clone()]));
             let mapped = func.apply_f1(r, f, &index_and_val)?;
             result.push(mapped);
         }
-        Ok(Val::List(result))
+        Ok(Val::List(Rc::new(result)))
     }
 
     /// Returns the i-th element of the list, counting from 0.
@@ -424,7 +426,10 @@ impl List {
                 neg.push(v.clone());
             }
         }
-        Ok(Val::List(vec![Val::List(pos), Val::List(neg)]))
+        Ok(Val::List(Rc::new(vec![
+            Val::List(Rc::new(pos)),
+            Val::List(Rc::new(neg)),
+        ])))
     }
 
     /// Returns a list consisting of l's elements in reverse order.
@@ -457,7 +462,7 @@ impl List {
             let v = fun.apply_f1(r, f, &Val::Int(i))?;
             list.push(v);
         }
-        Ok(Val::List(list))
+        Ok(Val::List(Rc::new(list)))
     }
 
     /// Returns the first i elements of the list.
@@ -470,7 +475,7 @@ impl List {
         if i < 0 || i > list.len() as i32 {
             Err(MorelError::Runtime(BuiltInExn::Subscript, span.clone()))
         } else {
-            Ok(Val::List(list[..i as usize].to_vec()))
+            Ok(Val::List(Rc::new(list[..i as usize].to_vec())))
         }
     }
 
@@ -480,7 +485,7 @@ impl List {
         if list.is_empty() {
             Err(MorelError::Runtime(BuiltInExn::Empty, span.clone()))
         } else {
-            Ok(Val::List(list[1..].to_vec()))
+            Ok(Val::List(Rc::new(list[1..].to_vec())))
         }
     }
 }

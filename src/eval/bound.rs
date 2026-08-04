@@ -27,6 +27,7 @@ use crate::eval::comparator::Comparator;
 use crate::eval::discrete::Discrete;
 use crate::eval::val::{self, Val};
 use std::cmp::Ordering;
+use std::rc::Rc;
 use val::{
     RANGE_ALL, RANGE_AT_LEAST, RANGE_AT_MOST, RANGE_CLOSED, RANGE_CLOSED_OPEN,
     RANGE_GREATER_THAN, RANGE_LESS_THAN, RANGE_OPEN, RANGE_OPEN_CLOSED,
@@ -138,7 +139,10 @@ impl Bound {
                     (false, true) => BuiltInFunction::RangeOpenClosed,
                     (false, false) => BuiltInFunction::RangeOpen,
                 };
-                f.constructor_val(Val::List(vec![l.clone(), h.clone()]))
+                f.constructor_val(Val::List(Rc::new(vec![
+                    l.clone(),
+                    h.clone(),
+                ])))
             }
         }
     }

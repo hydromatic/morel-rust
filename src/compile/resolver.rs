@@ -1135,7 +1135,7 @@ impl<'a> Resolver<'a> {
                     .get_type(self.type_map)
                     .map(|ty| ty.to_string())
                     .unwrap_or_default();
-                CoreExpr::Literal(t, Val::String(moniker))
+                CoreExpr::Literal(t, Val::String((moniker).into()))
             }
             _ => todo!("Unimplemented expression kind: {:?}", expr.kind),
         }
@@ -1560,7 +1560,7 @@ impl<'a> Resolver<'a> {
                 Val::Real(r.replace("~", "-").parse().unwrap())
             }
             LiteralKind::String(s) => {
-                Val::String(parser::unquote_string(s).unwrap())
+                Val::String((parser::unquote_string(s).unwrap()).into())
             }
             LiteralKind::Unit => Val::Unit,
             LiteralKind::Word(w) => {
@@ -2127,7 +2127,7 @@ impl<'a> Resolver<'a> {
                 Val::Real(x.replace("~", "-").parse().unwrap())
             }
             LiteralKind::String(x) => {
-                Val::String(parser::unquote_string(x).unwrap())
+                Val::String((parser::unquote_string(x).unwrap()).into())
             }
             LiteralKind::Unit => Val::Unit,
             LiteralKind::Word(x) => {

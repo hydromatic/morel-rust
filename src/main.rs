@@ -324,7 +324,7 @@ fn run_interactive(directory: Option<&str>, color_scheme: Option<&str>) {
     // shell does not deduce one from the terminal background.
     if let Some(scheme) = color_scheme
         && let Err(e) =
-            kernel.set_prop("colorScheme", &Val::String(scheme.to_string()))
+            kernel.set_prop("colorScheme", &Val::String(scheme.into()))
     {
         eprintln!("Shell error: {}", e);
         exit(1);

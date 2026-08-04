@@ -94,7 +94,7 @@ pub(crate) fn vector(arg: Val) -> Val {
 
 fn collection(arg: Val, wrap_type: impl FnOnce(Type) -> Type) -> Val {
     let items: Vec<Val> = match arg {
-        Val::List(items) => items,
+        Val::List(items) => items.as_ref().clone(),
         _ => panic!("Expected list of variants, got {:?}", arg),
     };
     let element_type = common_element_type(&items);
@@ -117,7 +117,7 @@ fn collection(arg: Val, wrap_type: impl FnOnce(Type) -> Type) -> Val {
             })
             .collect()
     };
-    variant_of(wrap_type(element_type), Val::List(elements))
+    variant_of(wrap_type(element_type), Val::List(Rc::new(elements)))
 }
 
 /// Returns the common inner type of a list of variants. Folds the
@@ -184,7 +184,7 @@ fn unify_types(t1: &Type, t2: &Type) -> Option<Type> {
 /// the unwrapped field values (the runtime representation of records).
 pub(crate) fn record(arg: Val) -> Val {
     let pairs: Vec<Val> = match arg {
-        Val::List(items) => items,
+        Val::List(items) => items.as_ref().clone(),
         _ => panic!("Expected list of (label, variant) pairs, got {:?}", arg),
     };
     if pairs.is_empty() {
@@ -196,7 +196,7 @@ pub(crate) fn record(arg: Val) -> Val {
     for pair in pairs {
         let (label, variant_val) = match pair {
             Val::List(parts) if parts.len() == 2 => {
-                let mut iter = parts.into_iter();
+                let mut iter = parts.as_ref().clone().into_iter();
                 (iter.next().unwrap(), iter.next().unwrap())
             }
             _ => panic!("Expected pair of (label, variant), got {:?}", pair),
@@ -205,7 +205,7 @@ pub(crate) fn record(arg: Val) -> Val {
             Val::String(s) => s,
             _ => panic!("Expected string label, got {:?}", label),
         };
-        let label = Label::from(label_str);
+        let label = Label::from(label_str.to_string());
         let (inner_type, inner_val) = expect_variant(&variant_val);
         fields.insert(label.clone(), Rc::new(inner_type.clone()));
         values.push((label, inner_val.clone()));
@@ -214,7 +214,13 @@ pub(crate) fn record(arg: Val) -> Val {
     // sorted labels (matching how the BTreeMap iterates).
     let mut sorted: Vec<(Label, Val)> = values;
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    let value_list = Val::List(sorted.into_iter().map(|(_, v)| v).collect());
+    let value_list = Val::List(
+        sorted
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect::<Vec<_>>()
+            .into(),
+    );
     variant_of(Type::Record(false, fields), value_list)
 }
 
@@ -233,7 +239,7 @@ pub(crate) fn constant(arg: Val) -> Val {
         Val::String(s) => s,
         _ => panic!("Expected string, got {:?}", arg),
     };
-    match name.as_str() {
+    match &*name {
         "NONE" => none(),
         "LESS" => variant_of(
             Type::Data("order".to_string(), vec![]),
@@ -252,13 +258,13 @@ pub(crate) fn constant(arg: Val) -> Val {
         // `Variant.print`/`parse` compares equal.
         "NIL" => variant_of(
             Type::List(Rc::new(Type::Data("variant".to_string(), vec![]))),
-            Val::List(vec![]),
+            Val::List(Rc::new(vec![])),
         ),
         // Unknown constructor: store the name in `Type::Named` and use
         // `Val::Unit` as the value. Pretty-printing of `Type::Named`
         // emits the name. Full support requires a runtime constructor
         // table linking names to their parent datatypes.
-        _ => variant_of(Type::Named(vec![], name.clone()), Val::Unit),
+        _ => variant_of(Type::Named(vec![], name.to_string()), Val::Unit),
     }
 }
 
@@ -273,19 +279,19 @@ pub(crate) fn construct(arg: Val) -> Val {
         Val::List(items) if items.len() == 2 => items,
         _ => panic!("Expected (name, variant) pair, got {:?}", arg),
     };
-    let mut iter = parts.into_iter();
+    let mut iter = parts.as_ref().clone().into_iter();
     let name = match iter.next().unwrap() {
         Val::String(s) => s,
         other => panic!("Expected string name, got {:?}", other),
     };
     let payload = iter.next().unwrap();
-    match name.as_str() {
+    match &*name {
         "SOME" | "INL" | "INR" | "DESC" => {
             let (inner_type, inner_val) = match payload {
                 Val::Variant(boxed) => *boxed,
                 other => panic!("Expected variant payload, got {:?}", other),
             };
-            match name.as_str() {
+            match &*name {
                 "SOME" => variant_of(
                     Type::Data("option".to_string(), vec![Rc::new(inner_type)]),
                     Val::Some(Box::new(inner_val)),
@@ -320,7 +326,7 @@ pub(crate) fn construct(arg: Val) -> Val {
         "CONS" => cons(payload),
         // Unknown constructor: keep the payload wrapped as a variant so
         // its inner type/value print recursively in the fallback display.
-        _ => variant_of(Type::Named(vec![], name.clone()), payload),
+        _ => variant_of(Type::Named(vec![], name.to_string()), payload),
     }
 }
 
@@ -337,7 +343,7 @@ fn cons(payload: Val) -> Val {
         Val::List(parts) if parts.len() == 2 => parts,
         other => panic!("CONS payload must be a 2-tuple, got {:?}", other),
     };
-    let mut iter = parts.into_iter();
+    let mut iter = parts.as_ref().clone().into_iter();
     let head = iter.next().unwrap();
     let tail = iter.next().unwrap();
     let head_type = match &payload_type {
@@ -356,8 +362,11 @@ fn cons(payload: Val) -> Val {
     };
     let mut new_items = Vec::with_capacity(tail_items.len() + 1);
     new_items.push(head);
-    new_items.extend(tail_items);
-    variant_of(Type::List(Rc::new(head_type)), Val::List(new_items))
+    new_items.extend(tail_items.iter().cloned());
+    variant_of(
+        Type::List(Rc::new(head_type)),
+        Val::List(Rc::new(new_items)),
+    )
 }
 
 fn expect_variant(v: &Val) -> (&Type, &Val) {
@@ -377,7 +386,7 @@ pub(crate) fn print(arg: Val) -> Val {
     };
     let mut buf = String::new();
     append(&mut buf, &inner_type, &inner_val);
-    Val::String(buf)
+    Val::String((buf).into())
 }
 
 /// Recursive helper for [`print()`]. Appends the variant representation
@@ -800,7 +809,7 @@ impl<'a> Parser<'a> {
                 let s = self.parse_string_literal();
                 return variant_of(
                     Type::Primitive(PrimitiveType::String),
-                    Val::String(s),
+                    Val::String((s).into()),
                 );
             }
             Some(b'#') => {
@@ -857,7 +866,7 @@ impl<'a> Parser<'a> {
                 let s = self.parse_string_literal();
                 variant_of(
                     Type::Primitive(PrimitiveType::String),
-                    Val::String(s),
+                    Val::String((s).into()),
                 )
             }
             "LIST" => self.parse_collection(list),
@@ -873,7 +882,7 @@ impl<'a> Parser<'a> {
             "CONSTANT" => {
                 self.skip_ws();
                 let name = self.parse_string_literal();
-                constant(Val::String(name))
+                constant(Val::String((name).into()))
             }
             "CONSTRUCT" => {
                 self.skip_ws();
@@ -886,7 +895,10 @@ impl<'a> Parser<'a> {
                 let payload = self.parse_variant();
                 self.skip_ws();
                 self.expect(")");
-                construct(Val::List(vec![Val::String(name), payload]))
+                construct(Val::List(Rc::new(vec![
+                    Val::String((name).into()),
+                    payload,
+                ])))
             }
             other => panic!(
                 "Unknown variant constructor {:?} at position {}",
@@ -912,7 +924,7 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        ctor(Val::List(elements))
+        ctor(Val::List(Rc::new(elements)))
     }
 
     /// Parses the body of `RECORD [(label, variant), ...]` after the
@@ -935,7 +947,10 @@ impl<'a> Parser<'a> {
                 self.skip_ws();
                 self.expect(")");
                 self.skip_ws();
-                pairs.push(Val::List(vec![Val::String(label), variant]));
+                pairs.push(Val::List(Rc::new(vec![
+                    Val::String((label).into()),
+                    variant,
+                ])));
                 if self.try_consume(",") {
                     continue;
                 }
@@ -943,6 +958,6 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        record(Val::List(pairs))
+        record(Val::List(Rc::new(pairs)))
     }
 }

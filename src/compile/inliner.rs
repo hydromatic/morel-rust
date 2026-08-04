@@ -309,7 +309,9 @@ fn expr_to_val(expr: &Expr) -> Option<Val> {
             // match them.
             Val::Fn(BuiltInFunction::OptionNone) => Some(Val::Unit),
             Val::Fn(BuiltInFunction::ListNil)
-            | Val::Fn(BuiltInFunction::BagNil) => Some(Val::List(Vec::new())),
+            | Val::Fn(BuiltInFunction::BagNil) => {
+                Some(Val::List(Rc::new(Vec::new())))
+            }
             Val::Fn(BuiltInFunction::OrderLess) => {
                 Some(Val::Order(Order(Ordering::Less)))
             }
@@ -328,7 +330,7 @@ fn expr_to_val(expr: &Expr) -> Option<Val> {
             .iter()
             .map(expr_to_val)
             .collect::<Option<Vec<_>>>()
-            .map(Val::List),
+            .map(|items| Val::List(Rc::new(items))),
         Expr::Apply(_, fn_expr, arg, _) => {
             if let Expr::Literal(_, Val::Fn(f)) = fn_expr.as_ref() {
                 let v = expr_to_val(arg)?;
