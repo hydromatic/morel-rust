@@ -20,16 +20,37 @@
 use crate::syntax::ast::{
     Attribute, AttributeKind, AttributePayload, ConBind, ConDesc, DatatypeBind,
     DatatypeDesc, Decl, DeclKind, ExnDesc, Expr, ExprKind, FunBind, FunMatch,
-    JoinType, Label, LabeledExpr, Literal, LiteralKind, Match, Pat, PatField,
-    PatKind, RangeItem, SigBind, Span, Spec, SpecKind, Statement,
-    StatementKind, Step, StepKind, Type, TypeBind, TypeDesc, TypeField,
-    TypeKind, TypeScheme, ValBind, ValDesc,
+    JoinType, Label, LabeledExpr, Literal, LiteralKind, Match, Modifier,
+    ModifierVerb, Pat, PatField, PatKind, RangeItem, SigBind, Span, Spec,
+    SpecKind, Statement, StatementKind, Step, StepKind, Type, TypeBind,
+    TypeDesc, TypeField, TypeKind, TypeScheme, ValBind, ValDesc,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
 use std::rc::Rc;
 
 type ParseInput<'input> = pest_consume::Node<'input, Rule, Rc<str>>;
+/// The operand of an `extend` or `replace` modifier: either `all e` or a
+/// list of assignments. Carries no verb — the verb is parsed around it,
+/// so [`ModifierOperand::into_modifier`] supplies it.
+enum ModifierOperand {
+    All(Box<Expr>),
+    Assign(Vec<LabeledExpr>),
+}
+
+impl ModifierOperand {
+    fn into_modifier(self, verb: ModifierVerb, lenient: bool) -> Modifier {
+        // The grammar admits `lenient` only after a verb that can assign,
+        // which is where it means anything.
+        debug_assert!(!lenient || verb.allows_lenient(), "verb {:?}", verb);
+        match self {
+            ModifierOperand::All(e) => Modifier::All(verb, lenient, e),
+            ModifierOperand::Assign(args) => {
+                Modifier::Assign(verb, lenient, args)
+            }
+        }
+    }
+}
 
 pub type ParseError = pest::error::Error<Rule>;
 pub type ParseResult<T> = Result<T, ParseError>;
@@ -782,26 +803,105 @@ impl MorelParser {
     }
 
     fn record_expr(input: ParseInput) -> ParseResult<Expr> {
-        Ok(match_nodes!(input.children();
-            [] => {
-                ExprKind::Record(None, vec![]).wrap(input)
-            },
-            [record_body(b)] => {
-                ExprKind::Record(b.0, b.1).wrap(input)
-            },
-        ))
+        let node = input.clone();
+        let span = input_to_span(&node);
+        let (fields, modifiers) = match_nodes!(input.children();
+            [] => (vec![], vec![]),
+            [record_body(b)] => b,
+        );
+        if modifiers.is_empty() {
+            return Ok(ExprKind::Record(None, fields, modifiers).spanned(&span));
+        }
+        // The modifiers apply to a base expression, so there must be
+        // exactly one field and it must carry no label of its own.
+        match <[LabeledExpr; 1]>::try_from(fields) {
+            Ok([field]) if field.label.is_none() => Ok(ExprKind::Record(
+                Some(Box::new(field.expr)),
+                vec![],
+                modifiers,
+            )
+            .spanned(&span)),
+            _ => Err(node.error(
+                "a record modifier applies to a base expression; enclose \
+                 the expression and its modifiers in braces",
+            )),
+        }
     }
 
     fn record_body(
         input: ParseInput,
-    ) -> ParseResult<(Option<Box<Expr>>, Vec<LabeledExpr>)> {
+    ) -> ParseResult<(Vec<LabeledExpr>, Vec<Modifier>)> {
         Ok(match_nodes!(input.children();
-            [expr(e), _with(_), labeled_expr(exprs)..] => {
-                (Some(Box::new(e)), exprs.collect())
+            [record_fields(exprs), record_modifier(ms)..] => {
+                (exprs, ms.collect())
             },
+        ))
+    }
+
+    fn record_fields(input: ParseInput) -> ParseResult<Vec<LabeledExpr>> {
+        Ok(match_nodes!(input.children();
+            [labeled_expr(exprs)..] => exprs.collect(),
+        ))
+    }
+
+    fn record_modifier(input: ParseInput) -> ParseResult<Modifier> {
+        Ok(match_nodes!(input.children();
+            [_extend(_), modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::Extend, false)
+            },
+            [_extend(_), _or(_), _skip(_), modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::ExtendOrSkip, false)
+            },
+            [_extend(_), _or(_), _replace(_), modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::ExtendOrReplace, false)
+            },
+            [_extend(_), _or(_), _replace(_), _lenient(_),
+             modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::ExtendOrReplace, true)
+            },
+            [_replace(_), modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::Replace, false)
+            },
+            [_replace(_), _lenient(_), modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::Replace, true)
+            },
+            [_replace(_), _or(_), _skip(_), modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::ReplaceOrSkip, false)
+            },
+            [_replace(_), _lenient(_), _or(_), _skip(_),
+             modifier_operand(o)] => {
+                o.into_modifier(ModifierVerb::ReplaceOrSkip, true)
+            },
+            [_remove(_), record_label(ls)..] => {
+                Modifier::Remove(ModifierVerb::Remove, ls.collect())
+            },
+            [_remove(_), _or(_), _skip(_), record_label(ls)..] => {
+                Modifier::Remove(ModifierVerb::RemoveOrSkip, ls.collect())
+            },
+            [_rename(_), rename_arg(args)..] => {
+                Modifier::Rename(args.collect())
+            },
+        ))
+    }
+
+    fn modifier_operand(input: ParseInput) -> ParseResult<ModifierOperand> {
+        Ok(match_nodes!(input.children();
+            [_all(_), expr(e)] => ModifierOperand::All(Box::new(e)),
             [labeled_expr(exprs)..] => {
-                (None, exprs.collect())
+                ModifierOperand::Assign(exprs.collect())
             },
+        ))
+    }
+
+    fn rename_arg(input: ParseInput) -> ParseResult<(Label, Label)> {
+        Ok(match_nodes!(input.children();
+            [record_label(to), record_label(from)] => (to, from),
+        ))
+    }
+
+    fn record_label(input: ParseInput) -> ParseResult<Label> {
+        Ok(match_nodes!(input.children();
+            [label(l)] => l,
         ))
     }
 
@@ -1389,6 +1489,10 @@ impl MorelParser {
             [identifier(i), pat(p)] => {
                 let span = input_to_span(&input);
                 PatField::Labeled(span, i.to_string(), p)
+            },
+            [natural(n), pat(p)] => {
+                let span = input_to_span(&input);
+                PatField::Labeled(span, n.to_string(), p)
             },
         ))
     }
@@ -2076,6 +2180,10 @@ impl MorelParser {
         Ok(())
     }
 
+    fn _all(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
     fn _and(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
@@ -2144,6 +2252,10 @@ impl MorelParser {
         Ok(())
     }
 
+    fn _extend(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
     fn _fn(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
@@ -2192,6 +2304,10 @@ impl MorelParser {
         Ok(())
     }
 
+    fn _lenient(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
     fn _let(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
@@ -2220,6 +2336,10 @@ impl MorelParser {
         Ok(())
     }
 
+    fn _or(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
     fn _order(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
@@ -2241,6 +2361,18 @@ impl MorelParser {
     }
 
     fn _rec(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _remove(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _rename(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _replace(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
@@ -2521,6 +2653,7 @@ pub const RESERVED_WORDS: &[&str] = &[
     "except",
     "exception",
     "exists",
+    "extend",
     "fn",
     "forall",
     "from",
@@ -2548,6 +2681,9 @@ pub const RESERVED_WORDS: &[&str] = &[
     "over",
     "raise",
     "rec",
+    "remove",
+    "rename",
+    "replace",
     "require",
     "right",
     "sig",

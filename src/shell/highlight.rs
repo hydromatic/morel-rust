@@ -42,7 +42,7 @@ const CONSTANTS: &[&str] = &["false", "nil", "true"];
 /// parser treats contextually (`desc`, `remove`, `on`), and morel-java's
 /// highlighter keeps its own set for the same reason. Keep in step with
 /// `MorelHighlighter.SML_KEYWORDS` and `MOREL_KEYWORDS`.
-const KEYWORDS: &[&str] = &[
+pub(crate) const KEYWORDS: &[&str] = &[
     // lint: sort until '];'
     "abstype",
     "all",
@@ -690,6 +690,8 @@ fn color_code(token: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::eval::color_scheme::{DARK, NONE};
+    use crate::syntax::parser::RESERVED_WORDS;
+    use std::collections::HashMap;
 
     /// Categories, in the coarser terms the shell colors by, as
     /// `highlight` groups them.
@@ -721,6 +723,68 @@ mod tests {
                 ("1", Some(Category::Numeric)),
                 (";", Some(Category::Symbol)),
             ]
+        );
+    }
+
+    /// The keywords the grammar defines, from its
+    /// `_name = @{ "word" ... }` rules, and those its `keywords` rule
+    /// makes reserved. A rule's name is not always its word --
+    /// `_yieldall` matches `yieldAll` -- so both come from the literal.
+    fn grammar_keywords() -> (Vec<String>, Vec<String>) {
+        let pest = include_str!("../syntax/morel.pest");
+        let mut words: HashMap<&str, &str> = HashMap::new();
+        for l in pest.lines() {
+            if let Some(rest) = l.strip_prefix('_')
+                && let Some((name, rest)) = rest.split_once(" = @{ \"")
+                && let Some((word, _)) = rest.split_once('"')
+            {
+                words.insert(name, word);
+            }
+        }
+        let mut defined: Vec<String> =
+            words.values().map(|w| w.to_string()).collect();
+        defined.sort();
+        let start = pest.find("\nkeywords = {\n").expect("keywords rule");
+        let end = pest[start..].find("\n}\n").expect("end of rule") + start;
+        let reserved = pest[start..end]
+            .lines()
+            .filter_map(|l| l.trim().trim_start_matches("| ").strip_prefix('_'))
+            .map(|name| words[name].to_string())
+            .collect();
+        (defined, reserved)
+    }
+
+    #[test]
+    fn test_keywords_match_grammar() {
+        // `all`, `lenient` and `or` are keywords only where a record
+        // modifier expects them, and no identifier can occur; everywhere
+        // else they are ordinary identifiers, and need no back-ticks.
+        const NON_RESERVED: &[&str] = &["all", "lenient", "or"];
+        let (defined, reserved) = grammar_keywords();
+        assert_eq!(
+            reserved, RESERVED_WORDS,
+            "the grammar's `keywords` rule and RESERVED_WORDS disagree"
+        );
+        let mut extra: Vec<&String> =
+            defined.iter().filter(|k| !reserved.contains(k)).collect();
+        extra.sort();
+        assert_eq!(
+            extra, NON_RESERVED,
+            "a keyword the grammar defines is neither reserved nor one of \
+             the three that are keywords only in a record modifier"
+        );
+        // The highlighter may know more keywords than the parser -- it
+        // colors the Standard ML words Morel does not implement -- but a
+        // keyword the parser knows and the highlighter does not would be
+        // back-ticked on output yet shown as an identifier on screen.
+        let missing: Vec<&String> = defined
+            .iter()
+            .filter(|k| KEYWORDS.binary_search(&k.as_str()).is_err())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "keywords the highlighter does not highlight: {:?}",
+            missing
         );
     }
 

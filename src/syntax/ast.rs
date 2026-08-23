@@ -73,6 +73,13 @@ impl Span {
         self.start
     }
 
+    /// Returns the span's extent, which identifies the node it came
+    /// from: the same source deduced again gives the same spans, where
+    /// node ids are assigned only as deduction proceeds.
+    pub fn extent(&self) -> (usize, usize) {
+        (self.start, self.end)
+    }
+
     /// Sums the spans of elements.
     pub fn sum<T>(elements: &[T], extract: fn(&T) -> Span) -> Option<Span> {
         let mut span = None;
@@ -186,6 +193,9 @@ impl Expr {
             ExprKind::Elements => Some("elements".to_string()),
             ExprKind::Identifier(name) => Some(name.clone()),
             ExprKind::Ordinal => Some("ordinal".to_string()),
+            // Modifiers do not change what a record is called:
+            // `{a = 1, {v remove x}}` has a field named `v`.
+            ExprKind::Record(Some(base), _, _) => base.implicit_label_opt(),
             _ => None,
         }
     }
@@ -290,7 +300,11 @@ pub enum ExprKind<SubExpr> {
     /// `[0 ..^ 10, 20, 100 ..]`. Desugars to `Range.flatten [...]` in
     /// the type resolver.
     RangeList(Vec<RangeItem>),
-    Record(Option<Box<Expr>>, Vec<LabeledExpr>), // e.g. `{r with x = 1, y}`
+    /// Record expression: a base the modifiers apply to (`Some` only
+    /// when there are modifiers), its fields, and the modifiers, applied
+    /// left to right, each seeing the record the previous one produced.
+    /// For example `{r replace x = 1, y}` or `{a = 1, b = 2}`.
+    Record(Option<Box<Expr>>, Vec<LabeledExpr>, Vec<Modifier>),
 
     // Relational expressions
     From(Vec<Step>),
@@ -553,10 +567,10 @@ impl ExprKind<Expr> {
                 }
                 f.write_str("]")
             }
-            ExprKind::Record(base, fields) => {
+            ExprKind::Record(base, fields, modifiers) => {
                 f.write_str("{")?;
                 if let Some(b) = base {
-                    write!(f, "{} with ", b)?;
+                    write!(f, "{}", b)?;
                 }
                 for (i, lf) in fields.iter().enumerate() {
                     if i > 0 {
@@ -566,6 +580,9 @@ impl ExprKind<Expr> {
                         Some(lbl) => write!(f, "{} = {}", lbl.name, lf.expr)?,
                         None => write!(f, "{}", lf.expr)?,
                     }
+                }
+                for m in modifiers {
+                    write!(f, " {}", m)?;
                 }
                 f.write_str("}")
             }
@@ -760,6 +777,156 @@ impl Label {
         Label {
             span: span.clone(),
             name: name.to_string(),
+        }
+    }
+}
+
+/// What a record modifier does to a label the record already has.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Exists {
+    /// Assigns the value the modifier gives.
+    Replace,
+    /// Removes the field.
+    Remove,
+    /// Leaves the field as it was.
+    Skip,
+    /// Is an error.
+    Error,
+}
+
+/// What a record modifier does to a label the record does not have.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Absent {
+    /// Adds the field.
+    Add,
+    /// Does nothing.
+    Skip,
+    /// Is an error.
+    Error,
+}
+
+/// The verb of a record modifier: what it does to a label, both when the
+/// record has it and when it does not.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum ModifierVerb {
+    /// `extend`: adds a label, and rejects one that exists.
+    Extend,
+    /// `extend or skip`: adds a label, and keeps one that exists.
+    ExtendOrSkip,
+    /// `extend or replace`: adds a label, or assigns to it.
+    ExtendOrReplace,
+    /// `replace`: assigns to a label, and rejects one that is absent.
+    Replace,
+    /// `replace or skip`: assigns to a label, and ignores one that is
+    /// absent.
+    ReplaceOrSkip,
+    /// `remove`: removes a label, and rejects one that is absent.
+    Remove,
+    /// `remove or skip`: removes a label, and ignores one that is absent.
+    RemoveOrSkip,
+}
+
+impl ModifierVerb {
+    /// What this verb does to a label the record has.
+    pub fn exists(self) -> Exists {
+        match self {
+            ModifierVerb::Extend => Exists::Error,
+            ModifierVerb::ExtendOrSkip => Exists::Skip,
+            ModifierVerb::ExtendOrReplace
+            | ModifierVerb::Replace
+            | ModifierVerb::ReplaceOrSkip => Exists::Replace,
+            ModifierVerb::Remove | ModifierVerb::RemoveOrSkip => Exists::Remove,
+        }
+    }
+
+    /// What this verb does to a label the record does not have.
+    pub fn absent(self) -> Absent {
+        match self {
+            ModifierVerb::Extend
+            | ModifierVerb::ExtendOrSkip
+            | ModifierVerb::ExtendOrReplace => Absent::Add,
+            ModifierVerb::Replace | ModifierVerb::Remove => Absent::Error,
+            ModifierVerb::ReplaceOrSkip | ModifierVerb::RemoveOrSkip => {
+                Absent::Skip
+            }
+        }
+    }
+
+    /// Whether `lenient` may follow this verb. It may only where a field
+    /// can be assigned, because it relaxes the rule that assignment
+    /// preserves the field's type.
+    pub fn allows_lenient(self) -> bool {
+        self.exists() == Exists::Replace
+    }
+
+    /// The verb's keywords, with `lenient` in its place: `replace
+    /// lenient`, but `extend or replace lenient`.
+    fn verbs(self, lenient: bool) -> String {
+        let (before, after) = match self {
+            ModifierVerb::Extend => ("extend", ""),
+            ModifierVerb::ExtendOrSkip => ("extend or skip", ""),
+            ModifierVerb::ExtendOrReplace => ("extend or replace", ""),
+            ModifierVerb::Replace => ("replace", ""),
+            ModifierVerb::ReplaceOrSkip => ("replace", " or skip"),
+            ModifierVerb::Remove => ("remove", ""),
+            ModifierVerb::RemoveOrSkip => ("remove or skip", ""),
+        };
+        if lenient {
+            format!("{} lenient{}", before, after)
+        } else {
+            format!("{}{}", before, after)
+        }
+    }
+}
+
+/// A modifier of a record expression, applied to the record that
+/// precedes it.
+#[derive(Clone, Debug)]
+pub enum Modifier {
+    /// `replace a = 1, b = 2` — assigns to named labels.
+    Assign(ModifierVerb, bool, Vec<LabeledExpr>),
+    /// `replace all r` — assigns to every label of the record `r`.
+    All(ModifierVerb, bool, Box<Expr>),
+    /// `remove a, b` — removes named labels.
+    Remove(ModifierVerb, Vec<Label>),
+    /// `rename b = a` — gives the value of each right label to the left
+    /// one, and removes the right labels.
+    Rename(Vec<(Label, Label)>),
+}
+
+impl Display for Modifier {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        match self {
+            Modifier::Assign(verb, lenient, args) => {
+                write!(f, "{}", verb.verbs(*lenient))?;
+                for (i, arg) in args.iter().enumerate() {
+                    f.write_str(if i > 0 { ", " } else { " " })?;
+                    match &arg.label {
+                        Some(lbl) => write!(f, "{} = {}", lbl.name, arg.expr)?,
+                        None => write!(f, "{}", arg.expr)?,
+                    }
+                }
+                Ok(())
+            }
+            Modifier::All(verb, lenient, e) => {
+                write!(f, "{} all {}", verb.verbs(*lenient), e)
+            }
+            Modifier::Remove(verb, labels) => {
+                write!(f, "{}", verb.verbs(false))?;
+                for (i, l) in labels.iter().enumerate() {
+                    f.write_str(if i > 0 { ", " } else { " " })?;
+                    f.write_str(&l.name)?;
+                }
+                Ok(())
+            }
+            Modifier::Rename(args) => {
+                f.write_str("rename")?;
+                for (i, (to, from)) in args.iter().enumerate() {
+                    f.write_str(if i > 0 { ", " } else { " " })?;
+                    write!(f, "{} = {}", to.name, from.name)?;
+                }
+                Ok(())
+            }
         }
     }
 }

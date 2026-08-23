@@ -1084,7 +1084,7 @@ impl<'a> Resolver<'a> {
             ExprKind::Raise(e) => {
                 CoreExpr::Raise(t, Box::new(self.resolve_expr(e)), span.clone())
             }
-            ExprKind::Record(with_base, fields) => {
+            ExprKind::Record(with_base, fields, _) => {
                 match with_base {
                     None => {
                         // Plain record `{a=e1, b=e2}`: resolve each field in

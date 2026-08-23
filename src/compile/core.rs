@@ -74,6 +74,20 @@ pub enum Expr {
     Extent(Rc<Type>, Span),
 }
 
+/// Returns the body of a chain of `let` expressions; `exp` itself if it
+/// is not a `let`.
+///
+/// A record with modifiers becomes one `let` per modifier whose body is
+/// the record the last one produced, so a `yield` step's fields are
+/// those of that record.
+pub(crate) fn let_body(exp: &Expr) -> &Expr {
+    let mut e = exp;
+    while let Expr::Let(_, _, body) = e {
+        e = body;
+    }
+    e
+}
+
 impl Expr {
     /// Creates a tuple expression.
     pub(crate) fn new_tuple(args: &[Expr]) -> Self {
@@ -768,17 +782,21 @@ impl Pat {
                 // 'val {a, b = p, ...} = e': for each labelled field,
                 // look up its index in the record type's alphabetical-key
                 // order, then recurse.
-                if let (Type::Record(_, type_fields), Val::List(vs)) =
-                    (t.as_ref(), val)
-                {
-                    let labels: Vec<&Label> = type_fields.keys().collect();
+                // A tuple is a record whose labels are ordinals, so a
+                // record pattern matches one: `{1=a}` takes the first
+                // field of a pair.
+                let labels: Option<Vec<Label>> = match t.as_ref() {
+                    Type::Record(_, type_fields) => {
+                        Some(type_fields.keys().cloned().collect())
+                    }
+                    Type::Tuple(types) => {
+                        Some((1..=types.len()).map(Label::Ordinal).collect())
+                    }
+                    _ => None,
+                };
+                if let (Some(labels), Val::List(vs)) = (labels, val) {
                     let find = |needle: &str| {
-                        labels.iter().position(|l| {
-                            matches!(
-                                l,
-                                Label::String(s) if s == needle
-                            )
-                        })
+                        labels.iter().position(|l| l.matches(needle))
                     };
                     for field in fields {
                         let (name_opt, sub_pat) = match field {

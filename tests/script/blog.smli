@@ -1453,7 +1453,7 @@ val emps3 = from e in emps2 union
 val emps4 =
   from e in emps3
     yield if e.job = "MANAGER"
-      then {e with sal = e.sal * 2.0}
+      then {e replace sal = e.sal * 2.0}
       else e;
 > val emps4 =
 >   [
@@ -1467,7 +1467,7 @@ val emps4 =
 >     {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
 >      job:string, mgr:int, sal:real} bag
 (* Commit. *)
-(*) TODO commit {scott with emps = emps4};
+(*) TODO commit {scott replace emps = emps4};
 
 (* New and removed employees. *)
 val empsAdded = from e in emps4 except scott.emps;
@@ -1529,7 +1529,7 @@ val summary2 =
 >    {c=~5,deptno=30,sum_sal=~8450.0}] : {c:int, deptno:int, sum_sal:real} list
 
 (* Commit. *)
-(*) TODO commit {scott with summary = summary2};
+(*) TODO commit {scott replace summary = summary2};
 
 val parents = [
   ("earendil", "elrond"),

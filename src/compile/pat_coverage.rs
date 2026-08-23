@@ -609,7 +609,7 @@ fn visit_expr(
             }
         }
 
-        ExprKind::Record(base, fields) => {
+        ExprKind::Record(base, fields, _) => {
             if let Some(b) = base {
                 visit_expr(b, type_map, warnings)?;
             }

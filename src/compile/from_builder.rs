@@ -25,7 +25,7 @@
 //! - Inlining nested from expressions
 
 use crate::compile::core::{
-    Binding, Decl, Expr, Match, Pat, Step, StepEnv, StepKind, ValBind,
+    Binding, Decl, Expr, Match, Pat, Step, StepEnv, StepKind, ValBind, let_body,
 };
 use crate::compile::type_env::Id;
 use crate::compile::types::{Label, PrimitiveType, Type};
@@ -757,11 +757,17 @@ impl FromBuilder {
         // - "from x in [1,2] yield x" -> atom=true (1 binding, non-tuple exp);
         // - "from x in [1,2] yield {x=x}" -> atom=false (1 binding, tuple exp);
         // - "from x in [1], y in [2] yield {x,y}" -> atom=false (2 bindings).
-        let is_tuple_expr = matches!(exp, Expr::Tuple(_, _));
+        // A record with modifiers becomes one `let` per modifier whose
+        // body is the record the last one produced; the `let`s do not
+        // change what the step yields, so look through them. The type
+        // resolver applies the same test to the same tree, so the
+        // bindings created here are the ones deduced there.
+        let body = let_body(&exp);
+        let is_tuple_expr = matches!(body, Expr::Tuple(_, _));
 
-        match &exp {
+        match body {
             Expr::Tuple(_, _) => {
-                let tuple_type = tuple_type(&exp, &env, env2.as_ref());
+                let tuple_type = tuple_type(body, &env, env2.as_ref());
                 match tuple_type {
                     TupleType::Identity => {
                         // A trivial record does not rename, so its only
@@ -825,7 +831,7 @@ impl FromBuilder {
             // the scattered fields of a record expression.
             env2.bindings.clone()
         } else if is_tuple_expr {
-            match exp.type_().as_ref() {
+            match body.type_().as_ref() {
                 Type::Record(_, fields) => fields
                     .iter()
                     .filter_map(|(label, t)| {

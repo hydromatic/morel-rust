@@ -535,25 +535,35 @@ impl<'a> Compiler<'a> {
                 }
                 // For each field in the record type (alphabetical order),
                 // emit the sub-pattern code or Wildcard if not mentioned.
-                let codes: Vec<Code> =
-                    if let Type::Record(_, type_fields) = type_.as_ref() {
-                        type_fields
-                            .keys()
-                            .map(|label| {
-                                if let Label::String(name) = label {
-                                    if let Some(sub_pat) = field_map.get(name) {
-                                        self.compile_pat(cx, sub_pat)
-                                    } else {
-                                        Code::BindWildcard
-                                    }
-                                } else {
-                                    Code::BindWildcard
-                                }
-                            })
-                            .collect()
-                    } else {
-                        vec![]
-                    };
+                // A tuple is a record whose labels are the ordinals
+                // `1`, `2`, ..., so a record pattern matches one.
+                let labels: Vec<Label> = match type_.as_ref() {
+                    Type::Record(_, type_fields) => {
+                        type_fields.keys().cloned().collect()
+                    }
+                    Type::Tuple(types) => {
+                        (1..=types.len()).map(Label::Ordinal).collect()
+                    }
+                    _ => vec![],
+                };
+                let codes: Vec<Code> = {
+                    labels
+                        .iter()
+                        .map(|label| {
+                            // A tuple's labels are ordinals, and a
+                            // record pattern may name them: `{1=a}`
+                            // matches the first field of a pair.
+                            let name = match label {
+                                Label::String(s) => s.clone(),
+                                Label::Ordinal(i) => i.to_string(),
+                            };
+                            match field_map.get(&name) {
+                                Some(sub_pat) => self.compile_pat(cx, sub_pat),
+                                None => Code::BindWildcard,
+                            }
+                        })
+                        .collect()
+                };
                 Code::new_bind_tuple(&codes)
             }
             Pat::Tuple(_, pats) => {

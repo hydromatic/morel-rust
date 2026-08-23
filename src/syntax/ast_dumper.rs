@@ -193,7 +193,7 @@ fn dump_expr_kind(b: &mut String, e: &ExprKind<Expr>) {
             }
             b.push(')');
         }
-        ExprKind::Record(base, fields) => {
+        ExprKind::Record(base, fields, _) => {
             b.push_str("(record");
             if let Some(base) = base {
                 b.push_str(" (with ");

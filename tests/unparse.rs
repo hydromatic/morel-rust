@@ -199,7 +199,7 @@ fn test_each_expr_kind() {
     k.check_kind("length [1, 2, 3]");
     k.check_kind("f (1, 2)");
     k.check_kind("f {a = 1, b = 2}");
-    k.check_kind("{r with a = 1}");
+    k.check_kind("{r replace a = 1}");
 
     // Type annotation: `:`.
     k.check_kind("1 : int");

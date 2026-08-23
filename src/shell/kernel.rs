@@ -828,9 +828,17 @@ impl Kernel {
         let statement = match parser::parse_statement(&actual_code) {
             Err(e) => {
                 let span = Span::from_line_col(&e.line_col);
+                // A rule that rejects what it parsed says why; the
+                // grammar failing to match says only where.
+                let message = match &e.variant {
+                    pest::error::ErrorVariant::CustomError { message } => {
+                        message.clone()
+                    }
+                    _ => "syntax error".to_string(),
+                };
                 return Ok(format!(
-                    "{} Error: syntax error\n  raised at: {}\n",
-                    span, span
+                    "{} Error: {}\n  raised at: {}\n",
+                    span, message, span
                 ));
             }
             Ok(statement) => statement,

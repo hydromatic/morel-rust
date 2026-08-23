@@ -60,6 +60,7 @@ keywords = {
   | _except
   | _exception
   | _exists
+  | _extend
   | _fn
   | _forall
   | _from
@@ -87,6 +88,9 @@ keywords = {
   | _over
   | _raise
   | _rec
+  | _remove
+  | _rename
+  | _replace
   | _require
   | _right
   | _sig
@@ -108,6 +112,7 @@ keywords = {
 }
 
 // lint: sort until '^$'
+_all = @{ "all" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _and = @{ "and" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _andalso = @{ "andalso" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _as = @{ "as" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -125,6 +130,7 @@ _eqtype = @{ "eqtype" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _except = @{ "except" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _exception = @{ "exception" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _exists = @{ "exists" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_extend = @{ "extend" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _fn = @{ "fn" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _forall = @{ "forall" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _from = @{ "from" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -139,6 +145,7 @@ _intersect = @{ "intersect" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _into = @{ "into" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _join = @{ "join" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _left = @{ "left" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_lenient = @{ "lenient" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _let = @{ "let" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _mod = @{ "mod" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _notelem = @{ "notelem" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -146,12 +153,16 @@ _o = @{ "o" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _of = @{ "of" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _on = @{ "on" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _op = @{ "op" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_or = @{ "or" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _order = @{ "order" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _ordinal = @{ "ordinal" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _orelse = @{ "orelse" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _over = @{ "over" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _raise = @{ "raise" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _rec = @{ "rec" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_remove = @{ "remove" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_rename = @{ "rename" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
+_replace = @{ "replace" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _require = @{ "require" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _right = @{ "right" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
 _sig = @{ "sig" ~ !(ASCII_ALPHANUMERIC | "_" | "'") }
@@ -377,7 +388,30 @@ range_dd_caret = @{ "..^" }
 range_caret_dd = @{ "^.." }
 range_caret_dd_caret = @{ "^..^" }
 record_expr = { "{" ~ record_body? ~ "}" }
-record_body = { (expr ~ _with)? ~ labeled_expr ~ ("," ~ labeled_expr)* }
+// Fields, then modifiers applied left to right. Whether the two are a
+// valid combination — modifiers require a single field, and that field
+// must carry no label — is not a question for the grammar; the parser
+// settles it, making that field the base the modifiers apply to.
+record_body = { record_fields ~ record_modifier* }
+record_fields = { labeled_expr ~ ("," ~ labeled_expr)* }
+
+// One modifier of a record expression, such as `replace a = 1, b = 2`,
+// `extend or replace all r`, `remove or skip a` or `rename b = a`. A
+// modifier is one or two verbs — the second joined by `or`, naming the
+// case the first does not — an optional `lenient`, an optional `all`,
+// and an operand.
+record_modifier = {
+    _extend ~ (_or ~ (_skip | _replace ~ _lenient?))? ~ modifier_operand
+  | _replace ~ _lenient? ~ (_or ~ _skip)? ~ modifier_operand
+  | _remove ~ (_or ~ _skip)? ~ record_label ~ ("," ~ record_label)*
+  | _rename ~ rename_arg ~ ("," ~ rename_arg)*
+}
+modifier_operand = {
+    _all ~ expr
+  | labeled_expr ~ ("," ~ labeled_expr)*
+}
+rename_arg = { record_label ~ "=" ~ record_label }
+record_label = { label }
 
 // Named expressions for records and relational clauses
 labeled_expr = {
@@ -489,7 +523,9 @@ list_pat = { "[" ~ (pat ~ ("," ~ pat)*)? ~ "]" }
 atomic_pat_list = { atomic_pat+ }
 
 pat_field = { labeled_pat_field | anon_pat_field }
-labeled_pat_field = { identifier ~ "=" ~ pat }
+// A tuple is a record whose labels are ordinals, so `{1=a,2=b}`
+// matches a pair.
+labeled_pat_field = { (identifier | natural) ~ "=" ~ pat }
 anon_pat_field = { pat }
 ellipsis = { "..." }
 

@@ -35,11 +35,17 @@ use crate::compile::types::{
 use crate::eval::code::{LIBRARY, Lib};
 use crate::eval::file::TypedValue;
 use crate::shell::error::Error;
+use crate::syntax::ast::Label as AstLabel;
+
+/// Field names of the expressions record modifiers are applied to,
+/// keyed by the extent of each expression's span.
+type ModifierFields = Rc<RefCell<HashMap<(usize, usize), Vec<String>>>>;
 use crate::syntax::ast::{
-    DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, JoinType,
-    LabeledExpr, Literal, LiteralKind, Match, MorelNode, Pat, PatField,
-    PatKind, RangeItem, Span, Statement, StatementKind, Step, StepKind,
-    Type as AstType, TypeField, TypeKind, TypeScheme, ValBind,
+    Absent, DatatypeBind, Decl, DeclKind, Exists, Expr, ExprKind, FunBind,
+    JoinType, LabeledExpr, Literal, LiteralKind, Match, Modifier, ModifierVerb,
+    MorelNode, Pat, PatField, PatKind, RangeItem, Span, Statement,
+    StatementKind, Step, StepKind, Type as AstType, TypeField, TypeKind,
+    TypeScheme, ValBind,
 };
 use crate::syntax::parser;
 use crate::unify::unifier::{
@@ -851,6 +857,17 @@ pub struct TypeResolver {
     /// resolved; see [`ORDINAL`].
     ordinal_validations: Vec<(Term, Span)>,
 
+    /// Field names of an expression a record modifier is applied to,
+    /// keyed by the extent of its span, learned when unification
+    /// settled its type. Survives a retry -- the next attempt reads it
+    /// before deducing, and can then desugar. morel-java's `fieldNames`.
+    modifier_fields: ModifierFields,
+
+    /// Records whose modifiers could not be desugared, to report after
+    /// unification if a later attempt does not desugar them.
+    /// (labels the modifiers mention, span)
+    modifier_validations: Vec<(Vec<String>, Span)>,
+
     /// Overloaded operator instances. Maps name to list of
     /// candidate terms (the types of each `val inst` binding).
     overloads: HashMap<String, Vec<Term>>,
@@ -991,7 +1008,7 @@ fn join_source_walk(
                 join_source_walk(x, input, shadowed)?;
             }
         }
-        E::Record(base, fields) => {
+        E::Record(base, fields, _) => {
             if let Some(b) = base {
                 join_source_walk(b, input, shadowed)?;
             }
@@ -1323,6 +1340,8 @@ impl TypeResolver {
             field_errors: Rc::new(RefCell::new(Vec::new())),
             field_selectors: Vec::new(),
             ordinal_validations: Vec::new(),
+            modifier_fields: Rc::new(RefCell::new(HashMap::new())),
+            modifier_validations: Vec::new(),
             typed_values: Rc::new(RefCell::new(HashMap::new())),
             retry_requested: Rc::new(RefCell::new(false)),
             overloads: HashMap::new(),
@@ -1425,6 +1444,9 @@ impl TypeResolver {
         self.field_errors.borrow_mut().clear();
         self.field_selectors.clear();
         self.ordinal_validations.clear();
+        // `modifier_fields` is deliberately kept: it is what the next
+        // attempt knows that this one did not.
+        self.modifier_validations.clear();
         self.typed_values.borrow_mut().clear();
         self.node_var_map.clear();
         self.overload_constraints.clear();
@@ -1511,6 +1533,25 @@ impl TypeResolver {
         }
 
         type_map.expanded_type_binds = self.expanded_type_binds.clone();
+
+        // A record whose modifiers were never desugared, because the
+        // fields of its base never became known. morel-java's
+        // `checkRecordModifiers` reports the same thing.
+        if let Some((wanted, span)) = self.modifier_validations.first() {
+            let fields = wanted
+                .iter()
+                .map(|f| format!("#{}", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Error::Compile(
+                format!(
+                    "unresolved flex record (can't tell what fields there \
+                     are besides {})",
+                    fields
+                ),
+                span.clone(),
+            ));
+        }
 
         // Now that the types are resolved, check that every `ordinal`
         // counts the rows of an ordered collection. It cannot be checked
@@ -3088,7 +3129,51 @@ impl TypeResolver {
                         .spanned(span);
                 self.deduce_expr_type(env, &call, v)?
             }
-            ExprKind::Record(with_expr, labeled_expr_list) => {
+            ExprKind::Record(base, _, modifiers)
+                if base.is_some() && !modifiers.is_empty() =>
+            {
+                // A record with modifiers becomes nested `let`s, but only
+                // once we know which fields there are to destructure.
+                let base = base.as_ref().unwrap();
+                let Some(desugared) =
+                    self.desugar_modifiers(env, expr, base, modifiers)?
+                else {
+                    // The fields of the base are not known yet. Deduce
+                    // the modifiers' expressions -- in the enclosing
+                    // environment, because without the field names there
+                    // is nothing to shadow them -- so that every node
+                    // has a type, and leave the record's own type
+                    // unconstrained. An action asks for another attempt
+                    // if unification settles the base; if it never does,
+                    // the check after unification reports an unresolved
+                    // flex record. morel-java's
+                    // `deduceUnresolvedRecordType`.
+                    for m in modifiers {
+                        match m {
+                            Modifier::Assign(_, _, args) => {
+                                for a in args {
+                                    let vv = self.variable();
+                                    self.deduce_expr_type(env, &a.expr, &vv)?;
+                                }
+                            }
+                            Modifier::All(_, _, e) => {
+                                let vv = self.variable();
+                                self.deduce_expr_type(env, e, &vv)?;
+                            }
+                            Modifier::Remove(..) | Modifier::Rename(..) => {}
+                        }
+                    }
+                    // The error points at the base, as morel-java's
+                    // does: it is the base's type that is not known.
+                    self.modifier_validations
+                        .push((modifier_labels(modifiers), base.span.clone()));
+                    return Ok(
+                        self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                    );
+                };
+                self.deduce_expr_type(env, &desugared, v)?
+            }
+            ExprKind::Record(with_expr, labeled_expr_list, _) => {
                 let mut field_vars = Vec::new(); // never read
                 let (with_expr2, labeled_expr_list2) =
                     if let Some(base) = with_expr {
@@ -3134,7 +3219,8 @@ impl TypeResolver {
                         )?;
                         (None, labeled_expr_list2)
                     };
-                let x = ExprKind::Record(with_expr2, labeled_expr_list2);
+                let x =
+                    ExprKind::Record(with_expr2, labeled_expr_list2, vec![]);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::RecordSelector(name) => {
@@ -3698,8 +3784,15 @@ impl TypeResolver {
         self.same_orderedness(&p.c.unwrap(), &p.v, &c6, &v6);
 
         let mut envs = p.env.builder();
+        // A `yield` step binds the fields of the record it yields, and
+        // the `let`s in between do not change that: `desugar_modifiers`
+        // turns a record with modifiers into one `let` per modifier,
+        // whose body is the record the last modifier produced, and its
+        // fields are the step's fields. The same goes for a `let` the
+        // user wrote.
+        let yielded = let_body(&expr2);
         if binder.is_none()
-            && let ExprKind::Record(with, labeled_exprs) = expr2.kind
+            && let ExprKind::Record(with, labeled_exprs, _) = yielded.kind
         {
             let mut v = None;
             if let Some(with) = with
@@ -3708,7 +3801,7 @@ impl TypeResolver {
                 v = self.node_var_map.get(&id);
             }
             if let None = v
-                && let Some(id) = expr2.id
+                && let Some(id) = yielded.id
             {
                 v = self.node_var_map.get(&id);
             }
@@ -3898,7 +3991,7 @@ impl TypeResolver {
         if !is_atom {
             // Validate key expression: if it's a record, check all fields;
             // if not a record, check that a label can be derived.
-            if let ExprKind::Record(_, labeled_exprs) = &key_expr.kind {
+            if let ExprKind::Record(_, labeled_exprs, _) = &key_expr.kind {
                 Self::validate_record_fields(labeled_exprs, "group")?;
             } else if key_expr.implicit_label_opt().is_none() {
                 return Err(Error::Compile(
@@ -3910,7 +4003,7 @@ impl TypeResolver {
             // Validate compute expression: if it's a record, check all fields;
             // if not a record, check that a label can be derived.
             if let Some(compute) = compute_expr {
-                if let ExprKind::Record(_, labeled_exprs) = &compute.kind {
+                if let ExprKind::Record(_, labeled_exprs, _) = &compute.kind {
                     Self::validate_record_fields(labeled_exprs, "compute")?;
                 } else if compute.implicit_label_opt().is_none() {
                     return Err(Error::Compile(
@@ -3996,7 +4089,7 @@ impl TypeResolver {
             Ok(())
         };
         match &expr.kind {
-            ExprKind::Record(_, labeled_exprs) => {
+            ExprKind::Record(_, labeled_exprs, _) => {
                 for labeled_expr in labeled_exprs {
                     if let Some(label) = labeled_expr.get_label() {
                         visit(label, labeled_expr.label_span())?;
@@ -4017,7 +4110,7 @@ impl TypeResolver {
     /// For other expressions, returns 1.
     fn field_count(expr: &Expr) -> usize {
         match &expr.kind {
-            ExprKind::Record(_, labeled_exprs) => labeled_exprs.len(),
+            ExprKind::Record(_, labeled_exprs, _) => labeled_exprs.len(),
             _ => 1,
         }
     }
@@ -4026,7 +4119,7 @@ impl TypeResolver {
     /// exactly one field).
     fn is_singleton_record(expr: Option<&Expr>) -> bool {
         if let Some(expr) = expr
-            && let ExprKind::Record(_, labeled_exprs) = &expr.kind
+            && let ExprKind::Record(_, labeled_exprs, _) = &expr.kind
             && labeled_exprs.len() == 1
         {
             true
@@ -4062,7 +4155,7 @@ impl TypeResolver {
         let v_key = self.variable();
         let mut group_env_builder = p.root_env.builder();
 
-        if let ExprKind::Record(_with, labeled_exprs) = &key_expr.kind {
+        if let ExprKind::Record(_with, labeled_exprs, _) = &key_expr.kind {
             let labeled_exprs2 = self.deduce_record_type(
                 &*p.env,
                 labeled_exprs,
@@ -4071,7 +4164,7 @@ impl TypeResolver {
             )?;
 
             key_expr2 = self.reg_expr(
-                &ExprKind::Record(None, labeled_exprs2),
+                &ExprKind::Record(None, labeled_exprs2, vec![]),
                 &key_expr.span,
                 key_expr.id,
                 &v_key,
@@ -4114,7 +4207,7 @@ impl TypeResolver {
             self.compute_stack.push(p.with_env(&over_env));
 
             let v_compute = self.variable();
-            let result = if let ExprKind::Record(_with, labeled_exprs) =
+            let result = if let ExprKind::Record(_with, labeled_exprs, _) =
                 &compute.kind
             {
                 // Multiple compute fields. Sort into BTreeMap order
@@ -4154,7 +4247,7 @@ impl TypeResolver {
                     );
                 });
                 self.record_term(&map, &v_compute);
-                let x = ExprKind::Record(None, labeled_exprs2);
+                let x = ExprKind::Record(None, labeled_exprs2, vec![]);
                 Some(Box::new(self.reg_expr(
                     &x,
                     &compute.span,
@@ -4261,7 +4354,7 @@ impl TypeResolver {
 
         // Process compute expression
         let mut compute_expr2;
-        if let ExprKind::Record(_with, labeled_exprs) = &compute_expr.kind {
+        if let ExprKind::Record(_with, labeled_exprs, _) = &compute_expr.kind {
             // Multiple compute fields. Sort into BTreeMap order
             // (alphabetical by label) so that evaluation order
             // matches the record type's field order.
@@ -4291,7 +4384,7 @@ impl TypeResolver {
                 });
             }
             compute_expr2 = Expr {
-                kind: ExprKind::Record(None, labeled_exprs2),
+                kind: ExprKind::Record(None, labeled_exprs2, vec![]),
                 span: compute_expr.span.clone(),
                 id: compute_expr.id,
                 attributes: Vec::new(),
@@ -6358,6 +6451,226 @@ impl TypeResolver {
     }
 
     /// Converts a variable to a sequence.
+    /// Returns a pattern that destructures a record into its fields, so
+    /// that a modifier's expressions can refer to them by name. A label
+    /// that is not identifier-shaped -- a tuple's `1`, `2` -- cannot be
+    /// a variable name and could not be written in a modifier's
+    /// expression anyway, so it is left to the ellipsis; the desugaring
+    /// reaches those fields with a selector instead.
+    fn fields_pat_of(span: &Span, fields: &[String]) -> Pat {
+        PatKind::Record(
+            fields
+                .iter()
+                .filter(|f| is_name(f))
+                .map(|f| {
+                    PatField::Labeled(
+                        span.clone(),
+                        f.clone(),
+                        PatKind::Identifier(f.clone()).spanned(span),
+                    )
+                })
+                .collect(),
+            true,
+        )
+        .spanned(span)
+    }
+
+    /// Turns a record's modifiers into nested `let`s. Each modifier
+    /// becomes
+    ///
+    /// ```text
+    /// let val {f1, f2, ...} = <previous> in {<new fields>} end
+    /// ```
+    ///
+    /// so that the modifier's expressions see the fields of the record
+    /// the previous modifier produced -- `{r replace sal = sal * 12.0}`
+    /// multiplies the old `sal` -- and the record it builds says which
+    /// fields survive. Mirrors morel-java's `desugarModifiers`.
+    fn desugar_modifiers(
+        &mut self,
+        env: &dyn TypeEnv,
+        record: &Expr,
+        base: &Expr,
+        modifiers: &[Modifier],
+    ) -> Result<Option<Expr>, Error> {
+        let span = &record.span;
+        let mut exp = base.clone();
+        let Some(mut fields) = self.record_field_names(env, base)? else {
+            return Ok(None);
+        };
+        for modifier in modifiers {
+            let rec_name = free_name(&fields, "$rec");
+            // Two declarations, not one binding of each: the second
+            // reads the first, and bindings within one `val` are
+            // parallel.
+            let mut decls = vec![
+                DeclKind::Val(
+                    false,
+                    false,
+                    vec![ValBind::of(
+                        &PatKind::Identifier(rec_name.clone()).spanned(span),
+                        None,
+                        &exp,
+                    )],
+                )
+                .spanned(span),
+            ];
+            let mut val_binds = vec![ValBind::of(
+                &Self::fields_pat_of(span, &fields),
+                None,
+                &id(span, &rec_name),
+            )];
+            let args: Vec<(String, Expr)> = match modifier {
+                Modifier::Assign(verb, lenient, assignments) => assign_fields(
+                    span,
+                    &rec_name,
+                    *verb,
+                    *lenient,
+                    assignments,
+                    &fields,
+                )?,
+                Modifier::All(verb, lenient, all_expr) => {
+                    let Some(all_fields) =
+                        self.record_field_names(env, all_expr)?
+                    else {
+                        return Ok(None);
+                    };
+                    let name = free_name(&fields, "$all");
+                    val_binds.push(ValBind::of(
+                        &PatKind::Identifier(name.clone()).spanned(span),
+                        None,
+                        all_expr,
+                    ));
+                    assign_all_fields(
+                        span,
+                        &rec_name,
+                        &all_expr.span,
+                        *verb,
+                        *lenient,
+                        &fields,
+                        &all_fields,
+                        &name,
+                    )?
+                }
+                Modifier::Remove(verb, labels) => {
+                    remove_fields(span, &rec_name, *verb, labels, &fields)?
+                }
+                Modifier::Rename(args) => {
+                    rename_fields(span, &rec_name, args, &fields)?
+                }
+            };
+            fields = args.iter().map(|(f, _)| f.clone()).collect();
+            fields.sort();
+            let body = ExprKind::Record(
+                None,
+                args.into_iter()
+                    .map(|(label, e)| {
+                        LabeledExpr::new(Some(AstLabel::new(&label, span)), &e)
+                    })
+                    .collect(),
+                vec![],
+            )
+            .spanned(span);
+            decls.push(DeclKind::Val(false, false, val_binds).spanned(span));
+            exp = ExprKind::Let(decls, Box::new(body)).spanned(span);
+        }
+        Ok(Some(exp))
+    }
+
+    /// Returns the field names of a record-valued expression, in label
+    /// order, or `None` if they are not known yet.
+    ///
+    /// A previous attempt may have learned them; otherwise deducing the
+    /// expression and resolving the constraints so far may settle them.
+    /// When neither does -- because only a use further down the
+    /// declaration will settle the type -- an action records them when
+    /// unification gets there, and asks for another attempt, which
+    /// finds them in the cache. Mirrors morel-java's
+    /// `modifierFieldNames`.
+    fn record_field_names(
+        &mut self,
+        env: &dyn TypeEnv,
+        expr: &Expr,
+    ) -> Result<Option<Vec<String>>, Error> {
+        let key = expr.span.extent();
+        if let Some(names) = self.modifier_fields.borrow().get(&key) {
+            return Ok(Some(names.clone()));
+        }
+        let v = self.variable();
+        self.deduce_expr_type(env, expr, &v)?;
+        let names =
+            self.resolve_during_deduce(&v).and_then(|term| match term {
+                Term::Sequence(seq) => self.term_field_names(&seq),
+                Term::Variable(_) => None,
+            });
+        if let Some(names) = names {
+            self.modifier_fields.borrow_mut().insert(key, names.clone());
+            Ok(Some(names))
+        } else {
+            self.remember_fields_when_known(v, key);
+            Ok(None)
+        }
+    }
+
+    /// The field names of a record or tuple term. `unit` is the record
+    /// with no fields, so its names are the empty list, not `None`;
+    /// otherwise `{{} extend i = 1}` would never desugar.
+    fn term_field_names(&self, seq: &Sequence) -> Option<Vec<String>> {
+        if self.unifier.op_defs[seq.op.0 as usize].name == "unit" {
+            return Some(Vec::new());
+        }
+        Self::field_list(&self.unifier.op_defs, seq)
+    }
+
+    /// Registers an action so that when `v` resolves to a record type,
+    /// the field names of the expression spanning `key` are remembered
+    /// and another attempt is asked for.
+    fn remember_fields_when_known(&mut self, v: Var, key: (usize, usize)) {
+        struct RememberFields {
+            key: (usize, usize),
+            fields: ModifierFields,
+            retry_requested: Rc<RefCell<bool>>,
+        }
+        impl Action for RememberFields {
+            fn accept(
+                &self,
+                _variable: &Var,
+                term: &Term,
+                _substitution: &Substitution,
+                op_defs: &[OpDef],
+                _term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                let Term::Sequence(seq) = term else {
+                    return;
+                };
+                let names = if op_defs[seq.op.0 as usize].name == "unit" {
+                    Some(Vec::new())
+                } else {
+                    TypeResolver::field_list(op_defs, seq)
+                };
+                if let Some(names) = names
+                    && self
+                        .fields
+                        .borrow_mut()
+                        .insert(self.key, names)
+                        .is_none()
+                {
+                    // Each attempt learns at least one more, so the
+                    // retry loop terminates.
+                    *self.retry_requested.borrow_mut() = true;
+                }
+            }
+        }
+        self.actions.push((
+            v,
+            Rc::new(RememberFields {
+                key,
+                fields: Rc::clone(&self.modifier_fields),
+                retry_requested: Rc::clone(&self.retry_requested),
+            }),
+        ));
+    }
+
     fn variable_to_sequence(&self, v: &Var) -> Option<Sequence> {
         // Search terms in reverse for the most recently added term for v.
         for (var, term) in self.terms.iter().rev() {
@@ -6643,7 +6956,6 @@ impl TypeResolver {
                         .collect();
                     struct OpenRecordAction {
                         pattern_fields: Vec<(String, Var)>,
-                        op_defs: Rc<Vec<OpDef>>,
                     }
                     impl Action for OpenRecordAction {
                         fn accept(
@@ -6651,12 +6963,17 @@ impl TypeResolver {
                             _variable: &Var,
                             term: &Term,
                             substitution: &Substitution,
-                            _op_defs: &[OpDef],
+                            op_defs: &[OpDef],
                             term_pairs: &mut Vec<(Term, Term)>,
                         ) {
+                            // The unifier's own table, not a snapshot
+                            // taken when the action was registered: an
+                            // op created in between would not be in it,
+                            // and looking the sequence's op up would run
+                            // off the end.
                             if let Term::Sequence(seq) = term
                                 && let Some(field_list) =
-                                    TypeResolver::field_list(&self.op_defs, seq)
+                                    TypeResolver::field_list(op_defs, seq)
                             {
                                 for (field_name, v_field) in
                                     &self.pattern_fields
@@ -6682,10 +6999,7 @@ impl TypeResolver {
                     }
                     self.actions.push((
                         *v,
-                        Rc::new(OpenRecordAction {
-                            pattern_fields,
-                            op_defs: self.unifier.op_defs.clone(),
-                        }),
+                        Rc::new(OpenRecordAction { pattern_fields }),
                     ));
                 } else {
                     self.record_term(&map, &v);
@@ -6762,7 +7076,7 @@ impl TypeResolver {
     /// non-alphabetically ordered fields.
     fn validate_order_rec(&mut self, expr: &Expr) -> Expr {
         match &expr.kind {
-            ExprKind::Record(ty, labeled_exprs) => {
+            ExprKind::Record(ty, labeled_exprs, modifiers) => {
                 // Collect labels with their span start positions.
                 // For explicit labels ({name = e.name}), use the label span.
                 // For implicit labels ({e.name}), use the expression span.
@@ -6823,7 +7137,11 @@ impl TypeResolver {
                     .collect();
 
                 Expr {
-                    kind: ExprKind::Record(ty.clone(), new_labeled_exprs),
+                    kind: ExprKind::Record(
+                        ty.clone(),
+                        new_labeled_exprs,
+                        modifiers.clone(),
+                    ),
                     span: expr.span.clone(),
                     id: expr.id,
                     attributes: expr.attributes.clone(),
@@ -7416,4 +7734,287 @@ T7 = bool
         assert_eq!(s, x);
         assert!(result_var.id < 0);
     }
+}
+
+/// Returns the body of a chain of `let` expressions; `exp` itself if it
+/// is not a `let`.
+fn let_body(exp: &Expr) -> Expr {
+    let mut e = exp.clone();
+    while let ExprKind::Let(_, body) = e.kind {
+        e = *body;
+    }
+    e
+}
+
+/// The labels a record's modifiers mention, in the order written. When
+/// the base's fields are unknown these are the only ones we know it has,
+/// and the error says so.
+fn modifier_labels(modifiers: &[Modifier]) -> Vec<String> {
+    let mut out = Vec::new();
+    for m in modifiers {
+        match m {
+            Modifier::Assign(_, _, args) => {
+                out.extend(args.iter().filter_map(|a| {
+                    a.label
+                        .as_ref()
+                        .map(|l| l.name.clone())
+                        .or_else(|| a.expr.implicit_label_opt())
+                }))
+            }
+            Modifier::Remove(_, labels) => {
+                out.extend(labels.iter().map(|l| l.name.clone()))
+            }
+            Modifier::Rename(args) => {
+                out.extend(args.iter().map(|(_, from)| from.name.clone()))
+            }
+            Modifier::All(..) => {}
+        }
+    }
+    out
+}
+
+/// Returns a name that is not one of `fields`.
+fn free_name(fields: &[String], stem: &str) -> String {
+    let mut name = stem.to_string();
+    while fields.contains(&name) {
+        name.push('_');
+    }
+    name
+}
+
+/// Returns the expression `<name>` — a reference to a bound field.
+fn id(span: &Span, name: &str) -> Expr {
+    ExprKind::Identifier(name.to_string()).spanned(span)
+}
+
+/// Whether `s` can be a variable name, and so was bound by the
+/// destructuring pattern. A tuple's `1` cannot.
+fn is_name(s: &str) -> bool {
+    let mut cs = s.chars();
+    cs.next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && cs.all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
+}
+
+/// Returns the expression that reads `field` of the record the previous
+/// modifier produced: the variable the pattern bound it to, or a
+/// selector on the whole record if the label is not a name.
+fn field_ref(span: &Span, rec: &str, field: &str) -> Expr {
+    if is_name(field) {
+        id(span, field)
+    } else {
+        field_of(span, rec, field)
+    }
+}
+
+/// Returns the expression `#field name`.
+fn field_of(span: &Span, name: &str, field: &str) -> Expr {
+    ExprKind::Apply(
+        Box::new(ExprKind::RecordSelector(field.to_string()).spanned(span)),
+        Box::new(id(span, name)),
+    )
+    .spanned(span)
+}
+
+/// Returns `e : typeof field`, so that the assigned expression must have
+/// the type the field already has. `field` is in scope as the variable
+/// the enclosing `let` destructured it into.
+fn same_type(span: &Span, e: &Expr, field_ref: &Expr) -> Expr {
+    ExprKind::Annotated(
+        Box::new(e.clone()),
+        Box::new(
+            TypeKind::Expression(Box::new(field_ref.clone())).spanned(span),
+        ),
+    )
+    .spanned(span)
+}
+
+fn field_not_found(field: &str, span: &Span) -> Error {
+    Error::Compile(format!("field '{}' does not exist", field), span.clone())
+}
+
+fn field_exists(field: &str, span: &Span) -> Error {
+    Error::Compile(format!("field '{}' already exists", field), span.clone())
+}
+
+fn duplicate_field(field: &str, span: &Span) -> Error {
+    Error::Compile(
+        format!("duplicate field '{}' in record", field),
+        span.clone(),
+    )
+}
+
+/// Applies an `extend` or `replace` modifier, in either case taking each
+/// label to whichever of the verb's two cases it falls in: the record has
+/// the label already, or it does not.
+fn assign_fields(
+    span: &Span,
+    rec: &str,
+    verb: ModifierVerb,
+    lenient: bool,
+    assignments: &[LabeledExpr],
+    fields: &[String],
+) -> Result<Vec<(String, Expr)>, Error> {
+    let mut assigned: Vec<(String, &Expr)> = Vec::new();
+    for a in assignments {
+        // The label of `replace a = e` is written; that of `replace a`
+        // is the expression's own name.
+        let (name, label_span) = match &a.label {
+            Some(l) => (l.name.clone(), l.span.clone()),
+            None => (
+                a.expr.implicit_label_opt().ok_or_else(|| {
+                    Error::Compile(
+                        format!(
+                            "cannot derive label for expression {}",
+                            a.expr
+                        ),
+                        a.expr.span.clone(),
+                    )
+                })?,
+                a.expr.span.clone(),
+            ),
+        };
+        if fields.contains(&name) {
+            if verb.exists() == Exists::Error {
+                return Err(field_exists(&name, &label_span));
+            }
+        } else if verb.absent() == Absent::Error {
+            return Err(field_not_found(&name, &label_span));
+        }
+        if assigned.iter().any(|(n, _)| *n == name) {
+            return Err(duplicate_field(&name, &label_span));
+        }
+        assigned.push((name, &a.expr));
+    }
+
+    let mut args: Vec<(String, Expr)> = Vec::new();
+    // Fields the record has: assigned, or kept as they were.
+    for field in fields {
+        let e = assigned.iter().find(|(n, _)| n == field).map(|(_, e)| *e);
+        match e {
+            Some(e) if verb.exists() != Exists::Skip => {
+                let e = if lenient {
+                    e.clone()
+                } else {
+                    same_type(span, e, &field_ref(span, rec, field))
+                };
+                args.push((field.clone(), e));
+            }
+            _ => args.push((field.clone(), field_ref(span, rec, field))),
+        }
+    }
+    // Labels the record does not have: added, or ignored.
+    if verb.absent() == Absent::Add {
+        for (name, e) in &assigned {
+            if !fields.iter().any(|f| f == name) {
+                args.push((name.clone(), (*e).clone()));
+            }
+        }
+    }
+    Ok(args)
+}
+
+/// Applies an `extend all` or `replace all` modifier: the same rules as
+/// [`assign_fields`], for every field of the modifier's record-valued
+/// argument, which the enclosing `let` has bound to `name`.
+fn assign_all_fields(
+    span: &Span,
+    rec: &str,
+    exp_span: &Span,
+    verb: ModifierVerb,
+    lenient: bool,
+    fields: &[String],
+    all_fields: &[String],
+    name: &str,
+) -> Result<Vec<(String, Expr)>, Error> {
+    for field in all_fields {
+        if fields.contains(field) {
+            if verb.exists() == Exists::Error {
+                return Err(field_exists(field, exp_span));
+            }
+        } else if verb.absent() == Absent::Error {
+            return Err(field_not_found(field, exp_span));
+        }
+    }
+    let mut args: Vec<(String, Expr)> = Vec::new();
+    for field in fields {
+        if !all_fields.iter().any(|f| f == field)
+            || verb.exists() == Exists::Skip
+        {
+            args.push((field.clone(), field_ref(span, rec, field)));
+        } else {
+            let e = field_of(span, name, field);
+            let e = if lenient {
+                e
+            } else {
+                same_type(span, &e, &field_ref(span, rec, field))
+            };
+            args.push((field.clone(), e));
+        }
+    }
+    if verb.absent() == Absent::Add {
+        for field in all_fields {
+            if !fields.iter().any(|f| f == field) {
+                args.push((field.clone(), field_of(span, name, field)));
+            }
+        }
+    }
+    Ok(args)
+}
+
+/// Applies a `remove` modifier.
+fn remove_fields(
+    span: &Span,
+    rec: &str,
+    verb: ModifierVerb,
+    labels: &[AstLabel],
+    fields: &[String],
+) -> Result<Vec<(String, Expr)>, Error> {
+    let mut removed: Vec<&str> = Vec::new();
+    for label in labels {
+        if !fields.contains(&label.name) && verb.absent() == Absent::Error {
+            return Err(field_not_found(&label.name, &label.span));
+        }
+        if removed.contains(&label.name.as_str()) {
+            return Err(duplicate_field(&label.name, &label.span));
+        }
+        removed.push(&label.name);
+    }
+    Ok(fields
+        .iter()
+        .filter(|f| !removed.contains(&f.as_str()))
+        .map(|f| (f.clone(), field_ref(span, rec, f)))
+        .collect())
+}
+
+/// Applies a `rename` modifier. It takes the value of each label on the
+/// right, which must exist, and gives it to the label on the left, which
+/// must not survive the renaming.
+fn rename_fields(
+    span: &Span,
+    rec: &str,
+    renames: &[(AstLabel, AstLabel)],
+    fields: &[String],
+) -> Result<Vec<(String, Expr)>, Error> {
+    let mut sources: Vec<&str> = Vec::new();
+    for (_, source) in renames {
+        if !fields.contains(&source.name) {
+            return Err(field_not_found(&source.name, &source.span));
+        }
+        if sources.contains(&source.name.as_str()) {
+            return Err(duplicate_field(&source.name, &source.span));
+        }
+        sources.push(&source.name);
+    }
+    let mut args: Vec<(String, Expr)> = fields
+        .iter()
+        .filter(|f| !sources.contains(&f.as_str()))
+        .map(|f| (f.clone(), field_ref(span, rec, f)))
+        .collect();
+    for (target, source) in renames {
+        if args.iter().any(|(f, _)| *f == target.name) {
+            return Err(field_exists(&target.name, &target.span));
+        }
+        args.push((target.name.clone(), field_ref(span, rec, &source.name)));
+    }
+    Ok(args)
 }
