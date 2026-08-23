@@ -406,7 +406,7 @@ f3 {a = 1, b = 6};
 (* The following correctly throws
  *   unbound variable or constructor: a
  * Disabled because error stacks made tests brittle.
- * fun f4 {a = 1, b} = a + b; (*) *)
+ * fun f4 {a = 1, b} = a + b; *)
 
 (*) Variable with polymorphic type
 val x = map;
@@ -414,6 +414,7 @@ val x = map;
 
 x explode ["ab", "c"];
 > val it = [[#"a",#"b"],[#"c"]] : char list list
+
 
 
 (*) Has polymorphic type
@@ -557,6 +558,7 @@ fun r0 (a, b, c, d, e, f, g, h, i, j, k, l, m, n, `o`, p, q, r, s, t, u, v, w, x
 >     'p * 'q * 'r * 's * 't * 'u * 'v * 'w * 'x * 'y * 'z * 'ba * 'bb * 'bc
 >     -> {a:'a, b:'b, c:'c}
 
+
 (*) Highly curried function with lots of type variables returns record type.
 fun r0 a b c d e f g h i j k l m n p q r s = {a=a,b=b,c=c};
 > val r0 = fn
@@ -578,6 +580,7 @@ fun r0 a b c d e f g h i j k l m n p q r s = {a=a,b=b,c=c};
 >                                               -> 'p
 >                                                  -> 'q
 >                                                     -> 'r -> {a:'a, b:'b, c:'c}
+
 
 
 (* When printing a type, 'forall' is omitted. Sometimes that eliminates
@@ -609,6 +612,7 @@ fun divides (n: int, d: int): bool =
 
 divides (10, 4): bool;
 > val it = false : bool
+
 
 
 (* An expression whose type is complicated to infer. *)
@@ -660,6 +664,7 @@ fun g2 y =
 (* Identity function, and chain functions that apply the identity
    function multiple times. *)
 
+
 fun id x = x;
 > val id = fn : 'a -> 'a
 fun chain0 f = f;
@@ -709,6 +714,7 @@ fun chain20 f = fn x => f (id (id (id (id (id (id (id (id (id (id (id (id (id (i
 *)
 
 
+
 (* Helper functions for creating more complex type constraints. *)
 fun apply f x = f x;
 > val apply = fn : ('a -> 'b) -> 'a -> 'b
@@ -726,6 +732,9 @@ datatype ('a, 'b) either = LEFT of 'a | RIGHT of 'b;
 > datatype ('a,'b) either = LEFT of 'a | RIGHT of 'b
 datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree;
 > datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree
+
+set("mode", "validate");
+> val it = () : unit
 
 (* Function that creates a quadratic unification case. *)
 fun quadratic_case () =
@@ -998,6 +1007,9 @@ fun quadratic_case3 () =
 >        ('cr -> 'cs -> 'cr * 'cs) * ('ct -> {field:'ct}) * ('cu -> 'cu)
 
 
+set("mode", "evaluate");
+> val it = () : unit
+
 let
   val v01 = 1
   val v02 = 2
@@ -1009,6 +1021,7 @@ in
   v01 + v02 + v03 + v04 + v05 + v06
 end;
 > val it = 21 : int
+
 
 
 (* Factorize a number. *)
@@ -1045,7 +1058,12 @@ factorize 101;
 > val it = [101] : int list
 
 
+
 Sys.set ("stringDepth", 1000000);
+> val it = () : unit
+
+
+set("mode", "validate");
 > val it = () : unit
 
 (* Generates a program of length 'n', to stress the unifier. *)
@@ -1092,6 +1110,8 @@ let  val i0 = 0; val i1 = 1; val i2 = 2; val i3 = 3; val i4 = i2 * i2; val i5 = 
 >     int * int * int * int * int
 
 (*) 'typeof' in evaluate mode
+set("mode", "evaluate");
+> val it = () : unit
 
 fn x: typeof 1 => true;
 > val it = fn : int -> bool

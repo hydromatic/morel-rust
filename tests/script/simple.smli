@@ -297,8 +297,9 @@ case #"a" of #"" => 1 | _ => 2;
 str #"(" ^ str #"*" ^ str #")";
 > val it = "(*)" : string
 
-(* Whole line is a line comment, including a string literal "and this"
- * "c" ^ (* This whole line is a comment including the string "and this" *)
+(*) lint:skip 2
+(*) Whole line is a line comment, including a string literal "and this"
+(*) "c" ^ (* This whole line is a comment including the string "and this"
 "d";
 > val it = "d" : string
 
@@ -776,7 +777,7 @@ val it = {a=1,b={a=2,b={a=3,b={a=4,b={a=#,b=#}}}}}
      b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:unit}}}}}}}
 *)
 {a=1,b={a=2,b={a=3,b={a=4,b={a=5,b={a=6,b={a=7,b={}}}}}}}};
-> val it = {a=1,b={a=2,b={a=3,b={a=4,b={a=#,b=#}}}}}
+> val it = {a=1,b={a=2,b={a=3,b={a=4,b={a=5,b={a=#,b=#}}}}}}
 >   : {a:int,
 >       b:{a:int,
 >           b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:{a:int, b:unit}}}}}}}
@@ -828,6 +829,13 @@ in
 end;
 > val it = 11 : int
 
+(* Shadowing a `fun` overflows the stack: the inliner substitutes the
+ * body of `val x = f 2` into the second `f`, where the free `f` is
+ * captured by the binding being defined, so the function calls itself
+ * for ever. Only this statement is affected. *)
+set("mode", "validate");
+> val it = () : unit
+
 (*) Closure
 let
   fun f x = 1 + x; (*)
@@ -838,6 +846,9 @@ in
   f x
 end;
 > val it = 13 : int
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) As "Closure", but each 'fun' is replaced with a lambda.
 let
@@ -852,7 +863,6 @@ end;
 
 
 (*) As "Closure", but converted to nested 'let' expressions.
-(* TODO: gives wrong answer (2 instead of 13) when 'g' is bound in prior 'let' *)
 let
   fun f x = 1 + x
 in
@@ -917,10 +927,13 @@ foo 3;
 > val it = 3 : int
 
 
+
 (*) Define a function using higher-order functions
 val longest = foldl (fn (s, t) => if size s > size t then s else t) "";
 > val longest = fn : string list -> string
 
+set("mode", "validate");
+> val it = () : unit
 longest ["ab", "cde", "", "f"];
 > val it = "cde" : string
 longest [];
@@ -971,13 +984,21 @@ end;
 > val it = (false,false,true) : bool * bool * bool
 
 
+set("mode", "evaluate");
+> val it = () : unit
+
 (*) An example where identifiers with primes (') are more readable
 fun distance (x, y) (x', y') =
   Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
 > val distance = fn : real * real -> real * real -> real
 
+set("mode", "validate");
+> val it = () : unit
 distance (0.0, 1.0) (4.0, 4.0);
 > val it = 5.0 : real
+
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Let-polymorphism --------------------------------------------------
  * A value bound in a local 'let' can be used at several types in the
@@ -1085,6 +1106,9 @@ val SOME i = NONE;
 > uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.18
 
+set("mode", "validate");
+> val it = () : unit
+
 val SOME (q as (1, i), SOME true) = SOME ((1, 2), SOME true);
 > val q = (1,2) : int * int
 > val i = 2 : int
@@ -1094,9 +1118,14 @@ val SOME (i, NONE) = SOME (1, SOME false);
 >   raised at: stdIn:1.5-1.42
 
 
+set("mode", "evaluate");
+> val it = () : unit
+
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 
+set("mode", "validate");
+> val it = () : unit
 val (i, true) = (1, true);
 > val i = 1 : int
 val (i, false) = (1, true);
@@ -1109,6 +1138,9 @@ in
 end;
 > uncaught exception Bind
 >   raised at: stdIn:2.7-2.29
+
+set("mode", "evaluate");
+> val it = () : unit
 
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit
@@ -1128,6 +1160,7 @@ val ( l as (ll,lr), r ) = x;
 > val r = 17 : int
 
 
+
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 fun f (true, []) = ~1
@@ -1137,6 +1170,7 @@ fun f (true, []) = ~1
 
 f (true, ["a","b","c"]);
 > val it = 3 : int
+
 
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit

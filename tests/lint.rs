@@ -176,6 +176,16 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
         return;
     }
     let file_type = FileType::for_file(file_name);
+    // Warnings this file adds start here; `lint:skip` filters them at the
+    // end, once we know which lines are covered.
+    let warn_start = warnings.len();
+    let mut skipped: Vec<usize> = Vec::new();
+    let mut unclosed: Vec<String> = Vec::new();
+    // `// lint:skip` (Rust) or `(*) lint:skip` (Morel) disables lint for
+    // its own line; `lint:skip N` also disables the following N lines.
+    let lint_skip_re =
+        Regex::new(r"(?://|\(\*\)) lint:skip(?: (\d+))?\s*$").unwrap();
+    let mut lint_enable_line: usize = 0;
     let vec_space = concat!("{}{}", "vec!", " ");
     let vec_paren = concat!("{}{}", "vec!", "(");
     let impl_regex = Regex::new("^ *impl ").unwrap();
@@ -208,6 +218,12 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
     }
     if file_type.text {
         let contents = fs::read_to_string(file_name).unwrap();
+        if language_of(file_name) == Language::MOREL {
+            // An unclosed comment is a correctness problem, not a style
+            // one, so it is reported after (and therefore immune to)
+            // `lint:skip` filtering.
+            check_block_comments(file_name, &contents, &mut unclosed);
+        }
         let mut line = 0;
         let mut in_pre = false;
         let mut in_raw_string = false;
@@ -242,6 +258,15 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
             .chain(iter::once("")) // add a blank line at the end
             .for_each(|l| {
                 line += 1;
+                if let Some(caps) = lint_skip_re.captures(l) {
+                    let n = caps
+                        .get(1)
+                        .map_or(1, |m| m.as_str().parse::<usize>().unwrap());
+                    lint_enable_line = line + n + 1;
+                }
+                if line < lint_enable_line {
+                    skipped.push(line);
+                }
                 if let Some(ref mut s) = sort {
                     let l2 = if let Some(erase) = &s.erase {
                         erase.replace_all(l, "").to_string()
@@ -531,6 +556,84 @@ fn lint_file(file_name: &str, warnings: &mut Vec<String>) {
             ));
         }
     }
+    if !skipped.is_empty() {
+        let tail = warnings.split_off(warn_start);
+        warnings.extend(tail.into_iter().filter(|w| {
+            !warning_line(w, file_name).is_some_and(|n| skipped.contains(&n))
+        }));
+    }
+    warnings.extend(unclosed);
+}
+
+/// Checks that every block comment in a Morel file is closed.
+///
+/// An unclosed `(*` disables every statement after it, and an idempotent
+/// script test cannot notice: commented-out statements produce no output,
+/// so the file still matches itself. Two such regions, together some 1900
+/// lines, went unnoticed for weeks.
+///
+/// Scans with Morel's rules: outside a comment, a string literal is
+/// exempt; `(*)` is a line comment at any nesting depth (the grammar's
+/// `block_body` admits a `line_comment`); otherwise `(*` nests.
+fn check_block_comments(
+    file_name: &str,
+    contents: &str,
+    warnings: &mut Vec<String>,
+) {
+    let b = contents.as_bytes();
+    let mut i = 0;
+    let mut line = 1;
+    // Line on which each currently-open block comment started.
+    let mut open_lines: Vec<usize> = Vec::new();
+    while i < b.len() {
+        if b[i] == b'\n' {
+            line += 1;
+            i += 1;
+        } else if open_lines.is_empty() && b[i] == b'"' {
+            i += 1;
+            while i < b.len() && b[i] != b'"' {
+                if b[i] == b'\\' {
+                    i += 1;
+                }
+                if i < b.len() && b[i] == b'\n' {
+                    line += 1;
+                }
+                i += 1;
+            }
+            i += 1;
+        } else if b[i..].starts_with(b"(*)") {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if b[i..].starts_with(b"(*") {
+            open_lines.push(line);
+            i += 2;
+        } else if b[i..].starts_with(b"*)") && !open_lines.is_empty() {
+            open_lines.pop();
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    for open_line in open_lines {
+        warnings.push(format!(
+            "{}:{}: Block comment is never closed; everything after it is \
+             silently disabled",
+            file_name, open_line
+        ));
+    }
+}
+
+/// Returns the line number of a warning of the form
+/// "{file_name}:{line}: {message}".
+fn warning_line(warning: &str, file_name: &str) -> Option<usize> {
+    warning
+        .strip_prefix(file_name)?
+        .strip_prefix(':')?
+        .split(':')
+        .next()?
+        .parse()
+        .ok()
 }
 
 struct Sort {
