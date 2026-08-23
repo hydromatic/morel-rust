@@ -180,7 +180,7 @@ sig
 
   (* Returns a printable string representation of the character. *)
   val toString : char -> (*String.*)string [@@method] [@@prototype "toString c"]
-(*
+(* TODO
   val scan       : (Char.char, 'a) StringCvt.reader
                    -> (char, 'a) StringCvt.reader
 *)

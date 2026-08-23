@@ -340,8 +340,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -615,9 +615,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -637,8 +637,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -955,7 +955,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -2426,8 +2426,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -2904,8 +2904,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -3179,9 +3179,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -3201,8 +3201,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -3519,7 +3519,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -4990,8 +4990,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -5468,8 +5468,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -5743,9 +5743,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -5765,8 +5765,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -6083,7 +6083,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -7554,8 +7554,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -8032,8 +8032,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -8307,9 +8307,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -8329,8 +8329,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -8647,7 +8647,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -10118,8 +10118,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -10596,8 +10596,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -10871,9 +10871,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -10893,8 +10893,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -11211,7 +11211,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -12682,8 +12682,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -13160,8 +13160,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -13435,9 +13435,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -13457,8 +13457,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -13775,7 +13775,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -15246,8 +15246,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -15724,8 +15724,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -15999,9 +15999,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -16021,8 +16021,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -16339,7 +16339,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -17810,8 +17810,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -18288,8 +18288,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -18563,9 +18563,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -18585,8 +18585,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -18903,7 +18903,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -20374,8 +20374,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -20852,8 +20852,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -21127,9 +21127,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -21149,8 +21149,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -21467,7 +21467,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -22938,8 +22938,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -23416,8 +23416,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -23691,9 +23691,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -23713,8 +23713,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -24031,7 +24031,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -25502,8 +25502,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -25980,8 +25980,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -26255,9 +26255,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -26277,8 +26277,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -26595,7 +26595,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -28066,8 +28066,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -28544,8 +28544,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -28819,9 +28819,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -28841,8 +28841,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -29159,7 +29159,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -30630,8 +30630,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -31108,8 +31108,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -31383,9 +31383,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -31405,8 +31405,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -31723,7 +31723,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -33194,8 +33194,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -33672,8 +33672,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -33947,9 +33947,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -33969,8 +33969,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -34287,7 +34287,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -35758,8 +35758,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -36236,8 +36236,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -36511,9 +36511,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -36533,8 +36533,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -36851,7 +36851,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -38322,8 +38322,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -38800,8 +38800,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -39075,9 +39075,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -39097,8 +39097,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -39415,7 +39415,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -40886,8 +40886,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -41364,8 +41364,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -41639,9 +41639,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -41661,8 +41661,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -41979,7 +41979,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -43450,8 +43450,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -43928,8 +43928,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -44203,9 +44203,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -44225,8 +44225,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -44543,7 +44543,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -46014,8 +46014,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -46492,8 +46492,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -46767,9 +46767,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -46789,8 +46789,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -47107,7 +47107,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -48578,8 +48578,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -49056,8 +49056,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -49331,9 +49331,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -49353,8 +49353,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -49671,7 +49671,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -51142,8 +51142,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -51620,8 +51620,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -51895,9 +51895,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -51917,8 +51917,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -52235,7 +52235,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -53706,8 +53706,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -54184,8 +54184,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -54459,9 +54459,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -54481,8 +54481,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -54799,7 +54799,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -56270,8 +56270,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -56748,8 +56748,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -57023,9 +57023,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -57045,8 +57045,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -57363,7 +57363,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -58834,8 +58834,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -59312,8 +59312,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -59587,9 +59587,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -59609,8 +59609,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -59927,7 +59927,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -61398,8 +61398,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -61876,8 +61876,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -62151,9 +62151,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -62173,8 +62173,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -62491,7 +62491,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -63962,8 +63962,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -64440,8 +64440,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -64715,9 +64715,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -64737,8 +64737,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -65055,7 +65055,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -66526,8 +66526,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -67004,8 +67004,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -67279,9 +67279,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -67301,8 +67301,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -67619,7 +67619,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -69090,8 +69090,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -69568,8 +69568,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -69843,9 +69843,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -69865,8 +69865,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -70183,7 +70183,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -71654,8 +71654,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -72132,8 +72132,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -72407,9 +72407,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -72429,8 +72429,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -72747,7 +72747,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -74218,8 +74218,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -74696,8 +74696,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -74971,9 +74971,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -74993,8 +74993,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -75311,7 +75311,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -76782,8 +76782,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -77260,8 +77260,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -77535,9 +77535,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -77557,8 +77557,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -77875,7 +77875,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -79346,8 +79346,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -79824,8 +79824,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -80099,9 +80099,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -80121,8 +80121,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -80439,7 +80439,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -81910,8 +81910,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -82388,8 +82388,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -82663,9 +82663,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -82685,8 +82685,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -83003,7 +83003,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -84474,8 +84474,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -84952,8 +84952,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -85227,9 +85227,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -85249,8 +85249,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -85567,7 +85567,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -87038,8 +87038,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -87516,8 +87516,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -87791,9 +87791,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -87813,8 +87813,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -88131,7 +88131,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -89602,8 +89602,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -90080,8 +90080,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -90355,9 +90355,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -90377,8 +90377,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -90695,7 +90695,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -92166,8 +92166,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -92644,8 +92644,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -92919,9 +92919,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -92941,8 +92941,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -93259,7 +93259,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -94730,8 +94730,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -95208,8 +95208,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -95483,9 +95483,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -95505,8 +95505,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -95823,7 +95823,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -97294,8 +97294,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -97772,8 +97772,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -98047,9 +98047,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -98069,8 +98069,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -98387,7 +98387,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -99858,8 +99858,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -100336,8 +100336,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -100611,9 +100611,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -100633,8 +100633,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -100951,7 +100951,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -102422,8 +102422,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -102900,8 +102900,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -103175,9 +103175,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -103197,8 +103197,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -103515,7 +103515,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -104986,8 +104986,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -105464,8 +105464,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -105739,9 +105739,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -105761,8 +105761,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -106079,7 +106079,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -107550,8 +107550,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -108028,8 +108028,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -108303,9 +108303,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -108325,8 +108325,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -108643,7 +108643,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -110114,8 +110114,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -110592,8 +110592,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -110867,9 +110867,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -110889,8 +110889,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -111207,7 +111207,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -112678,8 +112678,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -113156,8 +113156,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -113431,9 +113431,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -113453,8 +113453,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -113771,7 +113771,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -115242,8 +115242,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -115720,8 +115720,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -115995,9 +115995,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -116017,8 +116017,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -116335,7 +116335,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -117806,8 +117806,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -118284,8 +118284,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -118559,9 +118559,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -118581,8 +118581,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -118899,7 +118899,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -120370,8 +120370,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -120848,8 +120848,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -121123,9 +121123,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -121145,8 +121145,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -121463,7 +121463,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -122934,8 +122934,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -123412,8 +123412,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -123687,9 +123687,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -123709,8 +123709,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -124027,7 +124027,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -125498,8 +125498,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag
@@ -125976,8 +125976,8 @@ from e in emps
 >   : {deptno:int, id:int, name:string} list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
 from e in emps
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.
@@ -126251,9 +126251,9 @@ from e in scott.emps
 >   raised at: stdIn:2.33-2.40
 
 (* In the following query, the query becomes unordered after
-   the join with the unordered `scott.depts` table, but we can
-   restore the same order by sorting on `i` (which is assigned
-   in a previous step from `ordinal`). *)
+ * the join with the unordered `scott.depts` table, but we can
+ * restore the same order by sorting on `i` (which is assigned
+ * in a previous step from `ordinal`). *)
 from e in scott.emps
   order e.deptno
   yield {i = ordinal, e}
@@ -126273,8 +126273,8 @@ from e in scott.emps
 >   : {dname:string, ename:string, i:int} list
 
 (* Morel's order step does not provide stable sorts, but you
-   can achieve stable sorts using `ordinal`. Note that employees
-   are sorted by job then empno. *)
+ * can achieve stable sorts using `ordinal`. Note that employees
+ * are sorted by job then empno. *)
 from e in scott.emps
   order e.empno
   where e.deptno > 10
@@ -126591,7 +126591,7 @@ from e in emps
 > val it = [{c=1,d=10},{c=1,d=20},{c=2,d=30}] : {c:int, d:int} list
 
 (* a singleton compute expression does not need a derivable label
-   if group key is empty *)
+ * if group key is empty *)
 from i in [1,2]
   group {} compute 1 + 2;
 > val it = [3] : int list
@@ -128062,8 +128062,8 @@ fun threeBag list = bag (threes list);
 > val threeBag = fn : 'a list -> 'a list bag
 
 (* When we switch the query to use "threeBag" rather than "threes",
-   the input still must be a list, but the output changes from
-   "list list" to "list bag". *)
+ * the input still must be a list, but the output changes from
+ * "list list" to "list bag". *)
 from i in [0,1,2,3,4,5,6,7,8,9,10]
   through j in threeBag;
 > val it = [[9,10],[6,7,8],[3,4,5],[0,1,2]] : int list bag

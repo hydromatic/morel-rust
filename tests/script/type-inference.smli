@@ -529,7 +529,8 @@ end;
 (*) The following should give error but currently does not.
 :t let val rec x = 1 and y = 2 in x + y end;
 > val it : int
-(* sml-nj gives:
+(*) sml-nj gives:
+(*
 stdIn:1.14-1.19 Error: fn expression required on rhs of val rec
 stdIn:1.24-1.29 Error: fn expression required on rhs of val rec
 stdIn:1.33-1.38 Error: operator and operand do not agree [overload - bad instantiation]
@@ -542,7 +543,8 @@ stdIn:1.33-1.38 Error: operator and operand do not agree [overload - bad instant
 (*) The following should give error but currently does not.
 :t let val rec s = "s" and t = "t" in s ^ t end;
 > val it : string
-(* sml-nj gives:
+(*) sml-nj gives:
+(*
 stdIn:1.14-1.21 Error: fn expression required on rhs of val rec
 stdIn:1.26-1.33 Error: fn expression required on rhs of val rec
 stdIn:1.37-1.42 Error: operator and operand do not agree [tycon mismatch]
@@ -863,7 +865,7 @@ end;
 > val it : {i:int, j:int} list
 
 (* "map String.size" has type "string list -> int list",
-   and therefore the type of "j" is "int". *)
+ * and therefore the type of "j" is "int". *)
 :t
 from s in ["ab","c"]
   through j in (map String.size);
@@ -1008,9 +1010,10 @@ forall d in [{a=1,b=true}];
 > val it : char list
 
 (* Composite order using record may not have the intended effect,
-   because record fields are sorted alphabetically. Note that data
-   is sorted first by deptno then by name. *)
-(* Claude: TODO warning not triggering - record might be normalized before validation
+ * because record fields are sorted alphabetically. Note that data
+ * is sorted first by deptno then by name. *)
+(*) Claude: TODO warning not triggering - record might be normalized before validation
+(*
 :t from e in [{name="Fred", deptno=10, job="manager"}]
   order {e.name, e.deptno};
 > stdIn:2.9-2.27 Warning: Sorting on a record whose fields are not in alphabetical order. Sort order may not be what you expect.

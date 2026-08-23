@@ -282,7 +282,7 @@ end;
 
 (* type_string ---------------------------------------------------- *)
 (* The 'type_string' operator renders the inferred type of an expression as
-   a string, without evaluating the expression. *)
+ * a string, without evaluating the expression. *)
 type_string (1 + 2);
 > val it = "int" : string
 type_string (fn x => x);
@@ -303,7 +303,7 @@ type_string (fn (x, y) => x);
 > val it = "'a * 'b -> 'a" : string
 
 (* Operand precedence is 9, so a dotted operand needs no parentheses, but an
-   application or infix operator does. *)
+ * application or infix operator does. *)
 val r = {a = 1, b = true};
 > val r = {a=1,b=true} : {a:int, b:bool}
 type_string r.b;
@@ -507,8 +507,9 @@ fn {a, b} => if b then a else a + 1;
 > val it = {a=fn,b=fn}
 >   : {a:'a list -> ('a * 'a list) option, b:'b list -> ('b * 'b list) option}
 
-(*) Similar, expressed via 'fun'.
-(* sml/nj gives:
+(* Similar, expressed via 'fun'. *)
+(*) sml/nj gives:
+(*
 stdIn:1.2-1.66 Warning: type vars not generalized because of
    value restriction are instantiated to dummy types (X1,X2,...)
 val it = {a=1,b=fn} : {a:int, b:?.X1 list -> (?.X1 * ?.X1 list) option}
@@ -648,7 +649,7 @@ fun g y =
   end;
 > val g = fn : 'a -> ('b -> 'b) * ('c -> 'c * 'c) * ('a -> 'a) * ('d -> 'd)
 
-(* Should be able to derive type, but cannot. A bug.
+(* TODO Should be able to derive type, but cannot. A bug.
    Moving 'fun f1' outside the 'let' solves the problem.
 fun g2 y =
   let
@@ -662,7 +663,7 @@ fun g2 y =
 *)
 
 (* Identity function, and chain functions that apply the identity
-   function multiple times. *)
+ * function multiple times. *)
 
 
 fun id x = x;

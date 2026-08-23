@@ -60,7 +60,7 @@ sig
    *)
   val maxInt : int option [@@prototype "maxInt"]
 
-(*
+(* TODO
   (**
    * is the sum of `i` and `j`. It raises `Overflow` when the
    * result is not representable.
@@ -118,7 +118,7 @@ sig
    * second.
    *)
   val compare : int * int -> `order` [@@method] [@@prototype "compare (i, j)"]
-(*
+(* TODO
   (** returns true if `i` is less than `j`. *)
   val <  : int * int -> bool [@@prototype "i < j"]
   (** returns true if `i` is less than or equal to `j`. *)
@@ -162,7 +162,7 @@ sig
    * StringCvt.DEC r)`.
    *)
   val toString : int -> string [@@method] [@@prototype "toString i"]
-(*
+(* TODO
   (**
    * returns `SOME (i,rest)` if an integer in the format denoted by `radix`
    * can be parsed from a prefix of the character stream `strm` after

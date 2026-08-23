@@ -30,7 +30,7 @@ sig
    * is the type of IEEE 754 double-precision floating-point numbers.
    *)
   type real
-(*
+(* TODO
   structure Math : MATH where type real = real
 *)
 
@@ -64,7 +64,7 @@ sig
    * - finite ± infinity = infinity with correct sign
    * - infinity + infinity = infinity
    * - other infinity combinations yield NaN *)
-(*
+(* TODO
   (**
    * is the sum of `r1` and `r2`. If one argument is finite and
    * the other infinite, the result is infinite with the correct sign,
@@ -83,7 +83,7 @@ sig
   val `-` : real * real -> real
 *) [@@prototype "r1 - r2"]
 
-(*
+(* TODO
   (**
    * is the product of `r1` and `r2`. The product of zero and an
    * infinity produces NaN. Otherwise, if one argument is infinite, the
@@ -110,7 +110,7 @@ sig
    *)
   val rem : real * real -> real [@@method] [@@prototype "rem (x, y)"]
 
-(*
+(* TODO
   (**
    * returns `a * b + c`. Its behavior on infinities follows
    * from the behaviors derived from addition and multiplication.
@@ -123,7 +123,7 @@ sig
   val `*-` : real * real * real -> real
 *) [@@prototype "*- (a, b, c)"]
 
-(*
+(* TODO
   (** returns the negation of `r`. *)
   val `~` : real -> real
 *) [@@prototype "~ r"]
@@ -177,7 +177,7 @@ sig
    *)
   val compare : real * real -> `order` [@@method] [@@prototype "compare (x, y)"]
 
-(*
+(* TODO
   (**
    * behaves similarly to `Real.compare` except that
    * the values it returns have the extended type `IEEEReal.real_order` and
@@ -186,7 +186,7 @@ sig
   val compareReal : real * real -> IEEEReal.real_order
 *) [@@prototype "compareReal (x, y)"]
 
-(*
+(* TODO
   (**
    * returns true if `x` is less than `y`. Return `false` on unordered
    * arguments, i.e., if either argument is NaN, so that the usual reversal
@@ -202,7 +202,7 @@ sig
   val `>=` : real * real -> bool
 *) [@@prototype "x >= y"]
 
-(*
+(* TODO
   (**
    * returns `true` if and only if neither `y` nor `x` is NaN, and `y` and
    * `x` are equal, ignoring signs on zeros. This is equivalent to the IEEE
@@ -211,12 +211,12 @@ sig
   val `==` : real * real -> bool
 *) [@@prototype "x == y"]
 
-(*
+(* TODO
   (** is equivalent to `not o op ==` and the IEEE `?<>` operator. *)
   val `!=` : real * real -> bool
 *) [@@prototype "x != y"]
 
-(*
+(* TODO
   (**
    * returns `true` if either argument is NaN or if the arguments
    * are bitwise equal, ignoring signs on zeros. It is equivalent to the
@@ -244,7 +244,7 @@ sig
    *)
   val isNormal : real -> bool [@@method] [@@prototype "isNormal x"]
 
-(*
+(* TODO
   (** returns the `IEEEReal.float_class` to which x belongs. *)
   val class : real -> IEEEReal.float_class
 *) [@@prototype "class x"]
@@ -279,7 +279,7 @@ sig
   (* Returns the next representable real after r in the direction of t.
    * If t is less than r, returns the largest representable floating-point
    * number less than r. If r = t then it returns r. *)
-(*
+(* TODO
   (**
    * returns the next representable real after `r` in
    * the direction of `t`. Thus, if `t` is less than `r`, `nextAfter`
@@ -328,7 +328,7 @@ sig
    * rounding mode. They raise Overflow if the result is not representable,
    * in particular, if x is an infinity. They raise Domain if the input
    * real is NaN. *)
-(*
+(* TODO
   (**
    * converts the argument `x` to an integral type using the
    * specified rounding mode. It raises `Overflow` if the result is not
@@ -347,12 +347,12 @@ sig
    * value, uses current rounding mode to determine the resulting value.
    *)
   val fromInt : int -> real [@@prototype "fromInt i"]
-(*
+(* TODO
   (** As "fromInt" *)
   val fromLargeInt : LargeInt.int -> real
 *) [@@prototype "fromLargeInt i"]
 
-(*
+(* TODO
   (** convert a value of type `real` to type `LargeReal.real`. *)
   val toLarge : real -> LargeReal.real [@@prototype "toLarge r"]
   (**
@@ -380,7 +380,7 @@ sig
   (* Parse real numbers from character sources, accepting formats like
    * [+~-]?(digits.digits | .digits)(e|E)[+~-]?digits and non-finite
    * representations like inf, infinity, nan (case-insensitive). *)
-(*
+(* TODO
   (**
    * scans a `real` value from character source. Reads
    * from ARG/strm/ using reader `getc`, ignoring initial whitespace. It
@@ -402,7 +402,7 @@ sig
   (* Convert between real and IEEEReal.decimal_approx representations.
    * For normal/subnormal values: fromDecimal (toDecimal r) = r bitwise.
    * Returns NONE if decimal format is invalid. *)
-(*
+(* TODO
   (** converts a `real` to a decimal approximation *)
   val toDecimal : real -> IEEEReal.decimal_approx [@@prototype "toDecimal r"]
   (** converts decimal approximation to a `real` *)

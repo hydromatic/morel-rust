@@ -24,7 +24,7 @@ Sys.set ("stringDepth", ~1);
 > val it = () : unit
 
 (* Until we have a real "print" function, we use "ignore" to
-   suppress the output of expressions. *)
+ * suppress the output of expressions. *)
 fun print x = ignore x;
 > val print = fn : 'a -> unit
 

@@ -172,6 +172,8 @@ case #"a" of #"" => 1 | _ => 2;
 >   raised at: stdIn:1.14-1.17
 
 (*) Comments
+
+(*) lint:skip 143
 1;
 > val it = 1 : int
 (* That was a line comment. This is a block comment. *)
@@ -297,7 +299,6 @@ case #"a" of #"" => 1 | _ => 2;
 str #"(" ^ str #"*" ^ str #")";
 > val it = "(*)" : string
 
-(*) lint:skip 2
 (*) Whole line is a line comment, including a string literal "and this"
 (*) "c" ^ (* This whole line is a comment including the string "and this"
 "d";
@@ -447,7 +448,7 @@ false andalso (true orelse true);
 > val it = true : bool
 
 (* unary minus `~` has higher precedence (8.5) than application (8),
-   lower precedence than '.' (9). *)
+ * lower precedence than '.' (9). *)
 fun succ n = n + 1;
 > val succ = fn : int -> int
 (* TODO add '~succ 3;', which should be parse error *)
@@ -567,6 +568,7 @@ fun compareInt (x: int, y: int) : `order` =
 > val compareInt = fn : int * int -> order
 
 (* Comments ------------------------------------------------------- *)
+(*) lint:skip 128
 
 1 + (* 2 + *) 3;
 > val it = 4 : int
@@ -695,7 +697,7 @@ str #"(" ^ str #"*" ^ str #")";
 1 + 2;
 > val it = "wrong" : string
 
-End of block comment. *)
+ *End of block comment. *)
 "correct";
 > val it = "correct" : string
 
@@ -1486,7 +1488,7 @@ from r in bag [{x=1, y="a"}, {x=1, y="b"}, {x=2, y="c"}]
 >   : {x:int, ys:string bag} bag
 
 (* Integer literals outside the 32-bit 'int' range (~2147483648 to
-   2147483647) are rejected during validation. *)
+ * 2147483647) are rejected during validation. *)
 2147483648;
 > stdIn:1.1-1.11 Error: literal '2147483648' is too large for type int
 >   raised at: stdIn:1.1-1.11
@@ -1510,8 +1512,8 @@ from r in bag [{x=1, y="a"}, {x=1, y="b"}, {x=2, y="c"}]
 > val it = 0wxFFFFFFFFFFFFFFFF : word
 
 (* Word literals outside the unsigned 64-bit 'word' range (0w0 to
-   0w18446744073709551615) are rejected during validation, in both decimal and
-   hexadecimal forms. *)
+ * 0w18446744073709551615) are rejected during validation, in both decimal and
+ * hexadecimal forms. *)
 0w18446744073709551616;
 > stdIn:1.1-1.23 Error: literal '0w18446744073709551616' is too large for type word
 >   raised at: stdIn:1.1-1.23

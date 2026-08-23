@@ -183,7 +183,7 @@ queens 12;
 >   SOME [(12,4),(11,9),(10,7),(9,2),(8,11),(7,6),(6,12),(5,10),(4,8),(3,5),(2,3),
 >    (1,1)] : (int * int) list option
 
-(* For higher values of N, the algorithm is correct but takes too
+(* TODO For higher values of N, the algorithm is correct but takes too
  * long to run.
 
 (*) N=16, t=4 seconds

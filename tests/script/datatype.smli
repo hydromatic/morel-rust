@@ -283,14 +283,16 @@ Cons (Empty, Cons (Node (true, Nil), Nil));
  * not allowed for 0 type parameters. *)
 datatype ('a, 'b) pair = Pair of 'a * 'b;
 > datatype ('a,'b) pair = Pair of 'a * 'b
-(* disabled; should throw
+(*) disabled; should throw
+(*
 datatype 'a, 'b pair = Pair of 'a * 'b; (* not valid *)
 *)
 datatype 'a single = Single of 'a;
 > datatype 'a single = Single of 'a
 datatype ('a) single = Single of 'a;
 > datatype 'a single = Single of 'a
-(* disabled; should throw
+(*) disabled; should throw
+(*
 datatype () void = Void of unit; (* not valid *)
 datatype () void = Void; (* not valid *)
 *)
@@ -422,8 +424,8 @@ datatype 'a tree =
 > datatype 'a tree = Empty | Leaf of 'a | Node of 'a * 'a tree * 'a tree
 
 (* The comparison order of a datatype is determined by order of
-  constructors, not their names. Empty compares less than Leaf,
-  which compares less than Node. *)
+ *constructors, not their names. Empty compares less than Leaf,
+ *which compares less than Node. *)
 Relational.compare (Empty, Empty);
 > val it = EQUAL : order
 Relational.compare (Empty, Leaf 1);

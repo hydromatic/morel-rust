@@ -27,8 +27,8 @@ signature INT_INF =
 sig
 
 (*
-  (** is the type of arbitrary-precision integers. *)
-  eqtype int
+ *(** is the type of arbitrary-precision integers. *)
+ *eqtype int
 *)
 end
 [@@description "Arbitrary-precision integer operations."]

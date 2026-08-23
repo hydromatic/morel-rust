@@ -63,8 +63,8 @@ Sys.plan ();
 Option.valOf (SOME 1);
 > val it = 1 : int
 (* SML/NJ gives:
-    stdIn:6.1-6.18 Warning: type vars not generalized because of
-       value restriction are instantiated to dummy types (X1,X2,...)
+ *  stdIn:6.1-6.18 Warning: type vars not generalized because of
+ *     value restriction are instantiated to dummy types (X1,X2,...)
  *)
 Option.valOf NONE;
 > uncaught exception Option
@@ -96,8 +96,8 @@ Option.`join` (SOME (SOME 1));
 Option.`join` (SOME noneInt);
 > val it = NONE : int option
 (* SML/NJ gives
-  stdIn:1.2-1.18 Warning: type vars not generalized because of
-     value restriction are instantiated to dummy types (X1,X2,...)
+ *stdIn:1.2-1.18 Warning: type vars not generalized because of
+ *   value restriction are instantiated to dummy types (X1,X2,...)
 *)
 Option.`join` NONE;
 > val it = NONE : 'a option
