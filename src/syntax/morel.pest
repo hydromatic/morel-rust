@@ -654,7 +654,11 @@ atomic_type = {
 named_type = { identifier }
 type_con = { identifier }
 record_type = { "{" ~ (type_field ~ ("," ~ type_field)*)? ~ "}" }
-expression_type = { _typeof ~ expr }
+// `typeof e`: the operand is parsed at precedence 9 (`expr_postfix`),
+// as morel-java's `expression9()` does, so that the `=` in
+// `val x : typeof m = 6` ends the annotation rather than being read as
+// an equality test inside it.
+expression_type = { _typeof ~ expr_postfix }
 
 // A composite type isn't really a type, but we pretend that it is for a short
 // time during parsing. It's a way to represent multiple arguments to a

@@ -7483,9 +7483,18 @@ impl<'a> TypeToTermConverter<'a> {
                 // of `expr`. Deduce `expr`'s type into a fresh variable and
                 // unify it with `v`.
                 let v_expr = self.type_resolver.variable();
-                self.type_resolver
-                    .deduce_expr_type(self.env, expr, &v_expr)
-                    .unwrap_or_else(|e| panic!("typeof: {}", e));
+                // The operand need not type-check: `fn n : typeof n =>
+                // ...` names the very variable it annotates. Defer the
+                // error rather than panicking -- deducing a type has no
+                // `Result` to return it in.
+                if let Err(Error::Compile(msg, span)) =
+                    self.type_resolver.deduce_expr_type(self.env, expr, &v_expr)
+                {
+                    self.type_resolver
+                        .field_errors
+                        .borrow_mut()
+                        .push((msg, span));
+                }
                 self.type_resolver.equiv(&Term::Variable(v_expr), v);
                 self.type_resolver
                     .reg_type(&type_node.kind, &type_node.span, v)

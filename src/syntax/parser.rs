@@ -2047,7 +2047,7 @@ impl MorelParser {
 
     fn expression_type(input: ParseInput) -> ParseResult<Type> {
         Ok(match_nodes!(input.children();
-            [_typeof(_), expr(e)] => {
+            [_typeof(_), expr_postfix(e)] => {
                 TypeKind::Expression(Box::new(e)).wrap(input)
             },
         ))
