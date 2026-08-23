@@ -1548,7 +1548,8 @@ from (parent, child) in parents
 >   [{child="arwen",parent="elrond"},{child="elladan",parent="elrond"},
 >    {child="elrohir",parent="elrond"}] : {child:string, parent:string} list
 
-(*) TODO Fix the UnsupportedOperationException
+(* A recursive relation is not supported; it is now reported as a type
+ * error rather than throwing IllegalArgumentException. *)
 fun ancestors () =
   from (x, y) in parents
     union

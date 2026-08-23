@@ -34,6 +34,31 @@ use std::rc::Rc;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
+/// Operator of a collection term, `$collection(element, orderedness)`, where
+/// orderedness is the atom [`ORDERED_OP_NAME`] (a list) or
+/// [`UNORDERED_OP_NAME`] (a bag).
+///
+/// These constants mirror those in `TypeResolver`, and let error messages
+/// render a collection as `list(element)` or `bag(element)` instead of
+/// leaking internals.
+pub const COLLECTION_OP_NAME: &str = "$collection";
+
+/// Orderedness atom for a list.
+pub const ORDERED_OP_NAME: &str = "ordered";
+
+/// Orderedness atom for a bag.
+pub const UNORDERED_OP_NAME: &str = "unordered";
+
+/// Returns the type-constructor name -- `list` or `bag` -- of an
+/// orderedness atom.
+fn collection_name(orderedness: &str) -> &'static str {
+    if orderedness == ORDERED_OP_NAME {
+        "list"
+    } else {
+        "bag"
+    }
+}
+
 /// Trait for things that behave like terms.
 trait TermLike {
     fn apply1(&self, variable: &Var, term: &Term) -> Term;
@@ -640,16 +665,33 @@ impl TermActions {
         &self.right_list[index]
     }
 
-    fn left_list(&mut self) -> &mut Vec<Term> {
-        &mut self.left_list
+    /// Removes the candidate at `index`, and the action that goes with it.
+    fn remove(&mut self, index: usize) {
+        self.left_list.remove(index);
+        self.right_list.remove(index);
+    }
+
+    /// Removes the candidates for which `predicate` is false, and the
+    /// actions that go with them.
+    fn retain(&mut self, mut predicate: impl FnMut(&Term) -> bool) {
+        let mut i = 0;
+        while i < self.left_list.len() {
+            if predicate(&self.left_list[i]) {
+                i += 1;
+            } else {
+                self.remove(i);
+            }
+        }
     }
 }
 
-/// Action to perform when a constraint is resolved.
-enum ConstraintAction {
+/// Action to perform when a constraint is narrowed down to one candidate.
+#[derive(Clone, Debug)]
+pub enum ConstraintAction {
     /// Just add the equation `arg = candidate`.
     Noop,
-    Accept(Box<dyn Fn(&Term, &Term, &mut dyn FnMut(Term, Term))>),
+    /// Add the equation `term1 = term2`, and not `arg = candidate`.
+    Equiv(Term, Term),
 }
 
 /// Mutable constraint used during unification.
@@ -660,11 +702,41 @@ struct MutableConstraint {
 
 /// An overload constraint: variable `var` must unify with one of
 /// the `candidates`. As unification progresses, candidates that
-/// can't unify are eliminated. When one candidate remains, it is
-/// selected and its equation `var = candidate` is added.
+/// can't unify are eliminated. When one candidate remains, its
+/// action fires: by default the equation `var = candidate` is added.
 pub struct Constraint {
     pub var: Var,
     pub candidates: Vec<Term>,
+    /// Action for each candidate; the same length as `candidates`.
+    pub actions: Vec<ConstraintAction>,
+}
+
+impl Constraint {
+    /// Creates a constraint that equates `var` with whichever candidate
+    /// survives.
+    pub fn new(var: Var, candidates: Vec<Term>) -> Self {
+        let actions = vec![ConstraintAction::Noop; candidates.len()];
+        Self {
+            var,
+            candidates,
+            actions,
+        }
+    }
+
+    /// Creates a constraint that fires `actions[i]` when `candidates[i]` is
+    /// the last candidate standing.
+    pub fn with_actions(
+        var: Var,
+        candidates: Vec<Term>,
+        actions: Vec<ConstraintAction>,
+    ) -> Self {
+        assert_eq!(candidates.len(), actions.len());
+        Self {
+            var,
+            candidates,
+            actions,
+        }
+    }
 }
 
 /// Unifier.
@@ -740,10 +812,9 @@ impl<'a> Work<'a> {
             .for_each(|(left, right)| work.add(left.clone(), right.clone()));
         for c in constraints {
             let mut ta = TermActions::new();
-            for candidate in &c.candidates {
+            for (candidate, action) in c.candidates.iter().zip(&c.actions) {
                 ta.left_list.push(candidate.clone());
-                // No-op action: just add the equation.
-                ta.right_list.push(ConstraintAction::Noop);
+                ta.right_list.push(action.clone());
             }
             work.constraint_queue.push_back(MutableConstraint {
                 arg: Term::Variable(c.var),
@@ -895,7 +966,6 @@ impl<'a> Work<'a> {
                 constraint.arg = arg2.clone();
                 constraint
                     .term_actions
-                    .left_list
                     .retain(|arg1| arg2.could_unify_with(arg1));
             }
 
@@ -907,8 +977,7 @@ impl<'a> Work<'a> {
                     change_count += 1;
                     constraint.term_actions.left_list[j] = sub_arg2.clone();
                     if !arg2.could_unify_with(&sub_arg2) {
-                        constraint.term_actions.left_list.remove(j);
-                        constraint.term_actions.right_list.remove(j);
+                        constraint.term_actions.remove(j);
                         continue; // Don't increment j
                     }
                 }
@@ -919,13 +988,22 @@ impl<'a> Work<'a> {
                 match constraint.term_actions.size() {
                     0 => return Self::failure("no valid overloads"),
                     1 => {
-                        // Single candidate remains — select it by
-                        // adding the equation arg = candidate and
-                        // removing the constraint.
-                        let arg = constraint.arg.clone();
-                        let candidate = constraint.term_actions.left(0).clone();
+                        // Single candidate remains — fire its action and
+                        // remove the constraint. The default action adds the
+                        // equation `arg = candidate`; an `Equiv` action adds
+                        // its own equation instead.
+                        let (left, right) =
+                            match constraint.term_actions.right(0) {
+                                ConstraintAction::Noop => (
+                                    constraint.arg.clone(),
+                                    constraint.term_actions.left(0).clone(),
+                                ),
+                                ConstraintAction::Equiv(t1, t2) => {
+                                    (t1.clone(), t2.clone())
+                                }
+                            };
                         self.constraint_queue.remove(i);
-                        self.add(arg, candidate);
+                        self.add(left, right);
                         continue; // Don't increment i
                     }
                     _ => {} // Multiple options still available
@@ -1139,6 +1217,78 @@ impl Unifier {
         SequenceDisplay { seq, unifier: self }.to_string()
     }
 
+    /// Returns the orderedness atom of `term` -- [`ORDERED_OP_NAME`] or
+    /// [`UNORDERED_OP_NAME`] -- or `None` if `term` is not one.
+    fn orderedness_atom(&self, term: &Term) -> Option<&str> {
+        match term {
+            Term::Sequence(seq) if seq.terms.is_empty() => {
+                match self.op_name(&seq.op) {
+                    name @ (ORDERED_OP_NAME | UNORDERED_OP_NAME) => Some(name),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns whether `left` and `right` are collection terms whose
+    /// orderedness atoms are both concrete and differ (that is, one is a list
+    /// and the other a bag).
+    fn is_orderedness_conflict(
+        &self,
+        left: &Sequence,
+        right: &Sequence,
+    ) -> bool {
+        if self.op_name(&left.op) != COLLECTION_OP_NAME || left.terms.len() != 2
+        {
+            return false;
+        }
+        match (
+            self.orderedness_atom(&left.terms[1]),
+            self.orderedness_atom(&right.terms[1]),
+        ) {
+            (Some(o1), Some(o2)) => o1 != o2,
+            _ => false,
+        }
+    }
+
+    /// Renders a term for an error message, printing a collection term
+    /// `$collection(e, ordered)` as `list(e)` and `$collection(e, unordered)`
+    /// as `bag(e)`.
+    pub fn render(&self, term: &Term) -> String {
+        match term {
+            Term::Sequence(seq) => self.render_sequence(seq),
+            Term::Variable(_) => self.term_string(term),
+        }
+    }
+
+    /// Renders a sequence for an error message. See [`Unifier::render`].
+    pub fn render_sequence(&self, seq: &Sequence) -> String {
+        if let Some(ord) = self.orderedness_atom(&Term::Sequence(seq.clone())) {
+            // A bare orderedness atom surfaces when two collections are
+            // unified on a shared orderedness variable and clash; render it
+            // as "list"/"bag".
+            return collection_name(ord).to_string();
+        }
+        if self.op_name(&seq.op) == COLLECTION_OP_NAME && seq.terms.len() == 2 {
+            let kind = match self.orderedness_atom(&seq.terms[1]) {
+                Some(ord) => collection_name(ord),
+                None => "bag",
+            };
+            return format!("{}({})", kind, self.render(&seq.terms[0]));
+        }
+        if seq.terms.is_empty() {
+            return self.op_name(&seq.op).to_string();
+        }
+        let args = seq
+            .terms
+            .iter()
+            .map(|t| self.render(t))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{}({})", self.op_name(&seq.op), args)
+    }
+
     /// Formats a substitution as a string.
     pub fn substitution_string(&self, substitution: &Substitution) -> String {
         SubstitutionDisplay {
@@ -1273,8 +1423,24 @@ impl Unifier {
                     tracer.on_conflict(&left, &right);
                     let reason = format!(
                         "conflict: {} vs {}",
-                        self.sequence_string(&left),
-                        self.sequence_string(&right)
+                        self.render_sequence(&left),
+                        self.render_sequence(&right)
+                    );
+                    return Err(UnificationFailure { reason });
+                }
+
+                // Two collections that differ only in orderedness (list vs
+                // bag) share the same operator, so they would otherwise
+                // decompose and report a conflict on the internal orderedness
+                // atom. Report the parent terms instead -- and before their
+                // elements are unified -- so that the message reads
+                // "list(T) vs bag(T)".
+                if self.is_orderedness_conflict(&left, &right) {
+                    tracer.on_conflict(&left, &right);
+                    let reason = format!(
+                        "conflict: {} vs {}",
+                        self.render_sequence(&left),
+                        self.render_sequence(&right)
                     );
                     return Err(UnificationFailure { reason });
                 }

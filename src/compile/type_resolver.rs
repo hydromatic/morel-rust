@@ -41,8 +41,9 @@ use crate::syntax::ast::{
 };
 use crate::syntax::parser;
 use crate::unify::unifier::{
-    Action, Constraint, NullTracer, Op, OpDef, Sequence, Substitution, Term,
-    Unifier, Var,
+    Action, COLLECTION_OP_NAME, Constraint, ConstraintAction, NullTracer,
+    ORDERED_OP_NAME, Op, OpDef, Sequence, Substitution, Term,
+    UNORDERED_OP_NAME, Unifier, Var,
 };
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -385,6 +386,21 @@ struct TermToTypeConverter<'a> {
 }
 
 impl<'a> TermToTypeConverter<'a> {
+    /// Returns whether `term` is the orderedness atom of a list, following
+    /// variable links to a concrete atom. An orderedness that nothing
+    /// constrained reads back as a bag, so it yields `false`.
+    fn is_ordered(&self, term: &Term) -> bool {
+        match term {
+            Term::Sequence(seq) => {
+                self.type_map.op_defs[seq.op.0 as usize].name == ORDERED_OP_NAME
+            }
+            Term::Variable(v) => match self.type_map.var_term_map.get(v) {
+                Some(t) => self.is_ordered(t),
+                None => false,
+            },
+        }
+    }
+
     /// Converts a term to a type.
     fn term_type(&mut self, term: &Term) -> Rc<Type> {
         match term {
@@ -393,6 +409,19 @@ impl<'a> TermToTypeConverter<'a> {
                     &self.type_map.op_defs[sequence.op.0 as usize].name;
                 match op_name.as_str() {
                     // lint: sort until '#}' where '##["]'
+                    "$collection" => {
+                        // A collection term is a list or a bag, according to
+                        // its orderedness; an orderedness that nothing
+                        // constrained reads back as a bag.
+                        assert_eq!(sequence.terms.len(), 2);
+                        let type_ = self.term_type(&sequence.terms[0]);
+                        let ordered = self.is_ordered(&sequence.terms[1]);
+                        self.lib.intern(if ordered {
+                            Type::List(type_)
+                        } else {
+                            Type::Bag(type_)
+                        })
+                    }
                     "bag" => {
                         assert_eq!(sequence.terms.len(), 1);
                         let type_ = self.term_type(&sequence.terms[0]);
@@ -603,8 +632,14 @@ pub struct TypeResolver {
     query_ordered: bool,
 
     /// Cached operators for common type-constructors.
-    list_op: Op,
-    bag_op: Op,
+    ///
+    /// A collection is a single term, `$collection(element, orderedness)`,
+    /// where orderedness is the atom `ordered` (a list) or `unordered` (a
+    /// bag), or a variable. Orderedness therefore flows through inference
+    /// like any other attribute.
+    collection_op: Op,
+    ordered_op: Op,
+    unordered_op: Op,
     tuple_op: Op,
     arg_op: Op,
     overload_op: Op,
@@ -1034,8 +1069,9 @@ impl TypeResolver {
     /// Creates a new type resolver.
     pub fn new() -> Self {
         let mut unifier = Unifier::new(true);
-        let list_op = unifier.op("list", Some(1));
-        let bag_op = unifier.op("bag", Some(1));
+        let collection_op = unifier.op(COLLECTION_OP_NAME, Some(2));
+        let ordered_op = unifier.op(ORDERED_OP_NAME, Some(0));
+        let unordered_op = unifier.op(UNORDERED_OP_NAME, Some(0));
         let tuple_op = unifier.op("tuple", None);
         let arg_op = unifier.op("$arg", None);
         let overload_op = unifier.op("overload", None);
@@ -1053,8 +1089,9 @@ impl TypeResolver {
             terms: Vec::new(),
             next_id: 0,
             unifier,
-            list_op,
-            bag_op,
+            collection_op,
+            ordered_op,
+            unordered_op,
             tuple_op,
             arg_op,
             overload_op,
@@ -1183,8 +1220,9 @@ impl TypeResolver {
         self.decl_type_vars.clear();
         // Fresh unifier — keep the cached op references in sync.
         self.unifier = Unifier::new(true);
-        self.list_op = self.unifier.op("list", Some(1));
-        self.bag_op = self.unifier.op("bag", Some(1));
+        self.collection_op = self.unifier.op(COLLECTION_OP_NAME, Some(2));
+        self.ordered_op = self.unifier.op(ORDERED_OP_NAME, Some(0));
+        self.unordered_op = self.unifier.op(UNORDERED_OP_NAME, Some(0));
         self.tuple_op = self.unifier.op("tuple", None);
         self.arg_op = self.unifier.op("$arg", None);
         self.overload_op = self.unifier.op("overload", None);
@@ -1303,21 +1341,22 @@ impl TypeResolver {
         // Default unconstrained aggregate-input collection variables
         // to list (ordered) or bag (unordered).
         if !self.preferred_collection_vars.is_empty() {
-            for &(pv, elem_var, ordered) in &self.preferred_collection_vars {
+            let preferred = self.preferred_collection_vars.clone();
+            for (pv, elem_var, ordered) in preferred {
                 let mut current = pv;
                 loop {
                     match type_map.var_term_map.get(&current).cloned() {
                         None => {
                             // Unconstrained: default based on ordering.
-                            let op = if ordered {
-                                self.list_op
+                            let orderedness = if ordered {
+                                self.ordered_atom()
                             } else {
-                                self.bag_op
+                                self.unordered_atom()
                             };
-                            let term = Term::Sequence(
-                                self.unifier
-                                    .apply1(op, Term::Variable(elem_var)),
-                            );
+                            let term = Term::Sequence(self.collection_term(
+                                Term::Variable(elem_var),
+                                orderedness,
+                            ));
                             type_map.var_term_map.insert(current, term);
                             break;
                         }
@@ -2080,7 +2119,7 @@ impl TypeResolver {
                 //  - list-only (e.g. count: 'a list -> int): list_term
                 //  - bag-only: bag_term
                 //  - overloaded: match input ordering
-                //  - anonymous/unknown: may_be_bag_or_list + default
+                //  - anonymous/unknown: is_collection_of + default
                 let v_elements = self.variable();
                 let kind = self.aggregate_collection_kind(env, f);
                 match kind {
@@ -2091,11 +2130,14 @@ impl TypeResolver {
                         self.bag_term(Term::Variable(v_e), &v_elements);
                     }
                     CollectionKind::MatchInput => {
-                        // Link to input ordering via match_collection_kind.
-                        // Avoids the action collision that
-                        // is_list_or_bag_matching_input would cause.
+                        // Link to the input's orderedness.
                         if let Some(c) = step_env.c {
-                            self.match_collection_kind(&c, &v_elements, &v_e);
+                            self.same_orderedness(
+                                &v_elements,
+                                &v_e,
+                                &c,
+                                &step_env.v,
+                            );
                         } else {
                             self.list_term(Term::Variable(v_e), &v_elements);
                         }
@@ -2103,7 +2145,7 @@ impl TypeResolver {
                     CollectionKind::Unknown => {
                         // Anonymous function: allow either, default
                         // based on query ordering.
-                        self.may_be_bag_or_list(&v_elements, &v_e);
+                        self.is_collection_of(&v_elements, &v_e);
                         self.preferred_collection_vars.push((
                             v_elements,
                             v_e,
@@ -2221,7 +2263,7 @@ impl TypeResolver {
                 let v_elem = self.variable();
                 let left2 = self.deduce_expr_type(env, left, &v_elem)?;
                 let v_coll = self.variable();
-                self.may_be_bag_or_list(&v_coll, &v_elem);
+                self.is_collection_of(&v_coll, &v_elem);
                 let right2 = self.deduce_expr_type(env, right, &v_coll)?;
                 self.primitive_term(&PrimitiveType::Bool, v);
                 let x = ExprKind::Elem(Box::new(left2), Box::new(right2));
@@ -2300,10 +2342,8 @@ impl TypeResolver {
                 // If the name is overloaded, add a constraint
                 // that v must match one of the candidate types.
                 if let Some(candidates) = self.overloads.get(name).cloned() {
-                    self.overload_constraints.push(Constraint {
-                        var: *v,
-                        candidates,
-                    });
+                    self.overload_constraints
+                        .push(Constraint::new(*v, candidates));
                     return Ok(
                         self.reg_expr(&expr.kind, &expr.span, expr.id, v)
                     );
@@ -2497,7 +2537,7 @@ impl TypeResolver {
                 let v_elem = self.variable();
                 let left2 = self.deduce_expr_type(env, left, &v_elem)?;
                 let v_coll = self.variable();
-                self.may_be_bag_or_list(&v_coll, &v_elem);
+                self.is_collection_of(&v_coll, &v_elem);
                 let right2 = self.deduce_expr_type(env, right, &v_coll)?;
                 self.primitive_term(&PrimitiveType::Bool, v);
                 let x = ExprKind::NotElem(Box::new(left2), Box::new(right2));
@@ -2994,7 +3034,7 @@ impl TypeResolver {
         // The scan expression may be a list or bag; defer the element-type
         // constraint until c0 is resolved (instead of forcing list here).
         if !eq {
-            self.may_be_bag_or_list(&c0, &v0);
+            self.is_collection_of(&c0, &v0);
         }
         let expr2 = self.deduce_expr_type(
             &*p.env,
@@ -3078,9 +3118,18 @@ impl TypeResolver {
         let c = self.unifier.variable();
         if eq {
             // ScanEq (= expr): output inherits the preceding collection type.
-            self.is_list_or_bag_matching_input(&p.c.unwrap(), &p.v, &c, &v);
+            self.same_orderedness(&p.c.unwrap(), &p.v, &c, &v);
+        } else if steps.is_empty() {
+            // The first scan: the query has the same orderedness as its
+            // source.
+            self.same_orderedness(&c0, &v0, &c, &v);
         } else {
-            self.is_list_or_bag_matching_input(&c0, &v0, &c, &v);
+            // A comma-join: the query is a list only if both the input and
+            // the source are lists, otherwise a bag.
+            let v1 = self.variable();
+            let v2 = self.variable();
+            self.meet_collections(&p.c.unwrap(), &v1, &c0, &v2, &c, &v);
+            self.is_collection_of(&c0, &v0);
         }
 
         // ScanEq steps must stay as ScanEq in the output so that the
@@ -3187,7 +3236,7 @@ impl TypeResolver {
         // computes `bag` — because the type_map's collection-kind
         // entry was hard-coded to `list_term` regardless of input.
         let c6 = self.variable();
-        self.is_list_or_bag_matching_input(&p.c.unwrap(), &p.v, &c6, &v6);
+        self.same_orderedness(&p.c.unwrap(), &p.v, &c6, &v6);
 
         let mut envs = p.env.builder();
         if binder.is_none()
@@ -3277,19 +3326,19 @@ impl TypeResolver {
         steps2: &mut Vec<Step>,
     ) -> Result<Triple, Error> {
         // `e` must evaluate to a list or a bag (of element type `elem`).
-        // Enforce this with an overload constraint (not the permissive
-        // `may_be_bag_or_list` action used by scans), so that a
-        // non-collection `e` fails type resolution with "no valid
-        // overloads" -- mirroring morel-java's `mayBeBagOrList`.
         let elem = self.variable();
         let c0 = self.variable();
-        self.constrain_bag_or_list(&c0, &elem);
         let expr2 = self.deduce_expr_type(&*p.env, expr, &c0)?;
+        // Added after deducing `e`, so that a non-collection `e` is reported
+        // as "conflict: bag(T) vs bool" rather than the other way round.
+        self.is_collection_of(&c0, &elem);
 
         // The output is a list if both the input and `e` are lists, and a
         // bag if either is a bag -- the same rule as a comma-join scan.
         let c = self.unifier.variable();
-        self.is_list_or_bag_matching_input(&c0, &elem, &c, &elem);
+        let v1 = self.variable();
+        let v2 = self.variable();
+        self.meet_collections(&p.c.unwrap(), &v1, &c0, &v2, &c, &elem);
 
         let step =
             StepKind::YieldAll(binder.map(String::from), Box::new(expr2));
@@ -3337,19 +3386,13 @@ impl TypeResolver {
             let expr2 = self.deduce_expr_type(&*p.root_env, expr, &c_arg)?;
             exprs2.push(expr2);
 
-            // Extract the element type from this collection and unify with
-            // the common element type. The collection may be list or bag.
-            let v_arg = self.variable();
-            self.may_be_bag_or_list(&c_arg, &v_arg);
-            self.equiv(&Term::Variable(v_arg), &element_type);
-
             terms.push(Term::Variable(c_arg));
         }
 
-        // Result collection has the same element type. Use list here;
-        // the FromBuilder will override to bag if any input is bag.
+        // The result is a list if every input is a list, otherwise a bag;
+        // all inputs have the common element type.
         let c_result = self.variable();
-        self.list_term(Term::Variable(element_type), &c_result);
+        self.meet_all_collections(&terms, &c_result, &element_type);
 
         // Create the appropriate step with deduced expressions
         let step2 = match step_kind {
@@ -3700,12 +3743,7 @@ impl TypeResolver {
         // this propagation, an enclosing `let ... in from ... group
         // ... end` reads the result type as `list` even when the
         // from is a bag.
-        self.is_list_or_bag_matching_input(
-            &p.c.unwrap(),
-            &p.v,
-            &c_result,
-            &v_result,
-        );
+        self.same_orderedness(&p.c.unwrap(), &p.v, &c_result, &v_result);
 
         let step2 = StepKind::Group(
             binder.map(String::from),
@@ -3857,44 +3895,50 @@ impl TypeResolver {
     ) -> Result<Triple, Error> {
         let v_result = self.variable();
         let v_fn = self.variable();
-        let c_param = self.variable();
 
-        // The function has type `collection -> result`. Deduce it first and
-        // tie its parameter to `c_param` via `v_fn`. Field accesses inside an
-        // inline-lambda body are resolved lazily by the unifier (a deferred
-        // action), so deducing before `c_param`'s element is known does not
-        // hard-error — the constraints we add below are all solved together in
-        // the final unification, where the field actions then fire.
-        let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
-        self.fn_term(&c_param, &v_result, &v_fn);
-
-        // Now decide how to constrain the parameter's element type. Two cases,
-        // distinguished by whether the function's own type already pins the
-        // parameter to a concrete collection kind:
-        //
-        //  - Pinned (`into sum` → `bag`, `into List.length` → `list`): the kind
-        //    is fixed by the function. Use `constrain_bag_or_list` to link the
-        //    *element* to the input element `p.v` (its `list(p.v)`/`bag(p.v)`
-        //    candidates unify with the pinned kind, forcing element = `p.v`).
-        //    `into` adapts the input collection's kind to the function's.
-        //
-        //  - Free (`into process`, `into (fn rows => … r.a)`): the function is
-        //    kind-agnostic, so nothing forces `c_param` to a collection and a
-        //    purely reactive element link would deadlock — leaving a field
-        //    access in the body on an unresolved `'a`. Link the parameter
-        //    directly to the input collection type (`p.c`); `into` feeds the
-        //    input collection to the function, so this is the natural type and
-        //    it fixes both the kind and the element so field accesses resolve.
-        if self.resolves_to_collection(&c_param) {
-            self.constrain_bag_or_list(&c_param, &p.v);
-        } else {
-            match p.c {
-                Some(c_in) => {
-                    self.equiv(&Term::Variable(c_in), &c_param);
+        // How the function's parameter links to the input depends on the
+        // function's own type.
+        let kind = match p.c {
+            Some(_) => self.aggregate_collection_kind(&*p.env, expr),
+            // No input collection; nothing to link to.
+            None => CollectionKind::Unknown,
+        };
+        let c_param = match kind {
+            CollectionKind::Unknown => {
+                // A user-defined function whose type is not yet available.
+                // Link directly to `p.c`, which preserves record-type
+                // propagation: without it, a field access in the function's
+                // body would be left on an unresolved `'a`.
+                if let Some(c_in) = p.c {
+                    c_in
+                } else {
+                    let c_param = self.variable();
+                    self.constrain_bag_or_list(&c_param, &p.v);
+                    c_param
                 }
-                None => self.constrain_bag_or_list(&c_param, &p.v),
             }
-        }
+            CollectionKind::Bag => {
+                // A bag-only function: decouple from the input's ordering, so
+                // that it also works with a list input.
+                let c_param = self.variable();
+                self.bag_term(Term::Variable(p.v), &c_param);
+                c_param
+            }
+            CollectionKind::List => {
+                // A list-only function: decouple from the input's ordering.
+                let c_param = self.variable();
+                self.list_term(Term::Variable(p.v), &c_param);
+                c_param
+            }
+            CollectionKind::MatchInput => {
+                // Overloaded or polymorphic: link to the input's ordering.
+                let c_param = self.variable();
+                self.same_orderedness(&c_param, &p.v, &p.c.unwrap(), &p.v);
+                c_param
+            }
+        };
+        self.fn_term(&c_param, &v_result, &v_fn);
+        let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
 
         let step2 = StepKind::Into(Box::new(expr2));
         steps2.push(step2.spanned(span));
@@ -3932,7 +3976,7 @@ impl TypeResolver {
         let c_result = self.variable();
 
         // The input collection (p.c) is either a bag of p.v or a list of p.v.
-        self.may_be_bag_or_list(&p.c.unwrap(), &p.v);
+        self.is_collection_of(&p.c.unwrap(), &p.v);
 
         // Deduce the pattern type.
         let mut term_map = Vec::new();
@@ -3946,7 +3990,7 @@ impl TypeResolver {
         let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
 
         // The result collection may be a bag or list.
-        self.may_be_bag_or_list(&c_result, &v_element);
+        self.is_collection_of(&c_result, &v_element);
 
         let step2 = StepKind::Through(Box::new(pat2.clone()), Box::new(expr2));
         steps2.push(step2.spanned(span));
@@ -4412,16 +4456,17 @@ impl TypeResolver {
             "string" => Some(Rc::new(Type::Primitive(PrimitiveType::String))),
             "unit" => Some(Rc::new(Type::Primitive(PrimitiveType::Unit))),
             "word" => Some(Rc::new(Type::Primitive(PrimitiveType::Word))),
-            "list" => {
-                // 'a list; element type is unresolved here but
-                // postfix_dispatch only keys on the list constructor.
-                Some(Rc::new(Type::List(Rc::new(Type::Primitive(
-                    PrimitiveType::Unit,
-                )))))
+            COLLECTION_OP_NAME => {
+                // A list or bag, according to its orderedness; the element
+                // type is unresolved here, but postfix_dispatch only keys on
+                // the collection constructor.
+                let element = Rc::new(Type::Primitive(PrimitiveType::Unit));
+                Some(Rc::new(if self.term_is_ordered(&seq.terms[1]) {
+                    Type::List(element)
+                } else {
+                    Type::Bag(element)
+                }))
             }
-            "bag" => Some(Rc::new(Type::Bag(Rc::new(Type::Primitive(
-                PrimitiveType::Unit,
-            ))))),
             s if let Some(arity) = library::builtin_type_arity(s) => {
                 // Any other built-in named type (`option`, `range`,
                 // `continuous_set`, …): postfix_dispatch only keys
@@ -4690,7 +4735,9 @@ impl TypeResolver {
             return SafeTunnel::Defer;
         };
         let op_defs = Rc::clone(&self.unifier.op_defs);
-        let mut functors: Vec<Op> = Vec::new();
+        // Each tunnelled layer is kept whole, so that its non-element terms
+        // (e.g. a collection's orderedness) can be restored when re-wrapping.
+        let mut functors: Vec<Sequence> = Vec::new();
         let mut current = subst.resolve_term(&Term::Variable(*v_rec));
         loop {
             let Term::Sequence(seq) = current.clone() else {
@@ -4711,9 +4758,9 @@ impl TypeResolver {
                 return SafeTunnel::Errored;
             };
             let op_name = op_defs[seq.op.0 as usize].name.as_str();
-            if matches!(op_name, "list" | "bag" | "option" | "vector") {
-                functors.push(seq.op);
+            if is_safe_nav_functor(op_name) {
                 current = subst.resolve_term(&seq.terms[0]);
+                functors.push(seq);
                 continue;
             }
             if functors.is_empty() {
@@ -4747,11 +4794,8 @@ impl TypeResolver {
                 return SafeTunnel::Errored;
             };
             let mut result = subst.resolve_term(&seq.terms[i]);
-            for op in functors.iter().rev() {
-                result = Term::Sequence(Sequence {
-                    op: *op,
-                    terms: Rc::from(vec![result]),
-                });
+            for layer in functors.iter().rev() {
+                result = Term::Sequence(rewrap(layer, result));
             }
             return SafeTunnel::Resolved(result);
         }
@@ -4818,7 +4862,7 @@ impl TypeResolver {
                 // Tunnel through functor layers (option, list, bag, vector)
                 // to the record, collecting the ops so the field's type can
                 // be re-wrapped in the same layers.
-                let mut functors: Vec<Op> = Vec::new();
+                let mut functors: Vec<Sequence> = Vec::new();
                 let mut current = substitution.resolve_term(term);
                 loop {
                     let seq = match &current {
@@ -4827,9 +4871,9 @@ impl TypeResolver {
                         _ => return,
                     };
                     let op_name = op_defs[seq.op.0 as usize].name.as_str();
-                    if matches!(op_name, "list" | "bag" | "option" | "vector") {
-                        functors.push(seq.op);
+                    if is_safe_nav_functor(op_name) {
                         current = substitution.resolve_term(&seq.terms[0]);
+                        functors.push(seq);
                         continue;
                     }
                     if functors.is_empty() {
@@ -4864,11 +4908,8 @@ impl TypeResolver {
                     };
                     let field_term = substitution.resolve_term(&seq.terms[i]);
                     let mut result = field_term;
-                    for op in functors.iter().rev() {
-                        result = Term::Sequence(Sequence {
-                            op: *op,
-                            terms: Rc::from(vec![result]),
-                        });
+                    for layer in functors.iter().rev() {
+                        result = Term::Sequence(rewrap(layer, result));
                     }
                     let vf = substitution
                         .resolve_term(&Term::Variable(self.v_field));
@@ -5138,61 +5179,147 @@ impl TypeResolver {
         self.equiv(&Term::Sequence(sequence), v)
     }
 
+    /// Creates a collection term, `$collection(elem, orderedness)`.
+    fn collection_term(&mut self, elem: Term, orderedness: Term) -> Sequence {
+        self.unifier.apply2(self.collection_op, elem, orderedness)
+    }
+
+    /// Returns the atom that denotes an ordered collection (a list).
+    fn ordered_atom(&self) -> Term {
+        Term::Sequence(self.unifier.atom(self.ordered_op))
+    }
+
+    /// Returns the atom that denotes an unordered collection (a bag).
+    fn unordered_atom(&self) -> Term {
+        Term::Sequence(self.unifier.atom(self.unordered_op))
+    }
+
     /// Creates a term for a list type and associates it with a variable.
     fn list_term<'a>(&mut self, term: Term, v: &'a Var) -> &'a Var {
-        let sequence = self.unifier.apply1(self.list_op, term);
+        let ordered = self.ordered_atom();
+        let sequence = self.collection_term(term, ordered);
         self.equiv(&Term::Sequence(sequence), v)
     }
 
-    /// Ensures all terms are lists if they are all lists.
-    /// Used for Union/Except/Intersect operations.
-    fn is_list_if_all_are_lists(&mut self, args: &[Term], c: &Var, v: &Var) {
-        if args.is_empty() {
-            panic!("no args");
-        }
-        let arg0 = &args[0];
-        let v0 = self.term_to_variable(arg0);
-
-        // First argument may be bag or list
-        self.may_be_bag_or_list(&v0, v);
-        self.may_be_bag_or_list(c, v);
-
-        // Check all other arguments
-        for arg in &args[1..] {
-            let vi = self.term_to_variable(arg);
-            self.may_be_bag_or_list(&vi, v);
-            self.is_list_if_both_are_lists(&v0, v, &vi, v, c, v);
-        }
+    /// Creates a term for a bag type and associates it with a variable.
+    fn bag_term<'a>(&mut self, term: Term, v: &'a Var) -> &'a Var {
+        let unordered = self.unordered_atom();
+        let sequence = self.collection_term(term, unordered);
+        self.equiv(&Term::Sequence(sequence), v)
     }
 
-    /// Helper for set operations: if both inputs are lists, output is a list.
-    fn is_list_if_both_are_lists(
+    /// Adds a constraint that `c` is a collection of `v`. The orderedness is
+    /// left to be determined; if nothing else constrains it, the collection
+    /// defaults to a bag when the type is read back.
+    ///
+    /// This corresponds to Java's `isCollectionOf(c, v)`.
+    fn is_collection_of(&mut self, c: &Var, v: &Var) {
+        let o = self.variable();
+        let sequence =
+            self.collection_term(Term::Variable(*v), Term::Variable(o));
+        self.equiv(&Term::Sequence(sequence), c);
+    }
+
+    /// Adds a constraint that `c1` and `c2` are collections (of `v1` and
+    /// `v2`) with the same orderedness.
+    ///
+    /// With the unified representation the element/orderedness relationship
+    /// is intrinsic to the collection term, so this is plain unification on a
+    /// shared orderedness variable rather than a deferred list/bag
+    /// disjunction.
+    ///
+    /// This corresponds to Java's `sameOrderedness(c1, v1, c2, v2)`.
+    fn same_orderedness(&mut self, c1: &Var, v1: &Var, c2: &Var, v2: &Var) {
+        let o = self.variable();
+        let seq1 = self.collection_term(Term::Variable(*v1), Term::Variable(o));
+        self.equiv(&Term::Sequence(seq1), c1);
+        let seq2 = self.collection_term(Term::Variable(*v2), Term::Variable(o));
+        self.equiv(&Term::Sequence(seq2), c2);
+    }
+
+    /// Adds a constraint that `c` (of `v`) is the meet of collections `c0`
+    /// (of `v0`) and `c1` (of `v1`): a list if both inputs are lists,
+    /// otherwise a bag.
+    ///
+    /// This corresponds to Java's `meetCollections(c0, v0, c1, v1, c, v)`.
+    fn meet_collections(
         &mut self,
+        c0: &Var,
+        v0: &Var,
+        c1: &Var,
         v1: &Var,
-        e1: &Var,
-        v2: &Var,
-        e2: &Var,
-        v3: &Var,
-        e3: &Var,
+        c: &Var,
+        v: &Var,
     ) {
-        // If v1 is list<e1> and v2 is list<e2>, then v3 is list<e3>
-        let list_e1 = Term::Variable(*e1);
-        let list_e2 = Term::Variable(*e2);
-        let list_e3 = Term::Variable(*e3);
+        // Each of c0, c1, c is a collection; the result orderedness is the
+        // meet of the two input orderednesses (a list only if both inputs are
+        // lists, otherwise a bag).
+        let o0 = self.variable();
+        let o1 = self.variable();
+        let o = self.variable();
+        let seq0 =
+            self.collection_term(Term::Variable(*v0), Term::Variable(o0));
+        self.equiv(&Term::Sequence(seq0), c0);
+        let seq1 =
+            self.collection_term(Term::Variable(*v1), Term::Variable(o1));
+        self.equiv(&Term::Sequence(seq1), c1);
+        let seq = self.collection_term(Term::Variable(*v), Term::Variable(o));
+        self.equiv(&Term::Sequence(seq), c);
+        self.meet_orderedness(&o, &o0, &o1);
+    }
 
-        let seq1 = self.unifier.apply1(self.list_op, list_e1);
-        let seq2 = self.unifier.apply1(self.list_op, list_e2);
-        let seq3 = self.unifier.apply1(self.list_op, list_e3);
+    /// Adds a constraint that orderedness `o` is the meet of `o0` and `o1`:
+    /// ordered if both are ordered, otherwise unordered.
+    fn meet_orderedness(&mut self, o: &Var, o0: &Var, o1: &Var) {
+        let ordered = self.ordered_atom();
+        let unordered = self.unordered_atom();
+        let ordered_action =
+            ConstraintAction::Equiv(Term::Variable(*o), ordered.clone());
+        let unordered_action =
+            ConstraintAction::Equiv(Term::Variable(*o), unordered.clone());
+        let pair = |resolver: &Self, left: &Term, right: &Term| {
+            Term::Sequence(resolver.unifier.apply2(
+                resolver.arg_op,
+                left.clone(),
+                right.clone(),
+            ))
+        };
+        let candidates = vec![
+            pair(self, &ordered, &ordered),
+            pair(self, &ordered, &unordered),
+            pair(self, &unordered, &ordered),
+            pair(self, &unordered, &unordered),
+        ];
+        let actions = vec![
+            ordered_action,
+            unordered_action.clone(),
+            unordered_action.clone(),
+            unordered_action,
+        ];
+        let arg = pair(self, &Term::Variable(*o0), &Term::Variable(*o1));
+        let arg_var = self.term_to_variable(&arg);
+        self.overload_constraints
+            .push(Constraint::with_actions(arg_var, candidates, actions));
+    }
 
-        // This is a conditional constraint - not fully implemented yet
-        // For now, just assume list semantics
-        self.equiv(&Term::Sequence(seq1.clone()), v1);
-        self.equiv(&Term::Sequence(seq2), v2);
-        self.equiv(&Term::Sequence(seq3), v3);
+    /// Adds a constraint that `c` (of `v`) is the meet of the collections in
+    /// `args`: a list if all inputs are lists, otherwise a bag.
+    ///
+    /// This corresponds to Java's `meetCollections(args, c, v)`.
+    fn meet_all_collections(&mut self, args: &[Term], c: &Var, v: &Var) {
+        assert!(!args.is_empty(), "no args");
+        let arg0 = self.term_to_variable(&args[0]);
+        self.is_collection_of(&arg0, v);
+        self.is_collection_of(c, v);
+        for arg in &args[1..] {
+            let vi = self.term_to_variable(arg);
+            self.is_collection_of(&vi, v);
+            self.meet_collections(&arg0, v, &vi, v, c, v);
+        }
     }
 
     /// Returns whether variable `c` already resolves to a concrete collection
-    /// (a `list` or `bag` sequence) given the constraints gathered so far.
+    /// given the constraints gathered so far.
     /// Builds a substitution from `self.terms` (as `tunnel_safe_eager` does)
     /// and resolves `c`; a non-collection or still-unresolved variable yields
     /// `false`. Used by `into` to tell a function whose type pins the
@@ -5212,65 +5339,51 @@ impl TypeResolver {
             return false;
         };
         match subst.resolve_term(&Term::Variable(*c)) {
-            Term::Sequence(seq) => {
-                seq.op == self.list_op || seq.op == self.bag_op
-            }
+            Term::Sequence(seq) => seq.op == self.collection_op,
             _ => false,
         }
     }
 
     /// Adds an overload constraint that `c` must be a list or a bag of
-    /// element type `v`. Unlike [`may_be_bag_or_list`](Self::may_be_bag_or_list)
-    /// -- a permissive reactive action that only fires once `c` is already
-    /// known to be a collection -- this fails type resolution with "no valid
-    /// overloads" when `c` resolves to a non-collection, and selects the
-    /// list-or-bag kind once `c` is known.
+    /// element type `v`. Unlike [`is_collection_of`](Self::is_collection_of)
+    /// -- which lets the orderedness stay a free variable -- this fails type
+    /// resolution with "no valid overloads" when `c` resolves to a
+    /// non-collection, and selects the list-or-bag kind once `c` is known.
     fn constrain_bag_or_list(&mut self, c: &Var, v: &Var) {
         let elem = Term::Variable(*v);
-        let list_seq = self.unifier.apply1(self.list_op, elem.clone());
-        let bag_seq = self.unifier.apply1(self.bag_op, elem);
-        self.overload_constraints.push(Constraint {
-            var: *c,
-            candidates: vec![Term::Sequence(list_seq), Term::Sequence(bag_seq)],
-        });
+        let ordered = self.ordered_atom();
+        let unordered = self.unordered_atom();
+        let list_seq = self.collection_term(elem.clone(), ordered);
+        let bag_seq = self.collection_term(elem, unordered);
+        self.overload_constraints.push(Constraint::new(
+            *c,
+            vec![Term::Sequence(list_seq), Term::Sequence(bag_seq)],
+        ));
     }
 
-    /// Constrains `v` to be the element type of collection `c`, where `c` may
-    /// be either a list or a bag. Does not constrain which kind `c` is.
-    ///
-    /// This corresponds to Java's `mayBeBagOrList(c, v)`.
-    fn may_be_bag_or_list(&mut self, c: &Var, v: &Var) {
-        let list_op = self.list_op;
-        let bag_op = self.bag_op;
-        let v = *v;
-
-        struct MayBeBagOrListAction {
-            v: Var,
-            list_op: Op,
-            bag_op: Op,
-        }
-        impl Action for MayBeBagOrListAction {
-            fn accept(
-                &self,
-                _variable: &Var,
-                term: &Term,
-                substitution: &Substitution,
-                _op_defs: &[OpDef],
-                term_pairs: &mut Vec<(Term, Term)>,
-            ) {
-                if let Term::Sequence(seq) = term
-                    && (seq.op == self.list_op || seq.op == self.bag_op)
-                    && seq.terms.len() == 1
-                {
-                    let v_term =
-                        substitution.resolve_term(&Term::Variable(self.v));
-                    let elem_term = substitution.resolve_term(&seq.terms[0]);
-                    term_pairs.push((v_term, elem_term));
+    /// Returns whether `term` is the orderedness atom of a list, following
+    /// variable links to a concrete atom if necessary. Returns `None` if the
+    /// orderedness is still a free variable.
+    fn orderedness_of(&self, term: &Term) -> Option<bool> {
+        match term {
+            Term::Sequence(seq) if seq.op == self.ordered_op => Some(true),
+            Term::Sequence(seq) if seq.op == self.unordered_op => Some(false),
+            Term::Sequence(_) => None,
+            Term::Variable(v) => {
+                for (var, t) in self.terms.iter().rev() {
+                    if var == v {
+                        return self.orderedness_of(t);
+                    }
                 }
+                None
             }
         }
-        self.actions
-            .push((*c, Rc::new(MayBeBagOrListAction { v, list_op, bag_op })));
+    }
+
+    /// As [`orderedness_of`](Self::orderedness_of), but an orderedness that
+    /// is not yet determined reads back as a bag, so it yields `false`.
+    fn term_is_ordered(&self, term: &Term) -> bool {
+        self.orderedness_of(term).unwrap_or(false)
     }
 
     /// Inspects the aggregate function's declared type to determine
@@ -5285,244 +5398,133 @@ impl TypeResolver {
         f: &Expr,
     ) -> CollectionKind {
         if let ExprKind::Identifier(name) = &f.kind {
-            // Check for overloaded name
+            // An overloaded name is polymorphic.
             if self.overloads.contains_key(name) {
                 return CollectionKind::MatchInput;
             }
-            // Look up the function type in the environment
-            if let Some(bind_type) = env.get(name, self) {
-                let term = match bind_type {
-                    BindType::Val(t) | BindType::Constructor(t) => t,
-                };
-                // Chase through the term to find the function's
-                // parameter type. For `fn(param, result)`, check
-                // if param is list or bag.
-                if let Term::Variable(v) = &term {
-                    for (var, t) in self.terms.iter().rev() {
-                        if var == v {
-                            if let Term::Sequence(seq) = t
-                                && seq.terms.len() == 2
-                                && seq.op == self.fn_op
-                            {
-                                // seq.terms[0] is the parameter type
-                                if let Term::Sequence(param) = &seq.terms[0] {
-                                    if param.op == self.list_op {
-                                        return CollectionKind::List;
-                                    }
-                                    if param.op == self.bag_op {
-                                        return CollectionKind::Bag;
-                                    }
-                                }
-                            }
-                            break;
+            // Look up the function type in the environment.
+            return match env.get(name, self) {
+                Some(BindType::Val(t) | BindType::Constructor(t)) => {
+                    self.agg_kind_of_term(&t)
+                }
+                // Type not available (a user-defined function in the current
+                // compilation unit).
+                None => CollectionKind::Unknown,
+            };
+        }
+        // For qualified names (e.g. `Relational.nonEmpty`, `Fn.id`), extract
+        // the member's type from the structure.
+        if let ExprKind::Apply(fun, arg) = &f.kind
+            && let ExprKind::RecordSelector(field_name) = &fun.kind
+            && let ExprKind::Identifier(struct_name) = &arg.kind
+            && let Some(BindType::Val(t) | BindType::Constructor(t)) =
+                env.get(struct_name, self)
+            && let Term::Sequence(seq) = self.resolve_var_term(&t)
+            && let Some(fields) =
+                TypeResolver::field_list(&self.unifier.op_defs, &seq)
+            && let Some(i) = fields.iter().position(|f| f == field_name)
+        {
+            return self.agg_kind_of_term(&seq.terms[i]);
+        }
+        // An anonymous function, or any other expression: link to the input's
+        // orderedness.
+        CollectionKind::MatchInput
+    }
+
+    /// Resolves `term` by following variable links in the equations gathered
+    /// so far.
+    fn resolve_var_term(&self, term: &Term) -> Term {
+        let mut current = term.clone();
+        let mut visited = HashSet::new();
+        while let Term::Variable(v) = &current {
+            if !visited.insert(*v) {
+                break;
+            }
+            let mut next = None;
+            for (var, t) in self.terms.iter().rev() {
+                if var == v {
+                    next = Some(t.clone());
+                    break;
+                }
+            }
+            match next {
+                Some(t) => current = t,
+                None => break,
+            }
+        }
+        current
+    }
+
+    /// Returns the collection kind implied by the type term of an aggregate
+    /// function: a collection parameter fixes the kind, anything else is
+    /// polymorphic.
+    ///
+    /// This corresponds to Java's `aggKindOfType`.
+    fn agg_kind_of_term(&self, term: &Term) -> CollectionKind {
+        let Term::Sequence(seq) = self.resolve_var_term(term) else {
+            return CollectionKind::MatchInput;
+        };
+        if seq.op != self.fn_op || seq.terms.len() != 2 {
+            return CollectionKind::MatchInput;
+        }
+        match self.resolve_var_term(&seq.terms[0]) {
+            Term::Sequence(param) if param.op == self.collection_op => {
+                if self.term_is_ordered(&param.terms[1]) {
+                    CollectionKind::List
+                } else {
+                    CollectionKind::Bag
+                }
+            }
+            _ => CollectionKind::MatchInput,
+        }
+    }
+
+    /// Returns whether collection variable `v` is known to be ordered (a
+    /// list) or unordered (a bag), or `None` if neither has been established.
+    ///
+    /// A variable typically has several equations: the `$collection(v0, o)`
+    /// that [`is_collection_of`](Self::is_collection_of) adds, whose
+    /// orderedness is still free, plus whatever its source contributed. So
+    /// keep looking until an equation gives a concrete answer.
+    fn var_orderedness(
+        &self,
+        v: &Var,
+        visited: &mut HashSet<Var>,
+    ) -> Option<bool> {
+        if !visited.insert(*v) {
+            return None;
+        }
+        for (var, term) in self.terms.iter().rev() {
+            if var == v {
+                match term {
+                    Term::Sequence(seq) if seq.op == self.collection_op => {
+                        if let Some(ordered) =
+                            self.orderedness_of(&seq.terms[1])
+                        {
+                            return Some(ordered);
+                        }
+                    }
+                    // A concrete term that is not a collection.
+                    Term::Sequence(_) => return Some(false),
+                    // Variable mapped to another variable; follow the chain.
+                    Term::Variable(v2) => {
+                        if let Some(ordered) = self.var_orderedness(v2, visited)
+                        {
+                            return Some(ordered);
                         }
                     }
                 }
             }
         }
-        CollectionKind::Unknown
+        None
     }
 
+    /// Returns whether collection variable `v` is a list. An orderedness that
+    /// has not been established is treated as unordered, so that `ordinal` is
+    /// rejected rather than silently allowed.
     fn var_is_list(&self, v: &Var) -> bool {
-        for (var, term) in self.terms.iter().rev() {
-            if var == v {
-                if let Term::Sequence(seq) = term {
-                    return seq.op == self.list_op;
-                }
-                // Variable mapped to another variable or non-sequence;
-                // follow the chain.
-                if let Term::Variable(v2) = term {
-                    return self.var_is_list(v2);
-                }
-                return true; // non-sequence term — assume list
-            }
-        }
-        // Variable not in terms. Check if it was created by
-        // may_be_bag_or_list (which uses an action, not a term).
-        // If so, we don't know the collection kind yet.
-        // For ordinal validation, return false (conservative).
-        for (action_var, _) in &self.actions {
-            if action_var == v {
-                return false; // unknown collection kind
-            }
-        }
-        true // not found, no action — assume list
-    }
-
-    /// If `c_from` resolves to a bag, forces `c_to` to also be a bag
-    /// (with element type `v_to`). If `c_from` is a list, does nothing.
-    /// This implements the rule: if ANY input is unordered, the output
-    /// is unordered.
-    fn if_bag_force_bag(&mut self, c_from: &Var, c_to: &Var, v_to: &Var) {
-        let bag_op = self.bag_op;
-        let c_to = *c_to;
-        let v_to = *v_to;
-
-        struct IfBagAction {
-            c_to: Var,
-            v_to: Var,
-            bag_op: Op,
-        }
-        impl Action for IfBagAction {
-            fn accept(
-                &self,
-                _variable: &Var,
-                term: &Term,
-                substitution: &Substitution,
-                _op_defs: &[OpDef],
-                term_pairs: &mut Vec<(Term, Term)>,
-            ) {
-                if let Term::Sequence(seq) = term
-                    && seq.op == self.bag_op
-                {
-                    let c_to_seq = Sequence {
-                        op: self.bag_op,
-                        terms: Rc::from(vec![Term::Variable(self.v_to)]),
-                    };
-                    let c_to_term =
-                        substitution.resolve_term(&Term::Variable(self.c_to));
-                    term_pairs.push((c_to_term, Term::Sequence(c_to_seq)));
-                }
-            }
-        }
-        self.actions
-            .push((*c_from, Rc::new(IfBagAction { c_to, v_to, bag_op })));
-    }
-
-    /// Constrains `c_to` to have the same collection kind (list or bag) as
-    /// `c_from`, with element type `v_to`. Unlike
-    /// `is_list_or_bag_matching_input`, this does NOT unify the element types
-    /// of the two collections — it only copies the kind.
-    fn match_collection_kind(&mut self, c_from: &Var, c_to: &Var, v_to: &Var) {
-        let list_op = self.list_op;
-        let bag_op = self.bag_op;
-        let c_to = *c_to;
-        let v_to = *v_to;
-
-        struct MatchKindAction {
-            c_to: Var,
-            v_to: Var,
-            list_op: Op,
-            bag_op: Op,
-        }
-        impl Action for MatchKindAction {
-            fn accept(
-                &self,
-                _variable: &Var,
-                term: &Term,
-                substitution: &Substitution,
-                _op_defs: &[OpDef],
-                term_pairs: &mut Vec<(Term, Term)>,
-            ) {
-                if let Term::Sequence(seq) = term
-                    && (seq.op == self.list_op || seq.op == self.bag_op)
-                    && seq.terms.len() == 1
-                {
-                    // Build c_to = kind(v_to) using the same op as c_from.
-                    let c_to_seq = Sequence {
-                        op: seq.op,
-                        terms: Rc::from(vec![Term::Variable(self.v_to)]),
-                    };
-                    let c_to_term =
-                        substitution.resolve_term(&Term::Variable(self.c_to));
-                    term_pairs.push((c_to_term, Term::Sequence(c_to_seq)));
-                }
-            }
-        }
-        self.actions.push((
-            *c_from,
-            Rc::new(MatchKindAction {
-                c_to,
-                v_to,
-                list_op,
-                bag_op,
-            }),
-        ));
-    }
-
-    /// Constrains `c2` to have the same collection kind (list or bag) as `c1`,
-    /// and `v1`/`v2` to be the respective element types.
-    ///
-    /// This corresponds to Java's `isListOrBagMatchingInput(c1, v1, c2, v2)`.
-    fn is_list_or_bag_matching_input(
-        &mut self,
-        c1: &Var,
-        v1: &Var,
-        c2: &Var,
-        v2: &Var,
-    ) {
-        let list_op = self.list_op;
-        let bag_op = self.bag_op;
-
-        // When c1 resolves to list(T) or bag(T):
-        //   - constrain v1 = T
-        //   - constrain c2 = list(v2) or bag(v2) (same collection kind)
-        struct MatchInputAction {
-            v_self: Var,  // v1
-            c_other: Var, // c2
-            v_other: Var, // v2
-            list_op: Op,
-            bag_op: Op,
-        }
-        impl Action for MatchInputAction {
-            fn accept(
-                &self,
-                _variable: &Var,
-                term: &Term,
-                substitution: &Substitution,
-                _op_defs: &[OpDef],
-                term_pairs: &mut Vec<(Term, Term)>,
-            ) {
-                if let Term::Sequence(seq) = term
-                    && (seq.op == self.list_op || seq.op == self.bag_op)
-                    && seq.terms.len() == 1
-                {
-                    // v_self = element type of c
-                    let v_self_term =
-                        substitution.resolve_term(&Term::Variable(self.v_self));
-                    let elem = substitution.resolve_term(&seq.terms[0]);
-                    term_pairs.push((v_self_term, elem));
-
-                    // c_other = same collection kind with element v_other
-                    let v_other_term = Term::Variable(self.v_other);
-                    let c_other_seq = Sequence {
-                        op: seq.op, // same list or bag op
-                        terms: Rc::from(vec![v_other_term]),
-                    };
-                    let c_other_term = substitution
-                        .resolve_term(&Term::Variable(self.c_other));
-                    term_pairs
-                        .push((c_other_term, Term::Sequence(c_other_seq)));
-                }
-            }
-        }
-        // Register bidirectional actions.
-        self.actions.push((
-            *c1,
-            Rc::new(MatchInputAction {
-                v_self: *v1,
-                c_other: *c2,
-                v_other: *v2,
-                list_op,
-                bag_op,
-            }),
-        ));
-        self.actions.push((
-            *c2,
-            Rc::new(MatchInputAction {
-                v_self: *v2,
-                c_other: *c1,
-                v_other: *v1,
-                list_op,
-                bag_op,
-            }),
-        ));
-    }
-
-    /// Creates a term for a bag type and associates it with a variable.
-    fn bag_term<'a>(&mut self, term: Term, v: &'a Var) -> &'a Var {
-        let sequence = self.unifier.apply1(self.bag_op, term);
-        self.equiv(&Term::Sequence(sequence), v)
+        self.var_orderedness(v, &mut HashSet::new())
+            .unwrap_or(false)
     }
 
     /// Creates a term for a record type and associates it with a variable.
@@ -6561,12 +6563,26 @@ impl<'a> TypeToTermConverter<'a> {
                             &v,
                         );
                     }
-                    let op = self
-                        .type_resolver
-                        .unifier
-                        .op(name.as_str(), Some(terms.len()));
-                    let apply = self.type_resolver.unifier.apply(op, &terms);
-                    self.type_resolver.equiv(&Term::Sequence(apply), &v);
+                    // Build a collection term for `t list` and `t bag`, so
+                    // that they match collections from other sources.
+                    if terms.len() == 1
+                        && matches!(name.as_str(), "list" | "bag")
+                    {
+                        let term = terms[0].clone();
+                        if name == "list" {
+                            self.type_resolver.list_term(term, &v);
+                        } else {
+                            self.type_resolver.bag_term(term, &v);
+                        }
+                    } else {
+                        let op = self
+                            .type_resolver
+                            .unifier
+                            .op(name.as_str(), Some(terms.len()));
+                        let apply =
+                            self.type_resolver.unifier.apply(op, &terms);
+                        self.type_resolver.equiv(&Term::Sequence(apply), &v);
+                    }
                     let x = TypeKind::App(args2, t.clone());
                     self.type_resolver.reg_type(&x, &type_node.span, &v)
                 } else {
@@ -6748,6 +6764,29 @@ pub struct Warning {
 
 const W_INCONSISTENT_PARAMETERS: &str = "parameter or result \
 constraints of clauses don't agree [tycon mismatch]";
+
+/// Returns whether `op_name` names a functor that safe navigation `?.`
+/// projects fields through.
+///
+/// Accepts both term operators (a collection term is `$collection`) and
+/// type-constructor names (a bag/list type is `bag`/`list`).
+fn is_safe_nav_functor(op_name: &str) -> bool {
+    matches!(
+        op_name,
+        "list" | "bag" | "option" | "vector" | COLLECTION_OP_NAME
+    )
+}
+
+/// Re-wraps `element` in a functor layer, preserving the layer's non-element
+/// terms (e.g. a collection's orderedness).
+fn rewrap(layer: &Sequence, element: Term) -> Sequence {
+    let mut terms = layer.terms.to_vec();
+    terms[0] = element;
+    Sequence {
+        op: layer.op,
+        terms: Rc::from(terms),
+    }
+}
 
 fn missing_format<T>(query: &Expr, span: &Span) -> Result<T, Error> {
     let require = StepKind::Require(Expr::empty());

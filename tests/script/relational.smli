@@ -446,7 +446,7 @@ from e in [1, 2, 3]
  * error. (This is the standard type-conflict error; 'yieldAll' adds
  * no synthesized scan or yield to the message.) *)
 from i in [1, 2] yieldAll i > 1;
-> stdIn:1.1-1.32 Error: Cannot deduce type: no valid overloads
+> stdIn:1.1-1.32 Error: Cannot deduce type: conflict: bag(T22) vs bool
 >   raised at: stdIn:1.1-1.32
 
 (* A 'yieldAll' expression that references an unbound variable is an
@@ -1566,7 +1566,7 @@ from i in [2, 1, 2]
 (*) "count" used as an ordinary function ("over" is not present)
 from i in [2, 1, 2]
   compute count ["a", "b"];
-> stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T28) vs list(string)
+> stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T30) vs list(string)
 >   raised at: stdIn:1.1-2.27
 from i in [2, 1, 2]
   group i compute {c = count (bag ["a", "b"])};
