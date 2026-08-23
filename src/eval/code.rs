@@ -3538,6 +3538,7 @@ pub enum Eager2 {
     PpHang,
     PpIndent,
     PpNest,
+    PpPack,
     PpPunctuate,
     PpRender,
     RangeContains,
@@ -3725,6 +3726,10 @@ impl Eager2 {
             PpNest => Val::Doc(Rc::new(lindig::nest(
                 a0.expect_int(),
                 a1.expect_doc(),
+            ))),
+            PpPack => Val::Doc(Rc::new(lindig::pack(
+                &a0.expect_doc(),
+                &a1.expect_doc_list(),
             ))),
             PpPunctuate => Val::List(
                 lindig::punctuate(&a0.expect_doc(), a1.expect_doc_list())
@@ -5091,6 +5096,7 @@ fn build_library() -> Lib {
     Eager0::PpLine.implements(&mut b, PpLine);
     Eager0::PpLineBreak.implements(&mut b, PpLineBreak);
     Eager2::PpNest.implements(&mut b, PpNest);
+    Eager2::PpPack.implements(&mut b, PpPack);
     Eager1::PpParens.implements(&mut b, PpParens);
     Eager2::PpPunctuate.implements(&mut b, PpPunctuate);
     Eager2::PpRender.implements(&mut b, PpRender);

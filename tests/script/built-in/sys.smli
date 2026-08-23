@@ -125,8 +125,9 @@ Sys.env ();
 >     "{app:forall 'a. ('a -> unit) -> 'a option -> unit, compose:forall 'a 'b 'c. ('a -> 'b) * ('c -> 'a option) -> 'c -> 'b option, composePartial:forall 'a 'b 'c. ('a -> 'b option) * ('c -> 'a option) -> 'c -> 'b option, filter:forall 'a. ('a -> bool) -> 'a -> 'a option, getOpt:forall 'a. 'a option * 'a -> 'a, isSome:forall 'a. 'a option -> bool, `join`:forall 'a. 'a option option -> 'a option, map:forall 'a 'b. ('a -> 'b) -> 'a option -> 'b option, mapPartial:forall 'a 'b. ('a -> 'b option) -> 'a option -> 'b option, valOf:forall 'a. 'a option -> 'a}"),
 >    ("Overflow","exn"),("POINT","forall 'a. 'a -> 'a range"),
 >    ("PP",
->     "{align:doc -> doc, beside:doc * doc -> doc, braces:doc -> doc, brackets:doc -> doc, cat:doc list -> doc, empty:doc, encloseSep:doc * doc * doc * doc list -> doc, fillCat:doc list -> doc, fillSep:doc list -> doc, `group`:doc -> doc, hang:int * doc -> doc, hardLine:doc, hcat:doc list -> doc, hsep:doc list -> doc, indent:int * doc -> doc, line:doc, lineBreak:doc, nest:int * doc -> doc, parens:doc -> doc, punctuate:doc * doc list -> doc list, render:int * doc -> string, sep:doc list -> doc, softBreak:doc, softLine:doc, text:string -> doc, vcat:doc list -> doc, vsep:doc list -> doc}"),
->    ("REAL","real -> variant"),("RECORD","(string * variant) list -> variant"),
+>     "{align:doc -> doc, beside:doc * doc -> doc, braces:doc -> doc, brackets:doc -> doc, cat:doc list -> doc, empty:doc, encloseSep:doc * doc * doc * doc list -> doc, fillCat:doc list -> doc, fillSep:doc list -> doc, `group`:doc -> doc, hang:int * doc -> doc, hardLine:doc, hcat:doc list -> doc, hsep:doc list -> doc, indent:int * doc -> doc, line:doc, lineBreak:doc, nest:int * doc -> doc, pack:doc * doc list -> doc, parens:doc -> doc, punctuate:doc * doc list -> doc list, render:int * doc -> string, sep:doc list -> doc, softBreak:doc, softLine:doc, text:string -> doc, vcat:doc list -> doc, vsep:doc list -> doc}"),
+>    ("REAL","real -> variant"),
+>    ("RECORD","(string * variant) list -> variant"),
 >    ("Range",
 >     "{complement:forall 'a. 'a continuous_set -> 'a continuous_set, contains:forall 'a. 'a range -> 'a -> bool, continuousSetOf:forall 'a. 'a range list -> 'a continuous_set, discreteSetOf:forall 'a. 'a range list -> 'a discrete_set, flatten:forall 'a. 'a range list -> 'a list, ranges:forall 'a. 'a continuous_set -> 'a range list, toBag:forall 'a. 'a discrete_set -> 'a bag, toList:forall 'a. 'a discrete_set -> 'a list}"),
 >    ("Real",
@@ -148,7 +149,8 @@ Sys.env ();
 >     "{+:time * time -> time, -:time * time -> time, <:time * time -> bool, <=:time * time -> bool, >:time * time -> bool, >=:time * time -> bool, compare:time * time -> order, fmt:int -> time -> string, fromMicroseconds:int -> time, fromMilliseconds:int -> time, fromNanoseconds:int -> time, fromReal:real -> time, fromSeconds:int -> time, fromString:string -> time option, now:unit -> time, toMicroseconds:time -> int, toMilliseconds:time -> int, toNanoseconds:time -> int, toReal:time -> real, toSeconds:time -> int, toString:time -> string, zeroTime:time}"),
 >    ("Tue","weekday"),("UNIT","variant"),("UnequalLengths","exn"),
 >    ("Unordered","exn"),("VARIANT_NONE","variant"),
->    ("VARIANT_SOME","variant -> variant"),("VECTOR","variant list -> variant"),
+>    ("VARIANT_SOME","variant -> variant"),
+>    ("VECTOR","variant list -> variant"),
 >    ("Variant","{parse:string -> variant, print:variant -> string}"),
 >    ("Vector",
 >     "{all:forall 'a. ('a -> bool) -> 'a vector -> bool, app:forall 'a. ('a -> unit) -> 'a vector -> unit, appi:forall 'a. (int * 'a -> unit) -> 'a vector -> unit, collate:forall 'a. ('a * 'a -> order) -> 'a vector * 'a vector -> order, concat:forall 'a. 'a vector list -> 'a vector, `exists`:forall 'a. ('a -> bool) -> 'a vector -> bool, find:forall 'a. ('a -> bool) -> 'a vector -> 'a option, findi:forall 'a. (int * 'a -> bool) -> 'a vector -> (int * 'a) option, foldl:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldli:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldr:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldri:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, fromList:forall 'a. 'a list -> 'a vector, length:forall 'a. 'a vector -> int, map:forall 'a 'b. ('a -> 'b) -> 'a vector -> 'b vector, mapi:forall 'a 'b. (int * 'a -> 'b) -> 'a vector -> 'b vector, maxLen:int, sub:forall 'a. 'a vector * int -> 'a, tabulate:forall 'a. int * (int -> 'a) -> 'a vector, update:forall 'a. 'a vector * int * 'a -> 'a vector}"),
@@ -220,8 +222,9 @@ env ();
 >     "{app:forall 'a. ('a -> unit) -> 'a option -> unit, compose:forall 'a 'b 'c. ('a -> 'b) * ('c -> 'a option) -> 'c -> 'b option, composePartial:forall 'a 'b 'c. ('a -> 'b option) * ('c -> 'a option) -> 'c -> 'b option, filter:forall 'a. ('a -> bool) -> 'a -> 'a option, getOpt:forall 'a. 'a option * 'a -> 'a, isSome:forall 'a. 'a option -> bool, `join`:forall 'a. 'a option option -> 'a option, map:forall 'a 'b. ('a -> 'b) -> 'a option -> 'b option, mapPartial:forall 'a 'b. ('a -> 'b option) -> 'a option -> 'b option, valOf:forall 'a. 'a option -> 'a}"),
 >    ("Overflow","exn"),("POINT","forall 'a. 'a -> 'a range"),
 >    ("PP",
->     "{align:doc -> doc, beside:doc * doc -> doc, braces:doc -> doc, brackets:doc -> doc, cat:doc list -> doc, empty:doc, encloseSep:doc * doc * doc * doc list -> doc, fillCat:doc list -> doc, fillSep:doc list -> doc, `group`:doc -> doc, hang:int * doc -> doc, hardLine:doc, hcat:doc list -> doc, hsep:doc list -> doc, indent:int * doc -> doc, line:doc, lineBreak:doc, nest:int * doc -> doc, parens:doc -> doc, punctuate:doc * doc list -> doc list, render:int * doc -> string, sep:doc list -> doc, softBreak:doc, softLine:doc, text:string -> doc, vcat:doc list -> doc, vsep:doc list -> doc}"),
->    ("REAL","real -> variant"),("RECORD","(string * variant) list -> variant"),
+>     "{align:doc -> doc, beside:doc * doc -> doc, braces:doc -> doc, brackets:doc -> doc, cat:doc list -> doc, empty:doc, encloseSep:doc * doc * doc * doc list -> doc, fillCat:doc list -> doc, fillSep:doc list -> doc, `group`:doc -> doc, hang:int * doc -> doc, hardLine:doc, hcat:doc list -> doc, hsep:doc list -> doc, indent:int * doc -> doc, line:doc, lineBreak:doc, nest:int * doc -> doc, pack:doc * doc list -> doc, parens:doc -> doc, punctuate:doc * doc list -> doc list, render:int * doc -> string, sep:doc list -> doc, softBreak:doc, softLine:doc, text:string -> doc, vcat:doc list -> doc, vsep:doc list -> doc}"),
+>    ("REAL","real -> variant"),
+>    ("RECORD","(string * variant) list -> variant"),
 >    ("Range",
 >     "{complement:forall 'a. 'a continuous_set -> 'a continuous_set, contains:forall 'a. 'a range -> 'a -> bool, continuousSetOf:forall 'a. 'a range list -> 'a continuous_set, discreteSetOf:forall 'a. 'a range list -> 'a discrete_set, flatten:forall 'a. 'a range list -> 'a list, ranges:forall 'a. 'a continuous_set -> 'a range list, toBag:forall 'a. 'a discrete_set -> 'a bag, toList:forall 'a. 'a discrete_set -> 'a list}"),
 >    ("Real",
@@ -243,7 +246,8 @@ env ();
 >     "{+:time * time -> time, -:time * time -> time, <:time * time -> bool, <=:time * time -> bool, >:time * time -> bool, >=:time * time -> bool, compare:time * time -> order, fmt:int -> time -> string, fromMicroseconds:int -> time, fromMilliseconds:int -> time, fromNanoseconds:int -> time, fromReal:real -> time, fromSeconds:int -> time, fromString:string -> time option, now:unit -> time, toMicroseconds:time -> int, toMilliseconds:time -> int, toNanoseconds:time -> int, toReal:time -> real, toSeconds:time -> int, toString:time -> string, zeroTime:time}"),
 >    ("Tue","weekday"),("UNIT","variant"),("UnequalLengths","exn"),
 >    ("Unordered","exn"),("VARIANT_NONE","variant"),
->    ("VARIANT_SOME","variant -> variant"),("VECTOR","variant list -> variant"),
+>    ("VARIANT_SOME","variant -> variant"),
+>    ("VECTOR","variant list -> variant"),
 >    ("Variant","{parse:string -> variant, print:variant -> string}"),
 >    ("Vector",
 >     "{all:forall 'a. ('a -> bool) -> 'a vector -> bool, app:forall 'a. ('a -> unit) -> 'a vector -> unit, appi:forall 'a. (int * 'a -> unit) -> 'a vector -> unit, collate:forall 'a. ('a * 'a -> order) -> 'a vector * 'a vector -> order, concat:forall 'a. 'a vector list -> 'a vector, `exists`:forall 'a. ('a -> bool) -> 'a vector -> bool, find:forall 'a. ('a -> bool) -> 'a vector -> 'a option, findi:forall 'a. (int * 'a -> bool) -> 'a vector -> (int * 'a) option, foldl:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldli:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldr:forall 'a 'b. ('a * 'b -> 'b) -> 'b -> 'a vector -> 'b, foldri:forall 'a 'b. (int * 'a * 'b -> 'b) -> 'b -> 'a vector -> 'b, fromList:forall 'a. 'a list -> 'a vector, length:forall 'a. 'a vector -> int, map:forall 'a 'b. ('a -> 'b) -> 'a vector -> 'b vector, mapi:forall 'a 'b. (int * 'a -> 'b) -> 'a vector -> 'b vector, maxLen:int, sub:forall 'a. 'a vector * int -> 'a, tabulate:forall 'a. int * (int -> 'a) -> 'a vector, update:forall 'a. 'a vector * int * 'a -> 'a vector}"),
@@ -284,6 +288,10 @@ Sys.parseTree "val x = 1 + 2";
 Sys.parseTree "";
 > val it = "()" : string
 
+(*) Attributes are reflected in the parse tree.
+Sys.parseTree "1 [@a]";
+> val it = "(attributedExp (int_literal 1) (attribute @a))" : string
+
 (*) val plan : unit -> string
 Sys.plan;
 > val it = fn : unit -> string
@@ -291,6 +299,16 @@ Sys.plan;
 > val it = 3 : int
 Sys.plan ();
 > val it = "apply2(fnValue Int.+, constant(1), constant(2))" : string
+
+(*) val planEx : string -> string
+Sys.planEx;
+> val it = fn : string -> string
+
+val zebra = true;
+> val zebra = true : bool
+
+val aardvark = 1 + (if zebra then 2 else 3);
+> val aardvark = 3 : int
 
 (*) Word literals are unparsed in hexadecimal (e.g. "0wxAB") in the plan.
 val warthog = 0wxAB + 0w1;
@@ -337,18 +355,17 @@ map
   (Sys.showAll ());
 > val it =
 >   [("banner",SOME "?"),("colorScheme",NONE),("directory",SOME "?"),
->    ("echo",SOME "false"),
->    ("excludeStructures",SOME "^Test$"),("hybrid",SOME "true"),
->    ("idempotent",SOME "false"),("inlinePassCount",SOME "5"),
->    ("lineWidth",SOME "79"),("matchCoverageEnabled",SOME "true"),
->    ("matchStrict",SOME "false"),("mode",SOME "EVALUATE"),
->    ("now",SOME "2024-01-01T00:00:00Z"),("optionalInt",NONE),
->    ("output",SOME "CLASSIC"),("printDepth",SOME "5"),("printLength",SOME "12"),
->    ("productName",SOME "morel-rust"),("productVersion",SOME "?"),
->    ("relationalize",SOME "false"),("scriptDirectory",SOME "?"),
->    ("showBanner",SOME "true"),("stringDepth",SOME "70"),("stringFold",NONE),
->    ("terminalBackground",NONE),("timeZone",SOME "UTC")]
->   : (string * string option) list
+>    ("echo",SOME "false"),("excludeStructures",SOME "^Test$"),
+>    ("hybrid",SOME "true"),("idempotent",SOME "false"),
+>    ("inlinePassCount",SOME "5"),("lineWidth",SOME "79"),
+>    ("matchCoverageEnabled",SOME "true"),("matchStrict",SOME "false"),
+>    ("mode",SOME "EVALUATE"),("now",SOME "2024-01-01T00:00:00Z"),
+>    ("optionalInt",NONE),("output",SOME "CLASSIC"),("printDepth",SOME "5"),
+>    ("printLength",SOME "12"),("productName",SOME "morel-rust"),
+>    ("productVersion",SOME "?"),("relationalize",SOME "false"),
+>    ("scriptDirectory",SOME "?"),("showBanner",SOME "true"),
+>    ("stringDepth",SOME "70"),("stringFold",NONE),("terminalBackground",NONE),
+>    ("timeZone",SOME "UTC")] : (string * string option) list
 List.length (Sys.showAll ());
 > val it = 26 : int
 List.length (showAll ());

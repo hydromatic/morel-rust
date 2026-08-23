@@ -947,6 +947,9 @@ pub enum BuiltInFunction {
     PpLineBreak,
     #[strum(props(p = "PP", name = "nest", type = "int * doc -> doc"))]
     PpNest,
+    #[strum(props(p = "PP", name = "pack"))]
+    #[strum(props(type = "doc * doc list -> doc"))]
+    PpPack,
     #[strum(props(p = "PP", name = "parens", type = "doc -> doc"))]
     PpParens,
     #[strum(props(p = "PP", name = "punctuate"))]

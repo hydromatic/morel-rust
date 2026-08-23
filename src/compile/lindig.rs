@@ -30,6 +30,7 @@
 //! linear in the size of the document and using constant native stack
 //! however deeply the document nests.
 
+use std::cell::OnceCell;
 use std::fmt;
 use std::rc::Rc;
 
@@ -234,7 +235,13 @@ pub fn fill_cat(docs: Vec<Doc>) -> Doc {
 /// Unlike [`fill_sep`] and [`fill_cat`], each gap is decided by whether the
 /// *following* document, laid out flat, fits on the current line; a document
 /// is treated as an indivisible unit even if it contains its own line breaks.
-pub fn fill(glue: &Doc, docs: &[Doc]) -> Doc {
+///
+/// Not called `fill`: in Leijen's printer, and in Haskell's
+/// `prettyprinter` after it, `fill i d` pads `d` with spaces to width
+/// `i`, a member of the `fill`/`fillBreak` padding family unrelated to
+/// `fill_sep`/`fill_cat`. This name says what it does and leaves
+/// `fill` free for its conventional meaning.
+pub fn pack(glue: &Doc, docs: &[Doc]) -> Doc {
     if docs.is_empty() {
         return empty();
     }
@@ -357,13 +364,42 @@ struct Item {
 /// line width.
 pub fn render(width: i32, doc: Doc) -> String {
     let mut b = String::new();
-    let mut k = 0i32; // current column
-    let mut item = Some(Rc::new(Item {
-        indent: 0,
-        mode: Mode::Break,
-        doc,
-        next: None,
-    }));
+    let mut thunk = Thunk::new(
+        width,
+        0,
+        Some(Rc::new(Item {
+            indent: 0,
+            mode: Mode::Break,
+            doc,
+            next: None,
+        })),
+    );
+    loop {
+        match &*thunk.force() {
+            Out::End => return b,
+            Out::Text(t, rest) => {
+                b.push_str(t);
+                thunk = Rc::clone(rest);
+            }
+            Out::Line(indent, _flat, rest) => {
+                b.push('\n');
+                push_spaces(&mut b, *indent);
+                thunk = Rc::clone(rest);
+            }
+        }
+    }
+}
+
+/// Lays out the work list until it produces the next output chunk.
+///
+/// Each chunk carries a [`Thunk`] for the rest of the stream, so the
+/// layout is produced on demand; [`fits`] forces only as much of it as
+/// the fit test needs, and `Thunk` memoizes what has been forced, so
+/// that a later pass does not redo the work.
+fn best(width: i32, col: i32, item: Option<Rc<Item>>) -> Out {
+    // Only `Text` and `Line` advance the column, and both return, so
+    // `col` stays put for as long as this loop runs.
+    let mut item = item;
     while let Some(it) = item {
         let i = it.indent;
         let mode = it.mode;
@@ -373,9 +409,11 @@ pub fn render(width: i32, doc: Doc) -> String {
                 item = next;
             }
             Doc::Text(t) => {
-                b.push_str(t);
-                k += t.chars().count() as i32;
-                item = next;
+                let len = t.chars().count() as i32;
+                return Out::Text(
+                    Rc::clone(t),
+                    Thunk::new(width, col + len, next),
+                );
             }
             Doc::Cat(a, c) => {
                 let tail = Rc::new(Item {
@@ -400,10 +438,15 @@ pub fn render(width: i32, doc: Doc) -> String {
                 }));
             }
             Doc::Line => {
-                b.push('\n');
-                push_spaces(&mut b, i);
-                k = i;
-                item = next;
+                // A bare line cannot be flattened, so one that survives
+                // into a flat layout still emits a line break but marks
+                // the layout as not fitting; that is what makes a group
+                // containing `hard_line` always break.
+                return Out::Line(
+                    i,
+                    mode == Mode::Flat,
+                    Thunk::new(width, i, next),
+                );
             }
             Doc::FlatAlt(primary, flat) => {
                 let d = if mode == Mode::Flat { flat } else { primary };
@@ -415,46 +458,64 @@ pub fn render(width: i32, doc: Doc) -> String {
                 }));
             }
             Doc::Group(inner) => {
-                let flat = Rc::new(Item {
+                // Inside a flat layout every group is flat too, and needs
+                // no decision. Otherwise the group is flat if its
+                // flattened layout, followed by whatever comes after it,
+                // reaches the end of the line within the page width. The
+                // lookahead is exact: it measures the stream that
+                // rendering would emit, including the text that a
+                // downstream group contributes to this line before it
+                // breaks.
+                let flat = Some(Rc::new(Item {
                     indent: i,
                     mode: Mode::Flat,
                     doc: (**inner).clone(),
                     next: next.clone(),
-                });
-                if fits(width, k, Some(Rc::clone(&flat))) {
-                    item = Some(flat);
-                } else {
-                    item = Some(Rc::new(Item {
-                        indent: i,
-                        mode: Mode::Break,
-                        doc: (**inner).clone(),
-                        next,
-                    }));
+                }));
+                if mode == Mode::Flat {
+                    item = flat;
+                    continue;
                 }
+                let thunk = Thunk::new(width, col, flat);
+                if fits(width - col, Rc::clone(&thunk)) {
+                    return (*thunk.force()).clone();
+                }
+                item = Some(Rc::new(Item {
+                    indent: i,
+                    mode: Mode::Break,
+                    doc: (**inner).clone(),
+                    next,
+                }));
             }
             Doc::Union(wide, narrow) => {
-                let wide_item = Rc::new(Item {
-                    indent: i,
-                    mode: Mode::Flat,
-                    doc: (**wide).clone(),
-                    next: next.clone(),
-                });
-                if fits(width, k, Some(Rc::clone(&wide_item))) {
-                    item = Some(wide_item);
-                } else {
-                    item = Some(Rc::new(Item {
+                // A union always makes its own decision (it is not forced
+                // flat by an enclosing flat layout), so the gaps of a
+                // `pack` break independently.
+                let thunk = Thunk::new(
+                    width,
+                    col,
+                    Some(Rc::new(Item {
                         indent: i,
-                        mode: Mode::Break,
-                        doc: (**narrow).clone(),
-                        next,
-                    }));
+                        mode: Mode::Flat,
+                        doc: (**wide).clone(),
+                        next: next.clone(),
+                    })),
+                );
+                if fits(width - col, Rc::clone(&thunk)) {
+                    return (*thunk.force()).clone();
                 }
+                item = Some(Rc::new(Item {
+                    indent: i,
+                    mode: Mode::Break,
+                    doc: (**narrow).clone(),
+                    next,
+                }));
             }
             Doc::Column(f) => {
                 item = Some(Rc::new(Item {
                     indent: i,
                     mode,
-                    doc: f(k),
+                    doc: f(col),
                     next,
                 }));
             }
@@ -468,7 +529,7 @@ pub fn render(width: i32, doc: Doc) -> String {
             }
         }
     }
-    b
+    Out::End
 }
 
 // -- Private helpers ------------------------------------------------------
@@ -515,109 +576,80 @@ fn with_soft_break(a: Doc, b: Doc) -> Doc {
     beside(a, beside(soft_break(), b))
 }
 
-/// Returns whether the work list fits in the remaining space on the current
-/// line. Scans forward until the first line break (which ends the current
-/// line, so what precedes it fits) or until the page width is exceeded.
-fn fits(width: i32, mut col: i32, mut item: Option<Rc<Item>>) -> bool {
+/// Returns whether the rest of the layout fits in the remaining space
+/// on the current line. Scans the output stream forward until the
+/// first line break (which ends the current line, so what precedes it
+/// fits) or until the remaining space runs out.
+///
+/// Because the scan consumes the chunks that rendering will emit, the
+/// layout decisions it passes over have already been made -- and are
+/// memoized, so the caller that commits to this stream, and any later
+/// scan over it, gets them for free.
+fn fits(remaining: i32, thunk: Rc<Thunk>) -> bool {
+    let mut remaining = remaining;
+    let mut thunk = thunk;
     loop {
-        if col > width {
+        if remaining < 0 {
             return false;
         }
-        let it = match item {
-            None => return true,
-            Some(it) => it,
-        };
-        let i = it.indent;
-        let mode = it.mode;
-        let next = it.next.clone();
-        match &it.doc {
-            Doc::Empty => {
-                item = next;
+        let out = thunk.force();
+        match &*out {
+            Out::End => return true,
+            Out::Text(t, rest) => {
+                remaining -= t.chars().count() as i32;
+                thunk = Rc::clone(rest);
             }
-            Doc::Text(t) => {
-                col += t.chars().count() as i32;
-                item = next;
-            }
-            Doc::Cat(a, c) => {
-                let tail = Rc::new(Item {
-                    indent: i,
-                    mode,
-                    doc: (**c).clone(),
-                    next,
-                });
-                item = Some(Rc::new(Item {
-                    indent: i,
-                    mode,
-                    doc: (**a).clone(),
-                    next: Some(tail),
-                }));
-            }
-            Doc::Nest(n, d) => {
-                item = Some(Rc::new(Item {
-                    indent: i + n,
-                    mode,
-                    doc: (**d).clone(),
-                    next,
-                }));
-            }
-            Doc::Line => {
-                // In a broken layout a line break ends the current line, so
-                // what precedes it fits. In a flat layout a bare (hard) line
-                // cannot be flattened, so this layout does not fit.
-                return mode == Mode::Break;
-            }
-            Doc::FlatAlt(primary, flat) => {
-                let d = if mode == Mode::Flat { flat } else { primary };
-                item = Some(Rc::new(Item {
-                    indent: i,
-                    mode,
-                    doc: (**d).clone(),
-                    next,
-                }));
-            }
-            Doc::Group(d) => {
-                let flat = Rc::new(Item {
-                    indent: i,
-                    mode: Mode::Flat,
-                    doc: (**d).clone(),
-                    next,
-                });
-                if mode == Mode::Break
-                    && !fits(width, col, Some(Rc::clone(&flat)))
-                {
-                    return true;
-                }
-                item = Some(flat);
-            }
-            Doc::Union(wide, _) => {
-                let wide_item = Rc::new(Item {
-                    indent: i,
-                    mode: Mode::Flat,
-                    doc: (**wide).clone(),
-                    next,
-                });
-                if !fits(width, col, Some(Rc::clone(&wide_item))) {
-                    return true;
-                }
-                item = Some(wide_item);
-            }
-            Doc::Column(f) => {
-                item = Some(Rc::new(Item {
-                    indent: i,
-                    mode,
-                    doc: f(col),
-                    next,
-                }));
-            }
-            Doc::Nesting(f) => {
-                item = Some(Rc::new(Item {
-                    indent: i,
-                    mode,
-                    doc: f(i),
-                    next,
-                }));
-            }
+            // A line break ends the current line, so what precedes it
+            // fits -- unless it is a bare line that a flat layout could
+            // not flatten, in which case the layout is invalid and the
+            // group must break.
+            Out::Line(_, flat, _) => return !flat,
         }
+    }
+}
+
+// -- Output stream --------------------------------------------------------
+
+/// A chunk of laid-out output: literal text, a line break, or the end
+/// of the stream. Leijen calls this a `SimpleDoc`: a document from
+/// which every layout choice has been removed.
+#[derive(Clone)]
+enum Out {
+    /// The end of the stream.
+    End,
+    /// Literal text, then the rest of the stream.
+    Text(Rc<str>, Rc<Thunk>),
+    /// A line break and `indent` spaces, then the rest of the stream.
+    /// `flat` marks a bare line that reached a flat layout, which no
+    /// layout can honour; [`fits`] rejects it.
+    Line(i32, bool, Rc<Thunk>),
+}
+
+/// The unforced rest of an output stream: the work list to lay out,
+/// and the result once laid out. Memoizing is what makes the fit test
+/// affordable -- every scan that passes over a decision shares the one
+/// that was made, rather than making it again.
+struct Thunk {
+    width: i32,
+    col: i32,
+    item: Option<Rc<Item>>,
+    out: OnceCell<Rc<Out>>,
+}
+
+impl Thunk {
+    fn new(width: i32, col: i32, item: Option<Rc<Item>>) -> Rc<Self> {
+        Rc::new(Thunk {
+            width,
+            col,
+            item,
+            out: OnceCell::new(),
+        })
+    }
+
+    fn force(&self) -> Rc<Out> {
+        Rc::clone(self.out.get_or_init(|| {
+            Rc::new(best(self.width, self.col, self.item.clone()))
+        }))
     }
 }
 
@@ -629,5 +661,55 @@ fn spaces(n: i32) -> String {
 fn push_spaces(b: &mut String, n: i32) {
     for _ in 0..n.max(0) {
         b.push(' ');
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A union whose narrow branch continues on the same line -- an
+    /// elision combinator, "full form if it fits, else `...`" -- is
+    /// measured by what that branch actually emits.
+    ///
+    /// This is the case a fit test cannot get right by treating a
+    /// union as the end of the line. It happens to work for every
+    /// union built today -- those of [`pack`] and of Morel's own
+    /// printer -- because each has a narrow branch that begins with a
+    /// line break. `PP` cannot express it, so it lives here.
+    #[test]
+    fn test_fits_measures_chosen_union_branch() {
+        let elided = union(text("alpha bravo charlie"), text("..."));
+        let doc = beside(text("["), beside(elided, text("] tail")));
+        // Wide: the full form fits.
+        assert_eq!(render(80, doc.clone()), "[alpha bravo charlie] tail");
+        // Narrow: the full form does not, so the narrow branch is
+        // taken -- and the enclosing scan measures "...", not an
+        // assumed end of line.
+        assert_eq!(render(10, doc), "[...] tail");
+    }
+
+    /// Renders a wide tuple whose elements each wrap in their own
+    /// group -- one nested decision point per separator.
+    ///
+    /// A fit test that re-decides each downstream group re-scans the
+    /// same suffix at every level, so this costs O(2^n); scanning the
+    /// shared output stream instead makes it linear. Before, n=27 took
+    /// about 295 seconds, and n=1000 was out of reach.
+    #[test]
+    fn test_wide_tuple_of_groups() {
+        const SIZE: usize = 1000;
+        let elements: Vec<Doc> =
+            (0..SIZE).map(|n| group(text(&n.to_string()))).collect();
+        let doc = enclose_sep(text("("), text(")"), &text(","), elements);
+        let s = render(79, doc);
+        assert_eq!(s.matches(',').count(), SIZE - 1);
+        for line in s.split('\n') {
+            assert!(
+                line.chars().count() <= 79,
+                "line over the width: {:?}",
+                line
+            );
+        }
     }
 }
