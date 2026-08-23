@@ -1138,6 +1138,16 @@ impl TypeResolver {
     /// / [`library::BuiltInEqtype`] strum properties) and
     /// user-declared datatypes accumulated in
     /// `self.user_datatype_arities`.
+    /// Whether `name` names a type: a built-in constructor, a datatype
+    /// declared here or earlier, or an alias. A type variable is not a
+    /// name, and does not reach this.
+    fn is_type_ctor(&self, name: &str) -> bool {
+        library::builtin_type_arity(name).is_some()
+            || self.user_datatype_arities.contains_key(name)
+            || self.type_aliases.contains_key(name)
+            || self.datatype_bindings.iter().any(|b| b.name == name)
+    }
+
     fn arity_of_type_ctor(&self, name: &str) -> Option<usize> {
         library::builtin_type_arity(name)
             .or_else(|| self.user_datatype_arities.get(name).copied())
@@ -1287,8 +1297,20 @@ impl TypeResolver {
                     self.validate_ast_type(&f.type_);
                 }
             }
+            TypeKind::Id(name) => {
+                // A name that is not a type. `type_term` catches one in
+                // an annotation, but a constructor's argument type does
+                // not go through it, so check here too.
+                if PrimitiveType::parse_name(name).is_none()
+                    && !self.is_type_ctor(name)
+                {
+                    self.field_errors.borrow_mut().push((
+                        format!("unbound type constructor: {}", name),
+                        ast_type.span.clone(),
+                    ));
+                }
+            }
             TypeKind::Con(_)
-            | TypeKind::Id(_)
             | TypeKind::Unit
             | TypeKind::Var(_)
             | TypeKind::Expression(_) => {}
@@ -1510,6 +1532,15 @@ impl TypeResolver {
         ) {
             Ok(x) => x,
             Err(x) => {
+                // A name that is not a type became a term all the
+                // same, so unification may report a conflict between
+                // it and whatever it met. Name the unbound
+                // constructor: that is what is wrong, and the span
+                // points at the annotation rather than the whole
+                // declaration.
+                if let Some((msg, span)) = self.field_errors.borrow().first() {
+                    return Err(Error::Compile(msg.clone(), span.clone()));
+                }
                 return Err(Error::Compile(
                     format!("Cannot deduce type: {}", x.reason()),
                     decl.span.clone(),
@@ -6829,7 +6860,17 @@ impl TypeResolver {
                     Some(BindType::Constructor(term))
                     | Some(BindType::Val(term)) => term,
                     None => {
-                        todo!("constructor '{}' not found", name);
+                        // The parser reads `Foo x` in a pattern as a
+                        // constructor applied to an argument, whatever
+                        // `Foo` turns out to be, so an unbound name
+                        // arrives here rather than being caught as an
+                        // unbound variable. Deducing a pattern has no
+                        // `Result` to carry the error, so defer it.
+                        self.field_errors.borrow_mut().push((
+                            format!("unbound constructor: {}", name),
+                            pat.span.clone(),
+                        ));
+                        Term::Variable(self.variable())
                     }
                 };
                 let arg2 = if let Some(a) = arg {
@@ -7531,9 +7572,18 @@ impl<'a> TypeToTermConverter<'a> {
                 if let Some(p) = PrimitiveType::parse_name(name) {
                     self.type_resolver.primitive_term(&p, &v);
                 } else {
-                    // Treat as a nilary built-in datatype (e.g.
-                    // 'order'). The runtime representation is
-                    // Type::Data(name, vec![]).
+                    // A nullary type constructor, built-in like `order`
+                    // or declared by a `datatype`. A name that is
+                    // neither is rejected here, where the annotation
+                    // becomes a term: unification finds a conflict for
+                    // such a name only sometimes, and one that survives
+                    // would reach the type map and crash.
+                    if !self.type_resolver.is_type_ctor(name) {
+                        self.type_resolver.field_errors.borrow_mut().push((
+                            format!("unbound type constructor: {}", name),
+                            type_node.span.clone(),
+                        ));
+                    }
                     let data_type = Type::Data(name.clone(), vec![]);
                     self.type_resolver.type_term(&data_type, subst, v);
                 }

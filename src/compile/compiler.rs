@@ -957,7 +957,7 @@ impl<'a> Compiler<'a> {
                                 Err(msg) => {
                                     return Code::RaiseCompileError(
                                         msg,
-                                        Span::new("0.0-0.0"),
+                                        span.clone(),
                                     );
                                 }
                             }
