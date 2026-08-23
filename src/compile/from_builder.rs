@@ -971,6 +971,18 @@ impl FromBuilder {
         use crate::compile::types::Label;
         use std::collections::BTreeMap;
 
+        // A `compute` step reduces the whole collection to one value, so
+        // the query's type is that value's, not a collection of it. At
+        // the top level the shell takes the type from the type map and
+        // the difference does not show; nested in a `yield` this type is
+        // the outer collection's element type, and a wrong one made the
+        // pretty-printer read each element as a list.
+        if let Some(step) = self.steps.last()
+            && let StepKind::Compute(expr) = &step.kind
+        {
+            return Ok((*expr.type_()).clone());
+        }
+
         // The element type is the type of each element in the result
         // collection. If we have a single binding that matches the atom
         // flag, use its type. Otherwise, create a record type.

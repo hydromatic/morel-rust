@@ -1898,11 +1898,18 @@ impl<'a> Resolver<'a> {
                 .dispatch_collection_fn(func_expr, !builder.is_ordered())
                 .unwrap_or_else(|| self.resolve_expr(func_expr));
 
-            // Get the result type from the type_map for the
-            // function application.
-            let result_type = func_expr
+            // The application's type is the function's *result* type, not
+            // the function's. They differ wherever the type is used: an
+            // `into` nested in a `yield` took the function type as the
+            // outer collection's element type, so the query evaluated to
+            // the function itself.
+            let fn_type = func_expr
                 .get_type(self.type_map)
                 .expect("INTO function must have a type");
+            let result_type = match fn_type.as_ref() {
+                Type::Fn(_, result) => result.clone(),
+                _ => fn_type,
+            };
 
             // Apply the function: f(from_result).
             let span = Span::from_pest_span(
