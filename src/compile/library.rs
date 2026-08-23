@@ -1236,6 +1236,11 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "concatWith"))]
     #[strum(props(type = "string -> string list -> string"))]
     StringConcatWith,
+    #[strum(props(p = "StringCvt", name = "dropl"))]
+    #[strum(props(
+        type = "forall 1 (char -> bool) -> ('a -> (char * 'a) option) -> 'a -> 'a"
+    ))]
+    StringCvtDropl,
     #[strum(props(p = "StringCvt", name = "padLeft"))]
     #[strum(props(type = "char -> int -> string -> string"))]
     StringCvtPadLeft,
@@ -1274,6 +1279,27 @@ pub enum BuiltInFunction {
     #[strum(props(type = "int option -> realfmt"))]
     #[strum(props(constructor_ordinal = "3"))]
     StringCvtRealfmtSci,
+    #[strum(props(p = "StringCvt", name = "scanString"))]
+    #[strum(props(
+        type = "forall 2 (('b -> (char * 'b) option) -> 'b -> ('a * 'b) \
+                option) -> string -> 'a option"
+    ))]
+    StringCvtScanString,
+    #[strum(props(p = "StringCvt", name = "skipWS"))]
+    #[strum(props(type = "forall 1 ('a -> (char * 'a) option) -> 'a -> 'a"))]
+    StringCvtSkipWs,
+    #[strum(props(p = "StringCvt", name = "splitl"))]
+    #[strum(props(
+        type = "forall 1 (char -> bool) -> ('a -> (char * 'a) option) -> 'a \
+                -> string * 'a"
+    ))]
+    StringCvtSplitl,
+    #[strum(props(p = "StringCvt", name = "takel"))]
+    #[strum(props(
+        type = "forall 1 (char -> bool) -> ('a -> (char * 'a) option) -> 'a \
+                -> string"
+    ))]
+    StringCvtTakel,
     #[strum(props(p = "String", name = "="))]
     #[strum(props(type = "string * string -> bool"))]
     StringEq,

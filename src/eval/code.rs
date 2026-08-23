@@ -55,6 +55,7 @@ use crate::eval::relational::Relational;
 use crate::eval::row_sink::RowSinkFactory;
 use crate::eval::session::Session;
 use crate::eval::string::Str;
+use crate::eval::string_cvt;
 use crate::eval::time;
 use crate::eval::val::{self, ClosureData, Val};
 use crate::eval::variant;
@@ -3935,6 +3936,8 @@ pub enum EagerF2 {
     RelationalIterate,
     StringCollate,
     StringConcatWith,
+    StringCvtScanString,
+    StringCvtSkipWs,
     StringFields,
     StringMap,
     StringSub,
@@ -4237,6 +4240,10 @@ impl EagerF2 {
                 let strings = a1.expect_list();
                 Ok(Val::String((Str::concat_with(sep, strings)).into()))
             }
+            StringCvtScanString => {
+                string_cvt::scan_string(r, f, &a0, a1.expect_string())
+            }
+            StringCvtSkipWs => string_cvt::skip_ws(r, f, &a0, &a1),
             StringFields => {
                 let s = a1.expect_string();
                 Str::fields(r, f, &a0, s)
@@ -4320,6 +4327,9 @@ pub enum EagerF3 {
     LPFoldrEq,
     ListFoldl,
     ListFoldr,
+    StringCvtDropl,
+    StringCvtSplitl,
+    StringCvtTakel,
     StringExtract,
     StringSubstring,
     VectorFoldl,
@@ -4370,6 +4380,14 @@ impl EagerF3 {
 
         match &self {
             BagFold => List::foldl(r, f, &a0, &a1, a2.expect_list()),
+            StringCvtDropl => Ok(string_cvt::splitl(r, f, &a0, &a1, &a2)?.1),
+            StringCvtSplitl => {
+                let (prefix, rest) = string_cvt::splitl(r, f, &a0, &a1, &a2)?;
+                Ok(Val::List(Rc::new(vec![Val::String(prefix.into()), rest])))
+            }
+            StringCvtTakel => Ok(Val::String(
+                string_cvt::splitl(r, f, &a0, &a1, &a2)?.0.into(),
+            )),
             EitherFold => {
                 let tuple = a0.expect_list();
                 Either::fold(r, f, &tuple[0], &tuple[1], &a1, &a2)
@@ -5227,6 +5245,7 @@ fn build_library() -> Lib {
     Eager2::StringCompare.implements(&mut b, StringCompare);
     Eager1::StringConcat.implements(&mut b, StringConcat);
     EagerF2::StringConcatWith.implements(&mut b, StringConcatWith);
+    EagerF3::StringCvtDropl.implements(&mut b, StringCvtDropl);
     Eager3::StringCvtPadLeft.implements(&mut b, StringCvtPadLeft);
     Eager3::StringCvtPadRight.implements(&mut b, StringCvtPadRight);
     Eager0::StringCvtRadixBin.implements(&mut b, StringCvtRadixBin);
@@ -5237,6 +5256,10 @@ fn build_library() -> Lib {
     Eager1::StringCvtRealfmtFix.implements(&mut b, StringCvtRealfmtFix);
     Eager1::StringCvtRealfmtGen.implements(&mut b, StringCvtRealfmtGen);
     Eager1::StringCvtRealfmtSci.implements(&mut b, StringCvtRealfmtSci);
+    EagerF2::StringCvtScanString.implements(&mut b, StringCvtScanString);
+    EagerF2::StringCvtSkipWs.implements(&mut b, StringCvtSkipWs);
+    EagerF3::StringCvtSplitl.implements(&mut b, StringCvtSplitl);
+    EagerF3::StringCvtTakel.implements(&mut b, StringCvtTakel);
     Eager2::StringEq.implements(&mut b, StringEq);
     Eager1::StringExplode.implements(&mut b, StringExplode);
     EagerF3::StringExtract.implements(&mut b, StringExtract);

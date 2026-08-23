@@ -117,6 +117,13 @@ pub enum Val {
     /// Built-in function.
     Fn(BuiltInFunction),
 
+    /// A function written in Rust and made at run time, closing over
+    /// data the caller supplies -- the reader that
+    /// `StringCvt.scanString` hands its scanner, for one. A built-in
+    /// cannot serve: it is chosen at compile time and closes over
+    /// nothing.
+    NativeFn(Rc<NativeFn>),
+
     /// `Some(v)` represents the `Option` value `SOME v`. (The other `Option`
     /// value, `NONE`, is represented as [Val::Unit].)
     Some(Box<Val>),
@@ -369,6 +376,7 @@ impl Val {
         arg: &Val,
     ) -> Result<Val, MorelError> {
         match self {
+            Val::NativeFn(native) => Ok(native.apply(arg)),
             Val::Code(code) => code.eval_f1(r, f, arg),
             Val::Closure(data) => CodeFrame::create_bind_and_eval(
                 &data.frame_def,
@@ -432,7 +440,9 @@ impl Display for Val {
             Val::Char(c) => {
                 write!(f, "#\"{}\"", parser::string_to_string(&c.to_string()))
             }
-            Val::Closure(..) | Val::Code(_) => write!(f, "fn"),
+            Val::Closure(..) | Val::Code(_) | Val::NativeFn(_) => {
+                write!(f, "fn")
+            }
             Val::ClosureWeak(_) => write!(f, "fn"),
             Val::Constructor(ordinal, v) => {
                 if **v == Val::Unit {
@@ -523,6 +533,36 @@ impl Display for Val {
 }
 
 // Implement Eq for Val (needed for HashMap keys)
+/// A function written in Rust that a Morel program can apply. See
+/// [`Val::NativeFn`].
+pub struct NativeFn {
+    /// What to call it in a plan or an error message.
+    name: &'static str,
+    f: Box<dyn Fn(&Val) -> Val>,
+}
+
+impl NativeFn {
+    pub(crate) fn new(
+        name: &'static str,
+        f: impl Fn(&Val) -> Val + 'static,
+    ) -> Self {
+        NativeFn {
+            name,
+            f: Box::new(f),
+        }
+    }
+
+    pub(crate) fn apply(&self, arg: &Val) -> Val {
+        (self.f)(arg)
+    }
+}
+
+impl fmt::Debug for NativeFn {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "NativeFn({})", self.name)
+    }
+}
+
 impl PartialEq for Val {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -642,6 +682,10 @@ impl Hash for Val {
                 18.hash(state);
                 // Hash the pointer address
                 Arc::as_ptr(code).hash(state);
+            }
+            Val::NativeFn(native) => {
+                24.hash(state);
+                Rc::as_ptr(native).hash(state);
             }
             Val::Closure(data) => {
                 19.hash(state);
