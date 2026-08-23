@@ -278,13 +278,13 @@ let val n = 5 in n?.x end;
 
 (*) Functor whose innermost type is not a record.
 (SOME 1)?.a;
-> stdIn:1.2-1.12 Error: reference to field a of non-record type int
->   raised at: stdIn:1.2-1.12
+> stdIn:1.1-1.12 Error: reference to field a of non-record type int
+>   raised at: stdIn:1.1-1.12
 
 (*) Record, but no such field.
 (SOME {a=1})?.b;
-> stdIn:1.2-1.16 Error: no field 'b' in type '{a:int}'
->   raised at: stdIn:1.2-1.16
+> stdIn:1.1-1.16 Error: no field 'b' in type '{a:int}'
+>   raised at: stdIn:1.1-1.16
 
 (* Tunneling reaches a non-record type: "w?.b" is "int list option", and so
  * "?.c" tunnels through both layers to "int", which has no fields. *)

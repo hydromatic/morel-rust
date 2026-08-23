@@ -678,7 +678,15 @@ impl MorelParser {
                         let span = literal.span.clone();
                         ExprKind::Literal(literal).spanned(&span)
                     },
-                    1 => expr_vec[0].clone(),
+                    // Grouping parentheses are not transparent: they
+                    // widen the enclosed expression's span to include
+                    // them, so an error in `(e)?.x` is reported over the
+                    // parentheses rather than one column short.
+                    1 => {
+                        let mut e = expr_vec[0].clone();
+                        e.span = input_to_span(&input);
+                        e
+                    },
                     _ => ExprKind::Tuple(expr_vec).wrap(input),
                 }
             },
@@ -2541,23 +2549,11 @@ pub fn is_reserved_word(id: &str) -> bool {
 /// (the `AstWriter.idQuoted` path) — use for variable identifiers in
 /// expressions and for record labels.
 pub fn append_id(buf: &mut String, id: &str) {
-    append_id_internal(buf, id, true);
-}
-
-/// Appends an identifier, quoting only when it contains a back-tick or space
-/// (never merely because it is a reserved word). Used for the `val NAME = …`
-/// declaration echo, whose binding name morel-java prints without
-/// reserved-word quoting.
-pub fn append_bare_id(buf: &mut String, id: &str) {
-    append_id_internal(buf, id, false);
-}
-
-fn append_id_internal(buf: &mut String, id: &str, quote_reserved: bool) {
     if id.contains('`') {
         buf.push('`');
         buf.push_str(&id.replace('`', "``"));
         buf.push('`');
-    } else if id.contains(' ') || (quote_reserved && is_reserved_word(id)) {
+    } else if id.contains(' ') || is_reserved_word(id) {
         buf.push('`');
         buf.push_str(id);
         buf.push('`');

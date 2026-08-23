@@ -29,7 +29,7 @@ use crate::eval::real::Real;
 use crate::eval::val::Val;
 use crate::shell::prop::Output as PropOutput;
 use crate::syntax::parser::{
-    append_bare_id, append_id, char_to_string, string_to_string_append,
+    append_id, char_to_string, string_to_string_append,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write};
@@ -164,9 +164,10 @@ impl Pretty {
         value: &Val,
     ) {
         let mut prefix = String::from("val ");
-        // The binding name is printed without reserved-word quoting, matching
-        // SML/NJ and morel-java (e.g. `val it = ...`, not `val `it` = ...`).
-        append_bare_id(&mut prefix, name);
+        // A binding name that is a reserved word, or holds a space or a
+        // back-tick, is quoted so that the line round-trips -- as
+        // morel-java has done since hydromatic/morel#422.
+        append_id(&mut prefix, name);
         prefix.push_str(" =");
         // The value is one level below the binding, so start at depth 1: at
         // "printDepth" 0 the whole value prints as "#", matching SML/NJ.
@@ -228,7 +229,7 @@ impl Pretty {
             return false;
         }
         let mut line = String::from("val ");
-        append_bare_id(&mut line, name);
+        append_id(&mut line, name);
         line.push_str(" : ");
         // A "variant" value prints its declared type with a " variant"
         // suffix.
