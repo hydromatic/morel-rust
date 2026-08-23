@@ -21,6 +21,41 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
+/// Substitutes `Type::Variable(i)` with `args[i]` throughout a type.
+/// A datatype's constructors and its `Discrete` and `Comparator` are
+/// all declared in terms of the datatype's type variables, so each
+/// instantiates them against the type arguments at a use.
+pub fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
+    match type_ {
+        // lint: sort until '#}' where '##Type::'
+        Type::Bag(t) => Type::Bag(Rc::new(instantiate(t, args))),
+        Type::Data(name, ts) => Type::Data(
+            name.clone(),
+            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
+        ),
+        Type::Fn(a, b) => Type::Fn(
+            Rc::new(instantiate(a, args)),
+            Rc::new(instantiate(b, args)),
+        ),
+        Type::List(t) => Type::List(Rc::new(instantiate(t, args))),
+        Type::Record(p, fields) => Type::Record(
+            *p,
+            fields
+                .iter()
+                .map(|(k, v): (&Label, &Rc<Type>)| {
+                    (k.clone(), Rc::new(instantiate(v, args)))
+                })
+                .collect(),
+        ),
+        Type::Tuple(ts) => Type::Tuple(
+            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
+        ),
+        Type::Variable(tv) if tv.id < args.len() => (*args[tv.id]).clone(),
+        // #}
+        _ => type_.clone(),
+    }
+}
+
 /// The name to show for a type constructor. A collection whose
 /// orderedness nothing has decided reads back as a bag, so that is
 /// what it is called; its internal name is not something to show

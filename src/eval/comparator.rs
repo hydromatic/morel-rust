@@ -21,12 +21,11 @@
 //! values of different types. Comparators are used by OrderRowSink to
 //! sort query results.
 
-use crate::compile::types::Type;
+use crate::compile::types::{Type, instantiate};
 use crate::eval::val;
 use crate::eval::val::Val;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 use val::DESCENDING_DESC;
 
@@ -365,43 +364,11 @@ pub fn comparator_for_with(
     }
 }
 
-/// Substitutes `Type::Variable(i)` with `args[i]`.
-fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
-    use crate::compile::types::Label;
-    match type_ {
-        // lint: sort until '#}' where '##Type::'
-        Type::Bag(t) => Type::Bag(Rc::new(instantiate(t, args))),
-        Type::Data(name, ts) => Type::Data(
-            name.clone(),
-            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
-        ),
-        Type::Fn(a, b) => Type::Fn(
-            Rc::new(instantiate(a, args)),
-            Rc::new(instantiate(b, args)),
-        ),
-        Type::List(t) => Type::List(Rc::new(instantiate(t, args))),
-        Type::Record(p, fields) => Type::Record(
-            *p,
-            fields
-                .iter()
-                .map(|(k, v): (&Label, &Rc<Type>)| {
-                    (k.clone(), Rc::new(instantiate(v, args)))
-                })
-                .collect(),
-        ),
-        Type::Tuple(ts) => Type::Tuple(
-            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
-        ),
-        Type::Variable(tv) if tv.id < args.len() => (*args[tv.id]).clone(),
-        // #}
-        _ => type_.clone(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::compile::types::PrimitiveType;
+    use std::rc::Rc;
 
     #[test]
     fn test_natural_comparator_ints() {

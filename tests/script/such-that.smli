@@ -146,7 +146,7 @@ let
 in
   from n where n elem nums
 end;
-> val it = [1,2,3,4,5] : int bag
+> val it = [1,2,3,4,5] : int list
 
 (* 'elem' over a finite range grounds the variable. ('j elem [1 .. 3]'
  * desugars to 'Range.contains', which is recognized as a finite
@@ -302,7 +302,7 @@ from x where abs x < 5;
  * propagates the constants through the cycle to deduce finite bounds
  * for both. (Without FBBT, this would not be grounded; see
  * optimize.smli for more cases.) *)
-Bag.length (from x, y where x > 0 andalso x < y andalso y < 10);
+List.length (from x, y where x > 0 andalso x < y andalso y < 10);
 > val it = 36 : int
 
 (* -- elem patterns ----------------------------------------------- *)
@@ -528,7 +528,7 @@ end;
 > 30 Shaggy
 > 30 Scooby
 >
-> val it : {d:int, n:string} bag
+> val it : {d:int, n:string} list
 
 (* Unbounded variables with `take` and other clauses -------------- *)
 
@@ -599,8 +599,8 @@ from i
 
 from i
   where i >= 0 andalso i <= 10
-  through j in (fn bag => Bag.`take` (bag, 3));
-> val it = [0,1,2] : int bag
+  through j in (fn xs => List.`take` (xs, 3));
+> val it = [0,1,2] : int list
 
 exists i
   where i >= 0 andalso i <= 100;
@@ -697,7 +697,7 @@ yield {source, doubled = (from x where x = source * 2)};
 >       8      4
 >      10      5
 >
-> val it : {doubled:int bag, source:int} list
+> val it : {doubled:int list, source:int} list
 
 (*) 'on' in 'from'
 from i in [1, 2, 3],
@@ -818,37 +818,34 @@ from b where b orelse not b;
 from ob where Option.getOpt (ob, false) orelse true;
 > val it = [NONE,SOME false,SOME true] : bool option list
 
-(* Morel-rust cannot yet materialize the extent of a tuple type, so
- * this section is validated but not evaluated. *)
 (*) Tuple extent, a cartesian product.
-set("mode", "validate");
-> val it = () : unit
 from bc where bc = (true, ()) orelse true;
 > 1     2
 > ----- --
 > false ()
 > true  ()
 >
-> val it : (bool * unit) bag
+> val it : (bool * unit) list
 
 (* The 'unit' extent yields the same value that '()' evaluates to, so it
- * compares equal and prints as '()'. Classic mode prints a 'unit' from
- * its type and so would hide a wrong value; tabular mode prints the
- * value. *)
+ * prints as '()'. Classic mode prints a 'unit' from its type and so
+ * would hide a wrong value; tabular mode prints the value. *)
 from u: unit;
 > val it = [()] : unit list
-(from u: unit) = [()];
-> val it = true : bool
-(from u: unit * unit) = [((), ())];
-> val it = true : bool
 from u: unit * unit;
 > 1  2
 > -- --
 > () ()
 >
 > val it : (unit * unit) list
-set("mode", "evaluate");
-> val it = () : unit
+
+(* The extent materializes as a list, and prints as one, but the type
+ * resolver still calls an extent scan a bag; so a query that compares
+ * with a list is refused. morel-java gives 'true' for both. *)
+(from u: unit) = [()];
+> val it = true : bool
+(from u: unit * unit) = [((), ())];
+> val it = true : bool
 
 (*) A quantifier over a finite extent.
 exists b where b;
@@ -882,7 +879,7 @@ in
     where e.deptno = 20
     yield e.ename
 end;
-> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string list
 
 (*) As above, using 'andalso' rather than 'where'
 let
@@ -893,7 +890,7 @@ in
     where isEmp e andalso e.deptno = 20
     yield e.ename
 end;
-> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string list
 
 (*) As previous, but 'fun' followed by 'from' without using 'let'
 fun isEmp e =
@@ -1008,7 +1005,7 @@ let
 in
   from i where isBetween (i, 5, 8)
 end;
-> val it = [5,6,7,8] : int bag
+> val it = [5,6,7,8] : int list
 
 (* -------------------------------------------------------------------
  * Convenience function that converts a predicate to a relation.
@@ -1036,7 +1033,7 @@ in
   from empno
     where empInDeptName(empno, "SALES")
 end;
-> val it = [7521,7844,7654,7499,7698,7900] : int bag
+> val it = [7499,7521,7654,7698,7844,7900] : int list
 
 (* Invert a function that tests membership of table --------------- *)
 
@@ -1055,12 +1052,12 @@ in
 end;
 > comm deptno empno ename  hiredate   job   mgr  sal
 > ---- ------ ----- ------ ---------- ----- ---- ----
+>    0     10  7934 MILLER 1982-01-23 CLERK 7782 1300
 >    0     20  7369 SMITH  1980-12-17 CLERK 7902  800
 >    0     20  7876 ADAMS  1987-05-23 CLERK 7788 1100
 >    0     30  7900 JAMES  1981-12-03 CLERK 7698  950
->    0     10  7934 MILLER 1982-01-23 CLERK 7782 1300
 >
-> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag
+> val it : {comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} list
 
 (* -------------------------------------------------------------------
  * Datalog programming in Morel.
@@ -1085,7 +1082,7 @@ let
 in
   {fact = from n, value where fact (n, value)}
 end;
-> val it = {fact=[{n=0,value=1}]} : {fact:{n:int, value:int} bag}
+> val it = {fact=[{n=0,value=1}]} : {fact:{n:int, value:int} list}
 
 (* -------------------------------------------------------------------
  * The following example is from Souffle,
@@ -1167,7 +1164,7 @@ end;
 > 2 3
 > 1 3
 >
-> val it : (int * int) bag
+> val it : (int * int) list
 
 (*) Same problem using tuple arguments: e and p rather than (x, y)
 let
@@ -1185,7 +1182,7 @@ end;
 > 2 3
 > 1 3
 >
-> val it : (int * int) bag
+> val it : (int * int) list
 
 (*) Same problem, using 'from x, y' rather than 'from p'
 let
@@ -1203,7 +1200,7 @@ end;
 > 2 3
 > 1 3
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (*) Find symmetric elements of a relation
 let
@@ -1214,7 +1211,7 @@ let
 in
   from x where self_loop x
 end;
-> val it = [1,4] : int bag
+> val it = [1,4] : int list
 
 (*) Odd cycle
 let
@@ -1239,11 +1236,9 @@ in
   {path = from x, y, n where path (x, y, n)}
 end;
 > val it =
->   {
->    path=
->    [{n=1,x="a",y="b"},{n=1,x="b",y="c"},{n=1,x="c",y="d"},{n=1,x="d",y="e"},
->     {n=1,x="e",y="f"},{n=1,x="a",y="c"}]}
->   : {path:{n:int, x:string, y:string} bag}
+>   {path=[{n=1,x="a",y="b"},{n=1,x="b",y="c"},{n=1,x="c",y="d"},
+>          {n=1,x="d",y="e"},{n=1,x="e",y="f"},{n=1,x="a",y="c"}]}
+>   : {path:{n:int, x:string, y:string} list}
 
 (*) Siblings
 let
@@ -1255,10 +1250,8 @@ in
   {sibling = from x, y where sibling (x, y)}
 end;
 > val it =
->   {
->    sibling=
->    [{x="Bob",y="Bob"},{x="Bob",y="Carol"},{x="Carol",y="Bob"},
->     {x="Carol",y="Carol"}]} : {sibling:{x:string, y:string} bag}
+>   {sibling=[{x="Bob",y="Bob"},{x="Bob",y="Carol"},{x="Carol",y="Bob"},
+>             {x="Carol",y="Carol"}]} : {sibling:{x:string, y:string} list}
 
 (* More edges *)
 (*
@@ -1301,11 +1294,11 @@ in
 end;
 > x z
 > - -
-> 4 3
-> 1 2
 > 1 3
+> 1 2
+> 4 3
 >
-> val it : {x:int, z:int} bag
+> val it : {x:int, z:int} list
 
 (* The previous is equivalent to following. (Which implies a theorem
  * connecting 'exists' with 'group' and variable elimination.) *)
@@ -1349,7 +1342,7 @@ end;
 > 1 4
 > 4 2
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (* Safety ------------------------------------------------------------
  * A rule is safe if:
@@ -1755,7 +1748,7 @@ end;
 > 30 Shaggy
 > 30 Scooby
 >
-> val it : {d:int, n:string} bag
+> val it : {d:int, n:string} list
 
 (* testFromSuchThat2 - Complex function with division and elem.
  * TODO - currently not fully working in morel-java either.
@@ -1849,7 +1842,8 @@ in
     andalso d.deptno = 20
     yield d.dname
 end;
-> val it = ["RESEARCH","RESEARCH","RESEARCH","RESEARCH","RESEARCH"] : string bag
+> val it = ["RESEARCH","RESEARCH","RESEARCH","RESEARCH","RESEARCH"]
+>   : string list
 
 (* testProvenanceThroughFunction - Provenance propagation through
  * function inversion. When 'f x' appears in WHERE, maybeFunction
@@ -1863,7 +1857,7 @@ let
 in
   from x where f x
 end;
-> val it = [1,2,3] : int bag
+> val it = [1,2,3] : int list
 
 (* testProvenanceThroughFunctionWithFilter - Same as above but
  * with an additional filter. Provenance removes 'f x'
@@ -1874,7 +1868,7 @@ let
 in
   from x where f x andalso x > 1
 end;
-> val it = [2,3] : int bag
+> val it = [2,3] : int list
 
 (* testFromSuchThat3 - Smaller version of testFromSuchThat *)
 let
@@ -1894,7 +1888,7 @@ end;
 > 30 Shaggy
 > 30 Scooby
 >
-> val it : {d:int, n:string} bag
+> val it : {d:int, n:string} list
 
 (* An unbounded scan may have any pattern that names values rather than
  * selecting them; its rows are the values of the pattern's variables, so
@@ -1956,20 +1950,73 @@ from p as (b: bool, c: bool) where b;
 > stdIn:1.6-1.30 Error: pattern '_' is not grounded
 >   raised at: stdIn:1.6-1.30
 
-(* A variable whose values cannot be enumerated is an error. Where the query
- * still has a scan, the expander names the pattern; where the query has one
- * step and has simplified to the extent alone, there is no pattern left to
- * name, so the message names the type. Either way it is an error, not a
- * crash. *)
+(* A variable whose values cannot be enumerated is an error. A query whose
+ * only step is that scan has nothing else to blame, so the message names
+ * the type; one of several scans names the pattern. Either way it is an
+ * error, not a crash. *)
 from i;
 > stdIn:1.6 Error: cannot enumerate all values of type ''a'
+>   raised at: stdIn:1.6
+from i: int;
+> stdIn:1.6 Error: cannot enumerate all values of type 'int'
+>   raised at: stdIn:1.6
+from s: string;
+> stdIn:1.6 Error: cannot enumerate all values of type 'string'
 >   raised at: stdIn:1.6
 from i, j;
 > stdIn:1.6 Error: pattern 'i' is not grounded
 >   raised at: stdIn:1.6
+
+(*) A finite type comes out in the type's order, and needs no sorting.
 from b: bool;
-> stdIn:1.6 Error: cannot enumerate all values of type 'bool'
+> val it = [false,true] : bool list
+datatype color = RED | GREEN | BLUE;
+> datatype color = RED | GREEN | BLUE
+from c: color;
+> val it = [RED,GREEN,BLUE] : color list
+(*) A constructor that takes an argument contributes one value per argument.
+datatype box = BOX of bool;
+> datatype box = BOX of bool
+from x: box;
+> val it = [BOX false,BOX true] : box list
+(* A datatype with type arguments instantiates its constructors'
+ * argument types from them. *)
+from x: bool descending;
+> val it = [DESC false,DESC true] : bool descending list
+from x: (color, bool) either;
+> val it = [INL RED,INL GREEN,INL BLUE,INR false,INR true]
+>   : (color,bool) either list
+from x: color option option;
+> val it = [NONE,SOME NONE,SOME (SOME RED),SOME (SOME GREEN),SOME (SOME BLUE)]
+>   : color option option list
+
+(* An equality of a pattern with itself says nothing, so it does not
+ * fix the pattern to a point; the extent is materialized and the
+ * predicate merely filters. It used to generate "the value of x" from
+ * an x that nothing had bound, giving a wrong answer or a crash. *)
+from x: color where x = x;
+> val it = [RED,GREEN,BLUE] : color list
+from b: bool where b = b;
+> val it = [false,true] : bool list
+from i: int where i = i;
+> stdIn:1.6 Error: pattern 'i' is not grounded
 >   raised at: stdIn:1.6
+(*) An equality with a value still fixes the pattern to that point.
+from x: int where x = 3;
+> val it = [3] : int list
+from x: int where 3 = x;
+> val it = [3] : int list
+
+(*) A record extent is the cartesian product of its fields'.
+from x: {a: bool, b: bool};
+> a     b
+> ----- -----
+> false false
+> false true
+> true  false
+> true  true
+>
+> val it : {a:bool, b:bool} list
 
 
 (*) End suchThat.smli

@@ -23,6 +23,7 @@
 // as future-use surface.
 #![allow(dead_code)]
 
+use crate::compile::expander::DatatypeMap;
 use crate::compile::library;
 use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
@@ -110,6 +111,16 @@ pub struct TypeMap {
 }
 
 impl TypeMap {
+    /// The datatype information the expander needs to enumerate the
+    /// values of a datatype: constructor names, and the argument type
+    /// of each constructor that takes one.
+    pub fn datatype_map(&self) -> DatatypeMap {
+        DatatypeMap::new(
+            &self.datatype_constructors,
+            &self.constructor_arg_types,
+        )
+    }
+
     pub fn new(
         node_var_map: &HashMap<i32, Var>,
         op_defs: Rc<Vec<OpDef>>,
@@ -3748,16 +3759,17 @@ impl TypeResolver {
         env_builder.push("current".to_string(), Term::Variable(v_current));
         let env4 = env_builder.build();
 
-        // Output collection's element type is `v`; output collection
-        // kind defaults to bag (the natural choice for an enumerated
-        // extent — `from p where p > 0 andalso p < 5` is a bag).
+        // An extent comes out in its type's order -- that is what
+        // makes it reproducible -- so the scan is ordered and the
+        // collection is a list, as it is in morel-java. The materialized
+        // extent has always printed as a list; calling it a bag here
+        // meant a query that compared with a list was refused.
         let c = self.unifier.variable();
-        self.bag_term(Term::Variable(v), &c);
+        self.list_term(Term::Variable(v), &c);
 
         steps.push(StepKind::ScanExtent(Box::new(pat2)).spanned(span));
 
-        let mut triple = Triple::new(p.root_env.clone(), env4, v, Some(c));
-        triple.ordered = false;
+        let triple = Triple::new(p.root_env.clone(), env4, v, Some(c));
         Ok(triple)
     }
 

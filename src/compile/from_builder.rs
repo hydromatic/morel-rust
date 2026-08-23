@@ -1223,11 +1223,15 @@ impl FromBuilder {
             self.remove_if_last_index = None;
         }
 
-        // Simplification: "from v in list" -> "list".
+        // Simplification: "from v in list" -> "list". An extent is not
+        // a collection yet -- the expander still has to ground it into
+        // one -- and it can only do that from the scan, so a scan over
+        // an extent stays.
         if simplify
             && self.steps.len() == 1
             && let StepKind::Scan(pat, exp, None) = &self.steps[0].kind
             && matches!(**pat, Pat::Identifier(_, _))
+            && !matches!(**exp, Expr::Extent(_, _))
         {
             return Ok((**exp).clone());
         }

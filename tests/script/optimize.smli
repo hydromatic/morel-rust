@@ -386,7 +386,7 @@ from x where abs x > 5;
 (* Strengthened bounds via a non-linear constraint. FBBT recognizes
  * `(varA + kA) * (varB + kB) OP c` and propagates one side's bounds to
  * the other (positive quadrant only). *)
-Bag.length (from x, y where x >= 1 andalso y >= 1 andalso x * (y + 3) < 30);
+List.length (from x, y where x >= 1 andalso y >= 1 andalso x * (y + 3) < 30);
 > val it = 51 : int
 
 (* Same strengthening via the literal range-list syntax. FBBT injects
@@ -412,11 +412,11 @@ from c in [#"a"..] where c <= #"d";
  * variable: the deduced bounds let the extractor build a finite range
  * for each generator, and the original cross-variable predicates
  * (e.g. `x < y`) remain as post-generation filters. *)
-Bag.length (from x, y where x > 0 andalso x < y andalso y < 10);
+List.length (from x, y where x > 0 andalso x < y andalso y < 10);
 > val it = 36 : int
-Bag.length (from x, y where y > 0 andalso y < x andalso x < 10);
+List.length (from x, y where y > 0 andalso y < x andalso x < 10);
 > val it = 36 : int
-Bag.length (from x, y, z where x > 0 andalso x < y andalso y < z andalso z < 10);
+List.length (from x, y, z where x > 0 andalso x < y andalso y < z andalso z < 10);
 > val it = 84 : int
 from x where x > 0 andalso x < x + 1 andalso x < 5;
 > val it = [1,2,3,4] : int list

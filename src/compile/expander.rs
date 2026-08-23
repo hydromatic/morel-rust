@@ -50,11 +50,31 @@ use std::rc::Rc;
 /// `f arg`.
 pub type FnEnv = HashMap<String, (Pat, Expr)>;
 
-/// Map of user-defined datatype name → its constructor names in
-/// declaration order. Lets `finite_extent` enumerate values of
-/// `Type::Data(name, _)` for constraint-free unbounded patterns
-/// (e.g. `from c, d where c <> d` over a `Color`).
-pub type DatatypeMap = HashMap<String, Vec<String>>;
+/// What `finite_extent` needs to enumerate the values of a
+/// `Type::Data(name, _)`: each datatype's constructor names in
+/// declaration order, and the argument type of any constructor that
+/// takes one. A constructor absent from `arg_types` is nullary, and
+/// is a value in itself.
+#[derive(Clone, Debug, Default)]
+pub struct DatatypeMap {
+    /// Datatype name → its constructor names, in declaration order.
+    pub constructors: HashMap<String, Vec<String>>,
+    /// Constructor name → the type of its argument, for those that
+    /// take one.
+    pub arg_types: HashMap<String, Type>,
+}
+
+impl DatatypeMap {
+    pub fn new(
+        constructors: &HashMap<String, Vec<String>>,
+        arg_types: &HashMap<String, Type>,
+    ) -> Self {
+        DatatypeMap {
+            constructors: constructors.clone(),
+            arg_types: arg_types.clone(),
+        }
+    }
+}
 
 /// Convenience wrapper for callers that don't have a function
 /// environment available (e.g. the resolver, which calls this

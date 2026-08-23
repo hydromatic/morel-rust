@@ -28,7 +28,8 @@
 //! user-defined sum types whose constructors are each either nullary
 //! or wrap a discrete arg type.
 
-use crate::compile::types::{Label, PrimitiveType, Type};
+use crate::compile::types::instantiate;
+use crate::compile::types::{PrimitiveType, Type};
 use crate::eval::big_int::BigInt;
 use crate::eval::char::Char;
 use crate::eval::order::Order;
@@ -573,38 +574,6 @@ impl Discrete for DataDiscrete {
             .as_ref()
             .map_or_else(BigInt::zero, |d| d.ordinal(inner));
         before.add(&within)
-    }
-}
-
-/// Substitutes type variables in `type_` using `args` (where
-/// `Type::Variable(i)` is replaced with `args[i]`). Mirrors
-/// `comparator::instantiate`.
-fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
-    match type_ {
-        Type::Bag(t) => Type::Bag(Rc::new(instantiate(t, args))),
-        Type::Data(name, ts) => Type::Data(
-            name.clone(),
-            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
-        ),
-        Type::Fn(a, b) => Type::Fn(
-            Rc::new(instantiate(a, args)),
-            Rc::new(instantiate(b, args)),
-        ),
-        Type::List(t) => Type::List(Rc::new(instantiate(t, args))),
-        Type::Record(p, fields) => Type::Record(
-            *p,
-            fields
-                .iter()
-                .map(|(k, v): (&Label, &Rc<Type>)| {
-                    (k.clone(), Rc::new(instantiate(v, args)))
-                })
-                .collect(),
-        ),
-        Type::Tuple(ts) => Type::Tuple(
-            ts.iter().map(|t| Rc::new(instantiate(t, args))).collect(),
-        ),
-        Type::Variable(tv) if tv.id < args.len() => (*args[tv.id]).clone(),
-        _ => type_.clone(),
     }
 }
 

@@ -94,7 +94,7 @@ pub fn resolve_with_session_fns_rec(
     // walk so that `maybe_function` can inline them.
     let decl = expander::expand_decl_with_session_rec(
         pre_decl,
-        &resolved.type_map.datatype_constructors,
+        &resolved.type_map.datatype_map(),
         session_fns,
         rec_session_fns,
     );
@@ -122,6 +122,17 @@ pub fn resolve_with_session_fns_rec(
 /// function is applied with real arguments). A user-visible
 /// error fires only at the call site, where the post-inline
 /// pass flagged the Extent on a real `from`.
+/// The message for an extent that could not be ground: the extent's
+/// type is the collection, so name the element type, whose values are
+/// the ones that cannot be enumerated.
+fn unenumerable_message(t: &Rc<Type>) -> String {
+    let element = match t.as_ref() {
+        Type::List(e) | Type::Bag(e) => e.clone(),
+        _ => t.clone(),
+    };
+    format!("cannot enumerate all values of type '{}'", element)
+}
+
 fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
     fn check_expr(e: &CoreExpr, errors: &mut Vec<(String, Span)>) {
         match e {
@@ -136,23 +147,9 @@ fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
                 }
             }
             CoreExpr::Extent(t, span) => {
-                // A query whose only step is an unbounded scan
-                // simplifies to the extent alone, so no scan survives
-                // for the check below to see. There is no pattern left
-                // to name, so the message names the type.
-                // The extent's type is the collection; name the type
-                // whose values cannot be enumerated.
-                let element = match t.as_ref() {
-                    Type::List(e) | Type::Bag(e) => e.clone(),
-                    _ => t.clone(),
-                };
-                errors.push((
-                    format!(
-                        "cannot enumerate all values of type '{}'",
-                        element
-                    ),
-                    span.clone(),
-                ));
+                // An extent that is not under a scan at all: nothing
+                // names it but its type.
+                errors.push((unenumerable_message(t), span.clone()));
             }
             CoreExpr::Fn(_, _, _) => {
                 // Skip function bodies: their Extents may be
@@ -176,25 +173,35 @@ fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
             CoreExpr::From(_, steps)
             | CoreExpr::Exists(_, steps)
             | CoreExpr::Forall(_, steps) => {
+                // A query whose only step is an ungrounded scan has
+                // nothing else to blame, so it names the type whose
+                // values cannot be enumerated; one of several names
+                // the pattern instead. morel-java draws the same
+                // distinction.
+                let lone = steps.len() == 1;
                 for s in steps {
-                    check_step(s, errors);
+                    check_step(s, lone, errors);
                 }
             }
             _ => {}
         }
     }
-    fn check_step(s: &CoreStep, errors: &mut Vec<(String, Span)>) {
+    fn check_step(s: &CoreStep, lone: bool, errors: &mut Vec<(String, Span)>) {
         match &s.kind {
             CoreStepKind::Scan(pat, src, cond) => {
-                if let CoreExpr::Extent(_, span) = src.as_ref() {
-                    let name = match pat.as_ref() {
-                        CorePat::Identifier(_, n) => n.clone(),
-                        _ => "_".to_string(),
-                    };
-                    errors.push((
-                        format!("pattern '{}' is not grounded", name),
-                        span.clone(),
-                    ));
+                if let CoreExpr::Extent(t, span) = src.as_ref() {
+                    if lone {
+                        errors.push((unenumerable_message(t), span.clone()));
+                    } else {
+                        let name = match pat.as_ref() {
+                            CorePat::Identifier(_, n) => n.clone(),
+                            _ => "_".to_string(),
+                        };
+                        errors.push((
+                            format!("pattern '{}' is not grounded", name),
+                            span.clone(),
+                        ));
+                    }
                 } else {
                     check_expr(src, errors);
                 }
@@ -796,7 +803,7 @@ impl<'a> Resolver<'a> {
                     builder
                         .build_simplify()
                         .expect("Failed to build EXISTS expression"),
-                    &self.type_map.datatype_constructors,
+                    &self.type_map.datatype_map(),
                 )
             }
             ExprKind::Fn(matches) => CoreExpr::Fn(
@@ -823,7 +830,7 @@ impl<'a> Resolver<'a> {
                     builder
                         .build_simplify()
                         .expect("Failed to build FORALL expression"),
-                    &self.type_map.datatype_constructors,
+                    &self.type_map.datatype_map(),
                 );
 
                 // Apply "not" to the exists result.
@@ -1914,7 +1921,7 @@ impl<'a> Resolver<'a> {
                 builder
                     .build_simplify()
                     .expect("Failed to build From expression"),
-                &self.type_map.datatype_constructors,
+                &self.type_map.datatype_map(),
             );
 
             // Apply the function to the query result. If the function is an
@@ -1961,7 +1968,7 @@ impl<'a> Resolver<'a> {
             builder
                 .build_simplify()
                 .expect("Failed to build From expression"),
-            &self.type_map.datatype_constructors,
+            &self.type_map.datatype_map(),
         )
     }
 

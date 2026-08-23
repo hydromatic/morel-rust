@@ -23,7 +23,7 @@ use crate::compile::lindig::{
 use crate::compile::tabular;
 use crate::compile::types::Label;
 use crate::compile::types::{
-    Op, Predicate, PrimitiveType, Type, TypeVariable, display_name,
+    Op, Predicate, PrimitiveType, Type, TypeVariable, display_name, instantiate,
 };
 use crate::eval::code::Impl;
 use crate::eval::date;
@@ -256,42 +256,6 @@ impl Pretty {
         line.push_str(suffix);
         buf.push_str(&line);
         true
-    }
-
-    /// Substitutes `Type::Variable(i)` with `args[i]` throughout a type.
-    fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
-        match type_ {
-            // lint: sort until '#}' where '##Type::'
-            Type::Bag(t) => Type::Bag(Rc::new(Self::instantiate(t, args))),
-            Type::Data(name, ts) => Type::Data(
-                name.clone(),
-                ts.iter()
-                    .map(|t| Rc::new(Self::instantiate(t, args)))
-                    .collect(),
-            ),
-            Type::Fn(a, b) => Type::Fn(
-                Rc::new(Self::instantiate(a, args)),
-                Rc::new(Self::instantiate(b, args)),
-            ),
-            Type::List(t) => Type::List(Rc::new(Self::instantiate(t, args))),
-            Type::Record(p, fields) => Type::Record(
-                *p,
-                fields
-                    .iter()
-                    .map(|(k, v)| {
-                        (k.clone(), Rc::new(Self::instantiate(v, args)))
-                    })
-                    .collect(),
-            ),
-            Type::Tuple(ts) => Type::Tuple(
-                ts.iter()
-                    .map(|t| Rc::new(Self::instantiate(t, args)))
-                    .collect(),
-            ),
-            Type::Variable(tv) if tv.id < args.len() => (*args[tv.id]).clone(),
-            // #}
-            _ => type_.clone(),
-        }
     }
 
     // -- Value documents ------------------------------------------------
@@ -584,7 +548,7 @@ impl Pretty {
                     } else if let Some(arg_type) =
                         self.constructor_arg_types.get(con_name)
                     {
-                        let instantiated = Self::instantiate(arg_type, args);
+                        let instantiated = instantiate(arg_type, args);
                         beside(
                             text(con_name),
                             beside(
