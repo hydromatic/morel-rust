@@ -55,6 +55,21 @@ pub fn parse_statement(input: &str) -> ParseResult<Statement> {
     ))
 }
 
+/// Returns the byte offset just past the `;` that ends the first
+/// statement in `input`, or `None` if `input` does not begin with a
+/// complete statement.
+///
+/// Used to peel one statement off a buffer that may hold several, so
+/// that `val a = 1; val b = 2;` is two statements while the semicolons
+/// in `let val i = 0; val j = 1; in i + j end;` are not. Only the span
+/// is wanted, so the match is not converted to an AST.
+pub fn statement_prefix_end(input: &str) -> Option<usize> {
+    <MorelParser as pest::Parser<Rule>>::parse(Rule::statement_prefix, input)
+        .ok()?
+        .next()
+        .map(|pair| pair.as_span().end())
+}
+
 /// Parses a statement (with no whitespace, comments or semicolon)
 /// and returns its AST. Used by `tests/unparse.rs`.
 #[allow(dead_code)]

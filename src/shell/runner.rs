@@ -25,7 +25,9 @@
 use crate::shell::error::Error;
 use crate::shell::kernel::Kernel;
 use crate::shell::prop::create_banner;
-use crate::shell::statement::{comment_depth, is_complete};
+use crate::shell::statement::{
+    comment_depth, has_code, has_semicolon, split_statement,
+};
 use crate::shell::utils::{prefix_lines, strip_prefix};
 use crate::shell::{ShellResult, output_matcher};
 use std::fs;
@@ -92,6 +94,24 @@ impl<'a> ScriptRunner<'a> {
                 line_buffer.clear();
                 let bytes_read = reader.read_line(&mut line_buffer)?;
                 if bytes_read == 0 {
+                    // Input that never formed a statement -- a `let` left
+                    // open, or a malformed one -- is reported here, where
+                    // the user stopped typing.
+                    if has_code(&statement_buffer) {
+                        let raw = match self
+                            .kernel
+                            .process_statement(&statement_buffer, None)
+                        {
+                            Ok(s) => s,
+                            Err(e) => format!("{}\n", e),
+                        };
+                        let out = if idempotent {
+                            prefix_lines(">", &raw)
+                        } else {
+                            raw
+                        };
+                        write!(writer, "{}", out)?;
+                    }
                     // Terminate the dangling prompt so the caller's output
                     // (e.g. "Goodbye!") starts on a new line.
                     if prompt_enabled {
@@ -115,13 +135,23 @@ impl<'a> ScriptRunner<'a> {
             // Add a line to the statement buffer
             statement_buffer.push_str(line);
 
-            // If we have a complete statement (the last line ends with a
-            // semicolon and is not inside a comment), execute it.
-            if is_complete(&statement_buffer) {
-                // In idempotent mode, look ahead for output lines.
-                if idempotent {
-                    // Strip out lines that are not part of the statement
-                    expected_output_buffer.clear();
+            // A line may complete more than one statement -- `val a = 1;
+            // val b = 2;` -- and a statement may end before the line does
+            // -- `val a = 1; (* a comment *)`. Peel statements off the
+            // buffer until none is left whole; whatever remains (a
+            // trailing comment, or the start of the next statement) stays
+            // for the next line.
+            let mut executed = false;
+            while let Some((stmt, rest)) = split_statement(&statement_buffer) {
+                let (stmt, rest) = (stmt.to_string(), rest.to_string());
+                executed = true;
+
+                // In idempotent mode, look ahead for output lines. Only
+                // the last statement on a line owns the `>` lines that
+                // follow it, so the look-ahead waits until the buffer
+                // holds nothing more to run.
+                expected_output_buffer.clear();
+                if idempotent && !has_semicolon(&rest) {
                     loop {
                         if line_buffer_ready {
                             line_buffer_ready = false;
@@ -143,11 +173,11 @@ impl<'a> ScriptRunner<'a> {
                 }
 
                 // Remove the semicolon, then parse/execute the statement
-                statement_buffer.pop();
-                let raw = match self.kernel.process_statement(
-                    &statement_buffer,
-                    Some(&expected_output_buffer),
-                ) {
+                let code = stmt.strip_suffix(';').unwrap_or(&stmt);
+                let raw = match self
+                    .kernel
+                    .process_statement(code, Some(&expected_output_buffer))
+                {
                     Ok(s) => s,
                     Err(e) => format!("{}\n", e),
                 };
@@ -187,8 +217,15 @@ impl<'a> ScriptRunner<'a> {
                 };
                 write!(writer, "{}", to_write)?;
                 writer.flush()?;
-                statement_buffer.clear();
-            } else {
+                // A statement followed only by whitespace or a comment is
+                // complete on the line that holds it: drop the remainder,
+                // so the shell prompts for a new statement rather than a
+                // continuation, and the comment does not attach itself to
+                // the next statement and shift its source spans.
+                statement_buffer =
+                    if has_code(&rest) { rest } else { String::new() };
+            }
+            if !executed || !statement_buffer.is_empty() {
                 statement_buffer.push('\n');
             }
 

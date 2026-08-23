@@ -23,6 +23,8 @@
 //! a comment). This module holds that shared logic so there is a single
 //! implementation, rather than a copy per caller.
 
+use crate::syntax::parser::statement_prefix_end;
+
 /// Returns the level of comment nesting at the end of the string.
 ///
 /// Examples:
@@ -98,6 +100,134 @@ pub(crate) fn is_complete(buf: &str) -> bool {
     buf.ends_with(';') && comment_depth(buf) == 0
 }
 
+/// Returns `buf` with the interior of every comment and string literal
+/// replaced by spaces, so that a plain scan of the result sees only code.
+///
+/// Morel's `(*)` runs to end of line; `(*` otherwise opens a block
+/// comment, and block comments nest. The quotes delimiting a string are
+/// kept, so a string literal still reads as code.
+fn blank_noncode(buf: &str) -> String {
+    let mut out = String::with_capacity(buf.len());
+    let mut chars = buf.char_indices().peekable();
+    let mut depth = 0usize;
+    let mut in_line_comment = false;
+    let mut in_string = false;
+    let mut in_string_escape = false;
+    while let Some((_, c)) = chars.next() {
+        if in_string {
+            out.push(if c == '\n' { '\n' } else { ' ' });
+            if in_string_escape {
+                in_string_escape = false;
+            } else if c == '\\' {
+                in_string_escape = true;
+            } else if c == '"' {
+                in_string = false;
+                out.pop();
+                out.push('"');
+            }
+            continue;
+        }
+        if in_line_comment {
+            out.push(if c == '\n' { '\n' } else { ' ' });
+            if c == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if c == '(' && chars.peek().is_some_and(|&(_, d)| d == '*') {
+            chars.next();
+            // `(*)` is a line comment even inside a block comment: the
+            // `*)` in `(* ... (*) close *) ... *)` belongs to the line
+            // comment, and does not close the block.
+            if chars.peek().is_some_and(|&(_, d)| d == ')') {
+                chars.next();
+                in_line_comment = true;
+                out.push_str("   ");
+            } else {
+                depth += 1;
+                out.push_str("  ");
+            }
+            continue;
+        }
+        if depth > 0 {
+            if c == '*' && chars.peek().is_some_and(|&(_, d)| d == ')') {
+                chars.next();
+                depth -= 1;
+                out.push_str("  ");
+                continue;
+            }
+            out.push(if c == '\n' { '\n' } else { ' ' });
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Returns whether `buf` contains a `;` that is not inside a comment or
+/// a string literal.
+///
+/// A cheap pre-test for [`split_statement`]: no such `;` means there is
+/// certainly no complete statement, and the parser need not be run.
+pub(crate) fn has_semicolon(buf: &str) -> bool {
+    blank_noncode(buf).contains(';')
+}
+
+/// Returns whether `buf` holds anything but whitespace and comments.
+///
+/// A script ends with a comment -- `(*) End foo.smli` -- which is left
+/// in the buffer when the input runs out, and is not an unterminated
+/// statement to complain about.
+pub(crate) fn has_code(buf: &str) -> bool {
+    !blank_noncode(buf).trim().is_empty()
+}
+
+/// Splits the first complete statement off `buf`, returning it (with its
+/// terminating `;`) and the remainder.
+///
+/// A line may hold more than one statement, and a statement may hold
+/// semicolons of its own -- `let val i = 0; val j = 1; in i + j end;` is
+/// one statement, `val a = 1; val b = 2;` is two -- so where a statement
+/// ends is a question for the parser, not for a scan of the text.
+///
+/// Returns `None` while `buf` holds no complete statement -- including
+/// when it holds a `;` that will not parse as the end of one, as in a
+/// half-typed `let val i = 0;`. Input that never parses is reported
+/// when the caller reaches end of input, not here.
+pub(crate) fn split_statement(buf: &str) -> Option<(&str, &str)> {
+    if !has_semicolon(buf) {
+        return None;
+    }
+    // `:t` is a shell directive, not grammar, and `Kernel` strips it
+    // before parsing. Blank it here too, in place, so that the offset
+    // the parser reports still indexes into `buf`.
+    statement_prefix_end(&blank_directives(buf)).map(|end| buf.split_at(end))
+}
+
+/// Returns `buf` with a line-leading `:t` replaced by two spaces.
+///
+/// Same length, so an offset into the result is an offset into `buf`.
+fn blank_directives(buf: &str) -> String {
+    let mut out = String::with_capacity(buf.len());
+    for (i, line) in buf.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let indent = line.len() - line.trim_start().len();
+        if line[indent..].starts_with(":t") {
+            out.push_str(&line[..indent]);
+            out.push_str("  ");
+            out.push_str(&line[indent + 2..]);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +280,44 @@ mod tests {
         // Ends with ';' but that ';' is inside an unterminated block
         // comment (depth 1) — incomplete.
         assert!(!is_complete("(* a ;"));
+    }
+
+    #[test]
+    fn test_has_semicolon() {
+        assert!(has_semicolon("val x = 1;"));
+        assert!(has_semicolon("val x = 1; (* c *)"));
+        assert!(!has_semicolon("val x = 1"));
+        // A ';' inside a comment or a string does not count.
+        assert!(!has_semicolon("(* a ; b *)"));
+        assert!(!has_semicolon("(*) a ; b"));
+        assert!(!has_semicolon(r#"val s = "a;b""#));
+        assert!(has_semicolon(r#"val s = "a;b";"#));
+    }
+
+    #[test]
+    fn test_split_statement() {
+        assert_eq!(split_statement("val x = 1;"), Some(("val x = 1;", "")));
+        // Two statements on one line are two statements.
+        assert_eq!(
+            split_statement("val a = 1; val b = 2;"),
+            Some(("val a = 1;", " val b = 2;"))
+        );
+        // A statement is complete before a trailing comment.
+        assert_eq!(
+            split_statement("val a = 1; (* c *)"),
+            Some(("val a = 1;", " (* c *)"))
+        );
+        // The semicolons inside a `let` are not terminators.
+        assert_eq!(
+            split_statement("let val i = 0; val j = 1; in i + j end;"),
+            Some(("let val i = 0; val j = 1; in i + j end;", ""))
+        );
+        // Nothing complete yet.
+        assert_eq!(split_statement("val x ="), None);
+        assert_eq!(split_statement("let val i = 0;"), None);
+        assert_eq!(split_statement("(* a ;"), None);
+        // Malformed: not a statement yet, however it ends. The caller
+        // reports it when the input runs out.
+        assert_eq!(split_statement("val = ;"), None);
     }
 }
