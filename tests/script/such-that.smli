@@ -826,10 +826,27 @@ set("mode", "validate");
 from bc where bc = (true, ()) orelse true;
 > 1     2
 > ----- --
-> false {}
-> true  {}
+> false ()
+> true  ()
 >
 > val it : (bool * unit) bag
+
+(* The 'unit' extent yields the same value that '()' evaluates to, so it
+ * compares equal and prints as '()'. Classic mode prints a 'unit' from
+ * its type and so would hide a wrong value; tabular mode prints the
+ * value. *)
+from u: unit;
+> val it = [()] : unit list
+(from u: unit) = [()];
+> val it = true : bool
+(from u: unit * unit) = [((), ())];
+> val it = true : bool
+from u: unit * unit;
+> 1  2
+> -- --
+> () ()
+>
+> val it : (unit * unit) list
 set("mode", "evaluate");
 > val it = () : unit
 

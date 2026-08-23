@@ -758,6 +758,9 @@ fn stringify_scalar(value: &Val, string_depth: i32) -> String {
                 s.to_string()
             }
         }
+        // Tabular mode prints the value, not the type, so `unit` has to
+        // name itself; the fallback would give it Rust's `Unit`.
+        Val::Unit => "()".to_string(),
         _ => format!("{:?}", value),
     }
 }
@@ -802,4 +805,20 @@ fn fold_string(s: &str, width: i32) -> Vec<String> {
 
 fn char_len(s: &str) -> usize {
     s.chars().count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tabular mode prints the value, so every scalar it can hold must
+    /// name itself rather than fall through to Rust's `Debug`.
+    #[test]
+    fn test_stringify_scalar() {
+        assert_eq!(stringify_scalar(&Val::Unit, -1), "()");
+        assert_eq!(stringify_scalar(&Val::Bool(true), -1), "true");
+        assert_eq!(stringify_scalar(&Val::Int(3), -1), "3");
+        assert_eq!(stringify_scalar(&Val::Int(-3), -1), "~3");
+        assert_eq!(stringify_scalar(&Val::String("a".into()), -1), "a");
+    }
 }
