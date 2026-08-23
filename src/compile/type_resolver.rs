@@ -408,6 +408,26 @@ enum CollectionKind {
     Unknown,
 }
 
+/// Name that binds `ordinal` in a step's type environment.
+///
+/// `ordinal` counts the rows arriving at a step, so it is bound by the
+/// step that produces them -- exactly as `current` is. Resolving it
+/// through the environment, rather than by tracking query depth on the
+/// side, is what makes it agree with `current` about which rows an
+/// occurrence counts: an expression evaluated once per execution of a
+/// query (the collection its first step scans, a `take` or `skip` count,
+/// an operand of `union`, `except` or `intersect`, or the function of a
+/// `through` or an `into`) is deduced in the enclosing environment, and
+/// so reads the enclosing row.
+const ORDINAL: &str = "ordinal";
+
+/// The type [`ORDINAL`] is bound to when the rows arriving at a step are
+/// unordered. A separate name would not do: environments chain, so a
+/// second name could not shadow an `ordinal` that an earlier, ordered
+/// step had bound. Binding one name to a type that is not `int` lets the
+/// lookup tell a `bag` from no query at all.
+const ORDINAL_UNORDERED_TYPE: PrimitiveType = PrimitiveType::Unit;
+
 #[derive(Clone)]
 struct Triple {
     root_env: Rc<dyn TypeEnv>,
@@ -713,19 +733,11 @@ pub struct TypeResolver {
     /// `min over (max over j)`) can be rejected.
     aggregate_depth: usize,
 
-    /// Nesting depth of `from`/`exists`/`forall` queries. Used to
-    /// validate that `ordinal` only appears inside a query.
-    query_depth: usize,
-
     /// How many queries (`from`, `exists`, `forall`) have been deduced so
     /// far. A `let` declaration whose count grows while it is deduced
     /// contains a query, and is not generalized; see
     /// [`bind_decl_generalized`](Self::bind_decl_generalized).
     query_count: usize,
-    /// Whether the current query step is ordered (list). Set during
-    /// step processing, checked by `ExprKind::Ordinal` to reject
-    /// `ordinal` in unordered queries.
-    query_ordered: bool,
 
     /// Cached operators for common type-constructors.
     ///
@@ -1271,9 +1283,7 @@ impl TypeResolver {
             node_var_map: HashMap::new(),
             compute_stack: Vec::new(),
             aggregate_depth: 0,
-            query_depth: 0,
             query_count: 0,
-            query_ordered: true,
             actions: Vec::new(),
             terms: Vec::new(),
             next_id: 0,
@@ -3000,15 +3010,19 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Ordinal => {
-                if self.query_depth == 0 {
+                let ordered_term = self.ordinal_term(true);
+                let message = match env.get(ORDINAL, self) {
+                    None => Some("'ordinal' is only valid in a query"),
+                    Some(BindType::Val(t)) | Some(BindType::Constructor(t))
+                        if t != ordered_term =>
+                    {
+                        Some("cannot use 'ordinal' in unordered query")
+                    }
+                    _ => None,
+                };
+                if let Some(message) = message {
                     return Err(Error::Compile(
-                        "'ordinal' is only valid in a query".to_string(),
-                        expr.span.clone(),
-                    ));
-                }
-                if !self.query_ordered {
-                    return Err(Error::Compile(
-                        "cannot use 'ordinal' in unordered query".to_string(),
+                        message.to_string(),
                         expr.span.clone(),
                     ));
                 }
@@ -3204,18 +3218,14 @@ impl TypeResolver {
                 _ => {}
             }
 
-            self.query_ordered = p.ordered;
             let p_next =
                 self.deduce_step_type(&step, &p, &mut field_vars, &mut steps2)?;
-            p = p_next;
-            if i == 0 {
-                self.query_depth += 1;
-            }
+            // The rows this step produces are the rows the next step's
+            // `ordinal` counts, so bind it here; an expression that is
+            // evaluated once per execution of the query rather than once
+            // per row is deduced in `root_env` and so does not see it.
+            p = self.bind_ordinal(&p_next);
         }
-        if !steps.is_empty() {
-            self.query_depth -= 1;
-        }
-
         self.query_count += 1;
 
         // "forall" query must have "require" as the last step.
@@ -3594,6 +3604,32 @@ impl TypeResolver {
         let mut triple = Triple::new(p.root_env.clone(), env4, v, Some(c));
         triple.ordered = false;
         Ok(triple)
+    }
+
+    /// Returns `p` with `ordinal` bound in its environment, so that a
+    /// later step's `ordinal` resolves to the rows `p` produces.
+    ///
+    /// When those rows are unordered `ordinal` is bound to
+    /// [`ORDINAL_UNORDERED_TYPE`] instead, so that
+    /// [`ExprKind::Ordinal`] can tell a `bag` from no query at all.
+    fn bind_ordinal(&mut self, p: &Triple) -> Triple {
+        // Bind the term itself rather than a fresh variable equated to it:
+        // a variable per step would renumber every `T<n>` that a
+        // type-conflict message mentions.
+        let mut builder = p.env.builder();
+        builder.push(ORDINAL.to_string(), self.ordinal_term(p.ordered));
+        p.with_env(&builder.build())
+    }
+
+    /// The type bound to `ordinal` by a step whose rows are `ordered`.
+    fn ordinal_term(&mut self, ordered: bool) -> Term {
+        let prim = if ordered {
+            PrimitiveType::Int
+        } else {
+            ORDINAL_UNORDERED_TYPE
+        };
+        let op = self.unifier.op(prim.as_str(), Some(0));
+        Term::Sequence(self.unifier.atom(op))
     }
 
     /// Deduces a Yield step's type (e.g., "yield i + 4").
@@ -4384,7 +4420,11 @@ impl TypeResolver {
         let v_fn = self.variable();
         self.fn_term(&p.c.unwrap(), &c_result, &v_fn);
 
-        let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
+        // The function is applied to the whole collection, once per
+        // execution of the query, so it is deduced in the enclosing scope:
+        // `current` and `ordinal` in it read the enclosing row, and are
+        // errors at the top level, where there is none.
+        let expr2 = self.deduce_expr_type(&*p.root_env, expr, &v_fn)?;
 
         // The result collection may be a bag or list.
         self.is_collection_of(&c_result, &v_element);

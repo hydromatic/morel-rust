@@ -15,7 +15,9 @@
 // language governing permissions and limitations under the
 // License.
 
-use crate::compile::core::{Decl, Expr, Match, Pat, PatField, Step, StepKind};
+use crate::compile::core::{
+    Decl, Expr, Match, ORDINAL_SLOT, Pat, PatField, Step, StepKind,
+};
 use crate::compile::type_env::Binding;
 use crate::eval::code::Code;
 use crate::eval::frame::FrameDef;
@@ -282,7 +284,7 @@ impl Expr {
             Expr::Ordinal(_) => {
                 // 'ordinal' needs a dedicated frame slot so the OrdinalRowSink
                 // can write to it before each row is processed.
-                collector.add_def(Binding::of_name("ordinal"));
+                collector.add_def(Binding::of_name(ORDINAL_SLOT));
             }
             Expr::Raise(_, e, _) => {
                 e.collect_vars(collector);
@@ -327,7 +329,7 @@ impl Step {
                 // A key that reads 'ordinal' needs a slot for the counter
                 // that the enclosing OrdinalRowSink writes.
                 if key_expr.uses_ordinal() {
-                    collector.add_def(Binding::of_name("ordinal"));
+                    collector.add_def(Binding::of_name(ORDINAL_SLOT));
                 }
             }
             StepKind::Group(key_expr, Some(aggregate_expr)) => {
@@ -351,7 +353,7 @@ impl Step {
                 // needs a slot for the counter that the enclosing
                 // OrdinalRowSink writes.
                 if key_expr.uses_ordinal() || aggregate_expr.uses_ordinal() {
-                    collector.add_def(Binding::of_name("ordinal"));
+                    collector.add_def(Binding::of_name(ORDINAL_SLOT));
                 }
 
                 // If "elements" was referenced but not already
@@ -374,6 +376,12 @@ impl Step {
                 if let Some(cond) = condition {
                     cond.collect_vars(collector);
                 }
+            }
+            StepKind::Skip(expr) | StepKind::Take(expr) => {
+                // The count is evaluated once per execution of the query,
+                // so it may read the enclosing row -- including its
+                // `ordinal`, which needs a slot like any other variable.
+                expr.collect_vars(collector);
             }
             StepKind::Where(expr) => {
                 expr.collect_vars(collector);

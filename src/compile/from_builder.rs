@@ -133,6 +133,158 @@ fn replace_current(expr: &Expr, repl: &Expr) -> Expr {
     }
 }
 
+/// Prefix of the field name under which a step materializes `ordinal`.
+///
+/// The name is generated, and holds a `$`, so that it cannot be the
+/// field a user wrote: `yield {ordinal, i} where ordinal > 1` counts the
+/// rows arriving at the `where`, and reaches the field only as
+/// `` `ordinal` ``.
+///
+/// `ordinal` cannot stay a counter that a step reads as it runs: an
+/// `order` key must still have it once the rows are being sorted, a join
+/// condition needs one value per left row while pairs are generated, and
+/// a `take` after a `group` would read a count left over from the input
+/// scan. Materializing it as an ordinary field makes it travel with the
+/// row, like any other. Mirrors morel-java's `FromBuilder`
+/// `materializeOrdinal` / `dropOrdinal` (hydromatic/morel#434).
+pub(crate) const ORDINAL_FIELD_PREFIX: &str = "ordinal$";
+
+/// Replaces every `ordinal` in `expr` with `repl`, without descending
+/// into a nested `from`/`exists`/`forall`, whose `ordinal` counts its own
+/// rows -- except in the positions a nested query evaluates once per
+/// execution, which count these rows. Mirrors [`Expr::uses_ordinal`].
+fn replace_ordinal(expr: &Expr, repl: &Expr) -> Expr {
+    match expr {
+        Expr::Ordinal(_) => repl.clone(),
+        Expr::Literal(..)
+        | Expr::Identifier(..)
+        | Expr::RecordSelector(..)
+        | Expr::Current(_)
+        | Expr::Extent(..) => expr.clone(),
+        Expr::Aggregate(t, a, b, sp) => Expr::Aggregate(
+            t.clone(),
+            Box::new(replace_ordinal(a, repl)),
+            Box::new(replace_ordinal(b, repl)),
+            sp.clone(),
+        ),
+        Expr::Apply(t, f, a, sp) => Expr::Apply(
+            t.clone(),
+            Box::new(replace_ordinal(f, repl)),
+            Box::new(replace_ordinal(a, repl)),
+            sp.clone(),
+        ),
+        Expr::Case(t, subj, arms, sp) => Expr::Case(
+            t.clone(),
+            Box::new(replace_ordinal(subj, repl)),
+            arms.iter()
+                .map(|m| replace_ordinal_match(m, repl))
+                .collect(),
+            sp.clone(),
+        ),
+        Expr::Fn(t, arms, sp) => Expr::Fn(
+            t.clone(),
+            arms.iter()
+                .map(|m| replace_ordinal_match(m, repl))
+                .collect(),
+            sp.clone(),
+        ),
+        Expr::Let(t, decls, body) => Expr::Let(
+            t.clone(),
+            decls
+                .iter()
+                .map(|d| replace_ordinal_decl(d, repl))
+                .collect(),
+            Box::new(replace_ordinal(body, repl)),
+        ),
+        Expr::Raise(t, e, sp) => Expr::Raise(
+            t.clone(),
+            Box::new(replace_ordinal(e, repl)),
+            sp.clone(),
+        ),
+        Expr::List(t, es) => Expr::List(
+            t.clone(),
+            es.iter().map(|e| replace_ordinal(e, repl)).collect(),
+        ),
+        Expr::Tuple(t, es) => Expr::Tuple(
+            t.clone(),
+            es.iter().map(|e| replace_ordinal(e, repl)).collect(),
+        ),
+        Expr::From(t, steps) => {
+            Expr::From(t.clone(), replace_ordinal_steps(steps, repl))
+        }
+        Expr::Exists(t, steps) => {
+            Expr::Exists(t.clone(), replace_ordinal_steps(steps, repl))
+        }
+        Expr::Forall(t, steps) => {
+            Expr::Forall(t.clone(), replace_ordinal_steps(steps, repl))
+        }
+    }
+}
+
+/// Replaces `ordinal` only in the steps a nested query evaluates once per
+/// execution of itself, which is once per row of the enclosing step.
+fn replace_ordinal_steps(steps: &[Step], repl: &Expr) -> Vec<Step> {
+    steps
+        .iter()
+        .enumerate()
+        .map(|(i, step)| {
+            let kind = match &step.kind {
+                StepKind::Scan(p, e, c) if i == 0 => StepKind::Scan(
+                    p.clone(),
+                    Box::new(replace_ordinal(e, repl)),
+                    c.clone(),
+                ),
+                StepKind::Skip(e) => {
+                    StepKind::Skip(Box::new(replace_ordinal(e, repl)))
+                }
+                StepKind::Take(e) => {
+                    StepKind::Take(Box::new(replace_ordinal(e, repl)))
+                }
+                StepKind::Except(d, es) => StepKind::Except(
+                    *d,
+                    es.iter().map(|e| replace_ordinal(e, repl)).collect(),
+                ),
+                StepKind::Intersect(d, es) => StepKind::Intersect(
+                    *d,
+                    es.iter().map(|e| replace_ordinal(e, repl)).collect(),
+                ),
+                StepKind::Union(d, es) => StepKind::Union(
+                    *d,
+                    es.iter().map(|e| replace_ordinal(e, repl)).collect(),
+                ),
+                other => other.clone(),
+            };
+            Step {
+                kind,
+                env: step.env.clone(),
+                join_type: step.join_type,
+            }
+        })
+        .collect()
+}
+
+fn replace_ordinal_decl(d: &Decl, repl: &Expr) -> Decl {
+    let rebind = |b: &ValBind| ValBind {
+        pat: b.pat.clone(),
+        t: b.t.clone(),
+        expr: replace_ordinal(&b.expr, repl),
+        overload_pat: b.overload_pat.clone(),
+        span: b.span.clone(),
+    };
+    match d {
+        Decl::NonRecVal(b) => Decl::NonRecVal(Box::new(rebind(b))),
+        Decl::RecVal(binds) => Decl::RecVal(binds.iter().map(rebind).collect()),
+        other => other.clone(),
+    }
+}
+
+fn replace_ordinal_match(m: &Match, repl: &Expr) -> Match {
+    Match {
+        pat: m.pat.clone(),
+        expr: replace_ordinal(&m.expr, repl),
+    }
+}
+
 fn replace_current_match(m: &Match, repl: &Expr) -> Match {
     Match {
         pat: m.pat.clone(),
@@ -282,6 +434,15 @@ pub struct FromBuilder {
     /// "from q in list yield {p = q}", we want to remove "yield {p = q}"
     /// if it turns out to be the last step.
     remove_if_last_index: Option<usize>,
+
+    /// Whether an `ordinal` field was materialized for the step being
+    /// built, and so must be projected away once it has been read. A
+    /// field the user asked for -- `yield {ordinal, e.name}` -- is not
+    /// flagged, and stays.
+    ordinal_pending: Option<String>,
+
+    /// Counts materialized `ordinal` fields, so each gets its own name.
+    ordinal_seq: usize,
 }
 
 impl FromBuilder {
@@ -297,6 +458,8 @@ impl FromBuilder {
         self.atom = false;
         self.remove_if_not_last_index = None;
         self.remove_if_last_index = None;
+        self.ordinal_pending = None;
+        self.ordinal_seq = 0;
     }
 
     /// Returns the environment available after the most recent step.
@@ -361,10 +524,93 @@ impl FromBuilder {
         self
     }
 
+    /// Materializes `ordinal` as a field of the row, if `expr` reads it,
+    /// and returns `expr` with those reads rewritten to read the field.
+    ///
+    /// The field is added by a `yield` inserted before the step that
+    /// wants it, so the value is produced once per row and then travels
+    /// with the row -- surviving a sort, a join's pair generation, and a
+    /// `group`, none of which a counter read at the point of use can.
+    /// A `yield` that reads `ordinal` needs no such preamble: it can hold
+    /// the counter itself.
+    fn with_ordinal(&mut self, expr: Expr) -> Expr {
+        if !expr.uses_ordinal() {
+            return expr;
+        }
+        let int_type = Rc::new(Type::Primitive(PrimitiveType::Int));
+        let name = format!("{}{}", ORDINAL_FIELD_PREFIX, self.ordinal_seq);
+        self.ordinal_seq += 1;
+        self.materialize_ordinal(&int_type, &name);
+        self.ordinal_pending = Some(name.clone());
+        replace_ordinal(&expr, &Expr::Identifier(int_type, name))
+    }
+
+    /// Adds the `yield` that puts `ordinal` in the row.
+    fn materialize_ordinal(&mut self, int_type: &Rc<Type>, name: &str) {
+        let mut map: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
+        for b in &self.bindings {
+            map.insert(Label::String(b.id.name.clone()), b.type_.clone());
+        }
+        map.insert(Label::String(name.to_string()), int_type.clone());
+        let exprs: Vec<Expr> = map
+            .iter()
+            .map(|(label, t)| {
+                let Label::String(name) = label else {
+                    unreachable!()
+                };
+                if name.starts_with(ORDINAL_FIELD_PREFIX) {
+                    Expr::Ordinal(t.clone())
+                } else {
+                    Expr::Identifier(t.clone(), name.clone())
+                }
+            })
+            .collect();
+        let row_type = Rc::new(Type::Record(false, map));
+        self.yield_(Expr::Tuple(row_type, exprs));
+    }
+
+    /// Projects away the `ordinal` field that [`Self::with_ordinal`]
+    /// added, once the step that wanted it has been added, so that it does
+    /// not reach the query's result.
+    fn drop_ordinal(&mut self) {
+        let Some(dropped) = self.ordinal_pending.take() else {
+            return;
+        };
+        let mut map: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
+        for b in &self.bindings {
+            if b.id.name != dropped {
+                map.insert(Label::String(b.id.name.clone()), b.type_.clone());
+            }
+        }
+        let exprs: Vec<Expr> = map
+            .iter()
+            .map(|(label, t)| {
+                let Label::String(name) = label else {
+                    unreachable!()
+                };
+                Expr::Identifier(t.clone(), name.clone())
+            })
+            .collect();
+        // A single remaining field is an atom again, not a one-field
+        // record: `from e in emps order (~ordinal)` yields employees.
+        if exprs.len() == 1 {
+            let Label::String(name) = map.keys().next().unwrap() else {
+                unreachable!()
+            };
+            let name = name.clone();
+            let expr = exprs.into_iter().next().unwrap();
+            self.yield_binder(&name, expr);
+        } else {
+            let row_type = Rc::new(Type::Record(false, map));
+            self.yield_(Expr::Tuple(row_type, exprs));
+        }
+    }
+
     /// Adds a "where" (filter) step.
     /// Optimization: Skips "where true" since it has no effect.
     pub fn where_(&mut self, condition: Expr) -> &mut Self {
         let condition = self.subst_current(condition);
+        let condition = self.with_ordinal(condition);
         // Check if the condition is a boolean literal true.
         if let Expr::Literal(_, Val::Bool(true)) = condition {
             // Skip "where true".
@@ -373,7 +619,9 @@ impl FromBuilder {
 
         let env = self.step_env();
         let step = Step::new(StepKind::Where(Box::new(condition)), env);
-        self.add_step(step)
+        self.add_step(step);
+        self.drop_ordinal();
+        self
     }
 
     /// Adds a "skip" step.
@@ -423,10 +671,13 @@ impl FromBuilder {
     /// Adds an "order" step. Always produces ordered (list) output.
     pub fn order(&mut self, exp: Expr) -> &mut Self {
         let exp = self.subst_current(exp);
+        let exp = self.with_ordinal(exp);
         let mut env = self.step_env();
         env.ordered = true;
         let step = Step::new(StepKind::Order(Box::new(exp)), env);
-        self.add_step(step)
+        self.add_step(step);
+        self.drop_ordinal();
+        self
     }
 
     /// Makes the query unordered.
@@ -451,7 +702,18 @@ impl FromBuilder {
     ///   useless-if-not-last (they only change scalar to record, which
     ///   only matters as last step)
     pub fn yield_(&mut self, exp: Expr) -> &mut Self {
-        self.yield_internal(false, None, exp)
+        // A `yield` normally holds the `ordinal` call itself. It cannot
+        // when the call sits inside a function, whose frame is not the
+        // one holding the counter, so materialize the field and let the
+        // closure capture it as it would any other variable.
+        let exp = if exp.ordinal_under_fn() {
+            self.with_ordinal(exp)
+        } else {
+            exp
+        };
+        self.yield_internal(false, None, exp);
+        self.drop_ordinal();
+        self
     }
 
     /// Yields `exp`, binding the whole row to the single atom name `binder`,
@@ -895,6 +1157,12 @@ impl FromBuilder {
         // TODO: Implement the complex nested from inlining logic from Java.
         // For now, just add a simple scan step.
 
+        // A join condition is evaluated once per row arriving at the join
+        // -- one per left row, not one per pair -- so `ordinal` in it
+        // counts those rows, and must be materialized before the scan's
+        // own bindings join them.
+        let condition = condition.map(|c| self.with_ordinal(c));
+
         // Update bindings based on the pattern.
         // For tuple patterns like `(i,j)`, this collects multiple bindings.
         let prev_len = self.bindings.len();
@@ -934,7 +1202,9 @@ impl FromBuilder {
             ),
             env,
         );
-        self.add_step(step)
+        self.add_step(step);
+        self.drop_ordinal();
+        self
     }
 
     /// Builds the From expression with simplification.

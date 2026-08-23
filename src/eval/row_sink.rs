@@ -1305,8 +1305,16 @@ impl RowSink for GroupRowSink {
                 }
             }
 
-            // 3. Pass the complete row downstream.
-            self.row_sink.accept(r, f)?;
+            // 3. Pass the complete row downstream. A downstream `take`
+            // signals `EarlyReturn` once it has enough rows; that is a
+            // request to stop feeding it, not an error, and it must not
+            // escape -- the rows are emitted from here rather than from
+            // `accept`, so nothing above would catch it.
+            match self.row_sink.accept(r, f) {
+                Ok(()) => {}
+                Err(MorelError::EarlyReturn) => break,
+                Err(e) => return Err(e),
+            }
         }
 
         self.row_sink.result(r, f)

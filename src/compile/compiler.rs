@@ -17,8 +17,8 @@
 
 use crate::compile::core;
 use crate::compile::core::{
-    DatatypeBind, Decl, Expr, Match, Pat, PatField, Step, StepEnv, StepKind,
-    TypeBind, ValBind,
+    DatatypeBind, Decl, Expr, Match, ORDINAL_SLOT, Pat, PatField, Step,
+    StepEnv, StepKind, TypeBind, ValBind,
 };
 use crate::compile::library::{self, BuiltInExn, BuiltInFunction, name_to_rec};
 use crate::compile::pretty::Pretty;
@@ -1526,7 +1526,7 @@ impl<'a> Compiler<'a> {
             Expr::Ordinal(_) => {
                 // 'ordinal' is the row counter written by OrdinalRowSink;
                 // the slot was reserved by VarCollector when it saw this.
-                let slot = cx.frame_def.var_index("ordinal");
+                let slot = cx.frame_def.var_index(ORDINAL_SLOT);
                 Code::new_get_local(&cx.frame_def, slot)
             }
             Expr::Raise(_, e, span) => {
@@ -1784,7 +1784,7 @@ impl<'a> Compiler<'a> {
                     aggregate_expr.as_ref().is_some_and(|a| a.uses_ordinal());
                 let ordinal_slot =
                     if key_expr.uses_ordinal() || agg_uses_ordinal {
-                        cx.frame_def.try_var_index("ordinal")
+                        cx.frame_def.try_var_index(ORDINAL_SLOT)
                     } else {
                         None
                     };
@@ -1990,7 +1990,7 @@ impl<'a> Compiler<'a> {
                 // written into the frame slot before the collection
                 // expression is evaluated for each incoming row.
                 let ordinal_slot = if expr.uses_ordinal() {
-                    cx.frame_def.try_var_index("ordinal")
+                    cx.frame_def.try_var_index(ORDINAL_SLOT)
                 } else {
                     None
                 };
@@ -2151,7 +2151,7 @@ impl<'a> Compiler<'a> {
                 let filter_code = self.compile_expr(cx, None, expr);
 
                 let ordinal_slot = if expr.uses_ordinal() {
-                    cx.frame_def.try_var_index("ordinal")
+                    cx.frame_def.try_var_index(ORDINAL_SLOT)
                 } else {
                     None
                 };
@@ -2161,7 +2161,10 @@ impl<'a> Compiler<'a> {
                 // counter increment so downstream sinks (e.g.
                 // CollectRowSink) still see the original field value.
                 let ordinal_is_field = ordinal_slot.is_some()
-                    && step_env.bindings.iter().any(|b| b.id.name == "ordinal");
+                    && step_env
+                        .bindings
+                        .iter()
+                        .any(|b| b.id.name == ORDINAL_SLOT);
 
                 RowSinkFactory::new(move || {
                     if let Some(slot) = ordinal_slot {
@@ -2185,7 +2188,7 @@ impl<'a> Compiler<'a> {
                     // Terminal yield: collect results, optionally wrapped
                     // with OrdinalRowSink when yield uses 'ordinal'.
                     let ordinal_slot = if expr.uses_ordinal() {
-                        cx.frame_def.try_var_index("ordinal")
+                        cx.frame_def.try_var_index(ORDINAL_SLOT)
                     } else {
                         None
                     };
@@ -2213,7 +2216,7 @@ impl<'a> Compiler<'a> {
                     // OrdinalRowSink so the counter is written into the frame
                     // slot before the yield expression captures it.
                     let ordinal_slot = if expr.uses_ordinal() {
-                        cx.frame_def.try_var_index("ordinal")
+                        cx.frame_def.try_var_index(ORDINAL_SLOT)
                     } else {
                         None
                     };

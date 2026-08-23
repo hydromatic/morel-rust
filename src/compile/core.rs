@@ -125,11 +125,31 @@ impl Expr {
     }
 
     /// Returns whether this expression, or any sub-expression, references
-    /// `ordinal`. A nested `from` is not traversed: its `ordinal` counts
-    /// that query's rows, not this one's.
+    /// an `ordinal` that counts *this* step's rows.
+    ///
+    /// A nested query is traversed only where it is evaluated once per
+    /// execution rather than once per row -- the collection its first step
+    /// scans, a `take` or `skip` count, an operand of `union`, `except` or
+    /// `intersect`. An `ordinal` there counts the enclosing rows, so this
+    /// step must supply it; anywhere else in the nested query it counts
+    /// that query's own rows, which the nested query supplies itself.
     pub(crate) fn uses_ordinal(&self) -> bool {
         match self {
             Expr::Ordinal(_) => true,
+            Expr::From(_, steps)
+            | Expr::Exists(_, steps)
+            | Expr::Forall(_, steps) => {
+                steps.iter().enumerate().any(|(i, step)| match &step.kind {
+                    StepKind::Scan(_, e, _) if i == 0 => e.uses_ordinal(),
+                    StepKind::Skip(e) | StepKind::Take(e) => e.uses_ordinal(),
+                    StepKind::Except(_, exprs)
+                    | StepKind::Intersect(_, exprs)
+                    | StepKind::Union(_, exprs) => {
+                        exprs.iter().any(Expr::uses_ordinal)
+                    }
+                    _ => false,
+                })
+            }
             Expr::Aggregate(_, arg, agg, _) => {
                 arg.uses_ordinal() || agg.uses_ordinal()
             }
@@ -138,12 +158,59 @@ impl Expr {
                 e.uses_ordinal()
                     || matches.iter().any(|m| m.expr.uses_ordinal())
             }
-            Expr::Let(_, _, e) => e.uses_ordinal(),
+            Expr::Fn(_, matches, _) => {
+                matches.iter().any(|m| m.expr.uses_ordinal())
+            }
+            Expr::Let(_, decls, e) => {
+                decls.iter().any(Decl::uses_ordinal) || e.uses_ordinal()
+            }
             Expr::List(_, exprs) | Expr::Tuple(_, exprs) => {
                 exprs.iter().any(Expr::uses_ordinal)
             }
             _ => false,
         }
+    }
+
+    /// Returns whether an `ordinal` in this expression sits inside a
+    /// function, and so would be read from that function's own frame
+    /// rather than the one holding the counter.
+    ///
+    /// Such a read has to come from the row instead: a field is captured
+    /// by a closure like any other variable, a frame slot is not.
+    pub(crate) fn ordinal_under_fn(&self) -> bool {
+        fn walk(e: &Expr, in_fn: bool) -> bool {
+            match e {
+                Expr::Ordinal(_) => in_fn,
+                Expr::Fn(_, matches, _) => {
+                    matches.iter().any(|m| walk(&m.expr, true))
+                }
+                Expr::Aggregate(_, a, b, _) | Expr::Apply(_, a, b, _) => {
+                    walk(a, in_fn) || walk(b, in_fn)
+                }
+                Expr::Case(_, e, matches, _) => {
+                    walk(e, in_fn)
+                        || matches.iter().any(|m| walk(&m.expr, in_fn))
+                }
+                Expr::Let(_, decls, e) => {
+                    decls.iter().any(|d| decl_walk(d, in_fn)) || walk(e, in_fn)
+                }
+                Expr::List(_, es) | Expr::Tuple(_, es) => {
+                    es.iter().any(|e| walk(e, in_fn))
+                }
+                Expr::Raise(_, e, _) => walk(e, in_fn),
+                _ => false,
+            }
+        }
+        fn decl_walk(d: &Decl, in_fn: bool) -> bool {
+            match d {
+                Decl::NonRecVal(b) => walk(&b.expr, in_fn),
+                Decl::RecVal(binds) => {
+                    binds.iter().any(|b| walk(&b.expr, in_fn))
+                }
+                _ => false,
+            }
+        }
+        walk(self, false)
     }
 
     /// Returns the steps if this is a From expression.
@@ -492,6 +559,13 @@ pub enum Pat {
     /// `1 :: rest`.
     Cons(Rc<Type>, Box<Pat>, Box<Pat>),
 }
+
+/// Name of the frame slot holding the `ordinal` counter.
+///
+/// It holds a `$` so that it cannot be a field the user wrote: a query
+/// may have its own field called `ordinal` (reached as `` `ordinal` ``),
+/// and the counter must not clobber it.
+pub(crate) const ORDINAL_SLOT: &str = "ordinal$";
 
 /// Constructors whose values have a dedicated `Val` representation, so a
 /// pattern naming one can be matched against a value at compile time.
@@ -899,6 +973,16 @@ pub enum Decl {
 }
 
 impl Decl {
+    /// Returns whether any expression this declaration binds references
+    /// an `ordinal` counting the enclosing step's rows.
+    pub(crate) fn uses_ordinal(&self) -> bool {
+        match self {
+            Decl::NonRecVal(b) => b.expr.uses_ordinal(),
+            Decl::RecVal(binds) => binds.iter().any(|b| b.expr.uses_ordinal()),
+            _ => false,
+        }
+    }
+
     /// Invokes an action for each top-level binding.
     ///
     /// If a recursive val has multiple arms, each of those arms is a binding.
