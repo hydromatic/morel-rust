@@ -29,6 +29,7 @@
 //! or wrap a discrete arg type.
 
 use crate::compile::types::{Label, PrimitiveType, Type};
+use crate::eval::big_int::BigInt;
 use crate::eval::char::Char;
 use crate::eval::order::Order;
 use crate::eval::val;
@@ -52,6 +53,21 @@ pub trait Discrete {
     fn min_value(&self) -> Option<Val>;
     /// Returns the maximum value of this type, or `None` if unbounded.
     fn max_value(&self) -> Option<Val>;
+
+    /// How many values this type has.
+    ///
+    /// A domain is finite but not therefore small: a sixteen-character
+    /// tuple has 256^16 values, which no machine integer holds. The
+    /// count is therefore exact whatever its size, as the limit it is
+    /// compared against -- `rangeMaxLength` -- is.
+    fn size(&self) -> BigInt;
+
+    /// The position of `v`, counting from 0 at [`Self::min_value`].
+    ///
+    /// Positions count the values between two others without visiting
+    /// them, so that a range of billions is refused as quickly as a
+    /// range of three is built.
+    fn ordinal(&self, v: &Val) -> BigInt;
 }
 
 pub struct IntDiscrete;
@@ -78,6 +94,14 @@ impl Discrete for IntDiscrete {
     }
     fn max_value(&self) -> Option<Val> {
         Some(Val::Int(i32::MAX))
+    }
+    fn size(&self) -> BigInt {
+        BigInt::from_u128(1u128 << 32)
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        BigInt::from_u128(u128::from(
+            v.expect_int().wrapping_sub(i32::MIN) as u32
+        ))
     }
 }
 
@@ -108,6 +132,12 @@ impl Discrete for CharDiscrete {
     fn max_value(&self) -> Option<Val> {
         char::from_u32(Char::MAX_ORD as u32).map(Val::Char)
     }
+    fn size(&self) -> BigInt {
+        BigInt::from_u128(Char::MAX_ORD as u128 + 1)
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        BigInt::from_u128(v.expect_char() as u128)
+    }
 }
 
 pub struct BoolDiscrete;
@@ -133,6 +163,12 @@ impl Discrete for BoolDiscrete {
     fn max_value(&self) -> Option<Val> {
         Some(Val::Bool(true))
     }
+    fn size(&self) -> BigInt {
+        BigInt::from_u128(2)
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        BigInt::from_u128(u128::from(v.expect_bool()))
+    }
 }
 
 pub struct UnitDiscrete;
@@ -149,6 +185,12 @@ impl Discrete for UnitDiscrete {
     }
     fn max_value(&self) -> Option<Val> {
         Some(Val::Unit)
+    }
+    fn size(&self) -> BigInt {
+        BigInt::from_u128(1)
+    }
+    fn ordinal(&self, _v: &Val) -> BigInt {
+        BigInt::zero()
     }
 }
 
@@ -210,6 +252,22 @@ impl Discrete for TupleDiscrete {
     fn max_value(&self) -> Option<Val> {
         self.extreme(false)
     }
+    fn size(&self) -> BigInt {
+        self.components
+            .iter()
+            .fold(BigInt::from_u128(1), |acc, c| acc.mul(&c.size()))
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        // Lexicographic, most significant component first, as `next`
+        // steps the rightmost and carries leftwards.
+        let items = v.expect_list();
+        self.components
+            .iter()
+            .zip(items.iter())
+            .fold(BigInt::zero(), |acc, (c, x)| {
+                acc.mul(&c.size()).add(&c.ordinal(x))
+            })
+    }
 }
 
 /// Discrete for the `'a descending` datatype: next/prev are swapped
@@ -247,6 +305,21 @@ impl Discrete for DescendingDiscrete {
             .min_value()
             .map(|x| Val::Constructor(DESCENDING_DESC, Box::new(x)))
     }
+    fn size(&self) -> BigInt {
+        self.inner.size()
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        // The order is reversed, so a value's position is measured
+        // from the other end.
+        let inner_val = match v {
+            Val::Constructor(DESCENDING_DESC, inner) => inner.as_ref(),
+            _ => panic!("DescendingDiscrete::ordinal: expected DESC value"),
+        };
+        self.inner
+            .size()
+            .sub(&BigInt::from_u128(1))
+            .sub(&self.inner.ordinal(inner_val))
+    }
 }
 
 /// Discrete for the built-in `order` enum: LESS < EQUAL < GREATER.
@@ -281,6 +354,19 @@ impl Discrete for OrderDiscrete {
     fn max_value(&self) -> Option<Val> {
         use crate::eval::order::Order;
         Some(Val::Order(Order(Ordering::Greater)))
+    }
+    fn size(&self) -> BigInt {
+        BigInt::from_u128(3)
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        match v {
+            Val::Order(o) => BigInt::from_u128(match o.0 {
+                Ordering::Less => 0,
+                Ordering::Equal => 1,
+                Ordering::Greater => 2,
+            }),
+            _ => panic!("OrderDiscrete::ordinal: expected Val::Order"),
+        }
     }
 }
 
@@ -318,6 +404,17 @@ impl Discrete for OptionDiscrete {
     fn max_value(&self) -> Option<Val> {
         self.inner.max_value().map(|x| Val::Some(Box::new(x)))
     }
+    fn size(&self) -> BigInt {
+        self.inner.size().add(&BigInt::from_u128(1))
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        match v {
+            // NONE precedes every SOME.
+            Val::Unit => BigInt::zero(),
+            Val::Some(s) => self.inner.ordinal(s).add(&BigInt::from_u128(1)),
+            _ => panic!("OptionDiscrete::ordinal: expected NONE or SOME"),
+        }
+    }
 }
 
 /// Discrete for `('a, 'b) either`: every `INL a` precedes every `INR b`.
@@ -352,6 +449,16 @@ impl Discrete for EitherDiscrete {
     }
     fn max_value(&self) -> Option<Val> {
         self.right.max_value().map(|x| Val::Inr(Box::new(x)))
+    }
+    fn size(&self) -> BigInt {
+        self.left.size().add(&self.right.size())
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        match v {
+            Val::Inl(x) => self.left.ordinal(x),
+            Val::Inr(x) => self.left.size().add(&self.right.ordinal(x)),
+            _ => panic!("EitherDiscrete::ordinal: expected INL or INR"),
+        }
     }
 }
 
@@ -437,6 +544,35 @@ impl Discrete for DataDiscrete {
         } else {
             self.last_of(self.constructors.len() - 1)
         }
+    }
+    fn size(&self) -> BigInt {
+        self.constructors.iter().fold(BigInt::zero(), |acc, c| {
+            acc.add(
+                &c.as_ref()
+                    .map_or_else(|| BigInt::from_u128(1), |d| d.size()),
+            )
+        })
+    }
+    fn ordinal(&self, v: &Val) -> BigInt {
+        let (ord, inner) = match v {
+            Val::Constructor(ord, inner) => (*ord, inner.as_ref()),
+            _ => panic!("DataDiscrete::ordinal: expected Val::Constructor"),
+        };
+        // The constructors that precede this one, then the position
+        // within it.
+        let before =
+            self.constructors[..ord]
+                .iter()
+                .fold(BigInt::zero(), |acc, c| {
+                    acc.add(
+                        &c.as_ref()
+                            .map_or_else(|| BigInt::from_u128(1), |d| d.size()),
+                    )
+                });
+        let within = self.constructors[ord]
+            .as_ref()
+            .map_or_else(BigInt::zero, |d| d.ordinal(inner));
+        before.add(&within)
     }
 }
 
@@ -615,6 +751,73 @@ mod tests {
         let desc_2 = Val::Constructor(DESCENDING_DESC, Box::new(Val::Int(2)));
         // next(DESC 3) = DESC 2 (reversed).
         assert_eq!(d.next(&desc_3), Some(desc_2));
+    }
+
+    /// A tuple of `n` chars, whose domain has 256^n values.
+    fn char_tuple(n: usize) -> TupleDiscrete {
+        TupleDiscrete {
+            components: (0..n)
+                .map(|_| Arc::new(CharDiscrete) as Arc<dyn Discrete>)
+                .collect(),
+        }
+    }
+
+    /// The value whose every character is `c`.
+    fn chars(n: usize, c: char) -> Val {
+        Val::List(Rc::new(vec![Val::Char(c); n]))
+    }
+
+    #[test]
+    fn size_and_ordinal_agree() {
+        // Walking a small domain visits position 0, 1, ... in turn,
+        // and there are `size` of them.
+        let d = char_tuple(2);
+        let mut v = d.min_value().unwrap();
+        let mut n = 0u128;
+        loop {
+            assert_eq!(d.ordinal(&v), BigInt::from_u128(n));
+            match d.next(&v) {
+                Some(next) => {
+                    v = next;
+                    n += 1;
+                }
+                None => break,
+            }
+        }
+        assert_eq!(d.size(), BigInt::from_u128(n + 1));
+        assert_eq!(d.size(), BigInt::from_u128(256 * 256));
+    }
+
+    #[test]
+    fn size_is_exact_beyond_u128() {
+        // A seventeen-character tuple has 256^17 = 2^136 values, which
+        // no machine integer holds; counting it used to saturate.
+        let d = char_tuple(17);
+        let expected =
+            BigInt::parse("87112285931760246646623899502532662132736").unwrap();
+        assert_eq!(d.size(), expected);
+        // Larger than u128 holds, so a saturating count could not have
+        // given this answer.
+        assert!(expected > BigInt::from_u128(u128::MAX));
+    }
+
+    #[test]
+    fn ordinal_is_exact_beyond_u128() {
+        let d = char_tuple(17);
+        // The first value is at 0 and the last at `size` - 1. Saturating
+        // arithmetic put both extremes at the same position.
+        assert_eq!(d.ordinal(&chars(17, '\u{0}')), BigInt::zero());
+        assert_eq!(
+            d.ordinal(&chars(17, '\u{ff}')),
+            d.size().sub(&BigInt::from_u128(1))
+        );
+        // Adjacent values differ by one, however far up the domain.
+        let last = chars(17, '\u{ff}');
+        let prev = d.prev(&last).unwrap();
+        assert_eq!(
+            d.ordinal(&last).sub(&d.ordinal(&prev)),
+            BigInt::from_u128(1)
+        );
     }
 
     #[test]

@@ -27,6 +27,7 @@ use crate::compile::type_env::{
 };
 use crate::compile::type_resolver::{BindingKind, Resolved, TypeResolver};
 use crate::compile::types::Type;
+use crate::eval::big_int::BigInt;
 use crate::eval::code::Code;
 use crate::eval::color_scheme;
 use crate::eval::file::{self, File, TypedValue};
@@ -321,6 +322,7 @@ pub struct Config {
     pub now: Option<Rc<String>>,
     pub optional_int: Option<i32>,
     pub match_coverage_enabled: Option<bool>,
+    pub range_max_length: Option<Rc<BigInt>>,
     pub output: Option<Output>,
     pub script_directory: Option<Rc<PathBuf>>,
     pub string_fold: Option<i32>,
@@ -339,6 +341,7 @@ impl Default for Config {
             now: None,
             optional_int: None,
             output: Some(Output::Classic),
+            range_max_length: Some(Rc::new(BigInt::from_u128((1 << 24) - 1))),
             match_coverage_enabled: None,
             script_directory: None,
             string_fold: None,
@@ -391,6 +394,9 @@ impl Configurable for Config {
             (Prop::Output, PropVal::Output(x)) => {
                 self.output = Some(*x);
             }
+            (Prop::RangeMaxLength, PropVal::BigInt(i)) => {
+                self.range_max_length = Some(i.clone());
+            }
             (Prop::ScriptDirectory, PropVal::PathBuf(b)) => {
                 self.script_directory = Some(b.clone());
             }
@@ -438,6 +444,13 @@ impl Configurable for Config {
             Prop::Output => {
                 if let Some(o) = &self.output {
                     PropVal::Output(*o)
+                } else {
+                    prop.default_value()
+                }
+            }
+            Prop::RangeMaxLength => {
+                if let Some(i) = &self.range_max_length {
+                    PropVal::BigInt(i.clone())
                 } else {
                     prop.default_value()
                 }

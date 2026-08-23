@@ -23,6 +23,7 @@
 //! a later commit with `Range.discreteSetOf`.
 
 use crate::compile::library::BuiltInFunction;
+use crate::eval::big_int::BigInt;
 use crate::eval::comparator::Comparator;
 use crate::eval::discrete::Discrete;
 use crate::eval::val::{self, Val};
@@ -413,12 +414,25 @@ pub fn enumerate_finite(
     hi: &Bound,
     discrete: &dyn Discrete,
     cmp: &dyn Comparator,
+    max_len: &BigInt,
     out: &mut Vec<Val>,
 ) -> bool {
+    // An endpoint left unbounded is the end of the domain, and a
+    // bounded domain has a greatest value to stop at. Only a domain
+    // with no greatest value -- `int` -- cannot be enumerated upwards.
+    let hi_max;
     let hi_val = match &hi.value {
         Some(v) => v,
-        None => return false,
+        None => match discrete.max_value() {
+            Some(v) => {
+                hi_max = v;
+                &hi_max
+            }
+            None => return false,
+        },
     };
+    // An absent endpoint includes the value it stands for.
+    let hi_inclusive = hi.value.is_none() || hi.inclusive;
     let start = match &lo.value {
         None => match discrete.min_value() {
             Some(v) => v,
@@ -435,10 +449,22 @@ pub fn enumerate_finite(
             }
         }
     };
+    // A domain is finite but not therefore small. Count the values
+    // before walking them, so that a range of billions is refused as
+    // quickly as a range of three is built: the count is the distance
+    // between the endpoints' positions.
+    if cmp.compare(&start, hi_val) != Ordering::Greater {
+        let lo_ord = discrete.ordinal(&start);
+        let hi_ord = discrete.ordinal(hi_val);
+        let count = hi_ord.sub(&lo_ord).add(&BigInt::from_u128(1));
+        if count > *max_len {
+            return false;
+        }
+    }
     let mut v = start;
     loop {
         let c = cmp.compare(&v, hi_val);
-        if c == Ordering::Greater || (c == Ordering::Equal && !hi.inclusive) {
+        if c == Ordering::Greater || (c == Ordering::Equal && !hi_inclusive) {
             break;
         }
         out.push(v.clone());

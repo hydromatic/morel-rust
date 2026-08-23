@@ -32,6 +32,7 @@ use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::datalog::execute as datalog_execute;
 use crate::datalog::translate_string as datalog_translate;
 use crate::datalog::validate as datalog_validate;
+use crate::eval::big_int::BigInt;
 use crate::eval::bool::Bool;
 use crate::eval::bound::{
     Bound, complement, enumerate_finite, enumerate_ranges, from_ranges,
@@ -373,7 +374,7 @@ pub enum Code {
     /// element type is not discrete (e.g. `real`); then only `POINT`
     /// ranges are finite and any other range raises `Size`. With a
     /// `Discrete`, an unbounded range also raises `Size`.
-    RangeFlatten(CmpRef, Option<DiscreteRef>, Box<Code>),
+    RangeFlatten(CmpRef, Option<DiscreteRef>, Box<Code>, Span),
     /// `RecValBindings(items)` compiles an inner-let `Decl::RecVal`
     /// whose bindings may cross-reference each other. For each item
     /// `(slot, expr_code, span)`:
@@ -788,7 +789,7 @@ impl Code {
             Code::RangeDsComplement(_, _) => *mode == EvalMode::EagerF0,
             Code::RangeDsOf(_, _, _) => *mode == EvalMode::EagerF0,
             Code::RangeEnumerate(_, _, _) => *mode == EvalMode::EagerF0,
-            Code::RangeFlatten(_, _, _) => *mode == EvalMode::EagerF0,
+            Code::RangeFlatten(_, _, _, _) => *mode == EvalMode::EagerF0,
             Code::RecValBindings(_) => *mode == EvalMode::EagerF0,
             Code::SelfRef => *mode == EvalMode::EagerF0,
             Code::TailApply(_, _) => *mode == EvalMode::EagerF0,
@@ -1161,7 +1162,7 @@ impl Code {
                 let out = enumerate_ranges(ranges, &*discrete.0, &*cmp.0);
                 Ok(Val::List(Rc::new(out)))
             }
-            Code::RangeFlatten(cmp, discrete, list_code) => {
+            Code::RangeFlatten(cmp, discrete, list_code, span) => {
                 let list = list_code.eval_f0(r, f)?;
                 let ranges = list.expect_list();
                 let mut out: Vec<Val> = Vec::new();
@@ -1180,7 +1181,7 @@ impl Code {
                             if ord != RANGE_POINT {
                                 return Err(MorelError::Runtime(
                                     BuiltInExn::Size,
-                                    Span::new("0.0-0.0"),
+                                    span.clone(),
                                 ));
                             }
                             out.push(
@@ -1192,12 +1193,22 @@ impl Code {
                         Some(d) => {
                             let lo = Bound::lower(range);
                             let hi = Bound::upper(range);
+                            // The limit is unset only if the user
+                            // unsets it, and then the default applies.
+                            let max_len = r
+                                .session
+                                .config
+                                .range_max_length
+                                .clone()
+                                .unwrap_or_else(|| {
+                                    Rc::new(BigInt::from_u128((1 << 24) - 1))
+                                });
                             if !enumerate_finite(
-                                &lo, &hi, &*d.0, &*cmp.0, &mut out,
+                                &lo, &hi, &*d.0, &*cmp.0, &max_len, &mut out,
                             ) {
                                 return Err(MorelError::Runtime(
                                     BuiltInExn::Size,
-                                    Span::new("0.0-0.0"),
+                                    span.clone(),
                                 ));
                             }
                         }
@@ -1959,7 +1970,7 @@ impl Display for Code {
             Self::RangeEnumerate(_, _, code) => {
                 write!(f, "rangeEnumerate({})", code)
             }
-            Self::RangeFlatten(_, _, code) => {
+            Self::RangeFlatten(_, _, code, _) => {
                 write!(f, "rangeFlatten({})", code)
             }
             Self::RecValBindings(items) => {

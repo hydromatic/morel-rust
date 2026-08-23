@@ -19,6 +19,7 @@
 // completeness even when the current shell doesn't call them.
 #![allow(dead_code)]
 
+use crate::eval::big_int::BigInt;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -33,6 +34,7 @@ pub trait Configurable {
 
 /// Tagged value of a property.
 pub enum PropVal {
+    BigInt(Rc<BigInt>),
     Bool(bool),
     Int(i32),
     Output(Output),
@@ -42,6 +44,13 @@ pub enum PropVal {
 }
 
 impl PropVal {
+    pub fn as_big_int(&self) -> Rc<BigInt> {
+        match &self {
+            PropVal::BigInt(i) => i.clone(),
+            _ => todo!("wrong type"),
+        }
+    }
+
     pub fn as_bool(&self) -> bool {
         match &self {
             PropVal::Bool(b) => *b,
@@ -89,6 +98,7 @@ impl Display for PropVal {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             // lint: sort until '#}' where '#PropVal::'
+            PropVal::BigInt(i) => write!(f, "{}", i),
             PropVal::Bool(b) => write!(f, "{}", b),
             PropVal::Int(i) => write!(f, "{}", i),
             PropVal::Mode(m) => {
@@ -189,6 +199,9 @@ macro_rules! define_props {
                     },
                     Prop::InlinePassCount | Prop::StringFold => {
                         PropVal::Int(str.parse().unwrap())
+                    },
+                    Prop::RangeMaxLength => {
+                        PropVal::BigInt(Rc::new(BigInt::parse(str).unwrap()))
                     },
                     _ => todo!("str_to_val: {}", self.camel_name())
                 }
@@ -457,6 +470,21 @@ define_props! {
         required: true,
     },
 
+    RangeMaxLength => {
+        doc: "IntInf.int property 'rangeMaxLength' is the largest number \
+              of values that expanding a range may produce. A domain is \
+              finite but not therefore small: without a limit, a range \
+              over 'int' would be enumerated until memory ran out. \
+              Default is 2^24 - 1, as 'Vector.maxLen' is. The value may \
+              be larger than a Morel 'int' can hold, and is then written \
+              as a numeral in a string.",
+        camel_name: "rangeMaxLength",
+        default: Some(PropVal::BigInt(Rc::new(
+            BigInt::from_u128((1 << 24) - 1)
+        ))),
+        required: true,
+    },
+
     Relationalize => {
         doc: "Boolean property 'relationalize' controls conversion to \
                 relational algebra. Default is false.",
@@ -620,7 +648,7 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 26);
+        assert_eq!(all_props.len(), 27);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
         assert!(all_props.contains(&Prop::Now));

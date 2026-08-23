@@ -35,10 +35,6 @@
 //! `parse` reads either, since a numeral typed by a user may be in
 //! Morel's notation.
 
-// Nothing uses this type yet; the commit that makes `rangeMaxLength`
-// an `IntInf.int` is its first caller, and removes this.
-#![allow(dead_code)]
-
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -169,9 +165,13 @@ impl BigInt {
         }
     }
 
+    /// This less `other`.
+    #[must_use]
+    pub fn sub(&self, other: &Self) -> Self {
+        self.add(&other.neg())
+    }
+
     /// The product of this and `other`.
-    // As `is_negative`: offered, but not yet called outside tests.
-    #[allow(dead_code)]
     #[must_use]
     pub fn mul(&self, other: &Self) -> Self {
         if self.is_zero() || other.is_zero() {

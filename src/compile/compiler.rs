@@ -886,6 +886,7 @@ impl<'a> Compiler<'a> {
                                 cmp,
                                 discrete,
                                 Box::new(arg),
+                                span.clone(),
                             );
                         }
                         // Intercept Range.complement on a discrete_set:
