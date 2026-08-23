@@ -25,7 +25,7 @@
 //! Mirrors morel-java's `compile.FreeFinder`.
 
 use crate::compile::core::{
-    Binding, Expr, Match, Pat, PatField, Step, StepKind,
+    Binding, Decl, Expr, Match, Pat, PatField, Step, StepKind,
 };
 use std::collections::BTreeSet;
 
@@ -84,15 +84,27 @@ fn visit_expr(
             }
         }
         Expr::Let(_, decls, body) => {
-            // For Phase 0 we don't yet model decl-introduced bindings —
-            // every name introduced by a decl shadows free vars in
-            // sub-expressions but morel-rust's Decl is opaque enough
-            // that the first user (Phase 1+) will refine this. For now
-            // recurse into any embedded expressions visible to us via
-            // the body. (This is a conservative over-estimate of free
-            // names, which is safe for the current callers.)
-            for _ in decls {}
+            let saved_len = bound.len();
+            for decl in decls {
+                // A `val` is evaluated in the scope before it; a `fun`
+                // is in scope in its own body, so bind its names first.
+                let recursive = matches!(decl, Decl::RecVal(_));
+                if recursive {
+                    decl.for_each_id_pat(|(_, name)| {
+                        bound.push(name.to_string())
+                    });
+                }
+                decl.for_each_binding(&mut |_, expr, _, _| {
+                    visit_expr(expr, bound, out)
+                });
+                if !recursive {
+                    decl.for_each_id_pat(|(_, name)| {
+                        bound.push(name.to_string())
+                    });
+                }
+            }
             visit_expr(body, bound, out);
+            bound.truncate(saved_len);
         }
         Expr::List(_, items) | Expr::Tuple(_, items) => {
             for e in items {

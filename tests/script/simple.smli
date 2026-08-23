@@ -829,13 +829,6 @@ in
 end;
 > val it = 11 : int
 
-(* Shadowing a `fun` overflows the stack: the inliner substitutes the
- * body of `val x = f 2` into the second `f`, where the free `f` is
- * captured by the binding being defined, so the function calls itself
- * for ever. Only this statement is affected. *)
-set("mode", "validate");
-> val it = () : unit
-
 (*) Closure
 let
   fun f x = 1 + x; (*)
@@ -846,9 +839,6 @@ in
   f x
 end;
 > val it = 13 : int
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) As "Closure", but each 'fun' is replaced with a lambda.
 let

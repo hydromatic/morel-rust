@@ -16,6 +16,7 @@
 // License.
 
 use crate::compile::core::{Decl, Expr, Match, Pat, Step, StepKind, ValBind};
+use crate::compile::free_finder::free_names_in;
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::Type;
 use crate::eval::order::Order;
@@ -679,7 +680,12 @@ impl Expr {
                 //   body env so outer-scope substitutions don't leak in.
                 //
                 // Mirrors morel-java's Inliner.visit(Core.Let).
-                let mut decl_list2: Vec<Decl> = Vec::new();
+                // Declarations bound into the body env are provisionally
+                // dropped, paired with the name they bind. `lookup_expr`
+                // refuses a substitution that would capture, so a name
+                // can still be referenced afterwards; those declarations
+                // are put back below.
+                let mut decl_list2: Vec<(Option<String>, Decl)> = Vec::new();
                 let mut body_env = env.clone();
                 for d in decl_list {
                     let d2 = x.transform_decl(env, d);
@@ -697,6 +703,7 @@ impl Expr {
                                     &vb.t,
                                     &vb.expr,
                                 );
+                                decl_list2.push((Some(name), d2.clone()));
                                 handled = true;
                             }
                             _ => {}
@@ -706,14 +713,26 @@ impl Expr {
                         d.for_each_id_pat(&mut |(t, name): (&Type, &str)| {
                             body_env = body_env.child_none(name, t);
                         });
-                        decl_list2.push(d2);
+                        decl_list2.push((None, d2));
                     }
                 }
                 let e2 = Box::new(x.transform_expr(&body_env, e));
-                if decl_list2.is_empty() {
+                let free = if decl_list2.iter().any(|(n, _)| n.is_some()) {
+                    free_names_in(&e2)
+                } else {
+                    Default::default()
+                };
+                let decl_list3: Vec<Decl> = decl_list2
+                    .into_iter()
+                    .filter(|(n, _)| {
+                        n.as_ref().is_none_or(|n| free.contains(n))
+                    })
+                    .map(|(_, d)| d)
+                    .collect();
+                if decl_list3.is_empty() {
                     *e2
                 } else {
-                    Expr::Let(t.clone(), decl_list2, e2)
+                    Expr::Let(t.clone(), decl_list3, e2)
                 }
             }
             Expr::List(t, expr_list) => Expr::List(
@@ -946,8 +965,22 @@ impl Env {
 
     pub(crate) fn lookup_expr(&self, s: &str) -> Option<Expr> {
         let mut frame: &EnvFrame = &self.inner;
+        // Names rebound between here and wherever `s` is bound. If one
+        // of them occurs free in the bound expression, substituting
+        // that expression here would capture it: in
+        // `let fun f x = 1 + x val z = f 2 fun f y = z + y in f 1 end`,
+        // `z` is bound to `f 2` against the first `f`, and moving it
+        // into the body of the second would make that `f` call itself
+        // for ever.
+        let mut rebound: Vec<&str> = Vec::new();
         loop {
             if let Some(e) = frame.exprs.get(s) {
+                if !rebound.is_empty() {
+                    let free = free_names_in(e);
+                    if rebound.iter().any(|n| free.contains(*n)) {
+                        return None;
+                    }
+                }
                 return Some(e.clone());
             }
             // A `map` binding in this frame shadows any inlineable
@@ -956,6 +989,7 @@ impl Env {
             if frame.map.contains_key(s) {
                 return None;
             }
+            rebound.extend(frame.map.keys().map(String::as_str));
             frame = frame.parent.as_ref()?;
         }
     }
