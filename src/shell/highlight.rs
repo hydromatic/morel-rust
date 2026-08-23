@@ -179,6 +179,9 @@ fn scan_string(b: &[u8], i: usize) -> usize {
     let mut j = i + 1;
     while j < n {
         match b[j] {
+            // Skip the escape sequence; the guard makes sure that a trailing
+            // backslash in an unterminated string does not skip past the end
+            // of the buffer.
             b'\\' if j + 1 < n => j += 2,
             b'"' => return j + 1,
             _ => j += 1,
@@ -383,6 +386,22 @@ mod tests {
                 ("c", Some(Category::Identifier)),
             ]
         );
+    }
+
+    #[test]
+    fn test_unterminated_string_escape() {
+        // The highlighter runs on every keystroke, so the buffer passes
+        // through the state `"\` the moment a string escape is typed. The
+        // escape skip must not run past the end of the buffer.
+        assert_eq!(cats("\"\\"), vec![("\"\\", Some(Category::String))]);
+        // A longer prefix of a typed escape, e.g. `"ab\`.
+        assert_eq!(cats("\"ab\\"), vec![("\"ab\\", Some(Category::String))]);
+        // A complete escape in an unterminated string.
+        assert_eq!(cats("\"a\\n"), vec![("\"a\\n", Some(Category::String))]);
+        // Highlighting the same buffers must not panic.
+        for s in ["\"\\", "\"ab\\", "\"a\\n"] {
+            assert!(highlight(s, &DARK).contains(s));
+        }
     }
 
     #[test]
