@@ -399,20 +399,26 @@ pub(crate) fn make_date(
     let year = args[6].expect_int();
 
     let m = tag_to_month(month_tag);
-    if !(1..=days_in_month(year, m) as i32).contains(&day)
-        || !(0..24).contains(&hour)
-        || !(0..60).contains(&minute)
-        || !(0..60).contains(&second)
-    {
+    // A field out of range carries into the field above it, as SML/NJ
+    // and C's `mktime` do: day 32 of March is April 1, day 0 is the last
+    // day of February, and hour 25 is hour 1 of the next day. `Date` is
+    // raised only when the year is so far out of range that there is no
+    // such date.
+    let Some(days) = normalized_days(year, m, day) else {
         return Err(MorelError::Runtime(BuiltInExn::Date, span.clone()));
-    }
-
-    let days = days_from_civil(year, m, day as u32);
-    let local_secs = days * SECS_PER_DAY
-        + hour as i64 * SECS_PER_HOUR
-        + minute as i64 * SECS_PER_MIN
-        + second as i64;
-    let local_nanos = local_secs * NS_PER_SEC;
+    };
+    // A date is a count of nanoseconds, so a year outside roughly
+    // 1678..2262 has no representation, and raises `Date` rather than
+    // overflowing.
+    let Some(local_nanos) = days
+        .checked_mul(SECS_PER_DAY)
+        .and_then(|d| d.checked_add(i64::from(hour) * SECS_PER_HOUR))
+        .and_then(|d| d.checked_add(i64::from(minute) * SECS_PER_MIN))
+        .and_then(|d| d.checked_add(i64::from(second)))
+        .and_then(|d| d.checked_mul(NS_PER_SEC))
+    else {
+        return Err(MorelError::Runtime(BuiltInExn::Date, span.clone()));
+    };
 
     // Determine offset. If `offset` field is SOME t, use t directly
     // (interpreted as east-of-UTC magnitude per SML convention).
@@ -518,6 +524,9 @@ fn emit_directive(out: &mut String, d: char, b: &Broken) {
             );
         }
         'd' => out.push_str(&format!("{:02}", b.day)),
+        // `%e` writes the day in two columns with a leading space
+        // rather than a leading zero.
+        'e' => out.push_str(&format!("{:2}", b.day)),
         'H' => out.push_str(&format!("{:02}", b.hour)),
         'I' => out.push_str(&format!("{:02}", hour12)),
         'j' => out.push_str(&format!("{:03}", b.yearday + 1)),
@@ -606,4 +615,40 @@ pub(crate) fn from_string(s: &str) -> Val {
         + minute as i64 * SECS_PER_MIN
         + second as i64;
     Val::Some(Box::new(Val::Date(secs * NS_PER_SEC, 0)))
+}
+
+/// The day number of `year`-`month`-`day`, where `day` may be outside
+/// the month: day 0 is the day before the first, and day 32 of a
+/// 31-day month is the first of the next. `None` if the year is too far
+/// out of range for the arithmetic.
+fn normalized_days(year: i32, month: u32, day: i32) -> Option<i64> {
+    let first = days_from_civil(year, month, 1);
+    first.checked_add(i64::from(day.checked_sub(1)?))
+}
+
+/// The UTC date with these fields, normalized as [`make_date`]
+/// normalizes them, and no offset. `None` if the year is so far out of
+/// range that there is no such date. `Date.scan` builds its result this
+/// way, so that a date it reads has the same fields as one `Date.date`
+/// makes.
+pub(crate) fn date_of(
+    year: i32,
+    month: u32,
+    day: i32,
+    hour: i32,
+    minute: i32,
+    second: i32,
+) -> Option<Val> {
+    let days = normalized_days(year, month, day)?;
+    let Some(secs) = days
+        .checked_mul(SECS_PER_DAY)
+        .and_then(|d| d.checked_add(i64::from(hour) * SECS_PER_HOUR))
+        .and_then(|d| d.checked_add(i64::from(minute) * SECS_PER_MIN))
+        .and_then(|d| d.checked_add(i64::from(second)))
+        .and_then(|d| d.checked_mul(NS_PER_SEC))
+    else {
+        // A year so far out of range that there is no such date.
+        return None;
+    };
+    Some(Val::Date(secs, 0))
 }

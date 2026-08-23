@@ -29,6 +29,39 @@ use std::rc::Rc;
 pub struct Str;
 
 impl Str {
+    /// Computes `String.toString s`: every character in Standard ML
+    /// source form, so that a non-printable one becomes the escape
+    /// sequence that stands for it.
+    pub(crate) fn to_string_escaped(s: &str) -> String {
+        s.chars().map(Char::to_string).collect()
+    }
+
+    /// Computes `String.toCString s`: every character in C source form.
+    pub(crate) fn to_c_string(s: &str) -> String {
+        s.chars().map(Char::to_c_string).collect()
+    }
+
+    /// Computes `String.fromCString s`. Unlike `fromString`, which
+    /// stops at the first thing it cannot read and returns what it has,
+    /// anything unreadable makes the whole string fail -- including a
+    /// raw newline, which C requires to be escaped.
+    pub(crate) fn from_c_string(s: &str) -> Val {
+        let b = s.as_bytes();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < b.len() {
+            // `Char::from_c_string` reads one character; how much of
+            // the string it consumed is what it did not leave behind.
+            let rest = &s[i..];
+            let Val::Some(c) = Char::from_c_string(rest) else {
+                return Val::Unit;
+            };
+            out.push(c.expect_char());
+            i += Char::c_escape_len(rest);
+        }
+        Val::Some(Box::new(Val::String(out.into())))
+    }
+
     // lint: sort until '#}' where '##pub'
 
     /// Computes the Morel expression `String.collate f (s1, s2)`.

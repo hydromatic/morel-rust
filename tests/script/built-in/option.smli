@@ -96,7 +96,7 @@ Option.`join` (SOME (SOME 1));
 Option.`join` (SOME noneInt);
 > val it = NONE : int option
 (* SML/NJ gives
- *stdIn:1.2-1.18 Warning: type vars not generalized because of
+ * stdIn:1.2-1.18 Warning: type vars not generalized because of
  *   value restriction are instantiated to dummy types (X1,X2,...)
 *)
 Option.`join` NONE;

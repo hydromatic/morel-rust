@@ -2612,6 +2612,7 @@ pub enum EagerF1 {
     BagHd,
     BagOnly,
     BagTl,
+    BoolFromString,
     CharChr,
     CharPred,
     CharSucc,
@@ -2630,12 +2631,14 @@ pub enum EagerF1 {
     RealCeil,
     RealCheckFloat,
     RealFloor,
+    RealFromString,
     RealRound,
     RealSign,
     RealTrunc,
     RelationalMax,
     RelationalMin,
     RelationalOnly,
+    StringFromString,
     SysParseTree,
     SysPlanEx,
     SysShow,
@@ -2671,7 +2674,7 @@ impl EagerF1 {
     pub(crate) fn apply(
         &self,
         r: &mut EvalEnv,
-        _f: &mut Frame,
+        f: &mut Frame,
         a0: Val,
         span: Option<&Span>,
     ) -> Result<Val, MorelError> {
@@ -2685,6 +2688,12 @@ impl EagerF1 {
                 Relational::only(a0.expect_list(), span.unwrap())
             }
             BagTl => List::tl(a0.expect_list(), span.unwrap()),
+            BoolFromString => string_cvt::scan_str(
+                r,
+                f,
+                string_cvt::bool_scan,
+                a0.expect_string(),
+            ),
             CharChr => Char::chr(a0.expect_int(), span.unwrap()),
             CharPred => Char::pred(a0.expect_char(), span.unwrap()),
             CharSucc => Char::succ(a0.expect_char(), span.unwrap()),
@@ -2747,11 +2756,23 @@ impl EagerF1 {
                 Real::check_float(a0.expect_real(), span.unwrap())
             }
             RealFloor => Real::floor(a0.expect_real(), span.unwrap()),
+            RealFromString => string_cvt::scan_str(
+                r,
+                f,
+                string_cvt::real_scan,
+                a0.expect_string(),
+            ),
             RealRound => Real::round(a0.expect_real(), span.unwrap()),
             RealSign => Real::sign(a0.expect_real(), span.unwrap()),
             RealTrunc => Real::trunc(a0.expect_real(), span.unwrap()),
             RelationalMax => Relational::max(a0.expect_list(), span.unwrap()),
             RelationalMin => Relational::min(a0.expect_list(), span.unwrap()),
+            StringFromString => string_cvt::scan_str(
+                r,
+                f,
+                string_cvt::string_scan,
+                a0.expect_string(),
+            ),
             SysParseTree => {
                 // Parse the argument as a top-level Morel statement and
                 // return an S-expression dump of the resulting AST. Empty
@@ -2848,7 +2869,6 @@ pub enum Eager1 {
     BagLength,
     BagNull,
     BagToList,
-    BoolFromString,
     BoolNot,
     BoolToString,
     CharFromCString,
@@ -2969,7 +2989,6 @@ pub enum Eager1 {
     RangeToList,
     RealAbs,
     RealFromInt,
-    RealFromString,
     RealIsFinite,
     RealIsNan,
     RealIsNormal,
@@ -2994,9 +3013,12 @@ pub enum Eager1 {
     StringCvtRealfmtGen,
     StringCvtRealfmtSci,
     StringExplode,
+    StringFromCString,
     StringImplode,
     StringSize,
     StringStr,
+    StringToCString,
+    StringToString,
     TestBagSum,
     TestFoo,
     TestHighlight,
@@ -3062,7 +3084,7 @@ impl Eager1 {
             BagLength => Val::Int(List::length(a0.expect_list())),
             BagNull => Val::Bool(List::null(a0.expect_list())),
             BagToList => a0, // Already a Val::List
-            BoolFromString => Bool::from_string(a0.expect_string()),
+
             BoolNot => Val::Bool(Bool::not(a0.expect_bool())),
             BoolToString => {
                 Val::String((Bool::to_string(a0.expect_bool())).into())
@@ -3346,7 +3368,6 @@ impl Eager1 {
             }
             RealAbs => Val::Real(Real::abs(a0.expect_real())),
             RealFromInt => Val::Real(Real::from_int(a0.expect_int())),
-            RealFromString => Real::from_string(a0.expect_string()),
             RealIsFinite => Val::Bool(Real::is_finite(a0.expect_real())),
             RealIsNan => Val::Bool(Real::is_nan(a0.expect_real())),
             RealIsNormal => Val::Bool(Real::is_normal(a0.expect_real())),
@@ -3398,6 +3419,7 @@ impl Eager1 {
                 let s = a0.expect_string();
                 Val::List(Rc::new(Str::explode(s)))
             }
+            StringFromCString => Str::from_c_string(a0.expect_string()),
             StringImplode => {
                 let chars = a0.expect_list();
                 Val::String((Str::implode(chars)).into())
@@ -3406,6 +3428,12 @@ impl Eager1 {
             StringStr => {
                 let c = a0.expect_char();
                 Val::String((c.to_string()).into())
+            }
+            StringToCString => {
+                Val::String((Str::to_c_string(a0.expect_string())).into())
+            }
+            StringToString => {
+                Val::String((Str::to_string_escaped(a0.expect_string())).into())
             }
             TestBagSum | TestListSum | TestOverSum => {
                 // Sum the (numeric) collection, like `Relational.sum`.
@@ -3892,6 +3920,9 @@ pub enum EagerF2 {
     BagPartition,
     BagTabulate,
     BagTake,
+    BoolScan,
+    CharScan,
+    DateScan,
     EitherApp,
     EitherAppLeft,
     EitherAppRight,
@@ -3933,6 +3964,7 @@ pub enum EagerF2 {
     OptionMap,
     OptionMapPartial,
     RealCompare,
+    RealScan,
     RelationalIterate,
     StringCollate,
     StringConcatWith,
@@ -3940,11 +3972,13 @@ pub enum EagerF2 {
     StringCvtSkipWs,
     StringFields,
     StringMap,
+    StringScan,
     StringSub,
     StringTokens,
     StringTranslate,
     SysSet,
     TimeFmt,
+    TimeScan,
     VectorAll,
     VectorApp,
     VectorAppi,
@@ -4017,6 +4051,9 @@ impl EagerF2 {
             BagTake => {
                 List::take(a0.expect_list(), a1.expect_int(), span.unwrap())
             }
+            BoolScan => string_cvt::bool_scan(r, f, &a0, &a1),
+            CharScan => string_cvt::char_scan(r, f, &a0, &a1),
+            DateScan => string_cvt::date_scan(r, f, &a0, &a1),
             EitherApp => {
                 let tuple = a0.expect_list();
                 Either::app(r, f, &tuple[0], &tuple[1], &a1)?;
@@ -4203,6 +4240,7 @@ impl EagerF2 {
             // each iteration. Subtracts already-seen elements (semi-naive
             // evaluation) so cyclic graphs terminate. Stops when no
             // genuinely new elements appear.
+            RealScan => string_cvt::real_scan(r, f, &a0, &a1),
             RelationalIterate => {
                 let mut list: Vec<Val> = a0.expect_list().to_vec();
                 let mut new_list: Vec<Val> = list.clone();
@@ -4252,6 +4290,7 @@ impl EagerF2 {
                 let s = a1.expect_string();
                 Str::map(r, f, &a0, s)
             }
+            StringScan => string_cvt::string_scan(r, f, &a0, &a1),
             StringSub => {
                 Str::sub(a0.expect_string(), a1.expect_int(), span.unwrap())
             }
@@ -4272,6 +4311,7 @@ impl EagerF2 {
             TimeFmt => {
                 time::fmt(a0.expect_int(), a1.expect_time(), span.unwrap())
             }
+            TimeScan => string_cvt::time_scan(r, f, &a0, &a1, span.unwrap()),
             VectorAll => Ok(Val::Bool(List::all(r, f, &a0, a1.expect_list())?)),
             VectorApp => {
                 Vector::app(r, f, &a0, a1.expect_list())?;
@@ -4321,6 +4361,7 @@ pub enum EagerF3 {
     EitherFold,
     FnCurry,
     FnRepeat,
+    IntScan,
     LPFoldl,
     LPFoldlEq,
     LPFoldr,
@@ -4337,6 +4378,7 @@ pub enum EagerF3 {
     VectorFoldr,
     VectorFoldri,
     VectorUpdate,
+    WordScan,
 }
 
 impl EagerF3 {
@@ -4380,6 +4422,8 @@ impl EagerF3 {
 
         match &self {
             BagFold => List::foldl(r, f, &a0, &a1, a2.expect_list()),
+            IntScan => string_cvt::int_scan(r, f, &a0, &a1, &a2),
+            WordScan => string_cvt::word_scan(r, f, &a0, &a1, &a2),
             StringCvtDropl => Ok(string_cvt::splitl(r, f, &a0, &a1, &a2)?.1),
             StringCvtSplitl => {
                 let (prefix, rest) = string_cvt::splitl(r, f, &a0, &a1, &a2)?;
@@ -4882,13 +4926,14 @@ fn build_library() -> Lib {
     Eager2::BoolAndAlso.implements(&mut b, BoolAndAlso);
     Eager2::BoolEq.implements(&mut b, BoolEq);
     Eager0::BoolFalse.implements(&mut b, BoolFalse);
-    Eager1::BoolFromString.implements(&mut b, BoolFromString);
+    EagerF1::BoolFromString.implements(&mut b, BoolFromString);
     Eager2::BoolGt.implements(&mut b, BoolGt);
     Eager2::BoolImplies.implements(&mut b, BoolImplies);
     Eager2::BoolLt.implements(&mut b, BoolLt);
     Eager2::BoolNe.implements(&mut b, BoolNe);
     Eager1::BoolNot.implements(&mut b, BoolNot);
     Eager2::BoolOrElse.implements(&mut b, BoolOrElse);
+    EagerF2::BoolScan.implements(&mut b, BoolScan);
     Eager1::BoolToString.implements(&mut b, BoolToString);
     Eager0::BoolTrue.implements(&mut b, BoolTrue);
     EagerF1::CharChr.implements(&mut b, CharChr);
@@ -4922,6 +4967,7 @@ fn build_library() -> Lib {
     Eager2::CharNotContains.implements(&mut b, CharNotContains);
     Eager1::CharOrd.implements(&mut b, CharOrd);
     EagerF1::CharPred.implements(&mut b, CharPred);
+    EagerF2::CharScan.implements(&mut b, CharScan);
     EagerF1::CharSucc.implements(&mut b, CharSucc);
     Eager1::CharToCString.implements(&mut b, CharToCString);
     Eager1::CharToLower.implements(&mut b, CharToLower);
@@ -4942,6 +4988,7 @@ fn build_library() -> Lib {
     EagerF0::DateLocalOffset.implements(&mut b, DateLocalOffset);
     Eager1::DateMinute.implements(&mut b, DateMinute);
     Eager1::DateMonthFn.implements(&mut b, DateMonthFn);
+    EagerF2::DateScan.implements(&mut b, DateScan);
     Eager1::DateSecond.implements(&mut b, DateSecond);
     Eager1::DateToString.implements(&mut b, DateToString);
     Eager1::DateToTime.implements(&mut b, DateToTime);
@@ -5030,6 +5077,7 @@ fn build_library() -> Lib {
     Eager2::IntQuot.implements(&mut b, IntQuot);
     Eager2::IntRem.implements(&mut b, IntRem);
     Eager2::IntSameSign.implements(&mut b, IntSameSign);
+    EagerF3::IntScan.implements(&mut b, IntScan);
     Eager1::IntSign.implements(&mut b, IntSign);
     Eager2::IntTimes.implements(&mut b, IntTimes);
     Eager1::IntToInt.implements(&mut b, IntToInt);
@@ -5192,7 +5240,7 @@ fn build_library() -> Lib {
     Eager2::RealFmt.implements(&mut b, RealFmt);
     Eager1::RealFromInt.implements(&mut b, RealFromInt);
     Eager2::RealFromManExp.implements(&mut b, RealFromManExp);
-    Eager1::RealFromString.implements(&mut b, RealFromString);
+    EagerF1::RealFromString.implements(&mut b, RealFromString);
     Eager2::RealGe.implements(&mut b, RealGe);
     Eager2::RealGt.implements(&mut b, RealGt);
     Eager1::RealIsFinite.implements(&mut b, RealIsFinite);
@@ -5221,6 +5269,7 @@ fn build_library() -> Lib {
     Eager2::RealRem.implements(&mut b, RealRem);
     EagerF1::RealRound.implements(&mut b, RealRound);
     Eager2::RealSameSign.implements(&mut b, RealSameSign);
+    EagerF2::RealScan.implements(&mut b, RealScan);
     EagerF1::RealSign.implements(&mut b, RealSign);
     Eager1::RealSignBit.implements(&mut b, RealSignBit);
     Eager1::RealSplit.implements(&mut b, RealSplit);
@@ -5264,6 +5313,8 @@ fn build_library() -> Lib {
     Eager1::StringExplode.implements(&mut b, StringExplode);
     EagerF3::StringExtract.implements(&mut b, StringExtract);
     EagerF2::StringFields.implements(&mut b, StringFields);
+    Eager1::StringFromCString.implements(&mut b, StringFromCString);
+    EagerF1::StringFromString.implements(&mut b, StringFromString);
     Eager2::StringGe.implements(&mut b, StringGe);
     Eager2::StringGt.implements(&mut b, StringGt);
     Eager1::StringImplode.implements(&mut b, StringImplode);
@@ -5275,10 +5326,13 @@ fn build_library() -> Lib {
     EagerF2::StringMap.implements(&mut b, StringMap);
     Eager0::StringMaxSize.implements(&mut b, StringMaxSize);
     Eager2::StringNe.implements(&mut b, StringNe);
+    EagerF2::StringScan.implements(&mut b, StringScan);
     Eager1::StringSize.implements(&mut b, StringSize);
     Eager1::StringStr.implements(&mut b, StringStr);
     EagerF2::StringSub.implements(&mut b, StringSub);
     EagerF3::StringSubstring.implements(&mut b, StringSubstring);
+    Eager1::StringToCString.implements(&mut b, StringToCString);
+    Eager1::StringToString.implements(&mut b, StringToString);
     EagerF2::StringTokens.implements(&mut b, StringTokens);
     EagerF2::StringTranslate.implements(&mut b, StringTranslate);
     EagerF0::SysClearEnv.implements(&mut b, SysClearEnv);
@@ -5314,6 +5368,7 @@ fn build_library() -> Lib {
     Eager2::TimeLe.implements(&mut b, TimeLe);
     Eager2::TimeLt.implements(&mut b, TimeLt);
     EagerF0::TimeNow.implements(&mut b, TimeNow);
+    EagerF2::TimeScan.implements(&mut b, TimeScan);
     Eager2::TimeSub.implements(&mut b, TimeSub);
     Eager1::TimeToMicroseconds.implements(&mut b, TimeToMicroseconds);
     Eager1::TimeToMilliseconds.implements(&mut b, TimeToMilliseconds);
@@ -5391,6 +5446,7 @@ fn build_library() -> Lib {
     Eager2::WordArithShiftRight.implements(&mut b, WordOpShiftRightArith);
     Eager2::WordOpTimes.implements(&mut b, WordOpTimes);
     Eager2::WordOrb.implements(&mut b, WordOrb);
+    EagerF3::WordScan.implements(&mut b, WordScan);
     Eager1::WordToInt.implements(&mut b, WordToInt);
     Eager1::WordToInt.implements(&mut b, WordToIntX);
     Eager1::WordIdentity.implements(&mut b, WordToLarge);

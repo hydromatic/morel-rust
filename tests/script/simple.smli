@@ -697,7 +697,7 @@ str #"(" ^ str #"*" ^ str #")";
 1 + 2;
 > val it = "wrong" : string
 
- *End of block comment. *)
+ * End of block comment. *)
 "correct";
 > val it = "correct" : string
 

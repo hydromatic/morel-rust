@@ -32,6 +32,35 @@ impl Char {
     pub(crate) const MAX_ORD: i32 = 255;
     pub(crate) const MIN_CHAR: char = '\u{0000}';
 
+    /// How many characters the C escape sequence at the head of `s`
+    /// occupies. `from_c_string` reads that sequence; this says how far
+    /// to advance to read the next one.
+    pub(crate) fn c_escape_len(s: &str) -> usize {
+        let b = s.as_bytes();
+        if b.is_empty() {
+            return 0;
+        }
+        if b[0] != b'\\' {
+            return 1;
+        }
+        if b.len() < 2 {
+            return 1;
+        }
+        if b[1].is_ascii_digit() && b[1] < b'8' {
+            return (2..b.len().min(4))
+                .take_while(|&i| b[i].is_ascii_digit() && b[i] < b'8')
+                .last()
+                .map_or(2, |i| i + 1);
+        }
+        if b[1] == b'x' {
+            return (2..b.len())
+                .take_while(|&i| b[i].is_ascii_hexdigit())
+                .last()
+                .map_or(2, |i| i + 1);
+        }
+        2
+    }
+
     /// Implements Morel `Char.chr i`. May throw [BuiltInExn::Chr].
     pub(crate) fn chr(i: i32, span: &Span) -> Result<Val, MorelError> {
         if !(0..=Self::MAX_ORD).contains(&i) {
@@ -61,8 +90,76 @@ impl Char {
     ///
     /// Scans a char value from a string, skipping leading whitespace.
     pub(crate) fn from_c_string(s: &str) -> Val {
-        let trimmed = s.trim_start();
-        Self::from_string(trimmed)
+        let b = s.as_bytes();
+        if b.is_empty() {
+            return Val::Unit;
+        }
+        if b[0] != b'\\' {
+            // Any printable character stands for itself, a space and a
+            // double-quote included; C does not require a quote to be
+            // escaped, where Standard ML does. A raw non-printable
+            // character is not a constant.
+            return if (0x20..0x7F).contains(&b[0]) {
+                Val::Some(Box::new(Val::Char(b[0] as char)))
+            } else {
+                Val::Unit
+            };
+        }
+        if b.len() < 2 {
+            return Val::Unit;
+        }
+        let simple = match b[1] {
+            b'a' => Some('\x07'),
+            b'b' => Some('\x08'),
+            b'f' => Some('\x0C'),
+            b'n' => Some('\n'),
+            b'r' => Some('\r'),
+            b't' => Some('\t'),
+            b'v' => Some('\x0B'),
+            b'\\' => Some('\\'),
+            b'"' => Some('"'),
+            b'\'' => Some('\''),
+            // C escapes a question mark, where Standard ML has no such
+            // escape.
+            b'?' => Some('?'),
+            _ => None,
+        };
+        if let Some(c) = simple {
+            return Val::Some(Box::new(Val::Char(c)));
+        }
+        // One to three octal digits, stopping at the first character
+        // that is not one -- so "\778" is "\77" followed by "8".
+        if b[1].is_ascii_digit() && b[1] < b'8' {
+            let end = (2..b.len().min(4))
+                .take_while(|&i| b[i].is_ascii_digit() && b[i] < b'8')
+                .last()
+                .map_or(2, |i| i + 1);
+            return Self::code(&s[1..end], 8);
+        }
+        // "x" and as many hexadecimal digits as follow it; there must
+        // be at least one.
+        if b[1] == b'x' {
+            let end = (2..b.len())
+                .take_while(|&i| b[i].is_ascii_hexdigit())
+                .last()
+                .map_or(2, |i| i + 1);
+            if end == 2 {
+                return Val::Unit;
+            }
+            return Self::code(&s[2..end], 16);
+        }
+        Val::Unit
+    }
+
+    /// The character whose code `digits` gives in `radix`, or `NONE` if
+    /// it is above `maxOrd`.
+    fn code(digits: &str, radix: u32) -> Val {
+        match u32::from_str_radix(digits, radix) {
+            Ok(v) if v <= Self::MAX_ORD as u32 => {
+                Val::Some(Box::new(Val::Char(v as u8 as char)))
+            }
+            _ => Val::Unit,
+        }
     }
 
     /// Computes the Morel expression `Char.fromInt i`.
@@ -87,6 +184,12 @@ impl Char {
         }
 
         let bytes = s.as_bytes();
+        // A raw non-printable character is not a character constant:
+        // it has to be written as the escape sequence that stands for
+        // it. `\009` is three characters, not a tab.
+        if bytes[0] != b'\\' && !(0x20..0x7F).contains(&bytes[0]) {
+            return Val::Unit;
+        }
 
         // Check for escape sequences.
         if bytes[0] == b'\\' {
@@ -304,10 +407,9 @@ impl Char {
             '\r' => "\\r".to_string(),
             '\\' => "\\\\".to_string(),
             '"' => "\\\"".to_string(),
-            _ if code < 32 => {
-                // Control characters: use \^X notation for codes 0-31
-                format!("\\^{}", (b'@' + code) as char)
-            }
+            '\'' => "\\'".to_string(),
+            '?' => "\\?".to_string(),
+            _ if code < 32 => format!("\\{:03o}", code),
             _ if code >= 127 => {
                 // Use octal escape for codes 127-255
                 format!("\\{:03o}", code)

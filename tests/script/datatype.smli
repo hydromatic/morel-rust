@@ -424,8 +424,8 @@ datatype 'a tree =
 > datatype 'a tree = Empty | Leaf of 'a | Node of 'a * 'a tree * 'a tree
 
 (* The comparison order of a datatype is determined by order of
- *constructors, not their names. Empty compares less than Leaf,
- *which compares less than Node. *)
+ * constructors, not their names. Empty compares less than Leaf,
+ * which compares less than Node. *)
 Relational.compare (Empty, Empty);
 > val it = EQUAL : order
 Relational.compare (Empty, Leaf 1);

@@ -161,6 +161,12 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bool", name = "orelse", alias = "op orelse"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolOrElse,
+    #[strum(props(p = "Bool", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 ('a -> (char * 'a) option) -> 'a -> (bool * 'a) \
+                option"
+    ))]
+    BoolScan,
     #[strum(props(p = "Bool", name = "toString", type = "bool -> string"))]
     BoolToString,
     #[strum(props(name = "true", type = "bool"))]
@@ -237,6 +243,12 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Char", name = "pred", throws = "Chr"))]
     #[strum(props(type = "char -> char"))]
     CharPred,
+    #[strum(props(p = "Char", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 ('a -> (char * 'a) option) -> 'a -> (char * 'a) \
+                option"
+    ))]
+    CharScan,
     #[strum(props(p = "Char", name = "succ", throws = "Chr"))]
     #[strum(props(type = "char -> char"))]
     CharSucc,
@@ -314,6 +326,12 @@ pub enum BuiltInFunction {
     #[strum(props(type = "date -> `month`"))]
     DateMonthFn,
     /// `Date.second d`.
+    #[strum(props(p = "Date", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 ('a -> (char * 'a) option) -> 'a -> (date * 'a) \
+                option"
+    ))]
+    DateScan,
     #[strum(props(p = "Date", name = "second", type = "date -> int"))]
     DateSecond,
     /// `Date.toString d`.
@@ -590,6 +608,12 @@ pub enum BuiltInFunction {
     IntRem,
     #[strum(props(p = "Int", name = "sameSign", type = "int * int -> bool"))]
     IntSameSign,
+    #[strum(props(p = "Int", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 radix -> ('a -> (char * 'a) option) -> 'a -> (int \
+                * 'a) option"
+    ))]
+    IntScan,
     #[strum(props(p = "Int", name = "sign", type = "int -> int"))]
     IntSign,
     #[strum(props(p = "Int", name = "*", type = "int * int -> int"))]
@@ -1154,6 +1178,12 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Real", name = "sameSign"))]
     #[strum(props(type = "real * real -> bool"))]
     RealSameSign,
+    #[strum(props(p = "Real", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 ('a -> (char * 'a) option) -> 'a -> (real * 'a) \
+                option"
+    ))]
+    RealScan,
     #[strum(props(p = "Real", name = "sign"))]
     #[strum(props(type = "real -> int", throws = "Domain"))]
     RealSign,
@@ -1312,6 +1342,12 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "fields", global = "fields"))]
     #[strum(props(type = "(char -> bool) -> string -> string list"))]
     StringFields,
+    #[strum(props(p = "String", name = "fromCString"))]
+    #[strum(props(type = "string -> string option"))]
+    StringFromCString,
+    #[strum(props(p = "String", name = "fromString"))]
+    #[strum(props(type = "string -> string option"))]
+    StringFromString,
     #[strum(props(p = "String", name = ">="))]
     #[strum(props(type = "string * string -> bool"))]
     StringGe,
@@ -1344,6 +1380,12 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "<>"))]
     #[strum(props(type = "string * string -> bool"))]
     StringNe,
+    #[strum(props(p = "String", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 ('a -> (char * 'a) option) -> 'a -> (string * 'a) \
+                option"
+    ))]
+    StringScan,
     #[strum(props(p = "String", name = "size", global = true))]
     #[strum(props(type = "string -> int"))]
     StringSize,
@@ -1357,6 +1399,12 @@ pub enum BuiltInFunction {
     #[strum(props(type = "string * int * int -> string"))]
     #[strum(props(throws = "Subscript"))]
     StringSubstring,
+    #[strum(props(p = "String", name = "toCString"))]
+    #[strum(props(type = "string -> string"))]
+    StringToCString,
+    #[strum(props(p = "String", name = "toString"))]
+    #[strum(props(type = "string -> string"))]
+    StringToString,
     #[strum(props(p = "String", name = "tokens", global = "tokens"))]
     #[strum(props(type = "(char -> bool) -> string -> string list"))]
     StringTokens,
@@ -1493,6 +1541,12 @@ pub enum BuiltInFunction {
     #[strum(props(type = "unit -> time"))]
     TimeNow,
     /// `Time.- (t1, t2)`: time subtraction.
+    #[strum(props(p = "Time", name = "scan", throws = "Time"))]
+    #[strum(props(
+        type = "forall 1 ('a -> (char * 'a) option) -> 'a -> (time * 'a) \
+                option"
+    ))]
+    TimeScan,
     #[strum(props(p = "Time", name = "-", type = "time * time -> time"))]
     TimeSub,
     /// `Time.toMicroseconds t`: returns microseconds.
@@ -1759,6 +1813,12 @@ pub enum BuiltInFunction {
     WordOpTimes,
     #[strum(props(p = "Word", name = "orb", type = "word * word -> word"))]
     WordOrb,
+    #[strum(props(p = "Word", name = "scan"))]
+    #[strum(props(
+        type = "forall 1 radix -> ('a -> (char * 'a) option) -> 'a -> \
+                (word * 'a) option"
+    ))]
+    WordScan,
     #[strum(props(p = "Word", name = "toInt", type = "word -> int"))]
     WordToInt,
     #[strum(props(p = "Word", name = "toIntX", type = "word -> int"))]
