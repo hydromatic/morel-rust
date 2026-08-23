@@ -575,7 +575,6 @@ fun f NONE:int list = []
   | f (SOME x):string list = [];
 > stdIn:1.5-2.32 Error: parameter or result constraints of clauses don't agree [tycon mismatch]
 >   raised at: stdIn:1.5-2.32
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -730,13 +729,12 @@ foo3 [true, false];
 fun one () = 1;
 > val one = fn : unit -> int
 
-set("mode", "validate");
-> val it = () : unit
 one ();
 > val it = 1 : int
+set("mode", "validate");
+> val it = () : unit
 one {};
 > val it = 1 : int
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -1125,7 +1123,6 @@ datatype 'a tree = LEAF of 'a | NODE of 'a tree * 'a * 'a tree;
 
 set("mode", "validate");
 > val it = () : unit
-
 (* Function that creates a quadratic unification case. *)
 fun quadratic_case () =
   let
@@ -1395,8 +1392,6 @@ fun quadratic_case3 () =
 >        ('ck -> ('cl -> 'cm) -> ('ck -> 'cl) -> 'cm) * ('cn -> 'cn * 'cn) *
 >        ('co -> 'co list) * ('cp -> 'cp option) * ('cq -> 'cq * 'cq * 'cq) *
 >        ('cr -> 'cs -> 'cr * 'cs) * ('ct -> {field:'ct}) * ('cu -> 'cu)
-
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -1452,10 +1447,6 @@ factorize 101;
 Sys.set ("stringDepth", 1000000);
 > val it = () : unit
 
-
-set("mode", "validate");
-> val it = () : unit
-
 (* Generates a program of length 'n', to stress the unifier. *)
 fun program n =
   let
@@ -1500,8 +1491,6 @@ let  val i0 = 0; val i1 = 1; val i2 = 2; val i3 = 3; val i4 = i2 * i2; val i5 = 
 >     int * int * int * int * int
 
 (*) 'typeof' in evaluate mode
-set("mode", "evaluate");
-> val it = () : unit
 
 fn x: typeof 1 => true;
 > val it = fn : int -> bool

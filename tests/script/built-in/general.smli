@@ -111,15 +111,9 @@ General.ignore;
 General.ignore (1 + 2);
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
 Sys.plan ();
 > val it =
->   "apply(fnValue General.ignore, argCode apply2(fnValue +, constant(1), constant(2)))"
+>   "apply(fnValue General.ignore, argCode apply2(fnValue Int.+, constant(1), constant(2)))"
 >   : string
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) End general.smli

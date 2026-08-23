@@ -18,9 +18,9 @@
  *
  * Tests for logical expressions.
  *)
+
 set("mode", "validate");
 > val it = () : unit
-
 val emps = scott.emps;
 > val emps = <relation>
 >   : {comm:real, deptno:int, empno:int, ename:string, hiredate:string,
@@ -91,6 +91,8 @@ forall e in emps
   where e.deptno = 10
   require e.sal > 1000.0;
 > val it = true : bool
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Answer to Q3 using unconstrained variables. *)
 (* TODO
@@ -100,6 +102,8 @@ forall e
 > val it = true : bool
 *)
 
+set("mode", "validate");
+> val it = () : unit
 (* Q4. Find all departments with at least one clerk. *)
 from d in depts
   where (exists e in emps
@@ -128,8 +132,6 @@ from d in depts
 >   [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
 >    {deptno=40,dname="OPERATIONS",loc="BOSTON"}]
 >   : {deptno:int, dname:string, loc:string} bag
-
-
 set("mode", "evaluate");
 > val it = () : unit
 

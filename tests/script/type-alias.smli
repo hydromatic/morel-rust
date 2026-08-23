@@ -92,35 +92,49 @@ type u2 = u2 list and v2 = u2;
 (* The following sections are validated, not evaluated: morel-rust
  * does not yet mark a displaced datatype '?.d', nor keep a value of
  * one from acquiring the datatype that took over its name. *)
-set("mode", "validate");
-> val it = () : unit
 
 (* A datatype is generative, so it cannot be expanded; the displaced
  * type is displayed '?.d2', as in Standard ML. *)
 datatype d2 = A2 | B2;
 > datatype d2 = A2 | B2
+set("mode", "validate");
+> val it = () : unit
 type d2 = d2 list;
 > type d2 = ?.d2 list
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Shadowing the same name twice gives two distinct displaced types.
  * Standard ML displays both '?.d3', which does not distinguish them;
  * we expand the alias, which does. *)
 datatype d3 = A3 | B3;
 > datatype d3 = A3 | B3
+set("mode", "validate");
+> val it = () : unit
 type d3 = d3 list;
 > type d3 = ?.d3 list
 type d3 = d3 list;
 > type d3 = ?.d3 list list
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Each displaced datatype is a separate type, though both print '?.e3'.
 datatype e3 = P3 | Q3;
 > datatype e3 = P3 | Q3
+set("mode", "validate");
+> val it = () : unit
 type e3 = e3 list;
 > type e3 = ?.e3 list
+set("mode", "evaluate");
+> val it = () : unit
 datatype e3 = R3 | S3;
 > datatype e3 = R3 | S3
+set("mode", "validate");
+> val it = () : unit
 type e3 = e3 list;
 > type e3 = ?.e3 list
+set("mode", "evaluate");
+> val it = () : unit
 
 (* A displaced datatype keeps its identity: its constructors still
  * belong to it, and match against it. Whether a name still refers to
@@ -128,12 +142,16 @@ type e3 = e3 list;
  * prints 'e4' before the name is taken over and '?.e4' after. *)
 datatype d4 = A4 | B4;
 > datatype d4 = A4 | B4
+set("mode", "validate");
+> val it = () : unit
 type d4 = d4 list;
 > type d4 = ?.d4 list
 B4;
 > val it = B4 : ?.d4
 [A4];
 > val it = [A4] : ?.d4 list
+set("mode", "evaluate");
+> val it = () : unit
 case A4 of A4 => 1 | B4 => 2;
 > val it = 1 : int
 
@@ -144,11 +162,13 @@ val x4 = P4;
 > val x4 = P4 : e4
 datatype e4 = R4 | S4;
 > datatype e4 = R4 | S4
+set("mode", "validate");
+> val it = () : unit
 x4;
 > val it = P4 : ?.e4
-val y4 = R4;
-> val y4 = R4 : e4
 set("mode", "evaluate");
 > val it = () : unit
+val y4 = R4;
+> val y4 = R4 : e4
 
 (*) End type-alias.smli

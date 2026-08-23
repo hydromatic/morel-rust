@@ -132,9 +132,9 @@ Sys.plan ();
 > val it =
 >   "apply2(fnValue Relational.iterate, from(sink join(pat e_1, exp constant([[7839, KING, 0], [7566, JONES, 7839], [7698, BLAKE, 7839], [7782, CLARK, 7839], [7788, SCOTT, 7566], [7902, FORD, 7566], [7499, ALLEN, 7698], [7521, WARD, 7698], [7654, MARTIN, 7698], [7844, TURNER, 7698], [7900, JAMES, 7698], [7934, MILLER, 7782], [7876, ADAMS, 7788], [7369, SMITH, 7902]]), sink where(condition apply2(fnValue =, apply(fnValue nth:2, argCode get(name e)), constant(0)), sink collect(get(name e))))), match(v, apply(fnCode match((oldList, newList), from(sink join(pat d, exp get(name newList), sink join(pat e, exp constant([[7839, KING, 0], [7566, JONES, 7839], [7698, BLAKE, 7839], [7782, CLARK, 7839], [7788, SCOTT, 7566], [7902, FORD, 7566], [7499, ALLEN, 7698], [7521, WARD, 7698], [7654, MARTIN, 7698], [7844, TURNER, 7698], [7900, JAMES, 7698], [7934, MILLER, 7782], [7876, ADAMS, 7788], [7369, SMITH, 7902]]), sink where(condition apply2(fnValue =, apply(fnValue nth:2, argCode get(name e)), apply(fnValue nth:0, argCode get(name d))), sink collect(get(name e))))))), argCode get(name v))))"
 >   : string
-
 set("mode", "evaluate");
 > val it = () : unit
+
 Relational.sum (bag [1, 2, 3]);
 > val it = 6 : int
 Sys.plan ();
@@ -273,6 +273,8 @@ Sys.plan ();
 > val it =
 >   "apply2(fnValue notelem, tuple(constant(1), constant(2)), tuple(tuple(constant(0), constant(1)), tuple(constant(2), constant(3))))"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Repeat the above tests for the bag version of notelem. *)
 1 notelem bag [1, 2, 3];
@@ -291,8 +293,6 @@ Sys.plan ();
 > val it = true : bool
 
 (*) The "compare" function.
-set("mode", "evaluate");
-> val it = () : unit
 Relational.compare;
 > val it = fn : 'a * 'a -> order
 Relational.compare (1, 2);

@@ -298,9 +298,6 @@ prefixes ["cat", "dog", "", "car", "cart"];
 fun mustBeList (list: 'a list) = list;
 > val mustBeList = fn : 'a list -> 'a list
 
-set("mode", "validate");
-> val it = () : unit
-
 (* Fixed-point over union.
  * A naive algorithm recomputes the whole set each hop,
  * so is not very efficient. *)
@@ -366,10 +363,6 @@ from s in states_within2 "CA" 10 group {} compute count over ();
 > val it = [48] : int list
 from s in states_within2 "CA" 11 group {} compute count over ();
 > val it = [49] : int list
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Floyd-Warshall algorithm (shortest path in weighted graph)
  * Data from https://en.wikipedia.org/wiki/Floyd%E2%80%93Warshall_algorithm *)

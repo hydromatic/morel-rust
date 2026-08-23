@@ -924,8 +924,6 @@ foo 3;
 val longest = foldl (fn (s, t) => if size s > size t then s else t) "";
 > val longest = fn : string list -> string
 
-set("mode", "validate");
-> val it = () : unit
 longest ["ab", "cde", "", "f"];
 > val it = "cde" : string
 longest [];
@@ -939,8 +937,12 @@ in
   f
 end;
 > val it = fn : int -> int
+set("mode", "validate");
+> val it = () : unit
 it 1;
 > val it = 26 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Same as previous, using 'val rec'
 let
@@ -950,8 +952,12 @@ in
   f
 end;
 > val it = fn : int -> int
+set("mode", "validate");
+> val it = () : unit
 it 1;
 > val it = 26 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 let
   fun odd 0 = false
@@ -975,22 +981,13 @@ in
 end;
 > val it = (false,false,true) : bool * bool * bool
 
-
-set("mode", "evaluate");
-> val it = () : unit
-
 (*) An example where identifiers with primes (') are more readable
 fun distance (x, y) (x', y') =
   Math.sqrt ((x - x') * (x - x') + (y - y') * (y - y'));
 > val distance = fn : real * real -> real * real -> real
 
-set("mode", "validate");
-> val it = () : unit
 distance (0.0, 1.0) (4.0, 4.0);
-> val it = 5.0 : real
-
-set("mode", "evaluate");
-> val it = () : unit
+> val it = 5 : real
 
 (* Let-polymorphism --------------------------------------------------
  * A value bound in a local 'let' can be used at several types in the
@@ -1098,41 +1095,29 @@ val SOME i = NONE;
 > uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.18
 
-set("mode", "validate");
-> val it = () : unit
-
 val SOME (q as (1, i), SOME true) = SOME ((1, 2), SOME true);
 > val q = (1,2) : int * int
 > val i = 2 : int
 
 val SOME (i, NONE) = SOME (1, SOME false);
-> uncaught exception Bind
+> uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.42
-
-
-set("mode", "evaluate");
-> val it = () : unit
 
 Sys.set ("matchCoverageEnabled", false);
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
 val (i, true) = (1, true);
 > val i = 1 : int
 val (i, false) = (1, true);
-> uncaught exception Bind
+> uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:1.5-1.27
 let
   val (i, false) = (1, true)
 in
   i + 1
 end;
-> uncaught exception Bind
+> uncaught exception Bind [nonexhaustive binding failure]
 >   raised at: stdIn:2.7-2.29
-
-set("mode", "evaluate");
-> val it = () : unit
 
 Sys.unset "matchCoverageEnabled";
 > val it = () : unit

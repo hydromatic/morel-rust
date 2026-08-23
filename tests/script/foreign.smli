@@ -25,7 +25,6 @@ Sys.set ("lineWidth", 78);
 
 set("mode", "validate");
 > val it = () : unit
-
 scott;
 > val it =
 >   {bonuses=<relation>,depts=<relation>,emps=<relation>,salgrades=<relation>}
@@ -38,6 +37,8 @@ scott;
 > val it = <relation> : {deptno:int, dname:string, loc:string} bag
 scott.depts;
 > val it = <relation> : {deptno:int, dname:string, loc:string} bag
+set("mode", "evaluate");
+> val it = () : unit
 from d in scott.depts;
 > val it =
 >   [{deptno=10,dname="ACCOUNTING",loc="NEW YORK"},
@@ -50,6 +51,8 @@ from d in scott.depts yield {d.dname, d.loc};
 >   [{dname="ACCOUNTING",loc="NEW YORK"},{dname="RESEARCH",loc="DALLAS"},
 >    {dname="SALES",loc="CHICAGO"},{dname="OPERATIONS",loc="BOSTON"}]
 >   : {dname:string, loc:string} bag
+set("mode", "validate");
+> val it = () : unit
 foodmart;
 > val it =
 >   {account=<relation>,agg_c_10_sales_fact_1997=<relation>,
@@ -229,6 +232,8 @@ foodmart;
 >       warehouse_class:{description:string, warehouse_class_id:int} bag}
 #days foodmart;
 > val it = <relation> : {day:int, week_day:string} bag
+set("mode", "evaluate");
+> val it = () : unit
 
 from d in scott.depts
 where d.deptno elem (from e in scott.emps
@@ -271,6 +276,8 @@ val emp2 =
 >    {deptno=20,ename="FORD",job="ANALYST",salIn=fn},
 >    {deptno=10,ename="MILLER",job="CLERK",salIn=fn}]
 >   : {deptno:int, ename:string, job:string, salIn:real -> real} bag
+set("mode", "validate");
+> val it = () : unit
 from e in emp2
   yield {e.ename, e.job, salIn2020 = e.salIn 2020.0, salIn2021 = e.salIn 2021.0};
 > val it =
@@ -289,8 +296,6 @@ from e in emp2
 >    {ename="FORD",job="ANALYST",salIn2020=3150.0,salIn2021=3300.0},
 >    {ename="MILLER",job="CLERK",salIn2020=1560.0,salIn2021=1820.0}]
 >   : {ename:string, job:string, salIn2020:real, salIn2021:real} bag
-
-
 set("mode", "evaluate");
 > val it = () : unit
 

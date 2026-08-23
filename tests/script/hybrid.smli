@@ -27,26 +27,32 @@ Sys.set ("stringDepth", ~1);
 Sys.set ("hybrid", true);
 > val it = () : unit
 
-set("mode", "validate");
-> val it = () : unit
 from e in scott.emps
 where e.deptno = 20
 yield e.empno;
 > val it = [7369,7566,7788,7876,7902] : int bag
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "calcite(plan LogicalProject(empno=[$2])\n  LogicalFilter(condition=[=($1, 20)])\n    LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n      JdbcTableScan(table=[[scott, EMP]])\n)"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Query in Hybrid mode (20% Morel -> 80% Calcite)
 from e in (Bag.filter (fn e2 => e2.empno < 7700) scott.emps)
 where e.deptno = 20
 yield e.empno;
 > val it = [7369,7566] : int bag
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "calcite(plan LogicalProject(empno=[$2])\n  LogicalFilter(condition=[=($1, 20)])\n    LogicalTableFunctionScan(invocation=[morelTable('#filter Bag (fn e2 => #empno e2 < 7700) (#emps scott)', '{\n  \"fields\": [\n    {\n      \"type\": \"REAL\",\n      \"nullable\": false,\n      \"name\": \"comm\"\n    },\n    {\n      \"type\": \"INTEGER\",\n      \"nullable\": false,\n      \"name\": \"deptno\"\n    },\n    {\n      \"type\": \"INTEGER\",\n      \"nullable\": false,\n      \"name\": \"empno\"\n    },\n    {\n      \"type\": \"VARCHAR\",\n      \"nullable\": false,\n      \"precision\": -1,\n      \"name\": \"ename\"\n    },\n    {\n      \"type\": \"VARCHAR\",\n      \"nullable\": false,\n      \"precision\": -1,\n      \"name\": \"hiredate\"\n    },\n    {\n      \"type\": \"VARCHAR\",\n      \"nullable\": false,\n      \"precision\": -1,\n      \"name\": \"job\"\n    },\n    {\n      \"type\": \"INTEGER\",\n      \"nullable\": false,\n      \"name\": \"mgr\"\n    },\n    {\n      \"type\": \"REAL\",\n      \"nullable\": false,\n      \"name\": \"sal\"\n    }\n  ],\n  \"nullable\": false\n}')], rowType=[RecordType(REAL comm, INTEGER deptno, INTEGER empno, VARCHAR ename, VARCHAR hiredate, VARCHAR job, INTEGER mgr, REAL sal)])\n)"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Query in Hybrid mode (99% Calcite; there is a variable but it is not
  * referenced by Calcite code) *)
@@ -58,10 +64,14 @@ in
   yield e.empno
 end;
 > val it = [7369,7566,7788,7876,7902] : int bag
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "calcite(plan LogicalProject(empno=[$2])\n  LogicalFilter(condition=[=($1, 20)])\n    LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n      JdbcTableScan(table=[[scott, EMP]])\n)"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Query in Hybrid mode (90% Calcite; Calcite code references a variable
  * and an expression from the enclosing environment) *)
@@ -74,10 +84,14 @@ in
   yield e.empno + 13 mod ten
 end;
 > val it = [7372,7569,7791,7879,7905] : int bag
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "let(matchCode0 match(ten, apply2(fnValue +, constant(7), constant(3))), resultCode calcite(plan LogicalProject($f0=[+($2, MOD(13, morelScalar('ten', '{\n  \"type\": \"INTEGER\",\n  \"nullable\": false\n}')))])\n  LogicalFilter(condition=[=($1, morelScalar('#nth List (ten :: 20 :: 30 :: [40], 1)', '{\n  \"type\": \"INTEGER\",\n  \"nullable\": false\n}'))])\n    LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n      JdbcTableScan(table=[[scott, EMP]])\n))"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (* Query in Hybrid mode (90% Calcite; Calcite code references a function
  * from the enclosing environment) *)
@@ -88,12 +102,12 @@ in
   yield double d.deptno
 end;
 > val it = [20,40,60,80] : int bag
+set("mode", "validate");
+> val it = () : unit
 Sys.plan();
 > val it =
 >   "calcite(plan LogicalProject($f0=[*($0, 2)])\n  JdbcTableScan(table=[[scott, DEPT]])\n)"
 >   : string
-
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -106,8 +120,6 @@ set("mode", "validate");
 > val it = () : unit
 Sys.plan();
 > val it = "calcite(plan LogicalValues(tuples=[[]])\n)" : string
-
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -121,7 +133,6 @@ Sys.plan();
 > val it =
 >   "apply2(fnValue List.map, match(e, tuple(constant(1), constant(true))), calcite(plan LogicalValues(tuples=[[]])\n))"
 >   : string
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -136,8 +147,6 @@ Sys.plan();
 > val it =
 >   "calcite(plan LogicalProject(a=[+(1, $0)], b=[true])\n  LogicalValues(tuples=[[]])\n)"
 >   : string
-
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -151,8 +160,6 @@ Sys.plan();
 > val it =
 >   "apply2(fnValue List.map, match(e, tuple(apply2(fnValue +, constant(1), get(name e)), constant(true))), calcite(plan LogicalValues(tuples=[[]])\n))"
 >   : string
-
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -165,8 +172,6 @@ set("mode", "validate");
 > val it = () : unit
 Sys.plan();
 > val it = "calcite(plan LogicalValues(tuples=[[{ 1, true }]])\n)" : string
-
-
 set("mode", "evaluate");
 > val it = () : unit
 
@@ -226,6 +231,8 @@ Sys.plan();
 > val it =
 >   "apply2(fnValue Bag.map, match(e, apply(fnValue nth:2, argCode get(name e))), apply2(fnValue Bag.filter, match(e_1, apply2(fnValue =, apply(fnValue nth:1, argCode get(name e)), constant(30))), calcite(plan LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n  JdbcTableScan(table=[[scott, EMP]])\n)))"
 >   : string
+set("mode", "evaluate");
+> val it = () : unit
 
 (*) Union followed by group
 from e in scott.emps
@@ -324,8 +331,6 @@ end;
 (* Recursive query, 4 — same shape as #3 but expressed via
  * `Relational.iterate` (or its global alias `iterate`) instead of
  * a hand-written recursive function. *)
-set("mode", "evaluate");
-> val it = () : unit
 from i in iterate
     (from e in scott.emps
       where e.mgr = 0
