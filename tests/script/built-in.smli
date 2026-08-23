@@ -51,20 +51,8 @@ fn x => x + 1;
 Sys.plan ();
 > val it = "fn(bind(0) => apply2(fnValue Int.+, get(0), constant(1)))" : string
 
-(* Create a "not a number" value whose sign bit is true. IEEE does not specify
-   whether the sign bit of NaN values should be set. It is useful to
-   "standardize" behavior for this particular value, for the duration of this
-   test, to behave similarly to negative numbers. Otherwise subsequent tests
-   will give different results on different hardware. *)
-val nan =
-  let
-     val n = Real.posInf / Real.posInf
-  in
-     if Real.signBit n then n else ~n
- end;
+val nan = abs (Real.posInf / Real.posInf);
 > val nan = nan : real
-Real.signBit nan;
-> val it = true : bool
 
 (* Datatypes ------------------------------------------------------ *)
 
