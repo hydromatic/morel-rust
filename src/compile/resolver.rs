@@ -135,6 +135,25 @@ fn check_unbounded_extents(decl: &CoreDecl, errors: &mut Vec<(String, Span)>) {
                     check_expr(&m.expr, errors);
                 }
             }
+            CoreExpr::Extent(t, span) => {
+                // A query whose only step is an unbounded scan
+                // simplifies to the extent alone, so no scan survives
+                // for the check below to see. There is no pattern left
+                // to name, so the message names the type.
+                // The extent's type is the collection; name the type
+                // whose values cannot be enumerated.
+                let element = match t.as_ref() {
+                    Type::List(e) | Type::Bag(e) => e.clone(),
+                    _ => t.clone(),
+                };
+                errors.push((
+                    format!(
+                        "cannot enumerate all values of type '{}'",
+                        element
+                    ),
+                    span.clone(),
+                ));
+            }
             CoreExpr::Fn(_, _, _) => {
                 // Skip function bodies: their Extents may be
                 // grounded by inlining at the call site.

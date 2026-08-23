@@ -28,7 +28,7 @@
 //! function inlining, no case/exists/string-prefix).
 
 use crate::compile::core::{
-    Binding, Decl, Expr, Match, Pat, Step, StepEnv, StepKind, ValBind,
+    Binding, Decl, Expr, Match, Pat, PatField, Step, StepEnv, StepKind, ValBind,
 };
 use crate::compile::fbbt;
 use crate::compile::generator::Cache;
@@ -111,6 +111,12 @@ pub fn expand_from_with_scope_rec(
     // infinite int scans (bound deduced by FBBT, not literal) become
     // list-typed Extent scans grounded by the range extractor.
     let prep = |steps: Vec<Step>| {
+        // An unbounded scan may have any pattern; its rows are the
+        // values of the pattern's variables, so `from (x, y)` asks
+        // exactly what `from x, y` asks. Split it before anything
+        // else looks at it, so that every extent scan below has an
+        // identifier for a pattern.
+        let steps = split_extent_patterns(steps);
         if !has_infinite_range_scan(&steps) {
             return steps;
         }
@@ -591,6 +597,81 @@ fn collect_fn_bindings(decl: &Decl, env: &mut FnEnv) {
         {
             env.insert(name.clone(), (pat.clone(), expr.clone()));
         }
+    }
+}
+
+/// Replaces each `Scan(p, Extent)` whose pattern is not a plain
+/// variable with one scan per variable of `p`, in the order they
+/// appear. The rows are the same: an unbounded scan enumerates the
+/// values of its pattern's variables, and the pattern's shape only
+/// says how they are grouped for the steps that follow, which reach
+/// them by name either way.
+///
+/// A pattern that selects some of the values of its type rather than
+/// naming them all -- a constructor, literal or list pattern -- is
+/// left alone, and reported later.
+fn split_extent_patterns(steps: Vec<Step>) -> Vec<Step> {
+    if !steps.iter().any(|s| {
+        matches!(&s.kind,
+            StepKind::Scan(p, source, cond)
+                if cond.is_none()
+                    && matches!(source.as_ref(), Expr::Extent(_, _))
+                    && !matches!(p.as_ref(), Pat::Identifier(_, _))
+                    && names_only(p))
+    }) {
+        return steps;
+    }
+    let mut out = Vec::new();
+    for step in steps {
+        match &step.kind {
+            StepKind::Scan(p, source, None)
+                if let Expr::Extent(_, span) = source.as_ref()
+                    && !matches!(p.as_ref(), Pat::Identifier(_, _))
+                    && names_only(p) =>
+            {
+                let mut vars: Vec<(Rc<Type>, String)> = Vec::new();
+                p.for_each_id_pat(&mut |(t, n)| {
+                    vars.push((Rc::new(t.clone()), n.to_string()))
+                });
+                for (t, name) in vars {
+                    let extent = Expr::Extent(
+                        Rc::new(Type::Bag(t.clone())),
+                        span.clone(),
+                    );
+                    out.push(Step::new(
+                        StepKind::Scan(
+                            Box::new(Pat::Identifier(t, name)),
+                            Box::new(extent),
+                            None,
+                        ),
+                        step.env.clone(),
+                    ));
+                }
+            }
+            _ => out.push(step),
+        }
+    }
+    out
+}
+
+/// Whether every part of `p` names values rather than selecting them:
+/// a variable, a tuple or a record. A constructor, literal, list or
+/// wildcard pattern does not.
+///
+/// An `as` pattern is excluded, though it names values too: its parts
+/// are not independent of the whole, so splitting it would enumerate
+/// `p`, `b` and `c` of `p as (b, c)` separately and give their cross
+/// product rather than the pairs.
+fn names_only(p: &Pat) -> bool {
+    match p {
+        Pat::Identifier(_, _) => true,
+        Pat::Tuple(_, ps) | Pat::List(_, ps) => {
+            matches!(p, Pat::Tuple(_, _)) && ps.iter().all(names_only)
+        }
+        Pat::Record(_, fields, _) => fields.iter().all(|f| match f {
+            PatField::Labeled(_, q) | PatField::Anonymous(q) => names_only(q),
+        }),
+        _ => false,
     }
 }
 

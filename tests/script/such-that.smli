@@ -1879,4 +1879,80 @@ end;
 >
 > val it : {d:int, n:string} bag
 
+(* An unbounded scan may have any pattern that names values rather than
+ * selecting them; its rows are the values of the pattern's variables, so
+ * "from (x, y)" asks what "from x, y" asks. The result is a bag until
+ * hydromatic/morel#443 makes an unbounded scan ordered and distinct;
+ * morel-java's answers are the same rows as a list. *)
+from (x, y) where x elem [1, 2] andalso y elem [3];
+> x y
+> - -
+> 1 3
+> 2 3
+>
+> val it : {x:int, y:int} bag
+from {b, i} where i elem [3, 5] andalso b;
+> b    i
+> ---- -
+> true 3
+> true 5
+>
+> val it : {b:bool, i:int} bag
+
+(* A component that no step refers to is still a column of the result, and is
+ * materialized if its type is finite. *)
+from (b: bool, i) where i elem [3, 5];
+> b     i
+> ----- -
+> false 3
+> false 5
+> true  3
+> true  5
+>
+> val it : {b:bool, i:int} bag
+from {b: bool, i} where i elem [3, 4, 5];
+> b     i
+> ----- -
+> false 3
+> false 4
+> false 5
+> true  3
+> true  4
+> true  5
+>
+> val it : {b:bool, i:int} bag
+
+(*) Nested products are decomposed too.
+from (b: bool, (c: bool, i)) where i elem [3, 5] andalso b andalso c;
+> b    c    i
+> ---- ---- -
+> true true 3
+> true true 5
+>
+> val it : {b:bool, c:bool, i:int} bag
+
+(* An 'as' pattern names the whole product as well as its components, so its
+ * parts are not independent of the whole and it is not split. morel-java
+ * materializes the product's extent and gives
+ * "{b=true,c=false,p=(true,false)}" and "{b=true,c=true,p=(true,true)}". *)
+from p as (b: bool, c: bool) where b;
+> stdIn:1.6-1.30 Error: pattern '_' is not grounded
+>   raised at: stdIn:1.6-1.30
+
+(* A variable whose values cannot be enumerated is an error. Where the query
+ * still has a scan, the expander names the pattern; where the query has one
+ * step and has simplified to the extent alone, there is no pattern left to
+ * name, so the message names the type. Either way it is an error, not a
+ * crash. *)
+from i;
+> stdIn:1.6 Error: cannot enumerate all values of type ''a'
+>   raised at: stdIn:1.6
+from i, j;
+> stdIn:1.6 Error: pattern 'i' is not grounded
+>   raised at: stdIn:1.6
+from b: bool;
+> stdIn:1.6 Error: cannot enumerate all values of type 'bool'
+>   raised at: stdIn:1.6
+
+
 (*) End suchThat.smli
