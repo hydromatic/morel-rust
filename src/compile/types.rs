@@ -56,6 +56,37 @@ pub enum Type {
     /// `forall tyVars ... type_`, where there are parameter_count
     /// type variables `'a`, `'b`, etc.
     Forall(Rc<Type>, usize),
+
+    /// `Qualified(predicates, type_)` represents a type qualified by one or
+    /// more overload constraints, for example
+    /// `{foo : 'a -> 'b} => 'a -> 'b`: the type of a function that, for any
+    /// `'a` and `'b` such that there is an instance of the overloaded name
+    /// `foo` of type `'a -> 'b`, maps `'a` to `'b`.
+    ///
+    /// Following "A Second Look at Overloading" (Odersky, Wadler, Wehr
+    /// 1995), an overloaded application whose argument type is not yet known
+    /// records a predicate rather than resolving eagerly; the predicate is
+    /// discharged when the type variable becomes concrete.
+    Qualified(Vec<Predicate>, Rc<Type>),
+}
+
+/// An overload constraint: the name `name` must have an instance whose type
+/// is `type_` (a function type over the enclosing type's type variables).
+///
+/// `candidates` records the instance types that were in scope when the
+/// predicate was formed, so that the constraint can be re-created (with fresh
+/// variables) each time the type is instantiated.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct Predicate {
+    pub name: String,
+    pub type_: Rc<Type>,
+    pub candidates: Vec<Rc<Type>>,
+}
+
+impl Display for Predicate {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} : {}", self.name, self.type_)
+    }
 }
 
 impl Type {
@@ -237,6 +268,22 @@ impl Type {
                 }
             }
             Type::Primitive(p) => f.write_str(p.as_str()),
+            Type::Qualified(predicates, type_) => {
+                // A single predicate is rendered in braces,
+                // "{foo : 'a -> 'b}"; several in parentheses,
+                // "(first : ..., second : ...)".
+                let single = predicates.len() == 1;
+                f.write_str(if single { "{" } else { "(" })?;
+                for (i, p) in predicates.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                f.write_str(if single { "}" } else { ")" })?;
+                write!(f, " => ")?;
+                type_.describe(f, 0, 0)
+            }
             Type::Record(progressive, fields) => {
                 f.write_str("{")?;
                 for (i, (name, field_type)) in fields.iter().enumerate() {

@@ -1870,6 +1870,16 @@ impl BuiltInFunction {
     pub(crate) fn alias(&self) -> Option<&'static str> {
         self.get_str("alias")
     }
+
+    /// Returns whether `name` is the global name of a built-in overloaded
+    /// function (for example `only`, which is both `List.only` and
+    /// `Bag.only`).
+    ///
+    /// Only a user-declared overload (`over`/`inst`) can generalize to a
+    /// qualified type, so this tells the two apart.
+    pub(crate) fn is_built_in_overload(name: &str) -> bool {
+        BuiltInFunction::iter().any(|f| f.overloaded_name() == Some(name))
+    }
 }
 
 /// List of built-in records. They represent structures of the standard basis

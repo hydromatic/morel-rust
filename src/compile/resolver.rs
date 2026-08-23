@@ -2184,6 +2184,15 @@ impl<'a> Resolver<'a> {
 
         for val_bind in val_binds {
             let mut core_pat = self.resolve_pat(&val_bind.pat);
+            // If the binding uses an overloaded name at an abstract type, the
+            // type resolver left the overload constraint unresolved; record it
+            // as a predicate of a qualified type
+            // (hydromatic/morel#426).
+            if let Some(id) = val_bind.pat.id
+                && let Some(qualified) = self.type_map.get_qualified_type(id)
+            {
+                core_pat = core_pat.with_type(qualified);
+            }
             // Check if the expression has an alias annotation that
             // should propagate to the pattern type.
             if let Some(alias_type) =

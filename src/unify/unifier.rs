@@ -547,6 +547,17 @@ impl Substitution {
 
 /// Why unification failed.
 #[derive(Debug)]
+/// The result of a successful unification: the substitution, plus any
+/// overload constraints that were still unresolved when it finished.
+pub struct SubstitutionResult {
+    pub substitution: Substitution,
+    /// Ordinals, in the `constraints` argument of
+    /// [`Unifier::unify_with_constraints`], of the constraints that were
+    /// still unresolved. These become the predicates of a qualified type.
+    pub residual_constraints: Vec<usize>,
+}
+
+#[derive(Debug)]
 pub struct UnificationFailure {
     reason: String,
 }
@@ -710,6 +721,12 @@ pub enum ConstraintAction {
 
 /// Mutable constraint used during unification.
 struct MutableConstraint {
+    /// Ordinal of the constraint in the list passed to
+    /// [`Unifier::unify_with_constraints`].
+    ordinal: usize,
+    /// Name of the overloaded function that gave rise to this constraint, or
+    /// `None` if the constraint did not arise from overloading.
+    name: Option<String>,
     arg: Term,
     term_actions: TermActions,
 }
@@ -723,6 +740,13 @@ pub struct Constraint {
     pub candidates: Vec<Term>,
     /// Action for each candidate; the same length as `candidates`.
     pub actions: Vec<ConstraintAction>,
+    /// Name of the overloaded function that gave rise to this constraint, or
+    /// `None` if it did not arise from overloading.
+    ///
+    /// A named constraint that is still unresolved when unification finishes
+    /// becomes a predicate of a qualified type, and names itself in the
+    /// "no instance of 'x' matches argument type" error.
+    pub name: Option<String>,
 }
 
 impl Constraint {
@@ -734,6 +758,16 @@ impl Constraint {
             var,
             candidates,
             actions,
+            name: None,
+        }
+    }
+
+    /// Creates a constraint that remembers the name of the overloaded
+    /// function it came from.
+    pub fn named(var: Var, candidates: Vec<Term>, name: &str) -> Self {
+        Self {
+            name: Some(name.to_string()),
+            ..Self::new(var, candidates)
         }
     }
 
@@ -749,6 +783,7 @@ impl Constraint {
             var,
             candidates,
             actions,
+            name: None,
         }
     }
 }
@@ -780,6 +815,8 @@ pub struct Unifier {
 /// Workspace for Unification.
 struct Work<'a> {
     tracer: &'a dyn Tracer,
+    /// The unifier, for rendering terms in error messages.
+    unifier: &'a Unifier,
     seq_seq_queue: Rc<RefCell<VecDeque<(Sequence, Sequence)>>>,
     var_any_queue: Rc<RefCell<VecDeque<(Var, Term)>>>,
     constraint_queue: VecDeque<MutableConstraint>,
@@ -811,11 +848,13 @@ impl Display for Work<'_> {
 impl<'a> Work<'a> {
     fn new(
         tracer: &'a (dyn Tracer + 'a),
+        unifier: &'a Unifier,
         term_pairs: &[(Term, Term)],
         constraints: &[Constraint],
     ) -> Self {
         let mut work = Work {
             tracer,
+            unifier,
             var_any_queue: Rc::new(RefCell::new(VecDeque::new())),
             seq_seq_queue: Rc::new(RefCell::new(VecDeque::new())),
             constraint_queue: VecDeque::new(),
@@ -824,13 +863,15 @@ impl<'a> Work<'a> {
         term_pairs
             .iter()
             .for_each(|(left, right)| work.add(left.clone(), right.clone()));
-        for c in constraints {
+        for (ordinal, c) in constraints.iter().enumerate() {
             let mut ta = TermActions::new();
             for (candidate, action) in c.candidates.iter().zip(&c.actions) {
                 ta.left_list.push(candidate.clone());
                 ta.right_list.push(action.clone());
             }
             work.constraint_queue.push_back(MutableConstraint {
+                ordinal,
+                name: c.name.clone(),
                 arg: Term::Variable(c.var),
                 term_actions: ta,
             });
@@ -1000,7 +1041,19 @@ impl<'a> Work<'a> {
 
             if change_count > 0 {
                 match constraint.term_actions.size() {
-                    0 => return Self::failure("no valid overloads"),
+                    0 => {
+                        return match &constraint.name {
+                            Some(name) => Some(UnificationFailure {
+                                reason: format!(
+                                    "no instance of '{}' matches argument \
+                                     type '{}'",
+                                    name,
+                                    self.unifier.render_arg_type(&arg2)
+                                ),
+                            }),
+                            None => Self::failure("no valid overloads"),
+                        };
+                    }
                     1 => {
                         // Single candidate remains — fire its action and
                         // remove the constraint. The default action adds the
@@ -1281,6 +1334,19 @@ impl Unifier {
         }
     }
 
+    /// Renders the argument type of an overloaded function's type for an
+    /// error message: the parameter of `fn(param, result)`, or the whole term
+    /// if it is not a function type.
+    pub fn render_arg_type(&self, term: &Term) -> String {
+        if let Term::Sequence(seq) = term
+            && self.op_name(&seq.op) == "fn"
+            && seq.terms.len() == 2
+        {
+            return self.render(&seq.terms[0]);
+        }
+        self.render(term)
+    }
+
     /// Renders a sequence for an error message. See [`Unifier::render`].
     pub fn render_sequence(&self, seq: &Sequence) -> String {
         if let Some(ord) = self.orderedness_atom(&Term::Sequence(seq.clone())) {
@@ -1371,6 +1437,7 @@ impl Unifier {
         term_action_list: &[(Var, Rc<dyn Action>)],
     ) -> Result<Substitution, UnificationFailure> {
         self.unify_with_constraints(term_pairs, tracer, term_action_list, &[])
+            .map(|r| r.substitution)
     }
 
     pub fn unify_with_constraints(
@@ -1379,7 +1446,7 @@ impl Unifier {
         _tracer: &dyn Tracer,
         term_action_list: &[(Var, Rc<dyn Action>)],
         constraints: &[Constraint],
-    ) -> Result<Substitution, UnificationFailure> {
+    ) -> Result<SubstitutionResult, UnificationFailure> {
         let tracer = &NullTracer; // switch to PrintTracer for debugging
         // Multiple actions may be registered on the same variable
         // (e.g. two record-field selectors `v.a` and `v.b` on the
@@ -1421,7 +1488,7 @@ impl Unifier {
         //  => fail
         // if x in vars(f(s0, ..., sk))
 
-        let mut work = Work::new(tracer, term_pairs, constraints);
+        let mut work = Work::new(tracer, self, term_pairs, constraints);
 
         #[cfg(feature = "profiling")]
         println!("Before: {}", work);
@@ -1557,7 +1624,19 @@ impl Unifier {
                 println!("After: {}\n{}", work, self.substitution_string(&sub));
             }
 
-            return Ok(Substitution { substitutions });
+            // Any overload constraint that still has more than one candidate
+            // never had its argument type pinned down; surface it so that it
+            // can become a predicate of a qualified type.
+            let residual_constraints = work
+                .constraint_queue
+                .iter()
+                .filter(|c| c.name.is_some() && c.term_actions.size() > 1)
+                .map(|c| c.ordinal)
+                .collect();
+            return Ok(SubstitutionResult {
+                substitution: Substitution { substitutions },
+                residual_constraints,
+            });
         }
     }
 

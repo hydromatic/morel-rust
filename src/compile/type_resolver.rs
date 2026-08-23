@@ -29,7 +29,9 @@ use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::type_env::{BindType, SchemeTypeEnv, TypeEnv};
 use crate::compile::types;
 use crate::compile::types::Label;
-use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
+use crate::compile::types::{
+    Predicate, PrimitiveType, Subst, Type, TypeVariable,
+};
 use crate::eval::code::{LIBRARY, Lib};
 use crate::eval::file::TypedValue;
 use crate::shell::error::Error;
@@ -48,7 +50,7 @@ use crate::unify::unifier::{
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{self, Debug, Display, Formatter};
-use std::iter::zip;
+use std::iter::{once, zip};
 use std::rc::Rc;
 use types::ordinal_names;
 
@@ -90,6 +92,11 @@ pub struct TypeMap {
     /// type. Used by the pretty printer to format record arguments
     /// with field names.
     pub constructor_arg_types: HashMap<String, Type>,
+    /// Overload constraints that were still unresolved when unification
+    /// finished: `(name, type term, candidate instance terms)`. They become
+    /// the predicates of a qualified type; see
+    /// [`get_qualified_type`](TypeMap::get_qualified_type).
+    pub predicate_terms: Vec<(String, Term, Vec<Term>)>,
 }
 
 impl TypeMap {
@@ -101,6 +108,7 @@ impl TypeMap {
             node_var_map: node_var_map.clone(),
             var_term_map: HashMap::new(),
             op_defs,
+            predicate_terms: Vec::new(),
             var_alias_map: HashMap::new(),
             datatype_constructors: HashMap::new(),
             constructor_arg_types: HashMap::new(),
@@ -116,6 +124,83 @@ impl TypeMap {
     /// `Type::Alias` if the node's variable carries a type alias.
     pub fn get_type_with_alias(&self, id: i32) -> Option<Rc<Type>> {
         self.get_type_inner(id, true)
+    }
+
+    /// Fully resolves a term, following variables through
+    /// [`var_term_map`](TypeMap::var_term_map), and collects the variables
+    /// that remain free.
+    fn collect_free_vars(&self, term: &Term, vars: &mut Vec<Var>) {
+        match term {
+            Term::Variable(v) => match self.var_term_map.get(v) {
+                Some(t) => self.collect_free_vars(&t.clone(), vars),
+                None => {
+                    if !vars.contains(v) {
+                        vars.push(*v);
+                    }
+                }
+            },
+            Term::Sequence(seq) => {
+                seq.terms
+                    .iter()
+                    .for_each(|t| self.collect_free_vars(t, vars));
+            }
+        }
+    }
+
+    /// If any deduced overload predicate constrains the type variables of the
+    /// AST node `id`, returns the node's type qualified by those predicates;
+    /// otherwise `None`.
+    ///
+    /// The predicates and the body are converted together, so that they share
+    /// one type-variable numbering: `{foo : 'a -> 'b} => 'a -> 'b`.
+    pub fn get_qualified_type(&self, id: i32) -> Option<Rc<Type>> {
+        if self.predicate_terms.is_empty() {
+            return None;
+        }
+        let var = self.node_var_map.get(&id)?;
+        let body_term = self
+            .var_term_map
+            .get(var)
+            .cloned()
+            .unwrap_or(Term::Variable(*var));
+        let mut body_vars = Vec::new();
+        self.collect_free_vars(&body_term, &mut body_vars);
+        if body_vars.is_empty() {
+            return None;
+        }
+        let matching: Vec<&(String, Term, Vec<Term>)> = self
+            .predicate_terms
+            .iter()
+            .filter(|(_, t, _)| {
+                let mut vars = Vec::new();
+                self.collect_free_vars(t, &mut vars);
+                vars.iter().any(|v| body_vars.contains(v))
+            })
+            .collect();
+        if matching.is_empty() {
+            return None;
+        }
+        LIBRARY.with(|lib| {
+            let mut c = TermToTypeConverter {
+                type_map: self,
+                lib,
+                var_map: BTreeMap::new(),
+                with_alias: false,
+            };
+            let body = c.term_type(&body_term);
+            let predicates = matching
+                .iter()
+                .map(|(name, t, candidates)| Predicate {
+                    name: name.clone(),
+                    type_: c.term_type(t),
+                    candidates: candidates
+                        .iter()
+                        .map(|ct| c.term_type(ct))
+                        .collect(),
+                })
+                .collect();
+            Some(Rc::new(Type::Qualified(predicates, body)))
+        })
     }
 
     /// Resolves a unification variable directly to a Type. Used
@@ -1273,22 +1358,13 @@ impl TypeResolver {
             .map(|(var, term)| (term.clone(), Term::Variable(*var)))
             .collect();
 
-        let substitution = match self.unifier.unify_with_constraints(
+        let unify_result = match self.unifier.unify_with_constraints(
             term_pairs.as_ref(),
             &NullTracer,
             self.actions.as_ref(),
             &self.overload_constraints,
         ) {
-            Ok(x) => {
-                if false {
-                    eprintln!(
-                        "Unification result: {:?}\n{}",
-                        x.clone(),
-                        self.terms_to_string()
-                    );
-                }
-                x
-            }
+            Ok(x) => x,
             Err(x) => {
                 return Err(Error::Compile(
                     format!("Cannot deduce type: {}", x.reason()),
@@ -1306,8 +1382,23 @@ impl TypeResolver {
         // Create a map with the results of unification.
         let mut type_map =
             TypeMap::new(&self.node_var_map, Rc::clone(&self.unifier.op_defs));
-        for (v, term) in substitution.substitutions {
+        let residual_constraints = unify_result.residual_constraints;
+        let substitution = unify_result.substitution;
+        for (v, term) in substitution.substitutions.clone() {
             type_map.var_term_map.insert(v, term);
+        }
+
+        // Turn any overload constraint that was never resolved (its argument
+        // type never became concrete) into a predicate of a qualified type.
+        for i in residual_constraints {
+            let constraint = &self.overload_constraints[i];
+            if let Some(name) = &constraint.name {
+                type_map.predicate_terms.push((
+                    name.clone(),
+                    Term::Variable(constraint.var),
+                    constraint.candidates.clone(),
+                ));
+            }
         }
 
         // Default unconstrained numeric-operator type variables to `int`.
@@ -1652,7 +1743,7 @@ impl TypeResolver {
             .iter()
             .map(|(var, term)| (term.clone(), Term::Variable(*var)))
             .collect();
-        let Ok(subst) = self.unifier.unify_with_constraints(
+        let Ok(unify_result) = self.unifier.unify_with_constraints(
             &term_pairs,
             &NullTracer,
             self.actions.as_ref(),
@@ -1660,6 +1751,7 @@ impl TypeResolver {
         ) else {
             return env.bind_all(term_map);
         };
+        let subst = unify_result.substitution;
 
         // The type variables that are free in the enclosing environment:
         // everything reachable by resolving a variable that existed before
@@ -2497,8 +2589,19 @@ impl TypeResolver {
                 // If the name is overloaded, add a constraint
                 // that v must match one of the candidate types.
                 if let Some(candidates) = self.overloads.get(name).cloned() {
-                    self.overload_constraints
-                        .push(Constraint::new(*v, candidates));
+                    // Name the constraint if the overload is user-declared
+                    // ('over'/'inst'), so that if it is never resolved it
+                    // becomes a predicate of a qualified type, and so that a
+                    // failure names the overload. A built-in overload (e.g.
+                    // 'only') keeps the old behaviour.
+                    self.overload_constraints.push(
+                        if library::BuiltInFunction::is_built_in_overload(name)
+                        {
+                            Constraint::new(*v, candidates)
+                        } else {
+                            Constraint::named(*v, candidates, name)
+                        },
+                    );
                     return Ok(
                         self.reg_expr(&expr.kind, &expr.span, expr.id, v)
                     );
@@ -5295,6 +5398,12 @@ impl TypeResolver {
                 Self::max_type_var_count(a).max(Self::max_type_var_count(b))
             }
             Type::List(t) | Type::Bag(t) => Self::max_type_var_count(t),
+            Type::Qualified(predicates, t) => predicates
+                .iter()
+                .map(|p| Self::max_type_var_count(&p.type_))
+                .chain(once(Self::max_type_var_count(t)))
+                .max()
+                .unwrap_or(0),
             Type::Tuple(ts) | Type::Data(_, ts) | Type::Named(ts, _) => ts
                 .iter()
                 .map(|t| Self::max_type_var_count(t))
@@ -5728,6 +5837,57 @@ impl TypeResolver {
         }
     }
 
+    /// Returns a substitution that maps each type variable in `type_` to a
+    /// fresh unifier variable, so that a stored (closed) type can be
+    /// instantiated with variables that do not clash with any others.
+    fn fresh_subst(&mut self, type_: &Type) -> Subst {
+        let mut ids = Vec::new();
+        Self::collect_type_var_ids(type_, &mut ids);
+        let mut subst = Subst::Empty;
+        for id in ids {
+            let v = self.variable();
+            subst = subst.plus(&TypeVariable::new(id), Term::Variable(v));
+        }
+        subst
+    }
+
+    /// Collects the ordinals of the type variables that occur in a type.
+    fn collect_type_var_ids(type_: &Type, ids: &mut Vec<usize>) {
+        match type_ {
+            Type::Variable(tv) => {
+                if !ids.contains(&tv.id) {
+                    ids.push(tv.id);
+                }
+            }
+            Type::Fn(a, b) => {
+                Self::collect_type_var_ids(a, ids);
+                Self::collect_type_var_ids(b, ids);
+            }
+            Type::Alias(_, t, args) => {
+                Self::collect_type_var_ids(t, ids);
+                args.iter().for_each(|a| Self::collect_type_var_ids(a, ids));
+            }
+            Type::List(t) | Type::Bag(t) | Type::Forall(t, _) => {
+                Self::collect_type_var_ids(t, ids);
+            }
+            Type::Tuple(ts) | Type::Data(_, ts) | Type::Named(ts, _) => {
+                ts.iter().for_each(|t| Self::collect_type_var_ids(t, ids));
+            }
+            Type::Record(_, fields) => {
+                fields
+                    .values()
+                    .for_each(|t| Self::collect_type_var_ids(t, ids));
+            }
+            Type::Qualified(predicates, t) => {
+                predicates
+                    .iter()
+                    .for_each(|p| Self::collect_type_var_ids(&p.type_, ids));
+                Self::collect_type_var_ids(t, ids);
+            }
+            Type::Primitive(_) => {}
+        }
+    }
+
     pub(crate) fn type_term(&mut self, type_: &Type, subst: &Subst, v: &Var) {
         match type_ {
             // lint: sort until '#}' where '##Type::'
@@ -5809,6 +5969,33 @@ impl TypeResolver {
             }
             Type::Primitive(prim_type) => {
                 self.primitive_term(prim_type, v);
+            }
+            Type::Qualified(predicates, type_) => {
+                // Instantiating a qualified type: re-create each predicate's
+                // overload constraint (with fresh variables for each candidate
+                // instance), so that it is resolved or re-deferred at this use
+                // site. The predicate's own variables are shared with the body
+                // via `subst`.
+                for predicate in predicates {
+                    let v_pred = self.variable();
+                    self.type_term(&predicate.type_, subst, &v_pred);
+                    let candidates = predicate
+                        .candidates
+                        .iter()
+                        .map(|candidate| {
+                            let subst2 = self.fresh_subst(candidate);
+                            let v_cand = self.variable();
+                            self.type_term(candidate, &subst2, &v_cand);
+                            Term::Variable(v_cand)
+                        })
+                        .collect();
+                    self.overload_constraints.push(Constraint::named(
+                        v_pred,
+                        candidates,
+                        &predicate.name,
+                    ));
+                }
+                self.type_term(type_, subst, v);
             }
             Type::Record(progressive, arg_name_types) => {
                 let mut map: BTreeMap<Label, Term> = BTreeMap::new();

@@ -29,7 +29,6 @@ Sys.set ("stringDepth", ~1);
  * Example based on "A Second Look at Overloading" by Martin Odersky,
  * Philip Wadler, Martin Wehr (1995).
  *)
-(*
 over first;
 > over first
 over second;
@@ -49,19 +48,102 @@ val inst second = fn (x, y, z) => y;
 val inst third = fn (x, y, z) => z;
 > val third = fn : 'a * 'b * 'c -> 'c
 
+(* 'demo' uses 'first' and 'second' on an argument of unknown type, so it
+ * acquires a qualified type recording that 'first' and 'second' must have
+ * instances for that type ("A Second Look at Overloading", section 2). *)
 val demo = fn r => (second r, first r);
-> val demo = fn : 'a * 'b * 'c -> 'b * 'a
-*)
-(* Should be:
-> val demo = fn : (first : 'a -> 'b, second : 'a -> 'c) => 'a -> ('c, 'b)
-*)
-(*
+> val demo = fn : (second : 'a -> 'b, first : 'a -> 'c) => 'a -> 'b * 'c
+
+(* Applying 'demo' resolves the constraints at each call site (the instances
+ * are supplied as dictionaries) and evaluates. *)
+(* Validated, not evaluated: morel-rust does not yet dispatch an
+ * overloaded name to an instance at run time. *)
+set("mode", "validate");
+> val it = () : unit
 demo (3,"four",5);
 > val it = ("four",3) : string * int
-
 demo (3,"four");
 > val it = ("four",3) : string * int
-*)
+
+(* 'demo' is generalized, so it can be used at two different types in one
+ * expression. *)
+(demo (3,"four",5), demo (3,"four"));
+> val it = (("four",3),("four",3)) : (string * int) * (string * int)
+
+(* The same, but defining and using 'demo' within a single 'let' (the exact
+ * example from "A Second Look at Overloading"); this combines
+ * let-polymorphism with qualified types. We clear the environment first so
+ * that 'first' and 'second' are not also overloaded at top level. *)
+Sys.clearEnv ();
+> val it = () : unit
+let
+  over first
+  over second
+  val inst first = fn (x, y) => x
+  val inst second = fn (x, y) => y
+  val inst first = fn (x, y, z) => x
+  val inst second = fn (x, y, z) => y
+  val demo = fn r => (second r, first r)
+in
+  (demo (3, "four", 5), demo (3, "four"))
+end;
+> val it = (("four",3),("four",3)) : (string * int) * (string * int)
+set("mode", "evaluate");
+> val it = () : unit
+
+(* -------------------------------------------------------------------
+ * A single overloaded name applied to an argument of unknown type also
+ * yields a qualified type (hydromatic/morel#426). *)
+:t
+let
+  over foo
+  val inst foo = fn i: int => i + 1
+  val inst foo = fn b: bool => not b
+in
+  fn r => foo r
+end;
+> val it : {foo : 'a -> 'b} => 'a -> 'b
+
+(*) At a concrete call site, if no instance matches, it is a type error.
+let
+  over foo
+  val inst foo = fn i: int => i
+in
+  foo "x"
+end;
+> stdIn:1.1-6.4 Error: Cannot deduce type: conflict: string vs int
+>   raised at: stdIn:1.1-6.4
+
+(* -------------------------------------------------------------------
+ * A qualified value can be aliased, and can be used inside another
+ * qualified value; the dictionaries are forwarded. *)
+over inc;
+> over inc
+val inst inc = fn i: int => i + 1;
+> val inc = fn : int -> int
+val inst inc = fn b: bool => not b;
+> val inc = fn : bool -> bool
+val useInc = fn r => inc r;
+> val useInc = fn : {inc : 'a -> 'b} => 'a -> 'b
+
+(*) Alias of a qualified value; dictionaries are supplied at its use sites.
+set("mode", "validate");
+> val it = () : unit
+val aliasInc = useInc;
+> val aliasInc = fn : {inc : 'a -> 'b} => 'a -> 'b
+aliasInc 7;
+> val it = 8 : int
+aliasInc false;
+> val it = true : bool
+
+(* A qualified value used (at an abstract type) inside another qualified
+ * value forwards its dictionary. *)
+val etaInc = fn x => useInc x;
+> val etaInc = fn : {inc : 'a -> 'b} => 'a -> 'b
+etaInc 100;
+> val it = 101 : int
+set("mode", "evaluate");
+> val it = () : unit
 
 (* -------------------------------------------------------------------
  * Two overloads, bool -> bool and int -> int. We call with bool argument,
@@ -103,7 +185,7 @@ let
 in
   o1 "a string"
 end;
-> stdIn:1.1-7.4 Error: Cannot deduce type: no valid overloads
+> stdIn:1.1-7.4 Error: Cannot deduce type: no instance of 'o1' matches argument type 'string'
 >   raised at: stdIn:1.1-7.4
 
 (* As previous, but at top level. *)
@@ -121,7 +203,7 @@ o1a true;
 o1a 1;
 > val it = 18 : int
 o1a "a string";
-> 0.0-0.0 Error: Cannot deduce type: no valid overloads
+> 0.0-0.0 Error: Cannot deduce type: no instance of 'o1a' matches argument type 'string'
 >   raised at: 0.0-0.0
 
 (* As previous, but with an empty environment. The number of variables in the

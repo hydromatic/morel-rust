@@ -179,6 +179,7 @@ fn type_contains_var(t: &Type) -> bool {
         Type::Record(_, fs) => fs.values().any(|t| type_contains_var(t)),
         Type::Tuple(ts) => ts.iter().any(|t| type_contains_var(t)),
         Type::List(t) | Type::Bag(t) => type_contains_var(t),
+        Type::Qualified(_, t) => type_contains_var(t),
         Type::Named(args, _) | Type::Data(_, args) => {
             args.iter().any(|t| type_contains_var(t))
         }
@@ -981,7 +982,12 @@ impl Kernel {
         {
             let type_map = &resolved.type_map;
             let closure = |id: i32, name: &str| {
-                let s = match type_map.get_type(id) {
+                // A binding that uses an overloaded name at an abstract type
+                // has a qualified type, e.g. "{foo : 'a -> 'b} => 'a -> 'b".
+                let s = match type_map
+                    .get_qualified_type(id)
+                    .or_else(|| type_map.get_type(id))
+                {
                     Some(x) => x,
                     None => {
                         panic!("no type for id {} in {}", id, name);

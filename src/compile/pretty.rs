@@ -17,12 +17,12 @@
 
 use crate::compile::library;
 use crate::compile::lindig::{
-    self, Doc, align, beside, flatten, group, hard_line, line, nest, pack,
-    render, text, union,
+    self, Doc, align, beside, flatten, group, hard_line, hcat, line, nest,
+    pack, render, text, union,
 };
 use crate::compile::tabular;
 use crate::compile::types::Label;
-use crate::compile::types::{Op, PrimitiveType, Type, TypeVariable};
+use crate::compile::types::{Op, Predicate, PrimitiveType, Type, TypeVariable};
 use crate::eval::code::Impl;
 use crate::eval::date;
 use crate::eval::real::Real;
@@ -820,6 +820,23 @@ impl Pretty {
                 "list",
             ),
             Type::Primitive(p) => text(p.as_str()),
+            Type::Qualified(predicates, type_) => {
+                // "{foo : 'a -> 'b} => 'a -> 'b", or with several predicates
+                // "(first : ..., second : ...) => ...".
+                let single = predicates.len() == 1;
+                let mut docs = vec![text(if single { "{" } else { "(" })];
+                for (i, p) in predicates.iter().enumerate() {
+                    if i > 0 {
+                        docs.push(text(", "));
+                    }
+                    docs.push(text(&format!("{} : ", p.name)));
+                    docs.push(self.type_doc(&p.type_, 0, 0));
+                }
+                docs.push(text(if single { "}" } else { ")" }));
+                docs.push(text(" => "));
+                docs.push(self.type_doc(type_, 0, 0));
+                hcat(docs)
+            }
             Type::Record(progressive, arg_name_types) => {
                 let mut fields = Vec::new();
                 for (name, field_type) in arg_name_types {
@@ -988,6 +1005,17 @@ impl TypeVarRenumberer {
                 // Primitive types don't contain type variables
                 type_ref.clone()
             }
+            Type::Qualified(predicates, type_) => Type::Qualified(
+                predicates
+                    .iter()
+                    .map(|p| Predicate {
+                        name: p.name.clone(),
+                        type_: Rc::new(self.visit(&p.type_)),
+                        candidates: p.candidates.clone(),
+                    })
+                    .collect(),
+                Rc::new(self.visit(type_)),
+            ),
             Type::Record(progressive, arg_name_types) => Type::Record(
                 *progressive,
                 arg_name_types
