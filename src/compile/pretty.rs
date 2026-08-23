@@ -525,9 +525,14 @@ impl Pretty {
                 ))),
                 _ => (*args[0]).clone(),
             };
+            // As `con_arg_doc`: the argument is one level below the
+            // constructor that wraps it.
             return beside(
                 text(label),
-                beside(text(" "), self.value_doc(&inner_type, inner, depth)),
+                beside(
+                    text(" "),
+                    self.value_doc(&inner_type, inner, depth + 1),
+                ),
             );
         }
         match value {
@@ -634,7 +639,10 @@ impl Pretty {
     fn con_arg_doc(&self, type_ref: &Type, inner: &Val, depth: i32) -> Doc {
         let paren = matches!(inner, Val::Some(_) | Val::Inl(_) | Val::Inr(_))
             || matches!(inner, Val::Constructor(_, c) if **c != Val::Unit);
-        let doc = self.value_doc(type_ref, inner, depth);
+        // The argument is one level below the constructor, as SML/NJ
+        // counts it: at `printDepth` 5, `SOME (SOME (SOME (SOME (SOME
+        // 1))))` prints its fifth SOME and elides what that one wraps.
+        let doc = self.value_doc(type_ref, inner, depth + 1);
         if paren {
             beside(text("("), beside(doc, text(")")))
         } else {

@@ -385,7 +385,7 @@ evens.toList ();
 
 (*) toList on (order, bool) either enumerates all 5 values.
 val eitherSet = Range.discreteSetOf [CLOSED (INL LESS, INR true)];
-> val eitherSet = DISCRETE_SET [CLOSED (INL LESS,INR true)]
+> val eitherSet = DISCRETE_SET [CLOSED (INL #,INR #)]
 >   : (order,bool) either discrete_set
 
 eitherSet.toList ();
@@ -406,7 +406,7 @@ datatype ('a, 'b) myEither = LFT of 'a | RGT of 'b;
 > datatype ('a,'b) myEither = LFT of 'a | RGT of 'b
 
 val ms = Range.discreteSetOf [CLOSED (LFT false, RGT GREATER)];
-> val ms = DISCRETE_SET [CLOSED (LFT false,RGT GREATER)]
+> val ms = DISCRETE_SET [CLOSED (LFT #,RGT #)]
 >   : (bool,order) myEither discrete_set
 
 ms.toList ();
