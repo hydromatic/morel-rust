@@ -135,6 +135,13 @@ pub struct ScanRowSink {
     pat_code: Code,
     collection_code: Code,
     condition_code: Code,
+    /// Frame slot holding the ordinal of the candidate pair, when the
+    /// condition reads it. Counted continuously across the join, because
+    /// that is the rate at which the condition is evaluated: the pairs do
+    /// not exist until this sink runs, so no earlier step could have
+    /// materialized the value as a field.
+    ordinal_slot: Option<usize>,
+    next_ordinal: i32,
     row_sink: Box<dyn RowSink>,
     /// For a `left join`: the frame slots bound by this scan's pattern, whose
     /// values are wrapped in `SOME` on a match (and set to `NONE` when an
@@ -152,13 +159,26 @@ impl ScanRowSink {
         condition_code: Code,
         row_sink: Box<dyn RowSink>,
         optional_slots: Vec<usize>,
+        ordinal_slot: Option<usize>,
     ) -> Self {
         Self {
             pat_code,
             collection_code,
             condition_code,
+            ordinal_slot,
+            next_ordinal: 0,
             row_sink,
             optional_slots,
+        }
+    }
+
+    /// Writes the candidate pair's ordinal into its slot, if the condition
+    /// reads one, and advances the count. Called once per pair, before the
+    /// condition is evaluated, whether or not the condition succeeds.
+    fn advance_ordinal(&mut self, f: &mut Frame) {
+        if let Some(slot) = self.ordinal_slot {
+            f.vals[slot] = Val::Int(self.next_ordinal);
+            self.next_ordinal += 1;
         }
     }
 }
@@ -183,6 +203,9 @@ impl RowSink for ScanRowSink {
         r: &mut EvalEnv,
         f: &mut Frame,
     ) -> Result<(), MorelError> {
+        // The pair count runs continuously across the whole join, so it is
+        // reset here, once per execution, not per incoming row.
+        self.next_ordinal = 0;
         self.row_sink.start(r, f)
     }
 
@@ -219,6 +242,7 @@ impl RowSink for ScanRowSink {
             if matched.expect_bool() {
                 // Evaluate the condition in the extended environment. For a
                 // `left join` the condition sees the raw, unwrapped values.
+                self.advance_ordinal(f);
                 let condition = self.condition_code.eval_f0(r, f)?;
                 if condition.expect_bool() {
                     if left_join {

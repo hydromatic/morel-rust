@@ -1157,12 +1157,6 @@ impl FromBuilder {
         // TODO: Implement the complex nested from inlining logic from Java.
         // For now, just add a simple scan step.
 
-        // A join condition is evaluated once per row arriving at the join
-        // -- one per left row, not one per pair -- so `ordinal` in it
-        // counts those rows, and must be materialized before the scan's
-        // own bindings join them.
-        let condition = condition.map(|c| self.with_ordinal(c));
-
         // Update bindings based on the pattern.
         // For tuple patterns like `(i,j)`, this collects multiple bindings.
         let prev_len = self.bindings.len();

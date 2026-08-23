@@ -2043,6 +2043,19 @@ impl<'a> Compiler<'a> {
                     Vec::new()
                 };
 
+                // An `ordinal` in the condition counts candidate pairs, so
+                // the scan supplies it; one in the collection expression
+                // counts the rows arriving here, and is supplied above.
+                let condition_ordinal_slot = if first_step
+                    .kind
+                    .condition()
+                    .is_some_and(Expr::uses_ordinal)
+                {
+                    cx.frame_def.try_var_index(ORDINAL_SLOT)
+                } else {
+                    None
+                };
+
                 RowSinkFactory::new(move || {
                     let scan: Box<dyn RowSink> =
                         Box::new(ScanRowSink::new_with_join(
@@ -2051,6 +2064,7 @@ impl<'a> Compiler<'a> {
                             condition_code.clone(),
                             next_factory.create(),
                             optional_slots.clone(),
+                            condition_ordinal_slot,
                         ));
                     if let Some(slot) = ordinal_slot {
                         Box::new(OrdinalRowSink::new(slot, scan))

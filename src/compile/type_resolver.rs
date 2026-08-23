@@ -408,7 +408,7 @@ enum CollectionKind {
     Unknown,
 }
 
-/// Name that binds `ordinal` in a step's type environment.
+/// Name under which a step binds `ordinal` in the type environment.
 ///
 /// `ordinal` counts the rows arriving at a step, so it is bound by the
 /// step that produces them -- exactly as `current` is. Resolving it
@@ -419,14 +419,21 @@ enum CollectionKind {
 /// an operand of `union`, `except` or `intersect`, or the function of a
 /// `through` or an `into`) is deduced in the enclosing environment, and
 /// so reads the enclosing row.
-const ORDINAL: &str = "ordinal";
+///
+/// The name holds a `$`, so that it is not one a user can write: a query
+/// may bind a field of its own called `ordinal`, and `` `ordinal` ``
+/// must still reach that field. Mirrors morel-java's `Z_ORDINAL`.
+const ORDINAL: &str = "$ordinal";
 
-/// The type [`ORDINAL`] is bound to when the rows arriving at a step are
-/// unordered. A separate name would not do: environments chain, so a
-/// second name could not shadow an `ordinal` that an earlier, ordered
-/// step had bound. Binding one name to a type that is not `int` lets the
-/// lookup tell a `bag` from no query at all.
-const ORDINAL_UNORDERED_TYPE: PrimitiveType = PrimitiveType::Unit;
+// What [`ORDINAL`] binds is not the occurrence's own type -- that is
+// always `int` -- but the *collection* whose rows it counts, put there by
+// the step that produced them. Reading it is what decides which step an
+// `ordinal` belongs to. A sentinel type for the invalid cases is not
+// available: "not in a query" is absence from the environment, but
+// "unordered" cannot be decided when the binding is made, because the
+// collection may still be a type variable -- `[0..4]` is one. So that
+// check is deferred to `ordinal_validations`, and runs once the types
+// are resolved.
 
 #[derive(Clone)]
 struct Triple {
@@ -838,6 +845,11 @@ pub struct TypeResolver {
     /// Record selectors to validate after unification.
     /// Each entry is (record_var, field_name, span).
     field_selectors: Vec<(Var, String, Span)>,
+
+    /// Collections that an `ordinal` counts the rows of, with the span of
+    /// the occurrence. Checked for orderedness once the types are
+    /// resolved; see [`ORDINAL`].
+    ordinal_validations: Vec<(Term, Span)>,
 
     /// Overloaded operator instances. Maps name to list of
     /// candidate terms (the types of each `val inst` binding).
@@ -1310,6 +1322,7 @@ impl TypeResolver {
             var_alias_map: HashMap::new(),
             field_errors: Rc::new(RefCell::new(Vec::new())),
             field_selectors: Vec::new(),
+            ordinal_validations: Vec::new(),
             typed_values: Rc::new(RefCell::new(HashMap::new())),
             retry_requested: Rc::new(RefCell::new(false)),
             overloads: HashMap::new(),
@@ -1411,6 +1424,7 @@ impl TypeResolver {
         self.actions.clear();
         self.field_errors.borrow_mut().clear();
         self.field_selectors.clear();
+        self.ordinal_validations.clear();
         self.typed_values.borrow_mut().clear();
         self.node_var_map.clear();
         self.overload_constraints.clear();
@@ -1497,6 +1511,23 @@ impl TypeResolver {
         }
 
         type_map.expanded_type_binds = self.expanded_type_binds.clone();
+
+        // Now that the types are resolved, check that every `ordinal`
+        // counts the rows of an ordered collection. It cannot be checked
+        // when the binding is made: a scan's collection may still be a
+        // type variable then, as `[0..4]`'s is.
+        for (term, span) in &self.ordinal_validations {
+            let var = match term {
+                Term::Variable(v) => *v,
+                Term::Sequence(_) => continue,
+            };
+            if !matches!(type_map.var_to_type(&var), Some(Type::List(_))) {
+                return Err(Error::Compile(
+                    "cannot use 'ordinal' in unordered query".to_string(),
+                    span.clone(),
+                ));
+            }
+        }
 
         // Turn any overload constraint that was never resolved (its argument
         // type never became concrete) into a predicate of a qualified type.
@@ -3010,21 +3041,16 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Ordinal => {
-                let ordered_term = self.ordinal_term(true);
-                let message = match env.get(ORDINAL, self) {
-                    None => Some("'ordinal' is only valid in a query"),
-                    Some(BindType::Val(t)) | Some(BindType::Constructor(t))
-                        if t != ordered_term =>
-                    {
-                        Some("cannot use 'ordinal' in unordered query")
+                match env.get(ORDINAL, self) {
+                    None => {
+                        return Err(Error::Compile(
+                            "'ordinal' is only valid in a query".to_string(),
+                            expr.span.clone(),
+                        ));
                     }
-                    _ => None,
-                };
-                if let Some(message) = message {
-                    return Err(Error::Compile(
-                        message.to_string(),
-                        expr.span.clone(),
-                    ));
+                    Some(BindType::Val(t)) | Some(BindType::Constructor(t)) => {
+                        self.ordinal_validations.push((t, expr.span.clone()));
+                    }
                 }
                 // 'ordinal' is a row counter with type int.
                 self.primitive_term(&PrimitiveType::Int, v);
@@ -3469,11 +3495,24 @@ impl TypeResolver {
         env_builder.push("current".to_string(), Term::Variable(v_current));
         let env4 = env_builder.build();
 
+        // The collection of candidate pairs. It is created here, before the
+        // constraints that give it a type, because an `on` condition is
+        // evaluated once per candidate pair: an `ordinal` in it counts
+        // pairs, so this is the collection whose orderedness decides
+        // whether the count means anything -- and it is ordered only if
+        // both inputs are. An `ordinal` in the extent still counts the
+        // rows arriving at the step, reading the binding the previous step
+        // left, because no pair exists when the extent is evaluated.
+        let c = self.unifier.variable();
+
         // Handle the condition, if present. (For an outer join the condition
         // sees the raw, unwrapped types, so deduce it before wrapping.)
         let condition2 = if let Some(cond) = condition {
             let v5 = self.variable();
-            let condition2 = self.deduce_expr_type(&*env4, cond, &v5)?;
+            let mut builder = env4.builder();
+            builder.push(ORDINAL.to_string(), Term::Variable(c));
+            let env5 = builder.build();
+            let condition2 = self.deduce_expr_type(&*env5, cond, &v5)?;
             self.primitive_term(&PrimitiveType::Bool, &v5);
             Some(Box::new(condition2))
         } else {
@@ -3517,7 +3556,6 @@ impl TypeResolver {
 
         // The output collection's element type is the (possibly wrapped)
         // record `v`, and its list/bag kind matches the scan's input.
-        let c = self.unifier.variable();
         if eq {
             // ScanEq (= expr): output inherits the preceding collection type.
             self.same_orderedness(&p.c.unwrap(), &p.v, &c, &v);
@@ -3613,23 +3651,16 @@ impl TypeResolver {
     /// [`ORDINAL_UNORDERED_TYPE`] instead, so that
     /// [`ExprKind::Ordinal`] can tell a `bag` from no query at all.
     fn bind_ordinal(&mut self, p: &Triple) -> Triple {
-        // Bind the term itself rather than a fresh variable equated to it:
-        // a variable per step would renumber every `T<n>` that a
-        // type-conflict message mentions.
-        let mut builder = p.env.builder();
-        builder.push(ORDINAL.to_string(), self.ordinal_term(p.ordered));
-        p.with_env(&builder.build())
-    }
-
-    /// The type bound to `ordinal` by a step whose rows are `ordered`.
-    fn ordinal_term(&mut self, ordered: bool) -> Term {
-        let prim = if ordered {
-            PrimitiveType::Int
-        } else {
-            ORDINAL_UNORDERED_TYPE
-        };
-        let op = self.unifier.op(prim.as_str(), Some(0));
-        Term::Sequence(self.unifier.atom(op))
+        match p.c {
+            Some(c) => {
+                let mut builder = p.env.builder();
+                builder.push(ORDINAL.to_string(), Term::Variable(c));
+                p.with_env(&builder.build())
+            }
+            // A step with no collection -- `compute`, `into` -- produces
+            // no rows to count, so it leaves the binding alone.
+            None => p.with_env(&p.env.clone()),
+        }
     }
 
     /// Deduces a Yield step's type (e.g., "yield i + 4").

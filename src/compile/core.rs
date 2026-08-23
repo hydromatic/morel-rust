@@ -507,6 +507,16 @@ impl Step {
     }
 }
 
+impl StepKind {
+    /// Returns a scan's `on` condition, if it has one.
+    pub(crate) fn condition(&self) -> Option<&Expr> {
+        match self {
+            StepKind::Scan(_, _, Some(c)) => Some(c),
+            _ => None,
+        }
+    }
+}
+
 /// Kind of step in a query.
 #[derive(Clone, Debug)]
 pub enum StepKind {
