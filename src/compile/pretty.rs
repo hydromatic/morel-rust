@@ -129,7 +129,7 @@ impl Pretty {
             // rows); then, and for every other value, use the classic
             // printer.
             if !matches!(self.output, PropOutput::Classic)
-                && tabular::can_print(t)
+                && tabular::can_print(t, self.datatypes())
                 && matches!(v, Val::List(_))
                 && self.pretty_tabular(buf, name, t, v)
             {
@@ -205,6 +205,14 @@ impl Pretty {
     /// success the table is written to `buf`, followed by a "val name :
     /// type" line, and returns true. If the tabular printer declines,
     /// leaves `buf` unchanged and returns false.
+    /// The datatypes in scope, as the tabular printer needs them.
+    fn datatypes(&self) -> tabular::Datatypes<'_> {
+        tabular::Datatypes {
+            constructors: &self.datatype_constructors,
+            arg_types: &self.constructor_arg_types,
+        }
+    }
+
     fn pretty_tabular(
         &self,
         buf: &mut String,
@@ -223,6 +231,7 @@ impl Pretty {
             self.string_depth,
             self.string_fold,
             self.newline,
+            self.datatypes(),
         );
         if !printed {
             buf.truncate(start);

@@ -33,23 +33,70 @@
 //!
 //! See <https://github.com/hydromatic/morel/issues/376>.
 
+use crate::compile::library;
 use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::real::Real;
 use crate::eval::val::Val;
 use crate::syntax::parser::char_to_string;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 const ELLIPSIS: &str = "...";
 
+/// What the printer needs to know about the datatypes in scope: which
+/// constructors each has, and which of them take an argument.
+#[derive(Copy, Clone)]
+pub struct Datatypes<'a> {
+    /// Datatype name to its constructor names, in ordinal order.
+    pub constructors: &'a HashMap<String, Vec<String>>,
+    /// Constructor name to its argument type; a nullary constructor has
+    /// no entry.
+    pub arg_types: &'a HashMap<String, Type>,
+}
+
+impl Datatypes<'_> {
+    /// The constructor names of an enum -- a datatype every constructor
+    /// of which is nullary, such as `order`, or a user-defined
+    /// `datatype color = BLUE | GREEN | RED`. Its values print as the
+    /// bare constructor name, and so occupy a scalar column.
+    ///
+    /// A datatype with a constructor that takes an argument is not an
+    /// enum: such a value has no single-token rendering.
+    fn enum_constructors(&self, type_: &Type) -> Option<&Vec<String>> {
+        let Type::Data(name, _) = type_ else {
+            return None;
+        };
+        let cs = self.constructors.get(name)?;
+        let all_nullary = !cs.is_empty()
+            && cs.iter().all(|c| {
+                // A built-in constructor's type says whether it takes an
+                // argument; a user-declared one has its argument type in
+                // the session's table, and none if it is nullary.
+                match library::built_in_constructor_is_nullary(c) {
+                    Some(nullary) => nullary,
+                    None => !self.arg_types.contains_key(c),
+                }
+            });
+        all_nullary.then_some(cs)
+    }
+
+    /// Whether a type prints as a single-token scalar: a primitive, or
+    /// an enum.
+    fn is_scalar(&self, type_: &Type) -> bool {
+        matches!(type_, Type::Primitive(_))
+            || self.enum_constructors(type_).is_some()
+    }
+}
+
 /// Returns whether a type can be rendered as a table: a collection (list
 /// or bag) of records or tuples, every field of which is itself a
 /// tabular-printable field type (see `can_print_field`).
-pub fn can_print(type_: &Type) -> bool {
+pub fn can_print(type_: &Type, dt: Datatypes) -> bool {
     if !is_collection(type_) {
         return false;
     }
     match element_type(type_) {
-        Some(elem) if is_record_like(elem) => can_print_record(elem),
+        Some(elem) if is_record_like(elem) => can_print_record(elem, dt),
         _ => false,
     }
 }
@@ -69,6 +116,7 @@ pub fn print(
     string_depth: i32,
     string_fold: i32,
     newline: char,
+    dt: Datatypes,
 ) -> bool {
     if print_depth >= 0 && depth + 1 > print_depth {
         return false;
@@ -77,7 +125,7 @@ pub fn print(
         Some(e) => e,
         None => return false,
     };
-    let mut root = Section::for_record("", elem);
+    let mut root = Section::for_record("", elem, dt);
     let root_cell =
         root.build_cell(value, print_length, string_depth, string_fold);
     root.finalize_widths();
@@ -110,41 +158,41 @@ fn push_line(buf: &mut String, line: &str, newline: char) {
     buf.push(newline);
 }
 
-fn can_print_record(record_like: &Type) -> bool {
+fn can_print_record(record_like: &Type, dt: Datatypes) -> bool {
     field_name_types(record_like)
         .iter()
-        .all(|(_, t)| can_print_field(t))
+        .all(|(_, t)| can_print_field(t, dt))
 }
 
 /// Whether a type is acceptable as a tabular field: a primitive, a
 /// collection of primitives, or a collection of records/tuples whose
 /// fields are recursively tabular-printable.
-fn can_print_field(type_: &Type) -> bool {
-    if matches!(type_, Type::Primitive(_)) {
+fn can_print_field(type_: &Type, dt: Datatypes) -> bool {
+    if dt.is_scalar(type_) {
         return true;
     }
-    if option_scalar(type_).is_some() {
+    if option_scalar(type_, dt).is_some() {
         return true;
     }
     // A bare record or tuple field: a one-row nested sub-table.
     if is_record_like(type_) {
-        return can_print_record(type_);
+        return can_print_record(type_, dt);
     }
     // A record/tuple `option` field: a nested sub-table, blank for `NONE`. It
     // is renderable only if at least one field is non-option; otherwise a
     // `NONE` (every cell blank) could not be told apart from a `SOME` whose
     // every field happens to be `NONE`.
     if let Some(inner) = option_record(type_) {
-        return can_print_record(inner) && !all_fields_option(inner);
+        return can_print_record(inner, dt) && !all_fields_option(inner);
     }
     if is_collection(type_)
         && let Some(elem) = element_type(type_)
     {
-        if matches!(elem, Type::Primitive(_)) {
+        if dt.is_scalar(elem) {
             return true;
         }
         if is_record_like(elem) {
-            return can_print_record(elem);
+            return can_print_record(elem, dt);
         }
     }
     false
@@ -173,16 +221,16 @@ fn is_record_like(type_: &Type) -> bool {
     matches!(type_, Type::Record(_, _) | Type::Tuple(_))
 }
 
-/// If `type_` is `T option` where `T` is a primitive, returns `T`; otherwise
-/// returns `None`. Such a field is rendered as a scalar column: `SOME x` as
-/// `x`, and `NONE` as a blank cell.
-fn option_scalar(type_: &Type) -> Option<&PrimitiveType> {
+/// If `type_` is `T option` where `T` is a scalar, returns `T`;
+/// otherwise returns `None`. Such a field is rendered as a scalar
+/// column: `SOME x` as `x`, and `NONE` as a blank cell.
+fn option_scalar<'a>(type_: &'a Type, dt: Datatypes) -> Option<&'a Type> {
     if let Type::Data(name, args) = type_
         && name == "option"
         && let Some(arg) = args.first()
-        && let Type::Primitive(p) = arg.as_ref()
+        && dt.is_scalar(arg)
     {
-        return Some(p);
+        return Some(arg);
     }
     None
 }
@@ -293,6 +341,9 @@ struct Section {
     optional: bool,
     /// For a RECORD_LIST, how its value maps to a list of records.
     shape: RecordShape,
+    /// For a column of enum values, the datatype's constructor names in
+    /// ordinal order, so that a value prints as its constructor name.
+    enum_names: Option<Rc<Vec<String>>>,
     children: Vec<Section>,
     width: usize,
 }
@@ -304,20 +355,31 @@ impl Section {
         right_align: bool,
         optional: bool,
     ) -> Section {
+        Self::leaf_of(kind, name, right_align, optional, None)
+    }
+
+    fn leaf_of(
+        kind: Kind,
+        name: &str,
+        right_align: bool,
+        optional: bool,
+        enum_names: Option<Rc<Vec<String>>>,
+    ) -> Section {
         Section {
             kind,
             name: name.to_string(),
             right_align,
             optional,
             shape: RecordShape::List,
+            enum_names,
             children: Vec::new(),
             width: char_len(name),
         }
     }
 
     /// Builds a Section tree for a record-like (record or tuple) type.
-    fn for_record(name: &str, record_like: &Type) -> Section {
-        Section::for_record_with_shape(name, record_like, RecordShape::List)
+    fn for_record(name: &str, record_like: &Type, dt: Datatypes) -> Section {
+        Section::for_record_with_shape(name, record_like, RecordShape::List, dt)
     }
 
     /// Builds a Section tree for a record-like type with a given shape.
@@ -325,10 +387,11 @@ impl Section {
         name: &str,
         record_like: &Type,
         shape: RecordShape,
+        dt: Datatypes,
     ) -> Section {
         let children = field_name_types(record_like)
             .iter()
-            .map(|(n, t)| Section::for_field(n, t))
+            .map(|(n, t)| Section::for_field(n, t, dt))
             .collect();
         Section {
             kind: Kind::RecordList,
@@ -336,20 +399,37 @@ impl Section {
             right_align: false,
             optional: false,
             shape,
+            enum_names: None,
             children,
             width: char_len(name),
         }
     }
 
     /// Builds a Section for one field of a record-like type.
-    fn for_field(name: &str, type_: &Type) -> Section {
+    fn for_field(name: &str, type_: &Type, dt: Datatypes) -> Section {
         if let Type::Primitive(p) = type_ {
             return Section::leaf(Kind::Scalar, name, is_numeric(p), false);
         }
-        if let Some(p) = option_scalar(type_) {
-            // `T option` (T primitive): a scalar column where `SOME x`
+        if let Some(cs) = dt.enum_constructors(type_) {
+            // An enum: a scalar column of constructor names.
+            return Section::leaf_of(
+                Kind::Scalar,
+                name,
+                false,
+                false,
+                Some(Rc::new(cs.clone())),
+            );
+        }
+        if let Some(inner) = option_scalar(type_, dt) {
+            // `T option` (T scalar): a scalar column where `SOME x`
             // prints as `x` and `NONE` as a blank cell.
-            return Section::leaf(Kind::Scalar, name, is_numeric(p), true);
+            return Section::leaf_of(
+                Kind::Scalar,
+                name,
+                is_numeric_type(inner),
+                true,
+                dt.enum_constructors(inner).map(|cs| Rc::new(cs.clone())),
+            );
         }
         // A bare record or tuple field renders as a one-row nested sub-table.
         if is_record_like(type_) {
@@ -357,6 +437,7 @@ impl Section {
                 name,
                 type_,
                 RecordShape::Single,
+                dt,
             );
         }
         // A record/tuple `option` field renders as a nested sub-table that is
@@ -366,19 +447,21 @@ impl Section {
                 name,
                 inner,
                 RecordShape::Option,
+                dt,
             );
         }
         if let Some(elem) = element_type(type_) {
-            if let Type::Primitive(p) = elem {
-                return Section::leaf(
+            if dt.is_scalar(elem) {
+                return Section::leaf_of(
                     Kind::ScalarList,
                     name,
-                    is_numeric(p),
+                    is_numeric_type(elem),
                     false,
+                    dt.enum_constructors(elem).map(|cs| Rc::new(cs.clone())),
                 );
             }
             if is_record_like(elem) {
-                return Section::for_record(name, elem);
+                return Section::for_record(name, elem, dt);
             }
         }
         // Unreachable when `can_print` has accepted the type.
@@ -407,12 +490,12 @@ impl Section {
                             Val::String(str_val) => {
                                 option_string(str_val, string_depth)
                             }
-                            other => stringify_scalar(other, string_depth),
+                            other => self.stringify(other, string_depth),
                         },
                         _ => String::new(),
                     }
                 } else {
-                    stringify_scalar(value, string_depth)
+                    self.stringify(value, string_depth)
                 };
                 let lines = fold_string(&s, string_fold);
                 for line in &lines {
@@ -428,7 +511,7 @@ impl Section {
                         self.width = self.width.max(ELLIPSIS.len());
                         break;
                     }
-                    let s = stringify_scalar(item, string_depth);
+                    let s = self.stringify(item, string_depth);
                     for line in fold_string(&s, string_fold) {
                         self.width = self.width.max(char_len(&line));
                         items.push(line);
@@ -525,6 +608,18 @@ impl Section {
 
     /// Returns this section's header cell at `line`, exactly `width`
     /// characters wide.
+    /// A scalar value as text. In an enum column the value is a
+    /// constructor, and prints as its name.
+    fn stringify(&self, value: &Val, string_depth: i32) -> String {
+        if let Some(names) = &self.enum_names
+            && let Val::Constructor(ordinal, _) = value
+            && let Some(name) = names.get(*ordinal)
+        {
+            return name.clone();
+        }
+        stringify_scalar(value, string_depth)
+    }
+
     fn header_cell(&self, line: usize) -> String {
         if line == 0 {
             pad(&self.name, self.width, false)
@@ -553,6 +648,12 @@ impl Section {
 
 fn is_numeric(p: &PrimitiveType) -> bool {
     matches!(p, PrimitiveType::Int | PrimitiveType::Real)
+}
+
+/// Whether values of a type are right-aligned in their column. An enum
+/// is not: its values are words.
+fn is_numeric_type(type_: &Type) -> bool {
+    matches!(type_, Type::Primitive(p) if is_numeric(p))
 }
 
 // ---------------------------------------------------------------------------

@@ -1875,6 +1875,15 @@ impl BuiltInFunction {
         Some(t.split_whitespace().next_back()?.trim_matches('`'))
     }
 
+    /// Whether this constructor takes no argument, so that its value is
+    /// the bare constructor name: `NONE`'s type is `forall 1 'a option`
+    /// and `SOME`'s is `forall 1 'a -> 'a option`, so `NONE` is nullary
+    /// and `SOME` is not.
+    pub(crate) fn is_nullary_constructor(&self) -> bool {
+        self.is_constructor()
+            && self.get_str("type").is_some_and(|t| !t.contains("->"))
+    }
+
     pub(crate) fn is_global(&self) -> bool {
         self.get_bool("global").is_some_and(|b| b)
             || self.alias().is_some()
@@ -2397,6 +2406,15 @@ pub fn built_in_datatype_constructors() -> HashMap<String, Vec<String>> {
         );
     }
     map
+}
+
+/// Whether `name` is a built-in constructor that takes no argument.
+/// `None` if it is not a built-in constructor at all -- a user-declared
+/// one, whose argument type the session records instead.
+pub fn built_in_constructor_is_nullary(name: &str) -> Option<bool> {
+    BuiltInFunction::iter()
+        .find(|f| f.is_constructor() && f.name() == name)
+        .map(|f| f.is_nullary_constructor())
 }
 
 /// Looks up a built-in (function or structure) by name.
