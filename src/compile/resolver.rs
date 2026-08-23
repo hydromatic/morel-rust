@@ -2085,10 +2085,14 @@ impl<'a> Resolver<'a> {
                 // `scan1` rule span can extend past the pattern into
                 // the next token (it consumes whitespace while
                 // looking ahead for an `=` or `in` it never finds).
+                // An unbounded scan yields the distinct values of the
+                // variables its pattern binds, in natural order, so its
+                // collection is a list. A bounded scan is unaffected:
+                // `from i in [1, 2, 3, 2]` still has four elements.
                 let resolved_pat = self.resolve_pat(pat);
                 let elem_type = resolved_pat.type_();
                 let extent_type =
-                    Rc::new(Type::Bag(Rc::new(elem_type.as_ref().clone())));
+                    Rc::new(Type::List(Rc::new(elem_type.as_ref().clone())));
                 let span = Span::from_pest_span(
                     &pat.span.to_pest_span(),
                     self.base_line,

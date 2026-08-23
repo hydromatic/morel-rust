@@ -368,15 +368,15 @@ Sys.planEx "0";
 (* For abs, FBBT recognizes `abs x OP c` for the connected-interval
  * cases and emits the equivalent two-sided bounds. *)
 from x where abs x < 5;
-> val it = [~4,~3,~2,~1,0,1,2,3,4] : int bag
+> val it = [~4,~3,~2,~1,0,1,2,3,4] : int list
 from x where abs x <= 3;
-> val it = [~3,~2,~1,0,1,2,3] : int bag
+> val it = [~3,~2,~1,0,1,2,3] : int list
 from x where 5 > abs x;
-> val it = [~4,~3,~2,~1,0,1,2,3,4] : int bag
+> val it = [~4,~3,~2,~1,0,1,2,3,4] : int list
 from x where abs x = 0;
-> val it = [0] : int bag
+> val it = [0] : int list
 from x where abs x < 10 andalso x > 0;
-> val it = [1,2,3,4,5,6,7,8,9] : int bag
+> val it = [1,2,3,4,5,6,7,8,9] : int list
 (* Disjoint case (abs x > c) is two intervals — FBBT skips and the
  * constraint cannot be inverted by the existing extractor either. *)
 from x where abs x > 5;
@@ -419,7 +419,7 @@ Bag.length (from x, y where y > 0 andalso y < x andalso x < 10);
 Bag.length (from x, y, z where x > 0 andalso x < y andalso y < z andalso z < 10);
 > val it = 84 : int
 from x where x > 0 andalso x < x + 1 andalso x < 5;
-> val it = [1,2,3,4] : int bag
+> val it = [1,2,3,4] : int list
 
 (* Ranges that cannot be deduced even with FBBT.
  *

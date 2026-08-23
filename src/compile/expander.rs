@@ -4009,6 +4009,12 @@ fn expand_steps_with_scope(
                             }
                         };
                         let unique = generator.unique;
+                        let order_key = match &next_pat {
+                            Pat::Identifier(t, name) => {
+                                Some(Expr::Identifier(t.clone(), name.clone()))
+                            }
+                            _ => None,
+                        };
                         out.push(Step::new(
                             StepKind::Scan(
                                 Box::new(next_pat),
@@ -4017,12 +4023,31 @@ fn expand_steps_with_scope(
                             ),
                             new_env.clone(),
                         ));
-                        // A non-unique generator (e.g. point-orelse-
-                        // range) may produce the same value via more
-                        // than one branch. Strip duplicates so the
-                        // result has set semantics.
+                        // A non-unique generator -- one drawing from a
+                        // collection, or a point-orelse-range that may
+                        // produce a value via more than one branch --
+                        // may repeat a value, and in no particular
+                        // order. An unbounded scan yields the distinct
+                        // values of its pattern's variables, in natural
+                        // order, so `distinct order current` follows.
+                        // A materialized type extent needs neither: it
+                        // already yields the type's values, in the
+                        // type's order.
                         if !unique {
-                            out.push(Step::new(StepKind::Distinct, new_env));
+                            out.push(Step::new(
+                                StepKind::Distinct,
+                                new_env.clone(),
+                            ));
+                            // Order by the variable this scan binds,
+                            // not by `current`: the row here also holds
+                            // whatever earlier steps bound, and its
+                            // type is not the pattern's.
+                            if let Some(key) = order_key {
+                                out.push(Step::new(
+                                    StepKind::Order(Box::new(key)),
+                                    new_env,
+                                ));
+                            }
                         }
                     } else {
                         let extent =

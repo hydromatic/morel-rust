@@ -32,13 +32,13 @@ Sys.set ("stringDepth", ~1);
 (* Convert predicates into ranges --------------------------------- *)
 
 from i where i > 0 andalso i < 10;
-> val it = [1,2,3,4,5,6,7,8,9] : int bag
+> val it = [1,2,3,4,5,6,7,8,9] : int list
 
 from i where i >= 0 andalso i <= 10;
-> val it = [0,1,2,3,4,5,6,7,8,9,10] : int bag
+> val it = [0,1,2,3,4,5,6,7,8,9,10] : int list
 
 from i where i >= 0 andalso i <= 5 orelse i = 8 orelse i > 20 andalso i < 22;
-> val it = [1,2,3,4,5,21,8,0] : int bag
+> val it = [0,1,2,3,4,5,8,21] : int list
 
 from i where i > 0 andalso i < 4 yield {j = i + 1};
 > j
@@ -47,7 +47,7 @@ from i where i > 0 andalso i < 4 yield {j = i + 1};
 > 3
 > 4
 >
-> val it : {j:int} bag
+> val it : {j:int} list
 
 from i where i > 0 andalso i < 4 yield {j = i + 1} order DESC j;
 > j
@@ -59,19 +59,19 @@ from i where i > 0 andalso i < 4 yield {j = i + 1} order DESC j;
 > val it : {j:int} list
 
 from i where i > 0 andalso i < 10 andalso i mod 3 = 2;
-> val it = [2,5,8] : int bag
+> val it = [2,5,8] : int list
 
 from i where i = 0;
-> val it = [0] : int bag
+> val it = [0] : int list
 
 from s where s = "abc";
-> val it = ["abc"] : string bag
+> val it = ["abc"] : string list
 
 from i where i = 0 orelse i = 12;
-> val it = [12,0] : int bag
+> val it = [0,12] : int list
 
 from i where i > 0 andalso i < 10 orelse i > 12 andalso i <= 15;
-> val it = [1,2,3,4,5,6,7,8,9,13,14,15] : int bag
+> val it = [1,2,3,4,5,6,7,8,9,13,14,15] : int list
 
 (*) Ranges over int * bool: point constraints merged into a single discreteSetOf.
 from t where t = (1, true) orelse t = (3, false);
@@ -80,18 +80,18 @@ from t where t = (1, true) orelse t = (3, false);
 > 1 true
 > 3 false
 >
-> val it : (int * bool) bag
+> val it : (int * bool) list
 
 (*) Ranges over bool * int: a point and a range.
 from t where t = (true, 1) orelse t >= (false, 3) andalso t <= (false, 5);
 > 1     2
 > ----- -
-> true  1
 > false 3
 > false 4
 > false 5
+> true  1
 >
-> val it : (bool * int) bag
+> val it : (bool * int) list
 
 (*) Ranges over int * bool * int * bool (4-tuple): a single closed range.
 from t where t >= (1, false, 2, true) andalso t <= (1, false, 4, false);
@@ -102,7 +102,7 @@ from t where t >= (1, false, 2, true) andalso t <= (1, false, 4, false);
 > 1 false 3 true
 > 1 false 4 false
 >
-> val it : (int * bool * int * bool) bag
+> val it : (int * bool * int * bool) list
 
 from i
 where i > 0 andalso i < 10
@@ -120,7 +120,7 @@ where b = true;
 > true 8
 > true 9
 >
-> val it : {b:bool, i:int} bag
+> val it : {b:bool, i:int} list
 
 from i
 where i > 0 andalso i < 10
@@ -138,7 +138,7 @@ where b = (i mod 2 = 0);
 > true  8
 > false 9
 >
-> val it : {b:bool, i:int} bag
+> val it : {b:bool, i:int} list
 
 (* -- elem -------------------------------------------------------- *)
 let
@@ -152,7 +152,7 @@ end;
  * desugars to 'Range.contains', which is recognized as a finite
  * generator.) *)
 from j where j elem [1 .. 3];
-> val it = [1,2,3] : int bag
+> val it = [1,2,3] : int list
 
 (*) 'elem' over a range whose bounds depend on an earlier variable.
 from i, j where i elem [1, 2] andalso j elem [i + 1 .. i + 2];
@@ -163,15 +163,15 @@ from i, j where i elem [1, 2] andalso j elem [i + 1 .. i + 2];
 > 2 3
 > 2 4
 >
-> val it : {i:int, j:int} bag
+> val it : {i:int, j:int} list
 
 (*) Collection inversion of "elem".
 from x where x elem [1,2,3] andalso x > 1;
-> val it = [2,3] : int bag
+> val it = [2,3] : int list
 from x where x elem [1,2,2,3];
-> val it = [1,2,2,3] : int bag
+> val it = [1,2,3] : int list
 from y where y elem [1,2] andalso y elem [2,3];
-> val it = [2] : int bag
+> val it = [2] : int list
 
 (*) An 'elem' over an infinite range does not ground the variable.
 from j where j elem [1 ..];
@@ -182,11 +182,11 @@ from j where j elem [1 ..];
  * finite generator: the lower bound comes from the range, the upper
  * from 'j < 3'. *)
 from j where j elem [0 ..] andalso j < 3;
-> val it = [0,1,2] : int bag
+> val it = [0,1,2] : int list
 from j where j elem [.. 3] andalso j > 0;
-> val it = [1,2,3] : int bag
+> val it = [1,2,3] : int list
 from j where j elem [0 ..] andalso j < 3 andalso j mod 2 = 0;
-> val it = [0,2] : int bag
+> val it = [0,2] : int list
 
 (*) The bounds may depend on an earlier variable.
 from i, j where i elem [1, 2] andalso j elem [i ..] andalso j < i + 3;
@@ -199,7 +199,7 @@ from i, j where i elem [1, 2] andalso j elem [i ..] andalso j < i + 3;
 > 2 3
 > 2 4
 >
-> val it : {i:int, j:int} bag
+> val it : {i:int, j:int} list
 
 (* -- andalso becomes join ---------------------------------------- *)
 val nums = [1, 2, 3, 4, 5];
@@ -212,33 +212,33 @@ fun isEven n = n mod 2 = 0;
 > val isEven = fn : int -> bool
 
 from n where isNum n andalso isEven n;
-> val it = [2,4] : int bag
+> val it = [2,4] : int list
 
 (*) Case
 from x where case x of y => y elem [1,2];
-> val it = [1,2] : int bag
+> val it = [1,2] : int list
 
 from x where case x of y => y > 0 andalso y < 5;
-> val it = [1,2,3,4] : int bag
+> val it = [1,2,3,4] : int list
 
 (*) Case with multiple arms (issue #341)
 from x where (case x of 1 => true | 3 => true | _ => false);
-> val it = [1,3] : int bag
+> val it = [1,3] : int list
 
 (*) Case with explicit false arm excludes that value
 from x where (case x of 1 => true | 2 => false | 3 => true | _ => false);
-> val it = [1,3] : int bag
+> val it = [1,3] : int list
 
 (*) Simple boolean inversion: 'not b' generates false
 from b where not b;
-> val it = [false] : bool bag
+> val it = [false] : bool list
 
 from b where b;
-> val it = [true] : bool bag
+> val it = [true] : bool list
 
 (*) Case with variable pattern and range predicate
 from x where (case x of 0 => true | n => n >= 5 andalso n <= 8);
-> val it = [0,5,6,7,8] : int bag
+> val it = [0,5,6,7,8] : int list
 
 (* TODO: Exclusion constraints need to become post-generation filters
 (*) Case where explicit false shadows later variable match
@@ -248,30 +248,30 @@ from x where (case x of 6 => false | n => n >= 5 andalso n <= 8);
 
 (*) Simple constructor pattern test - single arm with range constraint
 from e where (case e of INL n => n >= 5 andalso n <= 8 | _ => false);
-> val it = [INL 5,INL 6,INL 7,INL 8] : (int,'a) either bag
+> val it = [INL 5,INL 6,INL 7,INL 8] : (int,'a) either list
 
 (*) Constructor pattern with boolean payload
 from e where (case e of INR b => b | _ => false);
-> val it = [INR true] : ('a,bool) either bag
+> val it = [INR true] : ('a,bool) either list
 
 (*) Constructor pattern with boolean payload - "not b" inverts to "b = false"
 from e where (case e of INR b => not b | _ => false);
-> val it = [INR false] : ('a,bool) either bag
+> val it = [INR false] : ('a,bool) either list
 
 (*) Constructor pattern with (boolean * int) payload
 from e where (case e of INR (b, i) => b andalso i > 5 andalso i < 15 andalso i mod 3 = 1 | _ => false);
 > val it = [INR (true,7),INR (true,10),INR (true,13)]
->   : ('a,bool * int) either bag
+>   : ('a,bool * int) either list
 
 from e where (case e of INR (b, i) => i > 0 andalso i < 5 andalso b = (i mod 2 = 0) | _ => false);
 > val it = [INR (false,1),INR (false,3),INR (true,2),INR (true,4)]
->   : ('a,bool * int) either bag
+>   : ('a,bool * int) either list
 
 (*) Multiple constructor arms combined with orelse (via maybeUnion)
 from e where (case e of
     INL n => n >= 5 andalso n <= 8
   | INR b => not b);
-> val it = [INL 5,INL 6,INL 7,INL 8,INR false] : (int,bool) either bag
+> val it = [INL 5,INL 6,INL 7,INL 8,INR false] : (int,bool) either list
 
 (*) Case with constructor patterns - INL/INR (issue #341)
 (* Multiple arms with literal patterns, variable patterns, and exclusions *)
@@ -282,7 +282,7 @@ from e where (case e of
   | INL 7 => true
   | INL 100 => true
   | INL n => n >= 5 andalso n <= 8);
-> val it = [INL 0,INR false,INL 7,INL 100,INL 5,INL 8] : (int,bool) either bag
+> val it = [INL 0,INL 5,INL 7,INL 8,INL 100,INR false] : (int,bool) either list
 
 (* Predicate cannot be inverted.
  *
@@ -296,7 +296,7 @@ from x where (x + 2) * (x - 3) = 0;
  * some patterns that would otherwise not be grounded. Here, the
  * pattern is bounded by `abs x < 5`. *)
 from x where abs x < 5;
-> val it = [~4,~3,~2,~1,0,1,2,3,4] : int bag
+> val it = [~4,~3,~2,~1,0,1,2,3,4] : int list
 
 (* And here, each variable's bound depends on the other; FBBT
  * propagates the constants through the cycle to deduce finite bounds
@@ -314,7 +314,7 @@ from x, y where (x, y) elem [(1,true),(2,false)];
 > 1 true
 > 2 false
 >
-> val it : {x:int, y:bool} bag
+> val it : {x:int, y:bool} list
 
 (*) A tuple elem grounds all its variables.
 from x, y where (x, y) elem [(1,10),(2,20)];
@@ -323,9 +323,9 @@ from x, y where (x, y) elem [(1,10),(2,20)];
 > 1 10
 > 2 20
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 from x where (x, 20) elem [(1,10),(2,20)];
-> val it = [2] : int bag
+> val it = [2] : int list
 
 (*) A bound variable joins in a projected scan.
 from x in [1,2,3], y where (x, y) elem [(1,10),(2,20)];
@@ -334,7 +334,7 @@ from x in [1,2,3], y where (x, y) elem [(1,10),(2,20)];
 > 1 10
 > 2 20
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 from x in [1,2], y where y elem [x, x+1];
 > x y
 > - -
@@ -343,7 +343,7 @@ from x in [1,2], y where y elem [x, x+1];
 > 2 2
 > 2 3
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (*) Reversed pattern
 from x, y where (y, x) elem [(1,true),(2,false)];
@@ -352,7 +352,7 @@ from x, y where (y, x) elem [(1,true),(2,false)];
 > true  1
 > false 2
 >
-> val it : {x:bool, y:int} bag
+> val it : {x:bool, y:int} list
 
 (*) Reversed pattern via case
 from x, y where case (y, x) of (a, b) => (a, b) elem [(1,true),(2,false)];
@@ -361,7 +361,7 @@ from x, y where case (y, x) of (a, b) => (a, b) elem [(1,true),(2,false)];
 > true  1
 > false 2
 >
-> val it : {x:bool, y:int} bag
+> val it : {x:bool, y:int} list
 
 (*) Record pattern
 from x, y where {y, x} elem [{y=1,x=true},{y=2,x=false}];
@@ -370,16 +370,16 @@ from x, y where {y, x} elem [{y=1,x=true},{y=2,x=false}];
 > true  1
 > false 2
 >
-> val it : {x:bool, y:int} bag
+> val it : {x:bool, y:int} list
 
 from x where (x, "b") elem [(1,"a"),(2,"b")];
-> val it = [2] : int bag
+> val it = [2] : int list
 
 from x where (1, x) elem [(1,"a"),(2,"b")];
-> val it = ["a"] : string bag
+> val it = ["a"] : string list
 
 from x where (1, x, true) elem [(1,"a",false),(2,"b",true),(1,"c",true)];
-> val it = ["c"] : string bag
+> val it = ["c"] : string list
 
 (* -- orelse becomes union ---------------------------------------- *)
 fun isSmall n = n elem [1, 2];
@@ -389,7 +389,7 @@ fun isLarge n = n elem [10, 20];
 > val isLarge = fn : int -> bool
 
 from n where isSmall n orelse isLarge n;
-> val it = [1,2,20,10] : int bag
+> val it = [1,2,10,20] : int list
 
 (* -- Predicate inversion ----------------------------------------- *)
 
@@ -397,7 +397,7 @@ from n where isSmall n orelse isLarge n;
  *
  * Invert 'from x where x elem list' to 'from x in list'. *)
 from x where x elem [1, 2, 4];
-> val it = [1,2,4] : int bag
+> val it = [1,2,4] : int list
 
 (* In the following case, we solve for x given a value of y. This
  * requires predicate-inversion because it cannot be solved using
@@ -418,48 +418,48 @@ from x, y in [0, 2, 9] where x > y andalso x < y + 5;
 > 12 9
 > 13 9
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (* Similar, but we know the values of x. *)
 from x in [3, 5, 7], y where x > y andalso x < y + 5 yield y;
-> val it = [~1,0,1,2,1,2,3,4,3,4,5,6] : int bag
+> val it = [~1,0,1,2,1,2,3,4,3,4,5,6] : int list
 
 from x in [3, 5, 7], y
   where x > y andalso x < y + 5
   group y compute count over ();
 > count y
 > ----- --
+>     1 ~1
+>     1  0
 >     2  1
 >     2  2
 >     2  3
 >     2  4
 >     1  5
 >     1  6
->     1 -1
->     1  0
 >
-> val it : {count:int, y:int} bag
+> val it : {count:int, y:int} list
 
 from x where x = 3 andalso x < 10;
-> val it = [3] : int bag
+> val it = [3] : int list
 
 from x where x = 3 andalso x > 10;
-> val it = [] : int bag
+> val it = [] : int list
 
 from x where x = 3 orelse x > 0 andalso x < 5;
-> val it = [1,2,3,4] : int bag
+> val it = [1,2,3,4] : int list
 
 from x where x = 3 orelse x > 10 andalso x < 15;
-> val it = [3,11,12,13,14] : int bag
+> val it = [3,11,12,13,14] : int list
 
 from b where b > false;
-> val it = [true] : bool bag
+> val it = [true] : bool list
 
 from b where b > false andalso true;
-> val it = [true] : bool bag
+> val it = [true] : bool list
 
 from b where b > false andalso false;
-> val it = [] : bool bag
+> val it = [] : bool list
 
 (*) With spurious 'andalso true'
 from x, y in [2,3] where x > y andalso true andalso x < 5;
@@ -469,7 +469,7 @@ from x, y in [2,3] where x > y andalso true andalso x < 5;
 > 4 2
 > 4 3
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 from x, y in [2,3] where x > y andalso true where x < 5;
 > x y
@@ -478,7 +478,7 @@ from x, y in [2,3] where x > y andalso true where x < 5;
 > 4 2
 > 4 3
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (* Unbound variables in declared 'join';
  * condition on 'j' occurs after 'join' *)
@@ -504,7 +504,7 @@ where j > 4 andalso j < 7
 > 2 5 10 14
 > ...
 >
-> val it : {i:int, j:int, k:int, m:int} bag
+> val it : {i:int, j:int, k:int, m:int} list
 
 (* -- Emp and dept examples --------------------------------------- *)
 
@@ -538,7 +538,7 @@ from x, y where x = 1 andalso y = x + 1;
 > - -
 > 1 2
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (*) An unused unbounded variable is dropped.
 exists w, x where x = 3;
@@ -583,12 +583,12 @@ from i
 from i
   where i >= 0 andalso i <= 100
   take 3;
-> val it = [0,1,2] : int bag
+> val it = [0,1,2] : int list
 
 from i
   where i >= 0 andalso i <= 100
   skip 96;
-> val it = [96,97,98,99,100] : int bag
+> val it = [96,97,98,99,100] : int list
 
 from i
   where i >= 0 andalso i <= 100
@@ -679,13 +679,13 @@ exists x
 from x
   where exists y
     where (x, y) elem [(1, 2), (1, 3), (4, 3)];
-> val it = [1,4] : int bag
+> val it = [1,4] : int list
 
 (*) Be sure to eliminate duplicates. (_, 2, 3) occurs twice in the list.
 from y
   where exists x
     where (x, y, 3) elem [(1, 2, 3), (2, 3, 4), (5, 4, 3), (4, 2, 3)];
-> val it = [2,4] : int bag
+> val it = [2,4] : int list
 
 from source in [1, 2, 3, 4, 5]
 yield {source, doubled = (from x where x = source * 2)};
@@ -733,7 +733,7 @@ where {deptno = dno, dname = name, loc} elem scott.depts
 >  30 CHICAGO SALES
 >  40 BOSTON  OPERATIONS
 >
-> val it : {dno:int, loc:string, name:string} bag
+> val it : {dno:int, loc:string, name:string} list
 
 (*) As previous but with a literal in the record.
 from dno, name
@@ -743,7 +743,7 @@ where {deptno = dno, dname = name, loc = "CHICAGO"} elem scott.depts
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (*) Equivalent to previous, splitting 'where'
 from dno, name
@@ -753,7 +753,7 @@ where dno > 20;
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (*) Variables 'dno', 'name' are infinite until constrained by conditions.
 from v, dno, name
@@ -766,7 +766,7 @@ yield {dno, name = #dname v};
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (* Forward references are required. 'dno' is infinite until we see the
  * condition 'v.deptno = dno', and at that point we haven't declared
@@ -781,7 +781,7 @@ yield {dno = #deptno v, name = #dname v};
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (*) An extra condition on 'dno' yields empty result.
 from dno, name, v
@@ -794,7 +794,7 @@ yield {dno = #deptno v, name = #dname v};
 > dno name
 > --- ----
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (*) Inequality on 'dno'
 from dno, name, v
@@ -808,15 +808,15 @@ yield {dno = #deptno v, name = #dname v};
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (*) Finite-type extent materialization.
 from b where b orelse not b;
-> val it = [false,true] : bool bag
+> val it = [false,true] : bool list
 
 (*) Datatype extent, constructors in name order.
 from ob where Option.getOpt (ob, false) orelse true;
-> val it = [NONE,SOME false,SOME true] : bool option bag
+> val it = [NONE,SOME false,SOME true] : bool option list
 
 (* Morel-rust cannot yet materialize the extent of a tuple type, so
  * this section is validated but not evaluated. *)
@@ -846,14 +846,14 @@ where Option.getOpt i;
 > true false
 > true true
 >
-> val it : (bool option * bool) bag
+> val it : (bool option * bool) list
 
 (*) If the expression is 'elem set' we can deduce the extent.
 from e
   where (e elem scott.emps)
   where e.deptno = 20
   yield e.ename;
-> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string list
 
 (*) A function that finds its data internally.
 let
@@ -888,7 +888,7 @@ fun isEmp e =
 from e
   where isEmp e andalso e.deptno = 20
   yield e.ename;
-> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string bag
+> val it = ["SMITH","JONES","SCOTT","ADAMS","FORD"] : string list
 
 (*) Similar to 'isEmp' but with a conjunctive condition.
 fun isClerk e =
@@ -900,7 +900,7 @@ fun isClerk e =
 from e
   where isClerk e andalso e.deptno = 20
   yield e.ename;
-> val it = ["SMITH","ADAMS"] : string bag
+> val it = ["SMITH","ADAMS"] : string list
 
 (*) A disjunctive condition prevents the extent.
 let
@@ -953,7 +953,7 @@ end;
  *                           fn i => String.substring(s, 0, i))
  *)
 from p where String.isPrefix p "abcd";
-> val it = ["","a","ab","abc","abcd"] : string bag
+> val it = ["","a","ab","abc","abcd"] : string list
 
 from s in ["abcd", "ant"], p where String.isPrefix p s;
 > p    s
@@ -968,10 +968,10 @@ from s in ["abcd", "ant"], p where String.isPrefix p s;
 > an   ant
 > ant  ant
 >
-> val it : {p:string, s:string} bag
+> val it : {p:string, s:string} list
 
 from s in ["abcd", "ant"], p where String.isPrefix p s yield p distinct;
-> val it = ["a","ab","abc","ant","abcd","an",""] : string bag
+> val it = ["","a","ab","abc","abcd","an","ant"] : string list
 
 from p where (exists s in ["abcd", "ant"] where String.isPrefix p s) order p;
 > val it = ["","a","ab","abc","abcd","an","ant"] : string list
@@ -982,7 +982,7 @@ fun isPrefix (s1, s2) =
   String.isPrefix s1 s2;
 > val isPrefix = fn : string * string -> bool
 from s where isPrefix (s, "abcd");
-> val it = ["","a","ab","abc","abcd"] : string bag
+> val it = ["","a","ab","abc","abcd"] : string list
 
 (* An integer function with external extent.
  * Given j, k we could generate finite i. *)
@@ -1132,7 +1132,7 @@ from p where path p;
 > 2 3
 > 1 3
 >
-> val it : (int * int) bag
+> val it : (int * int) list
 
 (*) Same problem, but edges are tuples, not records.
 let
@@ -1273,7 +1273,7 @@ from x, y where edge (x, y);
 > 4 2
 > 4 3
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 
 (*) Return points that are 2 hops apart.
 let
@@ -1298,11 +1298,11 @@ from x, z
   distinct;
 > x z
 > - -
-> 4 3
-> 1 2
 > 1 3
+> 1 2
+> 4 3
 >
-> val it : {x:int, z:int} bag
+> val it : {x:int, z:int} list
 
 (*) Also equivalent.
 from x, z
@@ -1310,11 +1310,11 @@ from x, z
   distinct;
 > x z
 > - -
-> 4 3
-> 1 2
 > 1 3
+> 1 2
+> 4 3
 >
-> val it : {x:int, z:int} bag
+> val it : {x:int, z:int} list
 
 (*) Also equivalent.
 let
@@ -1481,7 +1481,7 @@ fun happy patron =
  * Amber; Velma is happy because Cask sells Stout. Fred and Scooby are not
  * happy. *)
 from p where happy p;
-> val it = ["shaggy","velma"] : string bag
+> val it = ["shaggy","velma"] : string list
 
 (* A beer is considered cheap if there are at least two bars that sell it for
  * under $3.
@@ -1501,7 +1501,7 @@ fun cheap beer =
 
 (*) Pale is cheap
 from b where cheap b;
-> val it = ["pale"] : string bag
+> val it = ["pale"] : string list
 
 (* Example Datalog Program. Using EDB Sells (bar, beer, price) and
  * Likes (patron, beer), find the patrons who like beers Joe doesn't sell.
@@ -1517,7 +1517,7 @@ fun caskSells b =
 
 from p
   where (exists b where likes (p, b) andalso not (caskSells b));
-> val it = ["shaggy","fred"] : string bag
+> val it = ["shaggy","fred"] : string list
 
 (* Family relationships ----------------------------------------------
  *
@@ -1573,7 +1573,7 @@ from p where sib p;
 > j k
 > k j
 >
-> val it : (string * string) bag
+> val it : (string * string) list
 
 (*
  * Evaluating the "cousins" query:
@@ -1596,7 +1596,7 @@ from p where cousin p;
 > i g
 > k k
 >
-> val it : (string * string) bag
+> val it : (string * string) list
 
 (* Nonmonotone relation.
  * 'cousin2' is as 'cousin', but 'orelse' has become 'and not'.
@@ -1668,7 +1668,7 @@ where q = RED
 > GREEN GREEN RED BLUE  GREEN RED   RED
 > RED   GREEN RED BLUE  GREEN GREEN RED
 >
-> val it : {nsw:Color, nt:Color, q:Color, sa:Color, t:Color, v:Color, wa:Color} bag
+> val it : {nsw:Color, nt:Color, q:Color, sa:Color, t:Color, v:Color, wa:Color} list
 
 (* Arithmetic optimization -------------------------------------------
  *
@@ -1753,7 +1753,7 @@ from d where d elem scott.depts;
 >     30 SALES      CHICAGO
 >     40 OPERATIONS BOSTON
 >
-> val it : {deptno:int, dname:string, loc:string} bag
+> val it : {deptno:int, dname:string, loc:string} list
 
 (* testFromSuchThat2c - Record pattern with field renaming *)
 from loc, deptno, name
@@ -1765,7 +1765,7 @@ where {deptno, loc, dname = name} elem scott.depts;
 >     30 CHICAGO  SALES
 >     40 BOSTON   OPERATIONS
 >
-> val it : {deptno:int, loc:string, name:string} bag
+> val it : {deptno:int, loc:string, name:string} list
 
 (* testFromSuchThat2d - Record pattern with literal and additional
  * constraint. Same as testFromSuchThat2c but with a literal. *)
@@ -1777,7 +1777,7 @@ from dno, name
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (* testFromSuchThat2d3 - Forward references with equality constraint *)
 from dno, name, v
@@ -1791,7 +1791,7 @@ yield {dno = #deptno v, name = #dname v};
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (* testFromSuchThat2d4 - Forward references with inequality constraint *)
 from dno, name, v
@@ -1805,7 +1805,7 @@ yield {dno = #deptno v, name = #dname v};
 > --- -----
 >  30 SALES
 >
-> val it : {dno:int, name:string} bag
+> val it : {dno:int, name:string} list
 
 (* testFromSuchThat2e - Function inlining with elem predicate.
  * As testFromSuchThat2d but using a function. (Simple enough
@@ -1816,7 +1816,7 @@ fun isDept d =
 from d
   where isDept d andalso d.deptno = 20
   yield d.dname;
-> val it = ["RESEARCH"] : string bag
+> val it = ["RESEARCH"] : string list
 
 (* testFromSuchThat2f - Join via suchthat with two functions *)
 let
@@ -1890,14 +1890,14 @@ from (x, y) where x elem [1, 2] andalso y elem [3];
 > 1 3
 > 2 3
 >
-> val it : {x:int, y:int} bag
+> val it : {x:int, y:int} list
 from {b, i} where i elem [3, 5] andalso b;
 > b    i
 > ---- -
 > true 3
 > true 5
 >
-> val it : {b:bool, i:int} bag
+> val it : {b:bool, i:int} list
 
 (* A component that no step refers to is still a column of the result, and is
  * materialized if its type is finite. *)
@@ -1905,22 +1905,22 @@ from (b: bool, i) where i elem [3, 5];
 > b     i
 > ----- -
 > false 3
-> false 5
 > true  3
+> false 5
 > true  5
 >
-> val it : {b:bool, i:int} bag
+> val it : {b:bool, i:int} list
 from {b: bool, i} where i elem [3, 4, 5];
 > b     i
 > ----- -
 > false 3
-> false 4
-> false 5
 > true  3
+> false 4
 > true  4
+> false 5
 > true  5
 >
-> val it : {b:bool, i:int} bag
+> val it : {b:bool, i:int} list
 
 (*) Nested products are decomposed too.
 from (b: bool, (c: bool, i)) where i elem [3, 5] andalso b andalso c;
@@ -1929,7 +1929,7 @@ from (b: bool, (c: bool, i)) where i elem [3, 5] andalso b andalso c;
 > true true 3
 > true true 5
 >
-> val it : {b:bool, c:bool, i:int} bag
+> val it : {b:bool, c:bool, i:int} list
 
 (* An 'as' pattern names the whole product as well as its components, so its
  * parts are not independent of the whole and it is not split. morel-java

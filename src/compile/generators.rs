@@ -284,7 +284,9 @@ fn create_collection_generator(
         collection.clone(),
         Cardinality::Finite,
         free,
-        true, // assume the user-supplied collection has unique elements
+        // A collection may hold the same value twice, and in no
+        // particular order; `distinct` and `order` follow the scan.
+        false,
         true, // sealed: the elem-conjunct is fully encoded by the scan
         vec![source_constraint.clone()],
     );
