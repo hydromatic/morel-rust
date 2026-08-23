@@ -92,6 +92,10 @@ pub struct TypeMap {
     /// type. Used by the pretty printer to format record arguments
     /// with field names.
     pub constructor_arg_types: HashMap<String, Type>,
+    /// The expanded core type of each `type` binding declared by this
+    /// statement; see
+    /// [`TypeResolver::expanded_type_binds`](TypeResolver::expanded_type_binds).
+    pub expanded_type_binds: HashMap<String, Type>,
     /// Overload constraints that were still unresolved when unification
     /// finished: `(name, type term, candidate instance terms)`. They become
     /// the predicates of a qualified type; see
@@ -108,6 +112,7 @@ impl TypeMap {
             node_var_map: node_var_map.clone(),
             var_term_map: HashMap::new(),
             op_defs,
+            expanded_type_binds: HashMap::new(),
             predicate_terms: Vec::new(),
             var_alias_map: HashMap::new(),
             datatype_constructors: HashMap::new(),
@@ -751,6 +756,10 @@ pub struct TypeResolver {
     /// and `datatype` declarations.
     pub type_aliases: HashMap<String, Type>,
 
+    /// The expanded core type of each `type` binding declared by this
+    /// statement, so that `type t = t list` displays its expansion.
+    pub expanded_type_binds: HashMap<String, Type>,
+
     /// Parameter count (arity) of every user-declared datatype seen
     /// so far (added by `deduce_datatype_decl_type` or seeded by
     /// the session from prior statements). Built-in datatype
@@ -1093,6 +1102,94 @@ impl TypeResolver {
             .or_else(|| self.user_datatype_arities.get(name).copied())
     }
 
+    /// Expands an AST type to a core type, resolving every named type
+    /// against `aliases` (the aliases and datatypes in scope) and the
+    /// built-in type constructors. A type alias is transparent, so it is
+    /// replaced by its (already expanded) body.
+    ///
+    /// Returns the offending name and span if a name is not bound to a type.
+    fn expand_ast_type(
+        &self,
+        ast_type: &AstType,
+        aliases: &HashMap<String, Type>,
+    ) -> Result<Type, (String, Span)> {
+        let unbound =
+            |name: &str| Err((name.to_string(), ast_type.span.clone()));
+        match &ast_type.kind {
+            TypeKind::Con(_) | TypeKind::Expression(_) | TypeKind::Var(_) => {
+                // A type variable, `typeof e`, or a constructor: not
+                // expanded here. Fall back to the unexpanded lowering, or
+                // to `unit` if that is not possible.
+                Ok(ast_type_to_core_type(ast_type)
+                    .unwrap_or(Type::Primitive(PrimitiveType::Unit)))
+            }
+            TypeKind::Composite(_) => {
+                // Already reported by `validate_ast_type`.
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+            TypeKind::Fn(a, b) => Ok(Type::Fn(
+                Rc::new(self.expand_ast_type(a, aliases)?),
+                Rc::new(self.expand_ast_type(b, aliases)?),
+            )),
+            TypeKind::Id(name) => {
+                if let Some(p) = PrimitiveType::parse_name(name) {
+                    Ok(Type::Primitive(p))
+                } else if let Some(t) = aliases.get(name) {
+                    Ok(t.clone())
+                } else if library::builtin_type_arity(name.as_str()) == Some(0)
+                {
+                    Ok(Type::Data(name.clone(), vec![]))
+                } else {
+                    unbound(name)
+                }
+            }
+            TypeKind::Record(fields) => {
+                let mut field_map: BTreeMap<Label, Rc<Type>> = BTreeMap::new();
+                for field in fields {
+                    field_map.insert(
+                        Label::from(field.label.name.clone()),
+                        Rc::new(self.expand_ast_type(&field.type_, aliases)?),
+                    );
+                }
+                Ok(Type::Record(false, field_map))
+            }
+            TypeKind::Tuple(types) => {
+                let mut args = Vec::with_capacity(types.len());
+                for t in types {
+                    args.push(Rc::new(self.expand_ast_type(t, aliases)?));
+                }
+                Ok(Type::Tuple(args))
+            }
+            TypeKind::Unit => Ok(Type::Primitive(PrimitiveType::Unit)),
+            TypeKind::App(args, base) => {
+                let TypeKind::Id(name) = &base.kind else {
+                    return Ok(Type::Primitive(PrimitiveType::Unit));
+                };
+                let flat_args = AstType::flatten(args);
+                let mut args2 = Vec::with_capacity(flat_args.len());
+                for a in &flat_args {
+                    args2.push(Rc::new(self.expand_ast_type(a, aliases)?));
+                }
+                if args2.len() == 1 {
+                    match name.as_str() {
+                        "list" => {
+                            return Ok(Type::List(args2.pop().unwrap()));
+                        }
+                        "bag" => {
+                            return Ok(Type::Bag(args2.pop().unwrap()));
+                        }
+                        _ => {}
+                    }
+                }
+                if self.arity_of_type_ctor(name).is_some() {
+                    Ok(Type::Data(name.clone(), args2))
+                } else {
+                    Err((name.clone(), base.span.clone()))
+                }
+            }
+        }
+    }
+
     /// Walks an AST type and pushes errors for invalid forms:
     /// standalone `(t1, ..., tn)` tuple types, and wrong-arity
     /// applications of known type constructors. Used by code paths
@@ -1191,6 +1288,7 @@ impl TypeResolver {
             fn_op,
             decl_type_vars: BTreeMap::new(),
             type_aliases: HashMap::new(),
+            expanded_type_binds: HashMap::new(),
             user_datatype_arities: HashMap::new(),
             datatype_bindings: Vec::new(),
             prior_datatype_constructors: HashMap::new(),
@@ -1387,6 +1485,8 @@ impl TypeResolver {
         for (v, term) in substitution.substitutions.clone() {
             type_map.var_term_map.insert(v, term);
         }
+
+        type_map.expanded_type_binds = self.expanded_type_binds.clone();
 
         // Turn any overload constraint that was never resolved (its argument
         // type never became concrete) into a predicate of a qualified type.
@@ -1898,11 +1998,33 @@ impl TypeResolver {
                 // in the resolver. The alias maps the new name to the
                 // resolved core type of the RHS, so subsequent uses of
                 // 'myInt' in type position resolve to 'int'.
+                //
+                // A 'type' declaration is not recursive, and the bindings
+                // of a 'type ... and ...' group are simultaneous, so each
+                // body is resolved against the aliases in scope *before*
+                // the declaration: a name that the group itself binds
+                // means the definition being displaced. An alias is
+                // transparent, so it is expanded.
+                let prior_aliases = self.type_aliases.clone();
+                let mut expanded = Vec::with_capacity(type_binds.len());
                 for tb in type_binds {
                     self.validate_ast_type(&tb.type_);
-                    if let Some(rhs_type) = ast_type_to_core_type(&tb.type_) {
-                        self.type_aliases.insert(tb.name.clone(), rhs_type);
+                    match self.expand_ast_type(&tb.type_, &prior_aliases) {
+                        Ok(rhs_type) => {
+                            expanded.push((tb.name.clone(), rhs_type));
+                        }
+                        Err((name, span)) => {
+                            self.field_errors.borrow_mut().push((
+                                format!("unbound type constructor: {}", name),
+                                span,
+                            ));
+                            return Ok(decl.clone());
+                        }
                     }
+                }
+                for (name, rhs_type) in expanded {
+                    self.type_aliases.insert(name.clone(), rhs_type.clone());
+                    self.expanded_type_binds.insert(name, rhs_type);
                 }
                 Ok(decl.clone())
             }

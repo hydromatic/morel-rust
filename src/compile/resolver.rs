@@ -1777,7 +1777,14 @@ impl<'a> Resolver<'a> {
     /// the same simple-shape recogniser used by the type-resolver.
     /// Unsupported shapes fall back to `unit`.
     fn resolve_type_bind(&self, type_bind: &TypeBind) -> CoreTypeBind {
-        let core_type = ast_type_to_core_type(&type_bind.type_)
+        // Prefer the type resolver's expansion, which resolves names against
+        // the aliases in scope before the declaration.
+        let core_type = self
+            .type_map
+            .expanded_type_binds
+            .get(&type_bind.name)
+            .cloned()
+            .or_else(|| ast_type_to_core_type(&type_bind.type_))
             .unwrap_or(Type::Primitive(PrimitiveType::Unit));
         CoreTypeBind {
             name: type_bind.name.clone(),
