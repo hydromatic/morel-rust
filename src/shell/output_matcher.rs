@@ -45,6 +45,25 @@ use std::str::from_utf8;
 /// only declares the strings equivalent when they normalize to the
 /// same byte sequence.
 pub fn equivalent(actual: &str, expected: &str) -> bool {
+    // A statement's output may open with compiler diagnostics -- a
+    // "match nonexhaustive" warning and the location that raised it --
+    // before the value. None of the relaxations below apply to those:
+    // there is no bag to reorder and no line to re-wrap, so they must
+    // match exactly. Folding them into the value would let a wrong
+    // warning (or a wrong source span) be copied through from the
+    // reference file and the test pass regardless.
+    let (actual_diags, actual) = split_diagnostics(actual);
+    let (expected_diags, expected) = split_diagnostics(expected);
+    if actual_diags.len() != expected_diags.len()
+        || actual_diags
+            .iter()
+            .zip(&expected_diags)
+            .any(|(a, e)| normalize_whitespace(a) != normalize_whitespace(e))
+    {
+        return false;
+    }
+    let (actual, expected) = (actual.as_str(), expected.as_str());
+
     let actual_type = extract_type(actual);
     let expected_type = extract_type(expected);
     match (actual_type, expected_type) {
@@ -73,6 +92,47 @@ pub fn equivalent(actual: &str, expected: &str) -> bool {
 /// when the type annotation is missing or malformed.
 fn fallback_equal(actual: &str, expected: &str) -> bool {
     normalize_whitespace(actual) == normalize_whitespace(expected)
+}
+
+/// Splits an output string into the diagnostics it opens with and the
+/// value that follows.
+///
+/// Only a *leading* run of diagnostic lines is taken, so a value that
+/// happens to mention "Warning:" on a wrapped continuation line stays
+/// part of the value. An output that is nothing but diagnostics (an
+/// error, which yields no value) splits into all lines and an empty
+/// remainder.
+fn split_diagnostics(s: &str) -> (Vec<&str>, String) {
+    let mut lines = s.lines();
+    let mut diags = Vec::new();
+    let mut rest: Vec<&str> = Vec::new();
+    for line in lines.by_ref() {
+        if is_diagnostic_line(line) {
+            diags.push(line);
+        } else {
+            rest.push(line);
+            break;
+        }
+    }
+    if diags.is_empty() {
+        // Nothing to split; hand back the original text unchanged so
+        // that trailing newlines are preserved exactly.
+        return (diags, s.to_string());
+    }
+    rest.extend(lines);
+    (diags, rest.join("\n"))
+}
+
+/// Returns whether `line` is a compiler diagnostic rather than part of
+/// a value: either a `raised at:` location, or a `Warning:`/`Error:`
+/// message. A result line always starts with `val `, which is how a
+/// string value containing the word "Error:" is told apart.
+fn is_diagnostic_line(line: &str) -> bool {
+    let t = line.trim_start();
+    if t.starts_with("raised at:") {
+        return true;
+    }
+    !t.starts_with("val ") && (t.contains("Warning:") || t.contains("Error:"))
 }
 
 /// Same as [`equivalent`] but with an explicit type (used by unit
@@ -1253,5 +1313,62 @@ mod tests {
         assert_eq!(parse_val_prefix("val = 3"), None);
         // Bare expression — no `val`.
         assert_eq!(parse_val_prefix("3"), None);
+    }
+
+    /// A warning that precedes a value is part of the output, not
+    /// something the value relaxations may absorb.
+    #[test]
+    fn diagnostic_text_difference_caught() {
+        let expected = "stdIn:1.1-1.12 Warning: match nonexhaustive\n  \
+                        raised at: stdIn:1.1-1.12\nval it : int -> string";
+        assert!(equivalent(expected, expected));
+        let wrong_message =
+            expected.replace("match nonexhaustive", "match redundant");
+        assert!(!equivalent(&wrong_message, expected));
+        let wrong_span = expected.replace("1.1-1.12", "9.99-9.99");
+        assert!(!equivalent(&wrong_span, expected));
+        let missing = "val it : int -> string";
+        assert!(!equivalent(missing, expected));
+    }
+
+    /// Splitting the diagnostics off must not disable the relaxations
+    /// that apply to the value after them.
+    #[test]
+    fn value_after_diagnostic_still_relaxed() {
+        let warning = "stdIn:1.5-1.24 Warning: match nonexhaustive\n  \
+                       raised at: stdIn:1.5-1.24\n";
+        assert!(equivalent(
+            &format!("{}val f = [3,1,2] : int bag", warning),
+            &format!("{}val f = [1,2,3] : int bag", warning),
+        ));
+        // ... but a bag is still not a list.
+        assert!(!equivalent(
+            &format!("{}val f = [3,1,2] : int list", warning),
+            &format!("{}val f = [1,2,3] : int list", warning),
+        ));
+    }
+
+    /// Only a *leading* run of lines is diagnostic; a wrapped value
+    /// that mentions "Error:" is still a value.
+    #[test]
+    fn value_mentioning_error_is_not_a_diagnostic() {
+        assert!(
+            split_diagnostics("val it =\n  \"Error: boom\"\n  : string")
+                .0
+                .is_empty()
+        );
+        assert!(equivalent(
+            "val it =\n  \"Error: boom\"\n  : string",
+            "val it = \"Error: boom\" : string",
+        ));
+    }
+
+    /// An output that is nothing but an error still compares exactly.
+    #[test]
+    fn error_only_output_compares_exactly() {
+        let e = "stdIn:1.6 Error: pattern 'x' is not grounded\n  \
+                 raised at: stdIn:1.6";
+        assert!(equivalent(e, e));
+        assert!(!equivalent(&e.replace("1.6", "2.7"), e));
     }
 }
