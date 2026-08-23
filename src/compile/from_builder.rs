@@ -217,8 +217,17 @@ fn tuple_type(
     }
 
     // Start assuming identity, downgrade to rename if we find differences.
+    //
+    // The output bindings (env2) must match the tuple's fields by name and
+    // type. A row binder whose name equals the record's sole field name
+    // ('yield g = {g = ...}') has a binding named like the field but typed as
+    // the whole record, so without the type check the binder would look like
+    // the identity and the step would be dropped as trivial.
     let mut identity = match env2 {
-        Some(e2) => env.bindings == e2.bindings,
+        Some(e2) => {
+            env.bindings == e2.bindings
+                && Binding::matches_fields(&e2.bindings, tuple_type)
+        }
         None => true,
     };
 

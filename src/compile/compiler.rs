@@ -15,6 +15,7 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::core;
 use crate::compile::core::{
     DatatypeBind, Decl, Expr, Match, Pat, PatField, Step, StepEnv, StepKind,
     TypeBind, ValBind,
@@ -2186,23 +2187,16 @@ impl<'a> Compiler<'a> {
                     };
 
                     // A record yield scatters its fields into their own frame
-                    // slots only when the record's field names match the
-                    // step's output bindings. A row binder ('yield r = {..}')
-                    // produces a single atom binding whose name is not a field
-                    // of the record, so the whole row is written to the
-                    // binder's slot instead (the `fieldsMatchBindings` rule).
-                    let record_scatter =
-                        if let Type::Record(_, fields) = yield_type.as_ref() {
-                            let bindings = &first_step.env.bindings;
-                            fields.len() == bindings.len()
-                                && bindings.iter().all(|b| {
-                                    fields.contains_key(&Label::String(
-                                        b.id.name.clone(),
-                                    ))
-                                })
-                        } else {
-                            false
-                        };
+                    // slots only when the record's fields match the step's
+                    // output bindings by name *and* type. A row binder
+                    // ('yield r = {..}') produces a single atom binding whose
+                    // whole row is written to the binder's slot instead; if
+                    // the binder's name equals the record's sole field name,
+                    // only the type tells the two apart.
+                    let record_scatter = core::Binding::matches_fields(
+                        &first_step.env.bindings,
+                        yield_type.as_ref(),
+                    );
 
                     let yield_factory = if record_scatter {
                         // Record yield: unpack each field into its own slot.

@@ -271,6 +271,26 @@ impl Binding {
         Binding { id, type_ }
     }
 
+    /// Returns whether `bindings` matches the fields of `record_type`
+    /// exactly: there are as many fields as bindings, and each binding has the
+    /// same name and type as a field.
+    ///
+    /// The type is compared as well as the name because a row binder whose
+    /// name equals its record's sole field name -- `yield g = {g = ...}` --
+    /// has a binding named like the field but typed as the whole record, not
+    /// as the field.
+    pub fn matches_fields(bindings: &[Binding], record_type: &Type) -> bool {
+        let Type::Record(_, fields) = record_type else {
+            return false;
+        };
+        bindings.len() == fields.len()
+            && bindings.iter().all(|b| {
+                fields
+                    .get(&Label::String(b.id.name.clone()))
+                    .is_some_and(|t| **t == *b.type_)
+            })
+    }
+
     /// Collects all bindings from a pattern, recursively.
     /// For tuple patterns like `(i,j)`, this returns multiple bindings.
     pub fn collect_bindings(pat: &Pat, bindings: &mut Vec<Binding>) {

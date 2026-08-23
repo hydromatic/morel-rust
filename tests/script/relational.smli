@@ -1170,6 +1170,17 @@ from i in [1,2] yield r = i + 1 join u in [3,4];
 from i in [1,2,3] yield (i = 2);
 > val it = [false,true,false] : bool list
 
+(* A binder whose name equals the record's only field name is still a
+ * binder, not a scattered record yield. *)
+from i in [1,2,3] yield r = {r = i} where r.r > 1;
+> val it = [{r=2},{r=3}] : {r:int} list
+
+from i in [1,2,3] group g = {g = i} where g.g > 1;
+> val it = [{g=2},{g=3}] : {g:int} list
+
+from i in [1,2,3] group g = {g = i} yield g.g;
+> val it = [1,2,3] : int list
+
 (*) singleton record 'yield' followed by singleton 'group'
 from e in emps
   yield {d = e.deptno}
