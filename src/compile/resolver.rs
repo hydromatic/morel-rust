@@ -592,6 +592,13 @@ impl<'a> Resolver<'a> {
                     .get()
                     .and_then(|is_bag| self.dispatch_collection_fn(a0, is_bag))
                     .unwrap_or_else(|| self.resolve_expr(a0));
+                // `sum over e` on an empty group has no element to dispatch
+                // on at run time, so bind the zero to the static element
+                // type here; otherwise a real sum would yield the int zero.
+                let fn_core = Self::specialize_sum(
+                    fn_core,
+                    a1.get_type(self.type_map).as_deref(),
+                );
                 CoreExpr::Aggregate(
                     t,
                     Box::new(fn_core),
@@ -645,11 +652,19 @@ impl<'a> Resolver<'a> {
                 // element type, so plans read `Relational.sum$int` as in
                 // morel-java. The bare-identifier `sum` is handled by
                 // `specialize_sum` in the identifier arm.
-                if let ExprKind::Apply(sel, recv) = &func.kind
-                    && let ExprKind::RecordSelector(member) = &sel.kind
-                    && member == "sum"
-                    && let ExprKind::Identifier(structure) = &recv.kind
-                    && structure == "Relational"
+                let is_relational_sum = match &func.kind {
+                    ExprKind::Apply(sel, recv) => matches!(
+                        (&sel.kind, &recv.kind),
+                        (
+                            ExprKind::RecordSelector(member),
+                            ExprKind::Identifier(structure),
+                        ) if member == "sum" && structure == "Relational"
+                    ),
+                    // The global alias `sum` needs the same treatment.
+                    ExprKind::Identifier(name) => name == "sum",
+                    _ => false,
+                };
+                if is_relational_sum
                     && let Some(ty) = arg.get_type(self.type_map)
                 {
                     let elem = match ty.as_ref() {
@@ -1212,6 +1227,28 @@ impl<'a> Resolver<'a> {
             library::aggregate_collection_variants(structure, member)?;
         let chosen = if input_is_bag { bag_fn } else { list_fn };
         Some(CoreExpr::Literal(chosen.get_type(), Val::Fn(chosen)))
+    }
+
+    /// Replaces a reference to the type-dispatched `Relational.sum` with
+    /// the `int` or `real` variant when the element type is known. The
+    /// dispatched version reads the element type off the first element,
+    /// so an empty collection would always sum to the int zero.
+    fn specialize_sum(fn_core: CoreExpr, elem_type: Option<&Type>) -> CoreExpr {
+        let CoreExpr::Literal(_, Val::Fn(BuiltInFunction::RelationalSum)) =
+            &fn_core
+        else {
+            return fn_core;
+        };
+        let f = match elem_type {
+            Some(Type::Primitive(PrimitiveType::Int)) => {
+                BuiltInFunction::RelationalSumInt
+            }
+            Some(Type::Primitive(PrimitiveType::Real)) => {
+                BuiltInFunction::RelationalSumReal
+            }
+            _ => return fn_core,
+        };
+        CoreExpr::Literal(f.get_type(), Val::Fn(f))
     }
 
     fn call1(

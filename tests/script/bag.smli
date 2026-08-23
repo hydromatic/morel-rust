@@ -202,7 +202,7 @@ from h in bag [] join i in intList, j in intList where i = j;
 
 fun doubleList list = List.map (fn i => i * 2) list;
 > val doubleList = fn : int list -> int list
-fun doubleBag xs = Bag.map (fn i => i * 2) xs;
+fun doubleBag bag = Bag.map (fn i => i * 2) bag;
 > val doubleBag = fn : int bag -> int bag
 
 (*) yieldAll's output is a bag if any input is a bag

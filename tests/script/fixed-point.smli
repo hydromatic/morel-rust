@@ -282,8 +282,6 @@ fixp as100 0.0;
 fixp as100 ~1.0;
 > val it = ~10 : real
 
-set("mode", "validate");
-> val it = () : unit
 
 (* Given a list of strings, 'prefixes' returns a list of their
  * prefixes that are one character shorter. *)
@@ -295,8 +293,6 @@ prefixes ["cat", "dog", "", "car", "cart"];
 > val it = ["ca","do","","ca","car"] : string list
 
 
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Workaround for [MOREL-270] Ambiguous collection types. *)
 fun mustBeList (list: 'a list) = list;
@@ -434,5 +430,13 @@ shortest_path edges;
 >    {source="d",target="a",weight=3},{source="d",target="b",weight=~1},
 >    {source="d",target="c",weight=1},{source="d",target="d",weight=0}]
 >   : {source:string, target:string, weight:int} list
+
+(* A 3-node graph has no 4-clique. Grounding must not delete a
+ * conjunct whose generator was cached but never scanned; when it did,
+ * this returned rows in which x = y. *)
+val ps = [(1,2),(2,1),(1,3),(3,1),(2,3),(3,2)];
+> val ps = [(1,2),(2,1),(1,3),(3,1),(2,3),(3,2)] : (int * int) list
+from x, y, z, w where (x, y) elem ps andalso (y, z) elem ps andalso (x, z) elem ps andalso (x, w) elem ps andalso (y, w) elem ps andalso (z, w) elem ps;
+> val it = [] : {w:int, x:int, y:int, z:int} bag
 
 (*) End fixedPoint.smli

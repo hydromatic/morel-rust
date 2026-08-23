@@ -19,12 +19,31 @@
 //! unsigned 64-bit `word` type. Values are stored as [`u64`]; arithmetic
 //! and comparison use unsigned (wrapping) semantics.
 
+use crate::compile::library::BuiltInExn;
+use crate::compile::span::Span;
 use crate::eval::int::{format_radix, radix_base};
 use crate::eval::val::Val;
+use crate::shell::kernel::MorelError;
 use std::sync::LazyLock;
 
 /// Standard ML's `word` is 64 bits wide in Morel.
 pub(crate) const WORD_SIZE: i32 = 64;
+
+/// `Word.div`: unsigned division. Raises `Div` if `w1` is zero.
+pub(crate) fn div(w0: u64, w1: u64, span: &Span) -> Result<Val, MorelError> {
+    match w0.checked_div(w1) {
+        Some(q) => Ok(Val::Word(q)),
+        None => Err(MorelError::Runtime(BuiltInExn::Div, span.clone())),
+    }
+}
+
+/// `Word.mod`: unsigned remainder. Raises `Div` if `w1` is zero.
+pub(crate) fn r#mod(w0: u64, w1: u64, span: &Span) -> Result<Val, MorelError> {
+    match w0.checked_rem(w1) {
+        Some(r) => Ok(Val::Word(r)),
+        None => Err(MorelError::Runtime(BuiltInExn::Div, span.clone())),
+    }
+}
 
 /// `Word.fmt radix w`: formats `w` in the given radix, with no `0wx`
 /// prefix. Hexadecimal digits are upper-case.

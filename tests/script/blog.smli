@@ -202,8 +202,6 @@ end;
 
 (* "filter" keeps only those elements of a list for which
  * a predicate evaluates to true. *)
-set("mode", "validate");
-> val it = () : unit
 let
   fun filter p [] = []
     | filter p (head :: tail) =
@@ -216,8 +214,6 @@ in
   filter even [1, 2, 3, 4]
 end;
 > val it = [2,4] : int list
-set("mode", "evaluate");
-> val it = () : unit
 
 (* You may notice that "map" and "filter" are very similar to the
  * "select" and "where" clauses of a SQL statement.

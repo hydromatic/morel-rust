@@ -102,9 +102,8 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bag", name = "mapPartial"))]
     #[strum(props(type = "forall 2 ('a -> 'b option) -> 'a bag -> 'b bag"))]
     BagMapPartial,
-    #[strum(props(p = "Bag", name = "nil", global = true))]
+    #[strum(props(p = "Bag", name = "nil"))]
     #[strum(props(type = "forall 1 'a bag"))]
-    #[strum(props(constructor_ordinal = "0"))]
     BagNil,
     #[strum(props(p = "Bag", name = "nth", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a bag * int -> 'a"))]
@@ -543,6 +542,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Int", name = "compare", type = "int * int -> `order`"))]
     IntCompare,
     #[strum(props(p = "Int", name = "div", type = "int * int -> int"))]
+    #[strum(props(throws = "Div"))]
     IntDiv,
     #[strum(props(name = "=", type = "int * int -> bool"))]
     IntEq,
@@ -574,6 +574,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Int", name = "-", type = "int * int -> int"))]
     IntMinus,
     #[strum(props(p = "Int", name = "mod", type = "int * int -> int"))]
+    #[strum(props(throws = "Div"))]
     IntMod,
     #[strum(props(name = "<>", type = "int * int -> bool"))]
     IntNe,
@@ -1678,6 +1679,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "word * word -> `order`"))]
     WordCompare,
     #[strum(props(p = "Word", name = "div", type = "word * word -> word"))]
+    #[strum(props(throws = "Div"))]
     WordDiv,
     #[strum(props(p = "Word", name = "fmt"))]
     #[strum(props(type = "`radix` -> word -> string"))]
@@ -1698,6 +1700,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Word", name = "min", type = "word * word -> word"))]
     WordMin,
     #[strum(props(p = "Word", name = "mod", type = "word * word -> word"))]
+    #[strum(props(throws = "Div"))]
     WordMod,
     #[strum(props(p = "Word", name = "notb", type = "word -> word"))]
     WordNotb,
@@ -1760,6 +1763,18 @@ impl BuiltInFunction {
 
     pub(crate) fn name(&self) -> &'static str {
         self.get_str("name").unwrap()
+    }
+
+    /// Returns the name an expression naming this function contributes as
+    /// an implicit label. A type-dispatched internal variant such as
+    /// `sum$int` labels its column `sum`, exactly as the dispatched
+    /// `Relational.sum` it replaces would.
+    pub(crate) fn label_name(&self) -> &'static str {
+        let name = self.name();
+        match name.split_once('$') {
+            Some((prefix, _)) if !prefix.is_empty() => prefix,
+            _ => name,
+        }
     }
 
     /// Returns the parent structure name (the `p` strum prop), e.g.

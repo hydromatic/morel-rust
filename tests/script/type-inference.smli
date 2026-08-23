@@ -115,8 +115,8 @@ Sys.set ("lineWidth", 78);
 > val it : int * string -> bool * int list
 :t {f = fn () => 0, g = 1};
 > val it : {f:unit -> int, g:int}
-:t fn {f: unit -> int, g: int} => true;
-> val it : {f:unit -> int, g:int} -> bool
+:t fn {f, g} => true;
+> val it : {f:'a, g:'b} -> bool
 :t fn x => fn f => f x;
 > val it : 'a -> ('a -> 'b) -> 'b
 :t fn (x, y) => x andalso y;
@@ -228,7 +228,9 @@ end;
 :t let fun id x = x in (id 1, id true, (id id) "a", id id) end;
 > val it : int * bool * string * ('a -> 'a)
 :t
-
+1 + "a";
+> stdIn:1.1-1.8 Error: Cannot deduce type: conflict: int vs string
+>   raised at: stdIn:1.1-1.8
 :t NONE;
 > val it : 'a option
 :t SOME 4;
@@ -245,6 +247,9 @@ end;
 (*) Function types
 :t fn x => x + 1;
 > val it : int -> int
+:t fn x => fn y => x + y;
+> val it : int -> int -> int
+
 :t fn x => case x of 0 => 1 | _ => 2;
 > val it : int -> int
 :t fn x => case x of 0 => "zero" | _ => "nonzero";
@@ -259,11 +264,11 @@ end;
 (*) Function tuple types
 :t fn (x, y) => (x + 1, y + 1);
 > val it : int * int -> int * int
-:t fn x => fn (y, z) => x div y + z;
+:t fn x => fn (y, z) => x + y + z;
 > val it : int -> int * int -> int
 :t fn (x, y) => (x + 1, fn z => (x + z, y + z), y);
 > val it : int * int -> int * (int -> int * int) * int
-:t fn {a = x, b = y, c} => x div y;
+:t fn {a = x, b = y, c} => x + y;
 > val it : {a:int, b:int, c:'a} -> int
 
 :t val x = 1;
@@ -504,6 +509,70 @@ in
 end;
 > val it : {c:char, i:int}
 
+(*) Recursive function types
+:t
+let
+  val rec f = fn n => if n = 0 then 1 else n * (f (n - 1))
+in
+  f 5
+end;
+> val it : int
+
+let
+  val f = fn n => if n = 0 then 1 else n * (f (n - 1))
+in
+  f 5
+end;
+> stdIn:2.45 Error: unbound variable or constructor: f
+>   raised at: stdIn:2.45
+
+(*) The following should give error but currently does not.
+:t let val rec x = 1 and y = 2 in x + y end;
+> val it : int
+(* sml-nj gives:
+stdIn:1.14-1.19 Error: fn expression required on rhs of val rec
+stdIn:1.24-1.29 Error: fn expression required on rhs of val rec
+stdIn:1.33-1.38 Error: operator and operand do not agree [overload - bad instantiation]
+  operator domain: 'Z[OL(+)] * 'Z[OL(+)]
+  operand:         ('Y -> 'X) * ('W -> 'V)
+  in expression:
+    x + y
+*)
+
+(*) The following should give error but currently does not.
+:t let val rec s = "s" and t = "t" in s ^ t end;
+> val it : string
+(* sml-nj gives:
+stdIn:1.14-1.21 Error: fn expression required on rhs of val rec
+stdIn:1.26-1.33 Error: fn expression required on rhs of val rec
+stdIn:1.37-1.42 Error: operator and operand do not agree [tycon mismatch]
+  operator domain: string * string
+  operand:         ('Z -> 'Y) * ('X -> 'W)
+  in expression:
+    s ^ t
+*)
+
+(* Overload tests (migrated from MainTest.testOverload and testOverload1) *)
+:t
+let
+  over foo
+  val inst foo = fn i: int => i
+  val inst foo = fn b: bool => b
+in
+  foo false
+end;
+> val it : bool
+
+:t
+let
+  over foo
+  val inst foo = fn NONE => [] | SOME x => [x]
+  val inst foo = fn list => List.null list
+in
+  foo (SOME 1)
+end;
+> val it : int list
+
 (* Apply tests (migrated from MainTest.testApply and testApply2) *)
 :t hd ["abc"];
 > val it : string
@@ -513,6 +582,19 @@ end;
 (* From/query type tests (migrated from MainTest.testFromType) *)
 :t from i in [1];
 > val it : int list
+:t from i in bag [1];
+> val it : int bag
+
+:t from i in (from j in bag [1]);
+> val it : int bag
+
+:t from i in (
+  from e in bag [{deptno=10}]
+  yield e.deptno)
+where i > 10
+yield i div 10;
+> val it : int bag
+
 (*
 :t from i in bag [1];
 > val it : int bag
@@ -573,6 +655,9 @@ from d in [{a=1,b=true}], i in [2] yield {d} yield a;
 > val it : {a:real, c:int} list
 :t from i in [1] group i compute count over i;
 > val it : {count:int, i:int} list
+:t from i in bag [1] group i compute count over i;
+> val it : {count:int, i:int} bag
+
 (* TODO bag input
 :t from i in bag [1] group i compute count over i;
 > val it : {count:int, i:int} bag
@@ -598,12 +683,18 @@ from d in [{a=1,b=true}], i in [2] yield {d} yield a;
 > val it : {a:int, b:unit} list
 :t from a in [1], _ in [true];
 > val it : int list
+:t from a in [1], _ in bag [true];
+> val it : int bag
+
 (*
 :t from a in [1], _ in bag [true];
 > val it : int bag
 *)
 :t from a in [1], _ = ();
 > val it : int list
+:t from a in bag [1], _ = ();
+> val it : int bag
+
 (*
 :t from a in bag [1], _ = ();
 > val it : int bag
@@ -745,6 +836,14 @@ from d in [{a=1,b=true}] yield #x d;
   yield {z=z};
 > val it : {z:int} list
 
+:t
+let
+  val records = from r in bag [1,2]
+in
+  from r2 in records
+end;
+> val it : int bag
+
 (*
 :t
 let
@@ -776,6 +875,12 @@ from s in ["ab","c"]
  yield j + 2;
 > val it : int list
 
+:t
+from s in bag ["ab","c"]
+  through j in (Bag.map String.size)
+  yield j + 2;
+> val it : int bag
+
 (* TODO bag
 :t
 from s in bag ["ab","c"]
@@ -787,6 +892,9 @@ from s in bag ["ab","c"]
 (*) into
 :t from d in [{a=1,b=true}] yield d.a into List.length;
 > val it : int
+:t from d in bag [{a=1,b=true}] yield d.a into Bag.length;
+> val it : int
+
 (* TODO bag
 :t from d in bag [{a=1,b=true}] yield d.a into Bag.length;
 > val it : int
@@ -831,7 +939,7 @@ forall d in [{a=1,b=true}];
 >   raised at: stdIn:1.8-1.27
 *)
 
-(* ) Query -----------------------------------------------------------
+(*) Query -----------------------------------------------------------
 :t from i in [1, 2];
 > val it : int list
 
@@ -934,7 +1042,7 @@ forall d in [{a=1,b=true}];
   require i mod 2 = 0;
 > val it : bool
 
-(* ) Join ------------------------------------------------------------
+(*) Join ------------------------------------------------------------
 
 (*) Cartesian product
 :t from i in [1, 2]
@@ -959,7 +1067,7 @@ forall d in [{a=1,b=true}];
 > val it : {d:int, e:string, n:string} list
 *)
 
-(* ) Set operations --------------------------------------------------
+(*) Set operations --------------------------------------------------
 :t from i in [1, 2, 3]
   union [4, 5];
 > val it : int list
@@ -980,7 +1088,7 @@ forall d in [{a=1,b=true}];
   union distinct [2, 3];
 > val it : int list
 
-(* ) Group operation -------------------------------------------------
+(*) Group operation -------------------------------------------------
 :t from i in [1, 2, 3]
   group i;
 > val it : int list
@@ -994,11 +1102,11 @@ forall d in [{a=1,b=true}];
 
 :t from i in [1, 2, 3]
   group i compute {elements};
-> val it : {elements:int list, i:int} list
+> val it : {`elements`:int list, i:int} list
 
 :t from i in [1, 2, 3]
   group i compute {elements, a = "xyz"};
-> val it : {a:string, elements:int list, i:int} list
+> val it : {a:string, `elements`:int list, i:int} list
 
 :t from i in [1,2]
   group i + 1 compute {length elements};
@@ -1039,7 +1147,7 @@ forall d in [{a=1,b=true}];
 > stdIn:1.27-1.35 Error: 'elements' is only valid in a 'compute' clause
 >   raised at: stdIn:1.27-1.35
 
-(* ) Compute operation -----------------------------------------------
+(*) Compute operation -----------------------------------------------
 
 :t from i in [1, 2, 3]
   compute {sum = List.foldl (op +) 0 elements};
@@ -1051,9 +1159,9 @@ forall d in [{a=1,b=true}];
 
 :t from i in [1, 2, 3]
   compute {elements, a = "xyz"};
-> val it : {a:string, elements:int list}
+> val it : {a:string, `elements`:int list}
 
-(* ) Correlated subqueries -------------------------------------------
+(*) Correlated subqueries -------------------------------------------
 :t from i in [1, 2, 3]
   where (exists j in [1, 2] where j = i);
 > val it : int list
@@ -1062,7 +1170,8 @@ forall d in [{a=1,b=true}];
   where (exists s in [{x=1}, {x=3}] where s.x = r.a);
 > val it : {a:int, b:int} list
 
-(* ) Advanced query steps --------------------------------------------
+(*) Advanced query steps --------------------------------------------
+
 (*) Into step (applies function to entire collection)
 :t from i in [1, 2, 3]
   into List.length;
@@ -1155,5 +1264,23 @@ forall d in [{a=1,b=true}];
 (*) Into with custom function
 :t from i in [1, 2, 3] into (fn x => List.length x + 1);
 > val it : int
+
+(* [MOREL-343] Same type var constrains both params to same type.
+ * Morel-rust does not yet honour the shared annotation: it deduces
+ * 'a * 'b -> 'a * 'b, where morel-java deduces 'a * 'a -> 'a * 'a. *)
+fun same (x: 'a, y: 'a) = (x, y);
+> val same = fn : 'a * 'b -> 'a * 'b
+
+(*) Same type var across params and result list
+fun foo (x: 'a list, y: 'a) = x @ [y];
+> val foo = fn : 'a list * 'a -> 'a list
+
+(*) Same type var in param and return type
+fun bar (x: 'a) : 'a option = SOME x;
+> val bar = fn : 'a -> 'a option
+
+(*) Type var in val declaration
+val myid: 'a -> 'a list = fn x => [x];
+> val myid = fn : 'a -> 'a list
 
 (*) End type-inference.smli

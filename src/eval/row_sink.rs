@@ -483,6 +483,12 @@ impl RowSink for WhereRowSink {
 /// the operation's argument collections. When `wrap`, the slot values form one
 /// record/tuple value (`Val::List`); otherwise the single slot holds the row.
 fn read_set_op_row(slots: &[usize], wrap: bool, f: &Frame) -> Val {
+    if slots.is_empty() {
+        // A wildcard scan ('from _ in ...') binds no variables, so its rows
+        // are unit -- the same value the operand collection holds, which is
+        // what makes them comparable.
+        return Val::Unit;
+    }
     if wrap {
         Val::List(Rc::new(slots.iter().map(|&s| f.vals[s].clone()).collect()))
     } else {
@@ -493,6 +499,11 @@ fn read_set_op_row(slots: &[usize], wrap: bool, f: &Frame) -> Val {
 /// Writes a set-operation row back into the given frame slots (the inverse of
 /// [`read_set_op_row`]) so that downstream steps see the bindings.
 fn write_set_op_row(slots: &[usize], wrap: bool, f: &mut Frame, row: &Val) {
+    if slots.is_empty() {
+        // A wildcard scan ('from _ in ...') binds no variables, so the row
+        // carries nothing to write; it is a unit value, not a list.
+        return;
+    }
     if wrap {
         let items = row.expect_list();
         for (i, &slot) in slots.iter().enumerate() {

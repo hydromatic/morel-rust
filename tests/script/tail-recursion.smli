@@ -83,8 +83,26 @@ fun coprime (a, b) =
 coprime (3, 2);
 > val it = true : bool
 
+coprime (6, 1);
+> val it = true : bool
+
+coprime (1, 8);
+> val it = true : bool
+
+coprime (~6, 2);
+> val it = false : bool
+
+coprime (15, 3);
+> val it = false : bool
+
 coprime (15, 6);
 > val it = false : bool
+
+coprime (6, 15);
+> val it = false : bool
+
+coprime (21, 10);
+> val it = true : bool
 
 (*) the 46th and 45th terms in the fibonacci sequence
 coprime (1836311903, 1134903170);

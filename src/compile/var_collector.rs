@@ -318,14 +318,19 @@ impl Step {
                     expr.collect_vars(collector);
                 }
             }
-            StepKind::Group(_, None) => {
+            StepKind::Group(key_expr, None) => {
                 // Add group key field names as frame slot defs so that
                 // the collection code can read them.
                 for binding in &self.env.bindings {
                     collector.add_def(Binding::of_name(&binding.id.name));
                 }
+                // A key that reads 'ordinal' needs a slot for the counter
+                // that the enclosing OrdinalRowSink writes.
+                if key_expr.uses_ordinal() {
+                    collector.add_def(Binding::of_name("ordinal"));
+                }
             }
-            StepKind::Group(_, Some(aggregate_expr)) => {
+            StepKind::Group(key_expr, Some(aggregate_expr)) => {
                 // Add all output binding names (key + aggregate)
                 // as frame slot defs. The step env bindings were
                 // set up by FromBuilder with the correct names.
@@ -341,6 +346,13 @@ impl Step {
 
                 // Traverse aggregate expression for variable refs.
                 aggregate_expr.collect_vars(collector);
+
+                // A key or an aggregate argument that reads 'ordinal'
+                // needs a slot for the counter that the enclosing
+                // OrdinalRowSink writes.
+                if key_expr.uses_ordinal() || aggregate_expr.uses_ordinal() {
+                    collector.add_def(Binding::of_name("ordinal"));
+                }
 
                 // If "elements" was referenced but not already
                 // defined as an output field, add it as a frame

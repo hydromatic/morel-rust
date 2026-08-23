@@ -45,7 +45,7 @@ Sys.set ("printLength", 999);
 > val it = () : unit
 Sys.set ("stringDepth", ~1);
 > val it = () : unit
-fun print x = General.ignore x;
+fun print x = ignore x;
 > val print = fn : 'a -> unit
 
 ListPair;

@@ -693,11 +693,15 @@ impl Code {
             Code::Apply(_, _) => {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
-            Code::ApplyClosure(_, _, _) => *mode == EvalMode::Eager0,
+            Code::ApplyClosure(_, _, _) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
             Code::ApplyConstant(_, _) => {
                 *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
             }
-            Code::Bind(_) => *mode == EvalMode::Eager0,
+            Code::Bind(_) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
             Code::BindAnd(_) => *mode == EvalMode::EagerV1,
             Code::BindCons(_, _) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::Eager1
@@ -730,10 +734,17 @@ impl Code {
             Code::CreateClosure(_, _, _, _) => {
                 *mode == EvalMode::EagerF0 || *mode == EvalMode::EagerV1
             }
-            Code::Fn(_, _, _) => *mode == EvalMode::EagerV1,
+            // A non-capturing lambda is also a value: in a position such as
+            // a `case` subject or arm body it is evaluated, not applied,
+            // and yields itself as a `Val::Code`.
+            Code::Fn(_, _, _) => {
+                *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
+            }
             Code::FromRowSink(_) => *mode == EvalMode::EagerF0,
             Code::GetLocal(_, _) => *mode == EvalMode::EagerF0,
-            Code::Let(_, _) => *mode == EvalMode::Eager0,
+            Code::Let(_, _) => {
+                *mode == EvalMode::Eager0 || *mode == EvalMode::EagerF0
+            }
             Code::Link(_, _) => *mode == EvalMode::EagerF0,
             Code::MapElements(_, _, _) => *mode == EvalMode::EagerF0,
             Code::Max(_, _, _) => *mode == EvalMode::EagerF0,
@@ -745,7 +756,9 @@ impl Code {
             Code::Native2(_, _, _, _) => {
                 *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0
             }
-            Code::Native3(_, _, _, _) => *mode == EvalMode::Eager3,
+            Code::Native3(_, _, _, _) => {
+                *mode == EvalMode::Eager3 || *mode == EvalMode::EagerF0
+            }
             Code::NativeCustom(_, args) => match args.len() {
                 1 => *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0,
                 _ => *mode == EvalMode::Eager2 || *mode == EvalMode::EagerF0,
@@ -757,7 +770,9 @@ impl Code {
             Code::NativeF2(_, _, _, _) => {
                 *mode == EvalMode::EagerV2 || *mode == EvalMode::EagerF0
             }
-            Code::NativeF3(_, _, _, _, _) => *mode == EvalMode::EagerV3,
+            Code::NativeF3(_, _, _, _, _) => {
+                *mode == EvalMode::EagerV3 || *mode == EvalMode::EagerF0
+            }
             Code::Nth(_, _) => {
                 *mode == EvalMode::Eager1 || *mode == EvalMode::EagerF0
             }
@@ -3508,7 +3523,6 @@ pub enum Eager2 {
     FnNotEqual,
     GeneralBefore,
     IntCompare,
-    IntDiv,
     IntEq,
     IntFmt,
     IntGe,
@@ -3518,7 +3532,6 @@ pub enum Eager2 {
     IntMax,
     IntMin,
     IntMinus,
-    IntMod,
     IntNe,
     IntPlus,
     IntQuot,
@@ -3582,11 +3595,9 @@ pub enum Eager2 {
     WordAndb,
     WordArithShiftRight,
     WordCompare,
-    WordDiv,
     WordFmt,
     WordMax,
     WordMin,
-    WordMod,
     WordOpGe,
     WordOpGt,
     WordOpLe,
@@ -3659,7 +3670,6 @@ impl Eager2 {
             IntCompare => {
                 Val::Order(Int::compare(a0.expect_int(), a1.expect_int()))
             }
-            IntDiv => Val::Int(Int::div(a0.expect_int(), a1.expect_int())),
             IntEq => Val::Bool(a0.expect_int() == a1.expect_int()),
             IntFmt => Val::String((Int::fmt(&a0, a1.expect_int())).into()),
             IntGe => Val::Bool(a0.expect_int() >= a1.expect_int()),
@@ -3669,7 +3679,6 @@ impl Eager2 {
             IntMax => Val::Int(a0.expect_int().max(a1.expect_int())),
             IntMin => Val::Int(a0.expect_int().min(a1.expect_int())),
             IntMinus => Val::Int(a0.expect_int() - a1.expect_int()),
-            IntMod => Val::Int(Int::_mod(a0.expect_int(), a1.expect_int())),
             IntNe => Val::Bool(a0.expect_int() != a1.expect_int()),
             IntPlus => Val::Int(a0.expect_int() + a1.expect_int()),
             IntQuot => {
@@ -3821,11 +3830,9 @@ impl Eager2 {
             WordCompare => {
                 Val::Order(Order(a0.expect_word().cmp(&a1.expect_word())))
             }
-            WordDiv => Val::Word(a0.expect_word() / a1.expect_word()),
             WordFmt => Val::String((word::fmt(&a0, a1.expect_word())).into()),
             WordMax => Val::Word(a0.expect_word().max(a1.expect_word())),
             WordMin => Val::Word(a0.expect_word().min(a1.expect_word())),
-            WordMod => Val::Word(a0.expect_word() % a1.expect_word()),
             WordOpGe => Val::Bool(a0.expect_word() >= a1.expect_word()),
             WordOpGt => Val::Bool(a0.expect_word() > a1.expect_word()),
             WordOpLe => Val::Bool(a0.expect_word() <= a1.expect_word()),
@@ -3889,6 +3896,8 @@ pub enum EagerF2 {
     FnFlip,
     FnO,
     FnUncurry,
+    IntDiv,
+    IntMod,
     LPAll,
     LPAllEq,
     LPApp,
@@ -3939,6 +3948,8 @@ pub enum EagerF2 {
     VectorMapi,
     VectorSub,
     VectorTabulate,
+    WordDiv,
+    WordMod,
 }
 
 impl EagerF2 {
@@ -4043,6 +4054,16 @@ impl EagerF2 {
                 let g = a0.apply_f1(r, f, &tuple[0])?;
                 g.apply_f1(r, f, &tuple[1])
             }
+            IntDiv => Int::div_checked(
+                a0.expect_int(),
+                a1.expect_int(),
+                span.unwrap(),
+            ),
+            IntMod => Int::mod_checked(
+                a0.expect_int(),
+                a1.expect_int(),
+                span.unwrap(),
+            ),
             LPAll => {
                 let tuple = a1.expect_list();
                 let result = ListPair::all(
@@ -4266,6 +4287,12 @@ impl EagerF2 {
             }
             VectorTabulate => {
                 List::tabulate(r, f, a0.expect_int(), &a1, span.unwrap())
+            }
+            WordDiv => {
+                word::div(a0.expect_word(), a1.expect_word(), span.unwrap())
+            }
+            WordMod => {
+                word::r#mod(a0.expect_word(), a1.expect_word(), span.unwrap())
             }
         }
     }
@@ -4957,7 +4984,7 @@ fn build_library() -> Lib {
     EagerF2::FnO.implements(&mut b, GeneralO);
     EagerF1::IntAbs.implements(&mut b, IntAbs);
     Eager2::IntCompare.implements(&mut b, IntCompare);
-    Eager2::IntDiv.implements(&mut b, IntDiv);
+    EagerF2::IntDiv.implements(&mut b, IntDiv);
     Eager2::IntEq.implements(&mut b, IntEq);
     Eager2::IntFmt.implements(&mut b, IntFmt);
     Eager1::IntFromInt.implements(&mut b, IntFromInt);
@@ -4972,7 +4999,7 @@ fn build_library() -> Lib {
     Eager2::IntMin.implements(&mut b, IntMin);
     Eager0::IntMinInt.implements(&mut b, IntMinInt);
     Eager2::IntMinus.implements(&mut b, IntMinus);
-    Eager2::IntMod.implements(&mut b, IntMod);
+    EagerF2::IntMod.implements(&mut b, IntMod);
     Eager2::IntNe.implements(&mut b, IntNe);
     Eager1::IntNegate.implements(&mut b, IntNegate);
     Eager2::IntPlus.implements(&mut b, IntPlus);
@@ -5312,7 +5339,7 @@ fn build_library() -> Lib {
     Eager0::WeekdayWed.implements(&mut b, WeekdayWed);
     Eager2::WordAndb.implements(&mut b, WordAndb);
     Eager2::WordCompare.implements(&mut b, WordCompare);
-    Eager2::WordDiv.implements(&mut b, WordDiv);
+    EagerF2::WordDiv.implements(&mut b, WordDiv);
     Eager2::WordFmt.implements(&mut b, WordFmt);
     Eager1::WordFromInt.implements(&mut b, WordFromInt);
     Eager1::WordIdentity.implements(&mut b, WordFromLarge);
@@ -5321,7 +5348,7 @@ fn build_library() -> Lib {
     Eager1::WordFromString.implements(&mut b, WordFromString);
     Eager2::WordMax.implements(&mut b, WordMax);
     Eager2::WordMin.implements(&mut b, WordMin);
-    Eager2::WordMod.implements(&mut b, WordMod);
+    EagerF2::WordMod.implements(&mut b, WordMod);
     Eager1::WordNotb.implements(&mut b, WordNotb);
     Eager2::WordOpGe.implements(&mut b, WordOpGe);
     Eager2::WordOpGt.implements(&mut b, WordOpGt);

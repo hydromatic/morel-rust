@@ -15,8 +15,11 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::library::BuiltInExn;
+use crate::compile::span::Span;
 use crate::eval::order::Order;
 use crate::eval::val::{RADIX_BIN, RADIX_DEC, RADIX_HEX, RADIX_OCT, Val};
+use crate::shell::kernel::MorelError;
 
 /// Support for the `int` type and `Int` structure.
 pub struct Int {}
@@ -41,6 +44,24 @@ impl Int {
             format!("~{}", digits)
         } else {
             digits
+        }
+    }
+
+    /// Performs Standard ML's `div` operation.
+    ///
+    /// SML division truncates towards
+    /// negative infinity (floor division).
+    ///
+    /// Raises `Div` if `b` is zero.
+    pub(crate) fn div_checked(
+        a: i32,
+        b: i32,
+        span: &Span,
+    ) -> Result<Val, MorelError> {
+        if b == 0 {
+            Err(MorelError::Runtime(BuiltInExn::Div, span.clone()))
+        } else {
+            Ok(Val::Int(Int::div(a, b)))
         }
     }
 
@@ -85,6 +106,24 @@ impl Int {
         let magnitude = s[start..i].parse::<i64>().ok()?;
         let value = if neg { -magnitude } else { magnitude };
         i32::try_from(value).ok()
+    }
+
+    /// Performs Standard ML's `mod` operation.
+    ///
+    /// SML modulo: `(a div b) * b + (a mod b) = a`
+    /// and (`a mod b`) has the same sign as `b` (or is zero).
+    ///
+    /// Raises `Div` if `b` is zero.
+    pub(crate) fn mod_checked(
+        a: i32,
+        b: i32,
+        span: &Span,
+    ) -> Result<Val, MorelError> {
+        if b == 0 {
+            Err(MorelError::Runtime(BuiltInExn::Div, span.clone()))
+        } else {
+            Ok(Val::Int(Int::_mod(a, b)))
+        }
     }
 
     /// Performs Standard ML's `mod` operation.

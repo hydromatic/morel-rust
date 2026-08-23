@@ -4290,8 +4290,13 @@ impl TypeResolver {
 
         // How the function's parameter links to the input depends on the
         // function's own type.
+        // The function is applied to the finished collection in the
+        // enclosing scope -- `from ... into f` becomes `f (from ...)` --
+        // so it is deduced in `root_env`, not the query's own env. A query
+        // variable referenced inside it is then an ordinary unbound
+        // variable rather than a read of a leftover row slot.
         let kind = match p.c {
-            Some(_) => self.aggregate_collection_kind(&*p.env, expr),
+            Some(_) => self.aggregate_collection_kind(&*p.root_env, expr),
             // No input collection; nothing to link to.
             None => CollectionKind::Unknown,
         };
@@ -4330,7 +4335,7 @@ impl TypeResolver {
             }
         };
         self.fn_term(&c_param, &v_result, &v_fn);
-        let expr2 = self.deduce_expr_type(&*p.env, expr, &v_fn)?;
+        let expr2 = self.deduce_expr_type(&*p.root_env, expr, &v_fn)?;
 
         let step2 = StepKind::Into(Box::new(expr2));
         steps2.push(step2.spanned(span));

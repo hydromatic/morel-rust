@@ -1775,12 +1775,39 @@ impl<'a> Compiler<'a> {
                         }
                     };
 
+                // An `ordinal` in a key or in an aggregate argument is the
+                // position of the *input* row, so the counter must advance
+                // once per row; wrapping the sink does that. Without it the
+                // ordinal would stick at its initial value, collapsing every
+                // row into one group.
+                let agg_uses_ordinal =
+                    aggregate_expr.as_ref().is_some_and(|a| a.uses_ordinal());
+                let ordinal_slot =
+                    if key_expr.uses_ordinal() || agg_uses_ordinal {
+                        cx.frame_def.try_var_index("ordinal")
+                    } else {
+                        None
+                    };
+
                 // Scan slot indices for row accumulation.
-                let scan_slots: Vec<usize> = step_env
+                let mut scan_slots: Vec<usize> = step_env
                     .bindings
                     .iter()
                     .filter_map(|b| cx.frame_def.try_var_index(&b.id.name))
                     .collect();
+
+                // An aggregate argument is evaluated once the rows have been
+                // collected into their groups, by which time the input row it
+                // came from is no longer current. Accumulating the ordinal
+                // alongside the scan variables keeps each row's position
+                // available when its argument is finally evaluated.
+                if agg_uses_ordinal
+                    && let Some(slot) = ordinal_slot
+                    && !scan_slots.contains(&slot)
+                {
+                    scan_slots.push(slot);
+                }
+                let scan_slots = scan_slots;
 
                 // Compile aggregate expression and determine slot layout.
                 let (
@@ -1828,7 +1855,7 @@ impl<'a> Compiler<'a> {
                 };
 
                 RowSinkFactory::new(move || {
-                    Box::new(GroupRowSink::new(
+                    let group: Box<dyn RowSink> = Box::new(GroupRowSink::new(
                         key_code.clone(),
                         aggregate_code.clone(),
                         elements_slot,
@@ -1838,7 +1865,12 @@ impl<'a> Compiler<'a> {
                         key_slots.clone(),
                         key_is_record,
                         next_factory.create(),
-                    ))
+                    ));
+                    if let Some(slot) = ordinal_slot {
+                        Box::new(OrdinalRowSink::new(slot, group))
+                    } else {
+                        group
+                    }
                 })
             }
             StepKind::Intersect(distinct, exprs) => {
@@ -1957,7 +1989,7 @@ impl<'a> Compiler<'a> {
                 // wrap the sink with an OrdinalRowSink so the counter is
                 // written into the frame slot before the collection
                 // expression is evaluated for each incoming row.
-                let ordinal_slot = if Self::expr_uses_ordinal(expr) {
+                let ordinal_slot = if expr.uses_ordinal() {
                     cx.frame_def.try_var_index("ordinal")
                 } else {
                     None
@@ -2118,7 +2150,7 @@ impl<'a> Compiler<'a> {
                 );
                 let filter_code = self.compile_expr(cx, None, expr);
 
-                let ordinal_slot = if Self::expr_uses_ordinal(expr) {
+                let ordinal_slot = if expr.uses_ordinal() {
                     cx.frame_def.try_var_index("ordinal")
                 } else {
                     None
@@ -2152,7 +2184,7 @@ impl<'a> Compiler<'a> {
                 if steps.len() == 1 {
                     // Terminal yield: collect results, optionally wrapped
                     // with OrdinalRowSink when yield uses 'ordinal'.
-                    let ordinal_slot = if Self::expr_uses_ordinal(expr) {
+                    let ordinal_slot = if expr.uses_ordinal() {
                         cx.frame_def.try_var_index("ordinal")
                     } else {
                         None
@@ -2180,7 +2212,7 @@ impl<'a> Compiler<'a> {
                     // If the yield expression references 'ordinal', wrap with
                     // OrdinalRowSink so the counter is written into the frame
                     // slot before the yield expression captures it.
-                    let ordinal_slot = if Self::expr_uses_ordinal(expr) {
+                    let ordinal_slot = if expr.uses_ordinal() {
                         cx.frame_def.try_var_index("ordinal")
                     } else {
                         None
@@ -2375,26 +2407,6 @@ impl<'a> Compiler<'a> {
                 })
                 .collect();
             Code::Tuple(codes)
-        }
-    }
-
-    /// Returns true if the expression (or any sub-expression) references
-    /// `ordinal`.
-    fn expr_uses_ordinal(expr: &Expr) -> bool {
-        match expr {
-            Expr::Ordinal(_) => true,
-            Expr::Apply(_, f, a, _) => {
-                Self::expr_uses_ordinal(f) || Self::expr_uses_ordinal(a)
-            }
-            Expr::Case(_, e, matches, _) => {
-                Self::expr_uses_ordinal(e)
-                    || matches.iter().any(|m| Self::expr_uses_ordinal(&m.expr))
-            }
-            Expr::Let(_, _, e) => Self::expr_uses_ordinal(e),
-            Expr::List(_, exprs) | Expr::Tuple(_, exprs) => {
-                exprs.iter().any(Self::expr_uses_ordinal)
-            }
-            _ => false,
         }
     }
 

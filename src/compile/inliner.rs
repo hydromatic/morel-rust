@@ -442,6 +442,7 @@ impl Transformer for Inliner {
                 // place. This mirrors morel-java's `getSub`.
                 if matches.len() == 1
                     && let Some(val) = expr_to_val(scrutinee)
+                    && matches[0].pat.is_decidable()
                 {
                     let m = &matches[0];
                     let mut binds: Vec<(Box<Pat>, Val)> = Vec::new();
@@ -474,8 +475,13 @@ impl Transformer for Inliner {
                 // than one match arm, find the first arm whose pattern matches
                 // and substitute the bound variables. This implements
                 // "case x of 1 => one | 2 => two" -> "two" when x = 2.
+                // Every arm must be decidable: a pattern this fold cannot
+                // decide reads as a non-match, which would silently skip
+                // the arm that in fact matches. Leave the whole `case` to
+                // the run-time matcher instead.
                 if matches.len() > 1
                     && let Some(val) = expr_to_val(scrutinee)
+                    && matches.iter().all(|m| m.pat.is_decidable())
                 {
                     for m in matches {
                         let mut binds: Vec<(Box<Pat>, Val)> = Vec::new();

@@ -95,7 +95,7 @@ impl Expr {
             }
             Expr::Aggregate(_, left, _, _) => left.implicit_label(),
             Expr::Identifier(_, name) => Some(name.clone()),
-            Expr::Literal(_, Val::Fn(f)) => Some(f.name().to_string()),
+            Expr::Literal(_, Val::Fn(f)) => Some(f.label_name().to_string()),
             _ => None,
         }
     }
@@ -121,6 +121,28 @@ impl Expr {
             Expr::Raise(t, _, _) => t.clone(),
             Expr::RecordSelector(t, _) => t.clone(),
             Expr::Tuple(t, _) => t.clone(),
+        }
+    }
+
+    /// Returns whether this expression, or any sub-expression, references
+    /// `ordinal`. A nested `from` is not traversed: its `ordinal` counts
+    /// that query's rows, not this one's.
+    pub(crate) fn uses_ordinal(&self) -> bool {
+        match self {
+            Expr::Ordinal(_) => true,
+            Expr::Aggregate(_, arg, agg, _) => {
+                arg.uses_ordinal() || agg.uses_ordinal()
+            }
+            Expr::Apply(_, f, a, _) => f.uses_ordinal() || a.uses_ordinal(),
+            Expr::Case(_, e, matches, _) => {
+                e.uses_ordinal()
+                    || matches.iter().any(|m| m.expr.uses_ordinal())
+            }
+            Expr::Let(_, _, e) => e.uses_ordinal(),
+            Expr::List(_, exprs) | Expr::Tuple(_, exprs) => {
+                exprs.iter().any(Expr::uses_ordinal)
+            }
+            _ => false,
         }
     }
 
@@ -471,6 +493,13 @@ pub enum Pat {
     Cons(Rc<Type>, Box<Pat>, Box<Pat>),
 }
 
+/// Constructors whose values have a dedicated `Val` representation, so a
+/// pattern naming one can be matched against a value at compile time.
+/// Every other constructor belongs to a datatype whose values are
+/// `Val::Constructor(tag, _)`; see [`Pat::is_decidable`].
+const BUILT_IN_CONSTRUCTOR_PATS: [&str; 7] =
+    ["EQUAL", "GREATER", "INL", "INR", "LESS", "NONE", "SOME"];
+
 impl Pat {
     /// Returns the name of this pattern if it is an identifier or `as`,
     /// otherwise None.
@@ -514,10 +543,46 @@ impl Pat {
         }
     }
 
+    /// Returns whether matching this pattern against a value can be
+    /// decided by [`Self::bind_recurse`].
+    ///
+    /// A constructor of a user-defined datatype cannot: its values are
+    /// `Val::Constructor(tag, _)`, and the tag is the constructor's
+    /// position within the declaration, which the pattern does not
+    /// record. `bind_recurse` answers `false` for such a pattern, which
+    /// a caller would otherwise read as a definite non-match — so a
+    /// caller that folds a `case` at compile time must first check this,
+    /// and leave the `case` for the run-time matcher when it is false.
+    pub(crate) fn is_decidable(&self) -> bool {
+        match self {
+            Pat::Constructor(_, name, inner) => {
+                BUILT_IN_CONSTRUCTOR_PATS.contains(&name.as_str())
+                    && inner.as_ref().is_none_or(|p| p.is_decidable())
+            }
+            Pat::As(_, _, p) => p.is_decidable(),
+            Pat::Cons(_, h, t) => h.is_decidable() && t.is_decidable(),
+            Pat::List(_, ps) | Pat::Tuple(_, ps) => {
+                ps.iter().all(Pat::is_decidable)
+            }
+            Pat::Record(_, fields, _) => fields.iter().all(|f| match f {
+                PatField::Labeled(_, p) | PatField::Anonymous(p) => {
+                    p.is_decidable()
+                }
+            }),
+            Pat::Identifier(_, _) | Pat::Literal(_, _) | Pat::Wildcard(_) => {
+                true
+            }
+        }
+    }
+
     /// Walks this pattern over `val`, calling `consumer` for each variable
     /// the pattern would bind. Returns `false` if the pattern fails to
     /// match the value (e.g. literal mismatch, wrong constructor) — the
     /// caller should raise the `Bind` exception in that case.
+    ///
+    /// Call [`Self::is_decidable`] first: for a constructor this method
+    /// cannot decide, it answers `false`, which is indistinguishable
+    /// from a genuine non-match.
     pub(crate) fn bind_recurse(
         &self,
         val: &Val,
@@ -570,24 +635,16 @@ impl Pat {
                         }
                         // Built-in constructor name with a non-matching
                         // value of one of those special types: not a match.
-                        ("SOME", _)
-                        | ("INL", _)
-                        | ("INR", _)
-                        | ("NONE", _)
-                        | ("LESS", _)
-                        | ("EQUAL", _)
-                        | ("GREATER", _) => None,
+                        (n, _) if BUILT_IN_CONSTRUCTOR_PATS.contains(&n) => {
+                            None
+                        }
                         // User-defined datatype constructor:
-                        // `Val::Constructor(ordinal, payload)`. We don't
-                        // know the ordinal here (no datatype context), so
-                        // a nullary pattern matches a nullary constructor
-                        // value carrying `Val::Unit`, and a non-nullary
-                        // pattern matches a non-unit payload. The compiler
-                        // emits Code::BindConstructor2 for these at
-                        // runtime; this branch is only reached at compile
-                        // time during the inliner's case-on-constant
-                        // rewrite, where we conservatively return false to
-                        // avoid an unsound rewrite.
+                        // `Val::Constructor(tag, payload)`, where the tag
+                        // is the constructor's position within the
+                        // declaration -- which the pattern does not record,
+                        // so we cannot tell `RED` from `GREEN` here. Answer
+                        // "no match"; callers that would act on the answer
+                        // must first ask `is_decidable`.
                         _ => return false,
                     };
                 let Some(matched_inner) = matched_inner else {
