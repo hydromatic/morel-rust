@@ -26,7 +26,7 @@
 use crate::compile::library;
 use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
-use crate::compile::type_env::{BindType, TypeEnv};
+use crate::compile::type_env::{BindType, SchemeTypeEnv, TypeEnv};
 use crate::compile::types;
 use crate::compile::types::Label;
 use crate::compile::types::{PrimitiveType, Subst, Type, TypeVariable};
@@ -626,6 +626,12 @@ pub struct TypeResolver {
     /// Nesting depth of `from`/`exists`/`forall` queries. Used to
     /// validate that `ordinal` only appears inside a query.
     query_depth: usize,
+
+    /// How many queries (`from`, `exists`, `forall`) have been deduced so
+    /// far. A `let` declaration whose count grows while it is deduced
+    /// contains a query, and is not generalized; see
+    /// [`bind_decl_generalized`](Self::bind_decl_generalized).
+    query_count: usize,
     /// Whether the current query step is ordered (list). Set during
     /// step processing, checked by `ExprKind::Ordinal` to reject
     /// `ordinal` in unordered queries.
@@ -1084,6 +1090,7 @@ impl TypeResolver {
             compute_stack: Vec::new(),
             aggregate_depth: 0,
             query_depth: 0,
+            query_count: 0,
             query_ordered: true,
             actions: Vec::new(),
             terms: Vec::new(),
@@ -1607,6 +1614,154 @@ impl TypeResolver {
     }
 
     /// Deduces a declaration's type.
+    /// Binds the declarations of a `let` into the environment, generalizing
+    /// value bindings so that they can be used polymorphically in the body
+    /// (Hindley-Milner let-polymorphism).
+    ///
+    /// Generalization works at the term level: we solve the constraints so
+    /// far, find which of the binding's type variables are local (not
+    /// reachable from any variable that existed before the declaration), and
+    /// bind a scheme that, on each use, copies the binding's resolved type
+    /// term with fresh variables for those local variables. Non-value
+    /// bindings (the value restriction) are bound monomorphically, exactly as
+    /// before.
+    fn bind_decl_generalized(
+        &mut self,
+        env: &Rc<dyn TypeEnv>,
+        term_map: &[(String, Term)],
+        prior_vars: &[Var],
+        prior_query_count: usize,
+        decl: &Decl,
+    ) -> Rc<dyn TypeEnv> {
+        // A declaration that contains a relational query compiles to a
+        // stack-based plan that our term-copy generalization does not
+        // preserve, so it is not generalized.
+        if self.query_count != prior_query_count {
+            return env.bind_all(term_map);
+        }
+        let value_names = Self::generalizable_names(decl);
+        if value_names.is_empty() {
+            return env.bind_all(term_map);
+        }
+
+        // Solve the constraints accumulated so far. Actions (e.g. flex-record
+        // field resolution) affect only this local solve, so it is
+        // side-effect free and we can run it as often as we like.
+        let term_pairs: Vec<(Term, Term)> = self
+            .terms
+            .iter()
+            .map(|(var, term)| (term.clone(), Term::Variable(*var)))
+            .collect();
+        let Ok(subst) = self.unifier.unify_with_constraints(
+            &term_pairs,
+            &NullTracer,
+            self.actions.as_ref(),
+            &self.overload_constraints,
+        ) else {
+            return env.bind_all(term_map);
+        };
+
+        // The type variables that are free in the enclosing environment:
+        // everything reachable by resolving a variable that existed before
+        // this declaration. A binding variable is generalizable only if it is
+        // not one of these.
+        let mut env_vars: HashSet<Var> = HashSet::new();
+        for v in prior_vars {
+            let mut vars = Vec::new();
+            subst
+                .resolve_term(&Term::Variable(*v))
+                .collect_vars(&mut vars);
+            env_vars.extend(vars);
+        }
+
+        let mut env2 = env.clone();
+        for (name, term) in term_map {
+            if !value_names.contains(name) {
+                env2 = env2.bind(name.clone(), term.clone());
+                continue;
+            }
+            let resolved = subst.resolve_term(term);
+            let mut binding_vars = Vec::new();
+            resolved.collect_vars(&mut binding_vars);
+            if self.overlaps_action(&binding_vars, &subst) {
+                // The binding's type is determined in part by a
+                // field-resolution action (a flex/progressive record whose
+                // fields come from how it is used). Generalizing creates
+                // fresh variables that would not carry that action, so bind
+                // it monomorphically.
+                env2 = env2.bind(name.clone(), term.clone());
+                continue;
+            }
+            let gen_vars: Vec<Var> = binding_vars
+                .into_iter()
+                .filter(|v| !env_vars.contains(v))
+                .collect();
+            if gen_vars.is_empty() {
+                // Monomorphic.
+                env2 = env2.bind(name.clone(), term.clone());
+            } else {
+                env2 = Rc::new(SchemeTypeEnv {
+                    parent: env2,
+                    name: name.clone(),
+                    term: resolved,
+                    gen_vars,
+                });
+            }
+        }
+        env2
+    }
+
+    /// Returns whether any of `binding_vars` is the target of a pending
+    /// field-resolution action (that is, a flex/progressive record whose
+    /// fields are supplied later). A binding whose type depends on such an
+    /// action cannot be generalized by copying its term, because the copy's
+    /// fresh variables would not carry the action.
+    fn overlaps_action(
+        &self,
+        binding_vars: &[Var],
+        subst: &Substitution,
+    ) -> bool {
+        self.actions.iter().any(|(action_var, _)| {
+            let mut action_vars = Vec::new();
+            subst
+                .resolve_term(&Term::Variable(*action_var))
+                .collect_vars(&mut action_vars);
+            action_vars.iter().any(|v| binding_vars.contains(v))
+        })
+    }
+
+    /// Returns the names bound by `decl` that may be generalized: names bound
+    /// (by an identifier pattern) to a syntactic value, in a non-instance
+    /// value declaration.
+    ///
+    /// The value restriction (only generalizing syntactic values) keeps
+    /// generalization sound. Recursive (`fun`) bindings may be generalized:
+    /// within the definition the name is monomorphic (recursion is not
+    /// polymorphic), but it is generalized for use in the body.
+    fn generalizable_names(decl: &Decl) -> HashSet<String> {
+        let mut names = HashSet::new();
+        if let DeclKind::Val(_rec, inst, val_binds) = &decl.kind
+            && !inst
+        {
+            for val_bind in val_binds {
+                if let PatKind::Identifier(name) = &val_bind.pat.kind
+                    && Self::is_value_expr(&val_bind.expr)
+                {
+                    names.insert(name.clone());
+                }
+            }
+        }
+        names
+    }
+
+    /// Returns whether an expression is a syntactic value.
+    fn is_value_expr(expr: &Expr) -> bool {
+        matches!(
+            expr.kind,
+            ExprKind::Fn(_) | ExprKind::Identifier(_) | ExprKind::Literal(_)
+        )
+    }
+
     fn deduce_decl_type(
         &mut self,
         env: &dyn TypeEnv,
@@ -2439,18 +2594,28 @@ impl TypeResolver {
                 let mut decl_list2 = Vec::new();
                 let mut running_env: Rc<dyn TypeEnv> = env.bind_all(&[]);
                 for decl in decl_list {
-                    let before_len = term_map.len();
+                    // Snapshot the variables that exist before this
+                    // declaration; any variable the declaration introduces
+                    // that is not reachable from one of these is local, and
+                    // can be generalized (let-polymorphism).
+                    let prior_vars = self.unifier.variables();
+                    let prior_query_count = self.query_count;
                     let decl2 = self.deduce_decl_type(
                         &*running_env,
                         decl,
                         &mut term_map,
                     )?;
+                    running_env = self.bind_decl_generalized(
+                        &running_env,
+                        &term_map,
+                        &prior_vars,
+                        prior_query_count,
+                        &decl2,
+                    );
                     decl_list2.push(decl2);
-                    if term_map.len() > before_len {
-                        running_env = env.bind_all(term_map.as_ref());
-                    }
+                    term_map.clear();
                 }
-                let env2 = env.bind_all(term_map.as_ref());
+                let env2 = running_env;
                 let expr2 = self.deduce_expr_type(&*env2, expr, v)?;
                 // Restore overload state.
                 self.overloads = saved_overloads;
@@ -2825,6 +2990,8 @@ impl TypeResolver {
         if !steps.is_empty() {
             self.query_depth -= 1;
         }
+
+        self.query_count += 1;
 
         // "forall" query must have "require" as the last step.
         if matches!(query.kind, ExprKind::Forall(_)) {
@@ -5790,7 +5957,7 @@ impl TypeResolver {
     }
 
     /// Creates a type variable.
-    fn variable(&mut self) -> Var {
+    pub(crate) fn variable(&mut self) -> Var {
         self.unifier.variable()
     }
 

@@ -18,6 +18,8 @@
  *)
 Sys.set ("lineWidth", 78);
 > val it = () : unit
+Sys.set ("printDepth", 6);
+> val it = () : unit
 
 (* You can mix constructors (SOME) and 'op ::' in patterns,
  * and constructors have the higher precedence. *)
@@ -969,7 +971,71 @@ fun distance (x, y) (x', y') =
 distance (0.0, 1.0) (4.0, 4.0);
 > val it = 5.0 : real
 
-(*) Composite declarations
+(* Let-polymorphism --------------------------------------------------
+ * A value bound in a local 'let' can be used at several types in the
+ * body.
+ *)
+
+let
+  val id = fn x => x
+in
+  (id 1, id true)
+end;
+> val it = (1,true) : int * bool
+
+let
+  val pair = fn x => (x, x)
+in
+  (pair 1, pair "a")
+end;
+> val it = ((1,1),("a","a")) : (int * int) * (string * string)
+
+let
+  val k = fn x => fn y => x
+in
+  (k 1 "a", k true 2)
+end;
+> val it = (1,true) : int * bool
+
+(* A local binding generalizes its own type variables, but not the type
+ * variables of an enclosing function's parameter: here 'x' generalizes
+ * but 'p' (hence 'a) does not. *)
+fn p => let val g = fn x => (x, p) in (g 1, g 2) end;
+> val it = fn : 'a -> (int * 'a) * (int * 'a)
+
+(* The value restriction: a binding whose right-hand side is not a
+ * syntactic value is not generalized. *)
+let
+  val notval = (fn x => x) 1
+in
+  notval
+end;
+> val it = 1 : int
+
+let
+  fun d x = (x, [x])
+in
+  (d 1, d (d "x"))
+end;
+> val it = ((1,[1]),(("x",["x"]),[("x",["x"])]))
+>   : (int * int list) * ((string * string list) * (string * string list) list)
+
+let
+  fun sz [] = 0
+    | sz (hd :: tl) = 1 + sz tl
+in
+  (sz [1], sz ["a","b"], sz [])
+end;
+> val it = (1,2,0) : int * int * int
+
+let
+  fun id x = x
+in
+  (id 1, id true, (id id) "a", id id)
+end;
+> val it = (1,true,"a",fn) : int * bool * string * ('a -> 'a)
+
+(* Composite declarations ----------------------------------------- *)
 let
   val (x, y) = (1, 2)
 in

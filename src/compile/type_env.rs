@@ -19,7 +19,7 @@ use crate::compile::library::BuiltIn;
 use crate::compile::type_resolver::TypeResolver;
 use crate::eval::code::LIBRARY;
 use crate::eval::val::Val;
-use crate::unify::unifier::Term;
+use crate::unify::unifier::{Term, Var};
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
@@ -194,6 +194,53 @@ impl SimpleTypeEnv {
 #[derive(Clone)]
 pub struct FunTypeEnv {
     pub parent: Rc<dyn TypeEnv>,
+}
+
+/// Type environment that binds one name to a *type scheme*, and delegates
+/// everything else to a parent.
+///
+/// A scheme is a resolved term plus the variables that are generalized over
+/// it. Each lookup instantiates the scheme: it copies the term, replacing
+/// each generalized variable with a fresh one, so the name can be used at
+/// several types (Hindley-Milner let-polymorphism).
+#[derive(Clone)]
+pub struct SchemeTypeEnv {
+    pub parent: Rc<dyn TypeEnv>,
+    pub name: String,
+    pub term: Term,
+    pub gen_vars: Vec<Var>,
+}
+
+impl TypeEnv for SchemeTypeEnv {
+    fn get(&self, name: &str, t: &mut TypeResolver) -> Option<BindType> {
+        if name != self.name {
+            return self.parent.get(name, t);
+        }
+        let fresh: HashMap<Var, Term> = self
+            .gen_vars
+            .iter()
+            .map(|g| (*g, Term::Variable(t.variable())))
+            .collect();
+        Some(BindType::Val(self.term.apply(&fresh)))
+    }
+
+    fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
+        SimpleTypeEnv::with_parent_and_binding(
+            Rc::new(self.clone()),
+            name,
+            term,
+        )
+    }
+
+    fn bind_all(&self, bindings: &[(String, Term)]) -> Rc<dyn TypeEnv> {
+        SimpleTypeEnv::with_parent_and_bindings(Rc::new(self.clone()), bindings)
+    }
+
+    fn builder(&self) -> TypeEnvBuilder {
+        TypeEnvBuilder {
+            env: Rc::new(self.clone()),
+        }
+    }
 }
 
 /// Holds a type environment while it is mutated.

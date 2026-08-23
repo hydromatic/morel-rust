@@ -225,6 +225,8 @@ let val x = 1 in
   end
 end;
 > val it : int
+:t let fun id x = x in (id 1, id true, (id id) "a", id id) end;
+> val it : int * bool * string * ('a -> 'a)
 :t
 
 :t NONE;

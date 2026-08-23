@@ -115,10 +115,24 @@ impl Term {
     }
 
     /// Applies a substitution to this term.
-    fn apply(&self, map: &HashMap<Var, Term>) -> Term {
+    pub fn apply(&self, map: &HashMap<Var, Term>) -> Term {
         match self {
             Term::Variable(v) => v.apply(map),
             Term::Sequence(seq) => seq.apply(map),
+        }
+    }
+
+    /// Collects the variables that occur in this term.
+    pub fn collect_vars(&self, vars: &mut Vec<Var>) {
+        match self {
+            Term::Variable(v) => {
+                if !vars.contains(v) {
+                    vars.push(*v);
+                }
+            }
+            Term::Sequence(seq) => {
+                seq.terms.iter().for_each(|t| t.collect_vars(vars));
+            }
         }
     }
 
@@ -1137,6 +1151,11 @@ impl Unifier {
     /// The first variable is at position 0, is named "T0", and has id -1.
     /// The second variable is at position 1, is named "T1", and has id -2.
     /// And so forth.
+    /// Returns a snapshot of all variables created so far.
+    pub fn variables(&self) -> Vec<Var> {
+        self.var_list.clone()
+    }
+
     pub fn variable(&mut self) -> Var {
         let ordinal = self.var_list.len();
         let name = self.new_name("T", ordinal);
