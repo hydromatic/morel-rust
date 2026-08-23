@@ -23,7 +23,7 @@
 //! a comment). This module holds that shared logic so there is a single
 //! implementation, rather than a copy per caller.
 
-use crate::syntax::parser::statement_prefix_end;
+use crate::syntax::parser::{StatementPrefix, statement_prefix_end};
 
 /// Returns the level of comment nesting at the end of the string.
 ///
@@ -193,10 +193,11 @@ pub(crate) fn has_code(buf: &str) -> bool {
 /// one statement, `val a = 1; val b = 2;` is two -- so where a statement
 /// ends is a question for the parser, not for a scan of the text.
 ///
-/// Returns `None` while `buf` holds no complete statement -- including
-/// when it holds a `;` that will not parse as the end of one, as in a
-/// half-typed `let val i = 0;`. Input that never parses is reported
-/// when the caller reaches end of input, not here.
+/// Returns `None` while `buf` holds only the start of a statement -- a
+/// half-typed `let val i = 0;` is one, and more input may finish it. A
+/// buffer that no further input could mend is handed over whole, so that
+/// the error is reported where the user wrote it rather than at end of
+/// input, which would take the rest of the file with it.
 pub(crate) fn split_statement(buf: &str) -> Option<(&str, &str)> {
     if !has_semicolon(buf) {
         return None;
@@ -204,7 +205,11 @@ pub(crate) fn split_statement(buf: &str) -> Option<(&str, &str)> {
     // `:t` is a shell directive, not grammar, and `Kernel` strips it
     // before parsing. Blank it here too, in place, so that the offset
     // the parser reports still indexes into `buf`.
-    statement_prefix_end(&blank_directives(buf)).map(|end| buf.split_at(end))
+    match statement_prefix_end(&blank_directives(buf)) {
+        StatementPrefix::Complete(end) => Some(buf.split_at(end)),
+        StatementPrefix::Incomplete => None,
+        StatementPrefix::Malformed => Some((buf, "")),
+    }
 }
 
 /// Returns `buf` with a line-leading `:t` replaced by two spaces.
@@ -316,8 +321,11 @@ mod tests {
         assert_eq!(split_statement("val x ="), None);
         assert_eq!(split_statement("let val i = 0;"), None);
         assert_eq!(split_statement("(* a ;"), None);
-        // Malformed: not a statement yet, however it ends. The caller
-        // reports it when the input runs out.
-        assert_eq!(split_statement("val = ;"), None);
+        // Malformed: no further input can mend it, so it is handed over
+        // whole and the error is reported where it was written.
+        assert_eq!(split_statement("val = ;"), Some(("val = ;", "")));
+        assert_eq!(split_statement("1 \\ 2;"), Some(("1 \\ 2;", "")));
+        // ... but an unfinished one still waits for more.
+        assert_eq!(split_statement("let val i = 0;"), None);
     }
 }

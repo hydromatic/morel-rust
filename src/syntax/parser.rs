@@ -63,11 +63,42 @@ pub fn parse_statement(input: &str) -> ParseResult<Statement> {
 /// that `val a = 1; val b = 2;` is two statements while the semicolons
 /// in `let val i = 0; val j = 1; in i + j end;` are not. Only the span
 /// is wanted, so the match is not converted to an AST.
-pub fn statement_prefix_end(input: &str) -> Option<usize> {
-    <MorelParser as pest::Parser<Rule>>::parse(Rule::statement_prefix, input)
-        .ok()?
-        .next()
-        .map(|pair| pair.as_span().end())
+pub fn statement_prefix_end(input: &str) -> StatementPrefix {
+    match <MorelParser as pest::Parser<Rule>>::parse(
+        Rule::statement_prefix,
+        input,
+    ) {
+        Ok(mut pairs) => match pairs.next() {
+            Some(pair) => StatementPrefix::Complete(pair.as_span().end()),
+            None => StatementPrefix::Incomplete,
+        },
+        Err(e) => {
+            // Where the parse gave up says whether more input could help.
+            // Failing at the end of what we have is what an unfinished
+            // statement looks like -- `let val i = 0;` is the start of one.
+            // Failing earlier is a statement that is simply wrong, and no
+            // amount of further input will mend it.
+            let pos = match e.location {
+                pest::error::InputLocation::Pos(p) => p,
+                pest::error::InputLocation::Span((_, end)) => end,
+            };
+            if pos >= input.trim_end().len() {
+                StatementPrefix::Incomplete
+            } else {
+                StatementPrefix::Malformed
+            }
+        }
+    }
+}
+
+/// What [`statement_prefix_end`] made of a statement buffer.
+pub enum StatementPrefix {
+    /// The buffer opens with a complete statement ending at this offset.
+    Complete(usize),
+    /// The buffer holds the start of a statement; more input may finish it.
+    Incomplete,
+    /// The buffer will not parse however it is extended.
+    Malformed,
 }
 
 /// Parses a statement (with no whitespace, comments or semicolon)
