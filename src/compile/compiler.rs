@@ -1478,11 +1478,16 @@ impl<'a> Compiler<'a> {
                 }
             }
             Expr::Let(_, decl_list, expr) => {
-                let mut bindings = Vec::new();
                 let mut match_codes = Vec::new();
+                // Declarations are sequential: each is compiled in the
+                // scope of those before it, so that in
+                // `let val x = 1 fun g y = x + y in g 5 end` the body of
+                // `g` can see `x`.
+                let mut cx1 = cx.clone();
                 for d in decl_list {
+                    let mut bindings = Vec::new();
                     self.compile_decl(
-                        cx,
+                        &cx1,
                         d,
                         None,
                         &HashSet::new(),
@@ -1490,8 +1495,8 @@ impl<'a> Compiler<'a> {
                         bindings.as_mut(),
                         None,
                     );
+                    cx1 = cx1.bind_all(&bindings);
                 }
-                let cx1 = cx.bind_all(&bindings);
                 let code = self.compile_expr(&cx1, Some(cx), expr);
                 Code::new_let(&match_codes, code)
             }

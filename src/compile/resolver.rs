@@ -967,13 +967,20 @@ impl<'a> Resolver<'a> {
                 // resolving the body, so postfix calls in the body can
                 // dispatch to them.
                 self.register_self_fns(decls);
-                let resolved_decls =
+                let resolved_decls: Vec<_> =
                     decls.iter().map(|d| self.resolve_decl(d)).collect();
-                CoreExpr::Let(
-                    t,
-                    resolved_decls,
-                    Box::new(self.resolve_expr(body)),
-                )
+                let mut result = self.resolve_expr(body);
+                // Declarations in a `let` are sequential: each is in
+                // scope for those that follow it, so
+                // `let val x = 1 fun g y = x + y in g 5 end` must give
+                // 6. Nest them, one declaration per `Let`, the shape
+                // morel-java's `Core.Let` enforces by holding a single
+                // declaration.
+                for d in resolved_decls.into_iter().rev() {
+                    result =
+                        CoreExpr::Let(t.clone(), vec![d], Box::new(result));
+                }
+                result
             }
             ExprKind::List(elements) => CoreExpr::List(
                 t,
