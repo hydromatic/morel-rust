@@ -17,26 +17,206 @@
 
 //! Syntax highlighting for a line of Morel typed at the shell prompt.
 //!
-//! [`highlight`] tokenizes the input and wraps each token in ANSI escapes
-//! according to a [`ColorScheme`]. The tokenizer classifies each span into a
-//! [`Category`] — keyword, symbol, numeric, string, comment, type variable,
-//! constant, or (the default, unstyled) identifier — a simplification of
-//! Morel-Java's `MorelHighlighter`, which additionally distinguishes bound
-//! variables and function names that all render unstyled here anyway.
+//! The scanner splits the input into spans, each carrying the [`Class`]
+//! that morel-java's `MorelHighlighter` gives it — a Rouge CSS class,
+//! finer than the [`Category`] the shell colors by, because it tells a
+//! name being bound from one being used and punctuation from operators.
+//! [`highlight`] maps those classes down to categories and wraps each
+//! span in ANSI escapes; [`highlight_concise`] writes them in the format
+//! `Test.highlight` returns, which `script/highlight.smli` asserts.
+//!
+//! The scanner is lenient and never fails, whatever it is given: the
+//! shell re-highlights the buffer on every keystroke, so most of what it
+//! sees is a partly typed line that is not valid Morel.
 
 use crate::eval::color_scheme::{Category, ColorScheme};
-use crate::syntax::parser::is_reserved_word;
 
-/// Identifiers that are highlighted as constants rather than plain
-/// identifiers.
+/// Identifiers that the shell colors as constants rather than plain
+/// identifiers. The scanner does not single them out — morel-java gives
+/// them the plain-name class — so this applies only on the way to a
+/// [`Category`].
 const CONSTANTS: &[&str] = &["false", "nil", "true"];
 
-/// Highlights a line of Morel input, returning it with ANSI escape sequences
-/// applied per `scheme`. Spans whose category has no style (and everything
-/// under the `none` scheme) are left unchanged.
+/// Reserved words, SML's and Morel's. Deliberately its own set rather
+/// than the parser's `RESERVED_WORDS`: the highlighter colors words the
+/// parser treats contextually (`desc`, `remove`, `on`), and morel-java's
+/// highlighter keeps its own set for the same reason. Keep in step with
+/// `MorelHighlighter.SML_KEYWORDS` and `MOREL_KEYWORDS`.
+const KEYWORDS: &[&str] = &[
+    // lint: sort until '];'
+    "abstype",
+    "all",
+    "and",
+    "andalso",
+    "as",
+    "case",
+    "compute",
+    "current",
+    "datatype",
+    "desc",
+    "distinct",
+    "div",
+    "do",
+    "elem",
+    "elements",
+    "else",
+    "end",
+    "eqtype",
+    "except",
+    "exception",
+    "exists",
+    "extend",
+    "fn",
+    "forall",
+    "from",
+    "full",
+    "fun",
+    "group",
+    "handle",
+    "if",
+    "implies",
+    "in",
+    "infix",
+    "infixr",
+    "inst",
+    "intersect",
+    "into",
+    "join",
+    "left",
+    "lenient",
+    "let",
+    "local",
+    "mod",
+    "nonfix",
+    "not",
+    "notelem",
+    "o",
+    "of",
+    "on",
+    "op",
+    "open",
+    "or",
+    "order",
+    "ordinal",
+    "orelse",
+    "over",
+    "raise",
+    "rec",
+    "remove",
+    "rename",
+    "replace",
+    "require",
+    "right",
+    "sharing",
+    "sig",
+    "signature",
+    "skip",
+    "struct",
+    "structure",
+    "take",
+    "then",
+    "through",
+    "type",
+    "type_string",
+    "typeof",
+    "union",
+    "unorder",
+    "val",
+    "where",
+    "while",
+    "with",
+    "withtype",
+    "yield",
+    "yieldAll",
+];
+
+/// Characters that group into a single punctuation token.
+const PUNCT_CHARS: &str = "()[]{}=,;|.";
+
+/// What a token is, named after the Rouge CSS class morel-java's
+/// highlighter emits for it.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Class {
+    /// Reserved word.
+    Kr,
+    /// String literal.
+    S2,
+    /// The `(*` that opens a comment.
+    C,
+    /// The rest of a comment, through its `*)`.
+    Cm,
+    /// Type variable, or a structure name before a `.`.
+    Nn,
+    /// Numeric literal.
+    Mi,
+    /// Operator.
+    O,
+    /// Name bound by `val`, or by a `from` generator.
+    Nv,
+    /// Name bound by `fun`.
+    Nf,
+    /// Plain identifier.
+    N,
+    /// Punctuation.
+    P,
+    /// Whitespace, which carries no class.
+    Plain,
+}
+
+impl Class {
+    /// The CSS class name, or `None` for text written verbatim.
+    fn name(self) -> Option<&'static str> {
+        match self {
+            Class::Kr => Some("kr"),
+            Class::S2 => Some("s2"),
+            Class::C => Some("c"),
+            Class::Cm => Some("cm"),
+            Class::Nn => Some("nn"),
+            Class::Mi => Some("mi"),
+            Class::O => Some("o"),
+            Class::Nv => Some("nv"),
+            Class::Nf => Some("nf"),
+            Class::N => Some("n"),
+            Class::P => Some("p"),
+            Class::Plain => None,
+        }
+    }
+
+    /// The category the shell colors this token by. `text` is the token,
+    /// needed only to spot a constant among the plain names.
+    fn category(self, text: &str) -> Option<Category> {
+        match self {
+            Class::Kr => Some(Category::Keyword),
+            Class::S2 => Some(Category::String),
+            Class::C | Class::Cm => Some(Category::Comment),
+            Class::Nn => Some(Category::TypeVar),
+            Class::Mi => Some(Category::Numeric),
+            Class::O | Class::P => Some(Category::Symbol),
+            Class::Nv | Class::Nf | Class::N => {
+                if CONSTANTS.contains(&text) {
+                    Some(Category::Constant)
+                } else {
+                    Some(Category::Identifier)
+                }
+            }
+            Class::Plain => None,
+        }
+    }
+}
+
+/// Highlights a line of Morel input, returning it with ANSI escape
+/// sequences applied per `scheme`. Spans whose category has no style (and
+/// everything under the `none` scheme) are left unchanged. Adjacent spans
+/// of one category are wrapped together, so a comment does not accumulate
+/// an escape sequence per token.
 pub fn highlight(line: &str, scheme: &ColorScheme) -> String {
     let mut out = String::new();
-    for (start, end, category) in tokenize(line) {
+    let mut run: Option<(usize, usize, Option<Category>)> = None;
+    let flush = |run: Option<(usize, usize, Option<Category>)>,
+                 out: &mut String| {
+        let Some((start, end, category)) = run else {
+            return;
+        };
         let text = &line[start..end];
         let spec = category.map_or("", |c| scheme.spec(c));
         let prefix = ansi_prefix(spec);
@@ -47,95 +227,285 @@ pub fn highlight(line: &str, scheme: &ColorScheme) -> String {
             out.push_str(text);
             out.push_str("\x1b[0m");
         }
+    };
+    for (start, end, class) in tokenize(line) {
+        let category = class.category(&line[start..end]);
+        match run {
+            Some((s, e, c)) if c == category && e == start => {
+                run = Some((s, end, c));
+            }
+            other => {
+                flush(other, &mut out);
+                run = Some((start, end, category));
+            }
+        }
+    }
+    flush(run, &mut out);
+    out
+}
+
+/// Writes each token as its CSS class followed by the token's text in
+/// braces — `val x = 1` becomes `kr{val} nv{x} p{=} mi{1}`. Whitespace is
+/// written verbatim. This is what `Test.highlight` returns.
+pub fn highlight_concise(s: &str) -> String {
+    let mut out = String::new();
+    for (start, end, class) in tokenize(s) {
+        match class.name() {
+            Some(name) => {
+                out.push_str(name);
+                out.push('{');
+                out.push_str(&s[start..end]);
+                out.push('}');
+            }
+            None => out.push_str(&s[start..end]),
+        }
     }
     out
 }
 
-/// Splits `s` into contiguous spans, each tagged with a [`Category`] or
-/// `None` (whitespace and other unstyled text). Spans cover the whole input
-/// in order.
-fn tokenize(s: &str) -> Vec<(usize, usize, Option<Category>)> {
+/// Tells an identifier that is being bound from one that is being used.
+/// Carried across tokens by [`tokenize`].
+#[derive(Default)]
+struct Context {
+    /// Whether the previous keyword was `fun`, so that the next name is
+    /// the name of the function being declared.
+    awaiting_fun_name: bool,
+
+    /// `None` outside a `val` pattern; otherwise the bracket depth within
+    /// it. Every identifier in a `val` pattern is being bound. The
+    /// pattern ends at an `=` at depth 0.
+    val_pat_depth: Option<u32>,
+
+    /// Where we are in a `from`: a generator pattern, where identifiers
+    /// are being bound, or the expression after the generator's `in`.
+    from_state: FromState,
+
+    /// Bracket depth within a generator expression, so that only a
+    /// top-level `,` starts another generator.
+    from_depth: u32,
+}
+
+/// Where [`Context`] is within a `from`.
+#[derive(Copy, Clone, Eq, PartialEq, Default)]
+enum FromState {
+    /// Not in a `from`.
+    #[default]
+    None,
+    /// In a generator pattern; identifiers are being bound.
+    Pat,
+    /// In the expression after a generator's `in`.
+    Expr,
+}
+
+impl Context {
+    /// Notes that `word`, a keyword, has been scanned.
+    fn keyword(&mut self, word: &str) {
+        self.awaiting_fun_name = false;
+        match word {
+            "val" => {
+                self.val_pat_depth = Some(0);
+                self.from_state = FromState::None;
+            }
+            "fun" => {
+                self.awaiting_fun_name = true;
+                self.val_pat_depth = None;
+                self.from_state = FromState::None;
+            }
+            "from" => {
+                self.from_state = FromState::Pat;
+                self.from_depth = 0;
+                self.val_pat_depth = None;
+            }
+            // `in` after a from-pattern: switch to expression mode.
+            "in" if self.from_state == FromState::Pat => {
+                self.from_state = FromState::Expr;
+                self.from_depth = 0;
+            }
+            // `join` introduces another generator pattern.
+            "join" if self.from_state == FromState::Expr => {
+                self.from_state = FromState::Pat;
+            }
+            // End of the generator list; no more patterns expected.
+            "where" | "yield" | "group" | "order"
+                if self.from_state == FromState::Pat
+                    || self.from_state == FromState::Expr
+                        && self.from_depth == 0 =>
+            {
+                self.from_state = FromState::None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Notes that a run of punctuation has been scanned. Tracks bracket
+    /// depth; a `,` in a generator expression starts another generator,
+    /// and an `=` at depth 0 ends a `val` pattern. Being in a `val`
+    /// pattern and being in a generator expression are mutually
+    /// exclusive, because `from` clears the former.
+    fn punct(&mut self, text: &str) {
+        if self.val_pat_depth.is_none() && self.from_state != FromState::Expr {
+            return;
+        }
+        for p in text.chars() {
+            match p {
+                '(' | '[' | '{' => match self.val_pat_depth {
+                    Some(d) => self.val_pat_depth = Some(d + 1),
+                    None => self.from_depth += 1,
+                },
+                ')' | ']' | '}' => match self.val_pat_depth {
+                    Some(d) if d > 0 => self.val_pat_depth = Some(d - 1),
+                    _ if self.from_depth > 0 => self.from_depth -= 1,
+                    _ => {}
+                },
+                ',' if self.from_state == FromState::Expr
+                    && self.from_depth == 0 =>
+                {
+                    self.from_state = FromState::Pat;
+                }
+                '=' if self.val_pat_depth == Some(0) => {
+                    self.val_pat_depth = None;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Splits `s` into contiguous spans, each tagged with the [`Class`] of the
+/// token it holds. Spans cover the whole input, in order.
+fn tokenize(s: &str) -> Vec<(usize, usize, Class)> {
     let b = s.as_bytes();
     let n = b.len();
     let mut spans = Vec::new();
+    let mut cx = Context::default();
     let mut i = 0;
     while i < n {
         let c = b[i] as char;
         if c == '(' && i + 1 < n && b[i + 1] == b'*' {
-            // Block comment "(* ... *)", possibly nested.
+            // Comment: the `(*` and the rest of it are separate tokens,
+            // as Rouge writes them.
             let end = scan_comment(b, i);
-            spans.push((i, end, Some(Category::Comment)));
+            spans.push((i, i + 2, Class::C));
+            if i + 2 < end {
+                spans.push((i + 2, end, Class::Cm));
+            }
             i = end;
         } else if c == '"' {
-            // String literal.
             let end = scan_string(b, i);
-            spans.push((i, end, Some(Category::String)));
+            spans.push((i, end, Class::S2));
             i = end;
         } else if c == '\'' && i + 1 < n && (b[i + 1] as char).is_alphabetic() {
-            // Type variable: 'a, 'b, ...
+            // Type variable: 'a, 'b, 'alpha.
             let mut end = i + 1;
             while end < n && is_ident_char(b[end] as char) {
                 end += 1;
             }
-            spans.push((i, end, Some(Category::TypeVar)));
+            spans.push((i, end, Class::Nn));
             i = end;
-        } else if c.is_alphabetic() || c == '_' {
-            // Identifier or keyword.
-            let mut end = i + 1;
-            while end < n && is_ident_char(b[end] as char) {
-                end += 1;
-            }
-            let word = &s[i..end];
-            let category = if is_reserved_word(word) {
-                Category::Keyword
-            } else if end < n && b[end] == b'.' {
-                // A structure name, e.g. `List` in `List.map`.
-                Category::TypeVar
-            } else if CONSTANTS.contains(&word) {
-                Category::Constant
+        } else if c.is_alphabetic() || c == '_' || c == '`' {
+            // Identifier, quoted identifier, or keyword.
+            let quoted = c == '`';
+            let end = if quoted {
+                // A quoted identifier such as `from` or `let val` is a
+                // single name, whatever it contains; never a keyword.
+                scan_quoted_identifier(b, i)
             } else {
-                Category::Identifier
+                let mut end = i + 1;
+                while end < n && is_ident_char(b[end] as char) {
+                    end += 1;
+                }
+                end
             };
-            spans.push((i, end, Some(category)));
+            let word = &s[i..end];
+            let class = if !quoted && KEYWORDS.binary_search(&word).is_ok() {
+                cx.keyword(word);
+                Class::Kr
+            } else if end < n && b[end] == b'.' {
+                // A name immediately before `.` is a structure name.
+                cx.val_pat_depth = None;
+                cx.awaiting_fun_name = false;
+                Class::Nn
+            } else if cx.val_pat_depth.is_some() {
+                Class::Nv
+            } else if cx.awaiting_fun_name {
+                cx.awaiting_fun_name = false;
+                Class::Nf
+            } else if cx.from_state == FromState::Pat {
+                Class::Nv
+            } else {
+                Class::N
+            };
+            spans.push((i, end, class));
             i = end;
         } else if c.is_ascii_digit() {
-            // Numeric literal: int, word (0w7), real (1.5) or scientific.
+            // Numeric literal. A leading `~` is a token of its own.
             let end = scan_number(b, i);
-            spans.push((i, end, Some(Category::Numeric)));
+            spans.push((i, end, Class::Mi));
             i = end;
+        } else if i + 1 < n
+            && matches!(
+                (c, b[i + 1]),
+                (':', b':') | (':', b'=') | ('=', b'>') | ('-', b'>')
+            )
+        {
+            // `::`, `:=`, `=>`, `->`, each ahead of the single character
+            // it starts with.
+            spans.push((i, i + 2, Class::O));
+            i += 2;
+        } else if PUNCT_CHARS.contains(c) {
+            let mut end = i + 1;
+            while end < n && PUNCT_CHARS.contains(b[end] as char) {
+                end += 1;
+            }
+            cx.punct(&s[i..end]);
+            spans.push((i, end, Class::P));
+            i = end;
+        } else if c == ':' {
+            // Lone colon: a type annotation.
+            spans.push((i, i + 1, Class::P));
+            i += 1;
         } else if c.is_whitespace() {
             let mut end = i + 1;
             while end < n && (b[end] as char).is_whitespace() {
                 end += 1;
             }
-            spans.push((i, end, None));
+            spans.push((i, end, Class::Plain));
             i = end;
         } else {
-            // A run of symbol/operator characters.
-            let mut end = i + 1;
-            while end < n && is_symbol_char(b[end] as char) {
-                end += 1;
-            }
-            spans.push((i, end, Some(Category::Symbol)));
-            i = end;
+            // An operator, or any other character the scanner does not
+            // recognize — `~`, `&`, `\`, a lone `'`.
+            spans.push((i, i + 1, Class::O));
+            i += 1;
         }
     }
     spans
 }
 
+/// Returns the byte index just past the quoted identifier starting at
+/// `start`. A doubled backtick is an escaped backtick and does not end
+/// the identifier. An unterminated identifier runs to the end of the
+/// input: the shell re-highlights the buffer on every keystroke, so a
+/// partly typed line is not valid Morel and must still highlight.
+fn scan_quoted_identifier(b: &[u8], start: usize) -> usize {
+    let n = b.len();
+    let mut j = start + 1;
+    while j < n {
+        if b[j] == b'`' {
+            if j + 1 < n && b[j + 1] == b'`' {
+                j += 2;
+            } else {
+                return j + 1;
+            }
+        } else {
+            j += 1;
+        }
+    }
+    n
+}
+
 /// Whether `c` can continue an identifier or type variable.
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '\''
-}
-
-/// Whether `c` is a symbol/operator character (not the start of a comment,
-/// string, type variable, word, or number, and not whitespace).
-fn is_symbol_char(c: char) -> bool {
-    !c.is_alphanumeric()
-        && !c.is_whitespace()
-        && c != '"'
-        && c != '\''
-        && c != '_'
 }
 
 /// Returns the byte index just past a comment starting at `i`. A `(*)` begins
@@ -321,11 +691,20 @@ mod tests {
     use super::*;
     use crate::eval::color_scheme::{DARK, NONE};
 
+    /// Categories, in the coarser terms the shell colors by, as
+    /// `highlight` groups them.
     fn cats(s: &str) -> Vec<(&str, Option<Category>)> {
-        tokenize(s)
-            .into_iter()
-            .map(|(a, b, c)| (&s[a..b], c))
-            .collect()
+        let mut runs: Vec<(usize, usize, Option<Category>)> = Vec::new();
+        for (start, end, class) in tokenize(s) {
+            let category = class.category(&s[start..end]);
+            match runs.last_mut() {
+                Some(last) if last.2 == category && last.1 == start => {
+                    last.1 = end
+                }
+                _ => runs.push((start, end, category)),
+            }
+        }
+        runs.into_iter().map(|(a, b, c)| (&s[a..b], c)).collect()
     }
 
     #[test]
@@ -343,65 +722,6 @@ mod tests {
                 (";", Some(Category::Symbol)),
             ]
         );
-    }
-
-    #[test]
-    fn test_tokenize_string_comment_tyvar_struct() {
-        assert_eq!(
-            cats(r#""hi" (* c *) 'a List.map"#),
-            vec![
-                (r#""hi""#, Some(Category::String)),
-                (" ", None),
-                ("(* c *)", Some(Category::Comment)),
-                (" ", None),
-                ("'a", Some(Category::TypeVar)),
-                (" ", None),
-                ("List", Some(Category::TypeVar)), // structure name
-                (".", Some(Category::Symbol)),
-                ("map", Some(Category::Identifier)),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_line_comment_ends_at_newline() {
-        // "(*)" is a line comment: it ends at the newline, so the code on the
-        // next line is not swallowed as a comment.
-        assert_eq!(
-            cats("b (*) flour,\nc"),
-            vec![
-                ("b", Some(Category::Identifier)),
-                (" ", None),
-                ("(*) flour,", Some(Category::Comment)),
-                ("\n", None),
-                ("c", Some(Category::Identifier)),
-            ]
-        );
-        // A "(* ... *)" block comment still spans to its close.
-        assert_eq!(
-            cats("(* a\nb *) c"),
-            vec![
-                ("(* a\nb *)", Some(Category::Comment)),
-                (" ", None),
-                ("c", Some(Category::Identifier)),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_unterminated_string_escape() {
-        // The highlighter runs on every keystroke, so the buffer passes
-        // through the state `"\` the moment a string escape is typed. The
-        // escape skip must not run past the end of the buffer.
-        assert_eq!(cats("\"\\"), vec![("\"\\", Some(Category::String))]);
-        // A longer prefix of a typed escape, e.g. `"ab\`.
-        assert_eq!(cats("\"ab\\"), vec![("\"ab\\", Some(Category::String))]);
-        // A complete escape in an unterminated string.
-        assert_eq!(cats("\"a\\n"), vec![("\"a\\n", Some(Category::String))]);
-        // Highlighting the same buffers must not panic.
-        for s in ["\"\\", "\"ab\\", "\"a\\n"] {
-            assert!(highlight(s, &DARK).contains(s));
-        }
     }
 
     #[test]

@@ -1388,6 +1388,11 @@ pub enum BuiltInFunction {
     /// Test-only function `Test.foo`, of type `int -> int`.
     #[strum(props(p = "Test", name = "foo", type = "int -> int"))]
     TestFoo,
+    /// Test-only function `Test.highlight`, of type `string -> string`.
+    /// Returns the shell highlighter's classification of its argument,
+    /// so that `script/highlight.smli` can assert it.
+    #[strum(props(p = "Test", name = "highlight", type = "string -> string"))]
+    TestHighlight,
     /// Test-only aggregate `Test.listSum`, of type `'a list -> 'a`.
     #[strum(props(p = "Test", name = "listSum"))]
     #[strum(props(type = "forall 1 'a list -> 'a"))]

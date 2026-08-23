@@ -261,6 +261,11 @@ fn foreign() {
 }
 
 #[test]
+fn highlight() {
+    run_script("tests/script/highlight.smli");
+}
+
+#[test]
 fn hybrid() {
     run_script("tests/script/hybrid.smli");
 }

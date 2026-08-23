@@ -60,6 +60,7 @@ use crate::eval::val::{self, ClosureData, Val};
 use crate::eval::variant;
 use crate::eval::vector::Vector;
 use crate::eval::word;
+use crate::shell::highlight::highlight_concise;
 use crate::shell::kernel::{Kernel, MorelError};
 use crate::shell::prop::{Configurable, Prop};
 use crate::syntax::ast_dumper::dump as ast_dumper_dump;
@@ -2997,6 +2998,7 @@ pub enum Eager1 {
     StringStr,
     TestBagSum,
     TestFoo,
+    TestHighlight,
     TestListSum,
     TestOverCountBag,
     TestOverCountList,
@@ -3414,6 +3416,9 @@ impl Eager1 {
                 }
             }
             TestFoo => a0.clone(),
+            TestHighlight => {
+                Val::String(highlight_concise(a0.expect_string()).into())
+            }
             TestOverCountBag => Val::Int(a0.expect_list().len() as i32),
             TestOverCountList => Val::Int(a0.expect_list().len() as i32 + 1000),
             TimeFromMicroseconds => time::from_microseconds(a0.expect_int()),
@@ -5267,6 +5272,7 @@ fn build_library() -> Lib {
     EagerF1::SysUnset.implements(&mut b, SysUnset);
     Eager1::TestBagSum.implements(&mut b, TestBagSum);
     Eager1::TestFoo.implements(&mut b, TestFoo);
+    Eager1::TestHighlight.implements(&mut b, TestHighlight);
     Eager1::TestListSum.implements(&mut b, TestListSum);
     Eager1::TestOverCountBag.implements(&mut b, TestOverCountBag);
     Eager1::TestOverCountList.implements(&mut b, TestOverCountList);

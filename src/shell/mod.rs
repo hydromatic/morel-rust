@@ -29,11 +29,15 @@ pub use kernel::Kernel;
 pub use runner::ScriptRunner;
 pub use script_test::ScriptTest;
 
+// `highlight` was gated with the terminal, its only user. `Test
+// .highlight` is another, and the built-ins are the same on every
+// target, so it is compiled on all of them. It needs nothing the
+// terminal needs: it maps text to classes, and only `ColorScheme`
+// turns those into escape sequences.
+pub mod highlight;
+
 // The interactive terminal front end depends on rustyline, which is not
 // available on wasm32; keep it (and the `Shell` it exports) off that target.
-// `highlight` is used only by the terminal, so gate it the same way.
-#[cfg(not(target_arch = "wasm32"))]
-pub mod highlight;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod terminal;
 #[cfg(not(target_arch = "wasm32"))]
