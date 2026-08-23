@@ -66,6 +66,17 @@ use std::rc::Rc;
 /// `Sys.planEx`. Used to skip storing the previous command's plan when
 /// the user is asking about it; otherwise the stored plan would always
 /// just be the most recent `Sys.plan*` call itself.
+/// The error for a value an enumerated property cannot take. The
+/// property's `FromStr` supplies the values it will take; naming the
+/// property is the caller's job, since only the caller knows which one
+/// is being set.
+fn one_of(prop: &str, values: &str) -> Error {
+    Error::Runtime(format!(
+        "value for property '{}' must be one of: {}",
+        prop, values
+    ))
+}
+
 fn is_plan_or_plan_ex_call(decl: &Decl) -> bool {
     let Decl::NonRecVal(vb) = decl else {
         return false;
@@ -482,7 +493,7 @@ impl Kernel {
             "colorScheme" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'colorScheme' must have type 'string'"
                             .to_string(),
                     )
                 })?;
@@ -493,7 +504,7 @@ impl Kernel {
             "excludeStructures" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'excludeStructures' must have type 'string'"
                             .to_string(),
                     )
                 })?;
@@ -505,7 +516,7 @@ impl Kernel {
                 self.session.borrow_mut().config.hybrid =
                     Some(val.maybe_bool().ok_or_else(|| {
                         Error::Runtime(
-                            "value for property must have type 'bool'"
+                            "value for property 'hybrid' must have type 'bool'"
                                 .to_string(),
                         )
                     })?);
@@ -515,7 +526,7 @@ impl Kernel {
                 self.config.line_width =
                     Some(val.maybe_int().ok_or_else(|| {
                         Error::Runtime(
-                            "value for property must have type 'int'"
+                            "value for property 'lineWidth' must have type 'int'"
                                 .to_string(),
                         )
                     })?);
@@ -530,7 +541,7 @@ impl Kernel {
                 self.config.match_strict =
                     Some(val.maybe_bool().ok_or_else(|| {
                         Error::Runtime(
-                            "value for property must have type 'bool'"
+                            "value for property 'matchStrict' must have type 'bool'"
                                 .to_string(),
                         )
                     })?);
@@ -539,18 +550,18 @@ impl Kernel {
             "mode" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'mode' must have type 'string'"
                             .to_string(),
                     )
                 })?;
                 self.config.mode =
-                    Some(s.parse::<Mode>().map_err(Error::Runtime)?);
+                    Some(s.parse::<Mode>().map_err(|vs| one_of("mode", &vs))?);
                 Ok(())
             }
             "now" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'now' must have type 'string'"
                             .to_string(),
                     )
                 })?;
@@ -560,7 +571,8 @@ impl Kernel {
             "optionalInt" => {
                 let v = val.maybe_int().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'int'".to_string(),
+                        "value for property 'optionalInt' must have type 'int'"
+                            .to_string(),
                     )
                 })?;
                 self.config.optional_int = Some(v);
@@ -570,19 +582,20 @@ impl Kernel {
             "output" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'output' must have type 'string'"
                             .to_string(),
                     )
                 })?;
-                self.config.output =
-                    Some(s.parse::<Output>().map_err(Error::Runtime)?);
+                self.config.output = Some(
+                    s.parse::<Output>().map_err(|vs| one_of("output", &vs))?,
+                );
                 Ok(())
             }
             "printDepth" => {
                 self.config.print_depth =
                     Some(val.maybe_int().ok_or_else(|| {
                         Error::Runtime(
-                            "value for property must have type 'int'"
+                            "value for property 'printDepth' must have type 'int'"
                                 .to_string(),
                         )
                     })?);
@@ -592,7 +605,7 @@ impl Kernel {
                 self.config.print_length =
                     Some(val.maybe_int().ok_or_else(|| {
                         Error::Runtime(
-                            "value for property must have type 'int'"
+                            "value for property 'printLength' must have type 'int'"
                                 .to_string(),
                         )
                     })?);
@@ -623,7 +636,7 @@ impl Kernel {
                 self.config.string_depth =
                     Some(val.maybe_int().ok_or_else(|| {
                         Error::Runtime(
-                            "value for property must have type 'int'"
+                            "value for property 'stringDepth' must have type 'int'"
                                 .to_string(),
                         )
                     })?);
@@ -632,7 +645,8 @@ impl Kernel {
             "stringFold" => {
                 let i = val.maybe_int().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'int'".to_string(),
+                        "value for property 'stringFold' must have type 'int'"
+                            .to_string(),
                     )
                 })?;
                 self.config.string_fold = Some(i);
@@ -642,7 +656,7 @@ impl Kernel {
             "terminalBackground" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'terminalBackground' must have type 'string'"
                             .to_string(),
                     )
                 })?;
@@ -653,7 +667,7 @@ impl Kernel {
             "timeZone" => {
                 let s = val.maybe_string().ok_or_else(|| {
                     Error::Runtime(
-                        "value for property must have type 'string'"
+                        "value for property 'timeZone' must have type 'string'"
                             .to_string(),
                     )
                 })?;

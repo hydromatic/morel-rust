@@ -579,7 +579,9 @@ impl FromStr for Output {
         match s.to_uppercase().as_str() {
             "CLASSIC" => Ok(Output::Classic),
             "TABULAR" => Ok(Output::Tabular),
-            _ => Err("value must be one of: 'CLASSIC', 'TABULAR'".to_string()),
+            // Just the values: the caller knows which property is
+            // being set, and builds the message around them.
+            _ => Err("'CLASSIC', 'TABULAR'".to_string()),
         }
     }
 }
@@ -600,7 +602,7 @@ impl FromStr for Mode {
             "EVALUATE" => Ok(Mode::Evaluate),
             "PARSE" => Ok(Mode::Parse),
             "VALIDATE" => Ok(Mode::Validate),
-            _ => Err(format!("Invalid mode type: {}", s)),
+            _ => Err("'EVALUATE', 'PARSE', 'VALIDATE'".to_string()),
         }
     }
 }
