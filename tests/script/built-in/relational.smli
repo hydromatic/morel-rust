@@ -30,8 +30,9 @@ Relational;
 >   {compare=fn,count=fn,empty=fn,iterate=fn,max=fn,min=fn,nonEmpty=fn,only=fn,
 >    sum=fn}
 >   : {compare:'a * 'a -> order, count:'b bag -> int, empty:'c bag -> bool,
->      iterate:'d -> ('d * 'd -> 'd) -> 'd, max:'e bag -> 'e, min:'f bag -> 'f,
->      nonEmpty:'g bag -> bool, only:'h list -> 'h, sum:'i bag -> 'i}
+>       iterate:'d -> ('d * 'd -> 'd) -> 'd, max:'e bag -> 'e,
+>       min:'f bag -> 'f, nonEmpty:'g bag -> bool, only:'h bag -> 'h,
+>       sum:'i bag -> 'i}
 
 (* Descending:
  *   datatype descending = DESC of 'a

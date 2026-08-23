@@ -33,7 +33,9 @@
 use crate::compile::library;
 use crate::compile::library::BuiltInFunction;
 use crate::compile::types::{PrimitiveType, Type};
+use crate::unify::unifier::COLLECTION_OP_NAME;
 use std::collections::HashMap;
+use std::slice::from_ref;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
 
@@ -72,6 +74,12 @@ fn type_recv_key(t: &Type) -> Option<&'static str> {
         Type::Primitive(PrimitiveType::Word) => Some("word"),
         Type::List(_) => Some("list"),
         Type::Bag(_) => Some("bag"),
+        // A built-in whose parameter is a collection, such as
+        // `Relational.count`, takes a list receiver and a bag receiver
+        // alike; `POSTFIX_TABLE` enters it under both.
+        Type::Data(name, _) if name == COLLECTION_OP_NAME => {
+            Some(COLLECTION_OP_NAME)
+        }
         // The type parser canonicalises `'a list` to `Type::List` and
         // `'a bag` to `Type::Named(_, "bag")` — accept both spellings,
         // and similarly for every other built-in datatype/eqtype.
@@ -209,12 +217,21 @@ static POSTFIX_TABLE: LazyLock<HashMap<DispatchKey, DispatchValue>> =
     LazyLock::new(|| {
         let mut table = HashMap::new();
         for f in BuiltInFunction::iter() {
-            if let Some((key, kind)) = infer_dispatch(f) {
-                // First entry wins. Built-in functions are iterated in
-                // source order (which puts e.g. `RangeContains` before
-                // `RangeCsContains`); keeping the first preserves the
-                // current dispatch semantics.
-                table.entry(key).or_insert((f, kind));
+            if let Some(((method, recv), kind)) = infer_dispatch(f) {
+                // A collection receiver stands for both kinds of
+                // collection, so it is entered under each.
+                let recvs: &[&'static str] = if recv == COLLECTION_OP_NAME {
+                    &["list", "bag"]
+                } else {
+                    from_ref(&recv)
+                };
+                for r in recvs {
+                    // First entry wins. Built-in functions are iterated
+                    // in source order (which puts e.g. `RangeContains`
+                    // before `RangeCsContains`); keeping the first
+                    // preserves the current dispatch semantics.
+                    table.entry((method, *r)).or_insert((f, kind));
+                }
             }
         }
         table

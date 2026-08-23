@@ -728,7 +728,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
     ListDrop,
     #[strum(props(name = "elem", global = true))]
-    #[strum(props(type = "forall 1 'a * 'a list -> bool"))]
+    #[strum(props(type = "forall 1 'a * 'a collection -> bool"))]
     ListElem,
     #[strum(props(p = "List", name = "except"))]
     #[strum(props(type = "forall 1 'a list list -> 'a list"))]
@@ -777,7 +777,7 @@ pub enum BuiltInFunction {
     #[strum(props(constructor_ordinal = "0"))]
     ListNil,
     #[strum(props(name = "notElem", global = true))]
-    #[strum(props(type = "forall 1 'a * 'a list -> bool"))]
+    #[strum(props(type = "forall 1 'a * 'a collection -> bool"))]
     ListNotElem,
     #[strum(props(p = "List", name = "nth", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a list * int -> 'a"))]
@@ -1209,10 +1209,10 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a * 'a -> `order`"))]
     RelationalCompare,
     #[strum(props(p = "Relational", name = "count", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> int"))]
+    #[strum(props(type = "forall 1 'a collection -> int"))]
     RelationalCount,
     #[strum(props(p = "Relational", name = "empty", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> bool"))]
+    #[strum(props(type = "forall 1 'a collection -> bool"))]
     RelationalEmpty,
     #[strum(props(p = "Relational", name = "iterate", global = true))]
     // Overloaded between `'a bag -> ...` and `'a list -> ...`. Both
@@ -1225,19 +1225,19 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a -> ('a * 'a -> 'a) -> 'a"))]
     RelationalIterate,
     #[strum(props(p = "Relational", name = "max", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a collection -> 'a", throws = "Empty"))]
     RelationalMax,
     #[strum(props(p = "Relational", name = "min", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> 'a", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a collection -> 'a", throws = "Empty"))]
     RelationalMin,
     #[strum(props(p = "Relational", name = "nonEmpty", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> bool"))]
+    #[strum(props(type = "forall 1 'a collection -> bool"))]
     RelationalNonEmpty,
     #[strum(props(p = "Relational", name = "only", global = "only"))]
-    #[strum(props(type = "forall 1 'a list -> 'a", throws = "Empty"))]
+    #[strum(props(type = "forall 1 'a collection -> 'a", throws = "Empty"))]
     RelationalOnly,
     #[strum(props(p = "Relational", name = "sum", global = true))]
-    #[strum(props(type = "forall 1 'a bag -> 'a"))]
+    #[strum(props(type = "forall 1 'a collection -> 'a"))]
     RelationalSum,
     // Type-specific instances of the overloaded `sum`, chosen by the
     // resolver so plans read `Relational.sum$int`/`$real`, as in morel-java.
@@ -2259,6 +2259,14 @@ pub enum BuiltInEqtype {
     // lint: sort until '#}' where '##[A-Z]'
     #[strum(props(name = "bag", varCount = "1"))]
     Bag,
+    /// A collection whose orderedness is not yet decided: the
+    /// parameter type of a built-in that works on a list and on a bag
+    /// alike, such as `Relational.count`. At a use it unifies with
+    /// whichever the argument is, and where nothing decides, it reads
+    /// back as a bag. Internal, and named so that no program can
+    /// write it.
+    #[strum(props(name = "$collection", varCount = "1"))]
+    Collection,
     #[strum(props(name = "date", varCount = "0"))]
     Date,
     #[strum(props(name = "doc", varCount = "0"))]

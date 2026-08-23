@@ -6067,10 +6067,14 @@ impl TypeResolver {
         }
         match self.resolve_var_term(&seq.terms[0]) {
             Term::Sequence(param) if param.op == self.collection_op => {
-                if self.term_is_ordered(&param.terms[1]) {
-                    CollectionKind::List
-                } else {
-                    CollectionKind::Bag
+                // An orderedness that nothing has decided means the
+                // function takes a collection -- a list and a bag
+                // alike -- so leave it free, as an unknown function's
+                // does, rather than tying it to the input.
+                match self.orderedness_of(&param.terms[1]) {
+                    Some(true) => CollectionKind::List,
+                    Some(false) => CollectionKind::Bag,
+                    None => CollectionKind::MatchInput,
                 }
             }
             _ => CollectionKind::MatchInput,
@@ -6233,6 +6237,18 @@ impl TypeResolver {
                     let v2 = self.variable();
                     self.type_term(&arguments[0], subst, &v2);
                     self.bag_term(Term::Variable(v2), v);
+                } else if name == COLLECTION_OP_NAME {
+                    // The orderedness is a fresh variable, so the use
+                    // decides whether the collection is a list or a
+                    // bag. Where nothing decides, it reads back as a
+                    // bag.
+                    assert_eq!(arguments.len(), 1);
+                    let v2 = self.variable();
+                    self.type_term(&arguments[0], subst, &v2);
+                    let o = self.variable();
+                    let sequence = self
+                        .collection_term(Term::Variable(v2), Term::Variable(o));
+                    self.equiv(&Term::Sequence(sequence), v);
                 } else if name == "either" {
                     assert_eq!(arguments.len(), 2);
                     // Either requires a tuple of the two type arguments

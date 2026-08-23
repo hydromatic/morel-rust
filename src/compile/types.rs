@@ -16,10 +16,22 @@
 // License.
 
 use crate::syntax::parser::append_id;
-use crate::unify::unifier::Term;
+use crate::unify::unifier::{COLLECTION_OP_NAME, Term};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
+
+/// The name to show for a type constructor. A collection whose
+/// orderedness nothing has decided reads back as a bag, so that is
+/// what it is called; its internal name is not something to show
+/// anyone.
+pub fn display_name(name: &str) -> &str {
+    if name == COLLECTION_OP_NAME {
+        "bag"
+    } else {
+        name
+    }
+}
 
 /// Represents a resolved type in the system.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -218,6 +230,20 @@ impl Type {
                 elem_type.describe(f, left, OP.right)?;
                 write!(f, " bag")
             }
+            // A collection is a bag until something decides otherwise,
+            // so it is written exactly as one.
+            Type::Data(name, args)
+                if name == COLLECTION_OP_NAME && args.len() == 1 =>
+            {
+                const OP: Op = Op::APPLY;
+                if left > OP.left || right > OP.right {
+                    write!(f, "(")?;
+                    self.describe(f, 0, 0)?;
+                    return write!(f, ")");
+                }
+                args[0].describe(f, left, OP.right)?;
+                write!(f, " bag")
+            }
             Type::Fn(param, result) => {
                 const OP: Op = Op::FN;
                 if left > OP.left || right > OP.right {
@@ -252,6 +278,7 @@ impl Type {
                 write!(f, " list")
             }
             Type::Named(args, name) | Type::Data(name, args) => {
+                let name = &display_name(name);
                 if args.is_empty() {
                     // No type arguments, just print the name
                     f.write_str(name)

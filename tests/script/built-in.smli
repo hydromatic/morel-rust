@@ -529,7 +529,7 @@ Relational.nonEmpty;
 only;
 > val it = #only Relational : 'a
 Relational.only;
-> val it = fn : 'a list -> 'a
+> val it = fn : 'a bag -> 'a
 
 (* "plan" is a Morel alias for "Sys.plan". *)
 plan;

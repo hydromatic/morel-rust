@@ -19,6 +19,7 @@ use crate::compile::library;
 use crate::compile::types::{PrimitiveType, Type, TypeVariable};
 use crate::syntax::ast::{Type as AstType, TypeKind, TypeScheme};
 use crate::syntax::parser;
+use crate::unify::unifier::COLLECTION_OP_NAME;
 use std::rc::Rc;
 
 /// Converts a type string to a type. Panics on any parse or
@@ -127,6 +128,13 @@ impl TypeBuilder {
                                 "bag type application with no arg".to_string()
                             })?;
                         Type::Bag(arg)
+                    } else if name == "collection" && arity == 1 {
+                        // The internal collection type, whose real name
+                        // starts with `$` so that no program can write
+                        // it. Only built-in signatures come through
+                        // here, so spelling it `collection` there is
+                        // safe.
+                        Type::Data(COLLECTION_OP_NAME.to_string(), arg_types)
                     } else if let Some(expected) =
                         library::builtin_type_arity(name)
                         && expected == arity

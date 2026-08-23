@@ -22,7 +22,9 @@ use crate::compile::lindig::{
 };
 use crate::compile::tabular;
 use crate::compile::types::Label;
-use crate::compile::types::{Op, Predicate, PrimitiveType, Type, TypeVariable};
+use crate::compile::types::{
+    Op, Predicate, PrimitiveType, Type, TypeVariable, display_name,
+};
 use crate::eval::code::Impl;
 use crate::eval::date;
 use crate::eval::real::Real;
@@ -31,6 +33,7 @@ use crate::shell::prop::Output as PropOutput;
 use crate::syntax::parser::{
     append_id, char_to_string, string_to_string_append,
 };
+use crate::unify::unifier::COLLECTION_OP_NAME;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write};
 use std::rc::Rc;
@@ -787,8 +790,15 @@ impl Pretty {
                 element_type,
                 "bag",
             ),
+            // A collection is a bag until something decides otherwise,
+            // so it is laid out exactly as one.
+            Type::Data(name, args)
+                if name == COLLECTION_OP_NAME && args.len() == 1 =>
+            {
+                self.collection_type_doc(type_ref, left, right, &args[0], "bag")
+            }
             Type::Data(name, args) | Type::Named(args, name) => {
-                self.named_type_doc(name, args, left, right)
+                self.named_type_doc(display_name(name), args, left, right)
             }
             Type::Fn(param_type, result_type) => {
                 if wraps(Op::FN, left, right) {

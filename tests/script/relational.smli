@@ -1890,11 +1890,11 @@ from x in (Bag.fromList [SOME 1, NONE, SOME 3]) where false compute max over x;
 from i in [2, 1, 2]
   compute 1;
 > val it = 1 : int
-(*) "count" used as an ordinary function ("over" is not present)
+(* "count" used as an ordinary function ("over" is not present). Its
+ * argument is a collection, so a list is as good as a bag. *)
 from i in [2, 1, 2]
   compute count ["a", "b"];
-> stdIn:1.1-2.27 Error: Cannot deduce type: conflict: bag(T30) vs list(string)
->   raised at: stdIn:1.1-2.27
+> val it = 2 : int
 from i in [2, 1, 2]
   group i compute {c = count (bag ["a", "b"])};
 > val it = [{c=2,i=2},{c=2,i=1}] : {c:int, i:int} list
