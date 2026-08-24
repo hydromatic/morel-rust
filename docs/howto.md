@@ -22,6 +22,50 @@ License.
 
 This document describes how to do various things with Morel Rust.
 
+## How to make a release (for committers)
+
+A release is a git tag of the form `vX.Y.Z`; the crate is not
+published to [crates.io](https://crates.io).
+
+Write release notes, and add them to [CHANGELOG.md](../CHANGELOG.md),
+following the commented-out template at the top of that file. Generate
+the list of changes with `relNotes`, giving the previous release as the
+starting point:
+
+```bash
+WIDTH=78 relNotes v0.2.0
+```
+
+It writes one bullet per commit, most recent first, and turns an issue
+reference into a link: `#123` is an issue of this project,
+`hydromatic/morel#234` one of Morel Java. Organize the bullets into the
+sections of the template, keeping them in that order within each
+section; copy-edit lightly, mostly adding backticks around identifiers;
+and drop the commits that say nothing to a reader, such as `Clippy`, or
+one that amends or reverts another.
+
+Update the version number in [Cargo.toml](../Cargo.toml) (the
+`version` field, from which the `banner` and `productVersion`
+properties are derived), in [README](../README), in
+[README.md](../README.md), in this file and in
+[reference.md](reference.md); and the copyright date in
+[NOTICE](../NOTICE).
+
+Push the branch, and make sure that the
+[GitHub build](https://github.com/hydromatic/morel-rust/actions) is
+green.
+
+Verify the release by hand (see below), then tag and push:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Add the release notes to the
+[github release list](https://github.com/hydromatic/morel-rust/releases),
+and announce the release.
+
 ## Manually verify a release (for committers)
 
 A few shell behaviors involve an interactive terminal and are not
@@ -33,7 +77,7 @@ Start the shell, and confirm that it reports the release version:
 
 ```bash
 $ ./target/debug/morel
-morel-rust version 0.2.0 (rust version 1.93.1)
+morel-rust version x.y.z (rust version 1.93.1)
 ```
 
 Execute a command, and confirm that the result is printed:

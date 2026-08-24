@@ -807,7 +807,7 @@ Launch it by running `morel` with no arguments:
 
 ```
 $ ./morel
-morel-rust version 0.2.0 (rust version 1.93.1)
+morel-rust version 0.9.0 (rust version 1.93.1)
 - "Hello, world!";
 val it = "Hello, world!" : string
 -
