@@ -24,7 +24,19 @@ License.
 
 # Morel
 
-A functional query language.
+A functional query language, implemented in Rust.
+
+(There are also implementations in
+[Java](https://github.com/hydromatic/morel) and
+[Go](https://github.com/hydromatic/morel-go).)
+
+### Requirements
+
+Morel requires Rust 1.93.1 or higher.
+Our MSRV (minimum supported rust version) will always be at least 6
+months older than the release date.
+[CI](https://github.com/hydromatic/morel-rust/actions) tests on MSRV
+and [stable](https://releases.rs/).
 
 ### Download and build
 
@@ -38,7 +50,7 @@ $ cargo build; ./target/debug/morel
 
 ```bash
 $ cargo run
-morel-rust version 0.2.0 (rust version 1.95.0)
+morel-rust version 0.2.0 (rust version 1.93.1)
 - "Hello, world!";
 > val it = "Hello, world!" : string
 ```

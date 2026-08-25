@@ -33,7 +33,7 @@ Start the shell, and confirm that it reports the release version:
 
 ```bash
 $ ./target/debug/morel
-morel-rust version 0.2.0 (rust version 1.95.0)
+morel-rust version 0.2.0 (rust version 1.93.1)
 ```
 
 Execute a command, and confirm that the result is printed:

@@ -5071,11 +5071,13 @@ impl TypeResolver {
                     Type::Bag(element)
                 }))
             }
-            s if let Some(arity) = library::builtin_type_arity(s) => {
+            s if library::builtin_type_arity(s).is_some() => {
                 // Any other built-in named type (`option`, `range`,
                 // `continuous_set`, …): postfix_dispatch only keys
                 // on the data-type name, so the element-type slots
                 // are filled with placeholders.
+                let arity = library::builtin_type_arity(s)
+                    .expect("guarded by the arm above");
                 let args = (0..arity)
                     .map(|_| Rc::new(Type::Primitive(PrimitiveType::Unit)))
                     .collect();

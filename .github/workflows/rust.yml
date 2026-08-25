@@ -27,25 +27,47 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported toolchain (`rust-version` in Cargo.toml)
+        # and the current stable one.
+        rust: ["1.93.1", "stable"]
+
     steps:
     - uses: actions/checkout@v4
+    - name: Install Rust ${{ matrix.rust }}
+      run: |
+        rustup toolchain install ${{ matrix.rust }} --profile minimal \
+          --component clippy,rustfmt
+        rustup default ${{ matrix.rust }}
     - name: Rust version
       run: rustc --version && cargo --version
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
     - name: Install wasm32 target
+      if: matrix.rust == 'stable'
       run: rustup target add wasm32-unknown-unknown
     - name: Install wasm-pack
+      if: matrix.rust == 'stable'
       run: cargo install wasm-pack
     - name: Build
       run: cargo build --verbose
     - name: Build WASM with wasm-pack
+      if: matrix.rust == 'stable'
       run: wasm-pack build --target web --out-dir web/pkg
+    # Clippy and rustdoc are run on stable only. Their output moves
+    # between releases -- `#[expect(clippy::enum_glob_use)]` in
+    # `eval/code.rs`, for one, is unfulfilled on 1.93.1 -- so pinning
+    # them to one toolchain keeps `-D warnings` meaningful.
     - name: Clippy
+      if: matrix.rust == 'stable'
       run: cargo clippy --message-format=short -- -D warnings
     - name: Check formatting
+      if: matrix.rust == 'stable'
       run: cargo fmt --all -- --check
     - name: Doc
+      if: matrix.rust == 'stable'
       run: cargo doc
     - name: Run tests (debug)
       run: cargo test --verbose

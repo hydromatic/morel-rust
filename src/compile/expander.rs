@@ -645,10 +645,13 @@ fn split_extent_patterns(steps: Vec<Step>) -> Vec<Step> {
     for step in steps {
         match &step.kind {
             StepKind::Scan(p, source, None)
-                if let Expr::Extent(_, span) = source.as_ref()
+                if matches!(source.as_ref(), Expr::Extent(_, _))
                     && !matches!(p.as_ref(), Pat::Identifier(_, _))
                     && names_only(p) =>
             {
+                let Expr::Extent(_, span) = source.as_ref() else {
+                    unreachable!("guarded by the arm above")
+                };
                 let mut vars: Vec<(Rc<Type>, String)> = Vec::new();
                 p.for_each_id_pat(&mut |(t, n)| {
                     vars.push((Rc::new(t.clone()), n.to_string()))
