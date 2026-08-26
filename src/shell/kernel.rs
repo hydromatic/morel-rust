@@ -42,7 +42,7 @@ use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::prop::{Mode, Output};
+use crate::shell::prop::{Mode, Output, Prop, PropVal};
 use crate::shell::statement::is_complete;
 use crate::shell::utils::strip_prefix;
 use crate::syntax::ast::Statement;
@@ -70,11 +70,40 @@ use std::rc::Rc;
 /// property's `FromStr` supplies the values it will take; naming the
 /// property is the caller's job, since only the caller knows which one
 /// is being set.
-fn one_of(prop: &str, values: &str) -> Error {
-    Error::Runtime(format!(
-        "value for property '{}' must be one of: {}",
-        prop, values
-    ))
+fn one_of(prop: &str, values: &str) -> String {
+    format!("value for property '{}' must be one of: {}", prop, values)
+}
+
+/// The message for a value whose type a property will not take. Names the
+/// property and the Morel type it takes; it names neither the value it
+/// rejected nor any Rust type.
+fn wrong_type(prop: Prop, type_name: &str) -> String {
+    format!(
+        "value for property '{}' must have type '{}'",
+        prop.camel_name(),
+        type_name
+    )
+}
+
+/// Converts `val` to the `bool` that `prop` takes.
+fn expect_bool(prop: Prop, val: &Val) -> Result<bool, String> {
+    val.maybe_bool().ok_or_else(|| wrong_type(prop, "bool"))
+}
+
+/// Converts `val` to the file name that `prop` takes. A file name is
+/// written as a string, but the property's type is "file".
+fn expect_file(prop: Prop, val: &Val) -> Result<String, String> {
+    val.maybe_string().ok_or_else(|| wrong_type(prop, "file"))
+}
+
+/// Converts `val` to the `int` that `prop` takes.
+fn expect_int(prop: Prop, val: &Val) -> Result<i32, String> {
+    val.maybe_int().ok_or_else(|| wrong_type(prop, "int"))
+}
+
+/// Converts `val` to the `string` that `prop` takes.
+fn expect_string(prop: Prop, val: &Val) -> Result<String, String> {
+    val.maybe_string().ok_or_else(|| wrong_type(prop, "string"))
 }
 
 fn is_plan_or_plan_ex_call(decl: &Decl) -> bool {
@@ -483,135 +512,113 @@ impl Environment {
 }
 
 impl Kernel {
+    /// Assigns a property, as `Sys.set` does.
+    ///
+    /// The value is recorded in the session's property map, so that
+    /// `Sys.show` and `Sys.showAll` report it, and is mirrored into
+    /// whichever typed field the component that reads the property uses.
+    /// A few properties (for example `productName`) have no such field;
+    /// for those, the map is the only storage.
     pub(crate) fn set_prop(
         &mut self,
-        prop: &str,
+        prop_name: &str,
         val: &Val,
-    ) -> Result<(), Error> {
+    ) -> Result<(), String> {
+        // The evaluator raises `Fail` for an unknown property before
+        // emitting the effect, so `lookup` cannot fail here.
+        let prop = Prop::lookup(prop_name)
+            .unwrap_or_else(|| panic!("set: unknown property '{}'", prop_name));
+        let prop_val = self.assign_prop(prop, val)?;
+        self.session
+            .borrow_mut()
+            .config
+            .props
+            .insert(prop, prop_val);
+        Ok(())
+    }
+
+    /// Converts `val` to the type that `prop` takes, and mirrors it into
+    /// the field that holds it. Returns the converted value, for
+    /// [`Self::set_prop`] to record.
+    fn assign_prop(
+        &mut self,
+        prop: Prop,
+        val: &Val,
+    ) -> Result<PropVal, String> {
         match prop {
-            // lint: sort until '#}' where '##[^ }]'
-            "colorScheme" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'colorScheme' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
-                self.session.borrow_mut().config.color_scheme =
-                    Some(Rc::new(s));
-                Ok(())
+            // lint: sort until '#}' where '##Prop::'
+            Prop::ColorScheme => {
+                let s = Rc::new(expect_string(prop, val)?);
+                self.session.borrow_mut().config.color_scheme = Some(s.clone());
+                Ok(PropVal::String(s))
             }
-            "excludeStructures" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'excludeStructures' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
+            Prop::Directory => {
+                let b = Rc::new(PathBuf::from(expect_file(prop, val)?));
+                self.session.borrow_mut().config.directory = Some(b.clone());
+                Ok(PropVal::PathBuf(b))
+            }
+            Prop::ExcludeStructures => {
+                let s = Rc::new(expect_string(prop, val)?);
                 self.session.borrow_mut().config.exclude_structures =
-                    Some(Rc::new(s));
-                Ok(())
+                    Some(s.clone());
+                Ok(PropVal::String(s))
             }
-            "hybrid" => {
-                self.session.borrow_mut().config.hybrid =
-                    Some(val.maybe_bool().ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'hybrid' must have type 'bool'"
-                                .to_string(),
-                        )
-                    })?);
-                Ok(())
+            Prop::Hybrid => {
+                let b = expect_bool(prop, val)?;
+                self.session.borrow_mut().config.hybrid = Some(b);
+                Ok(PropVal::Bool(b))
             }
-            "lineWidth" => {
-                self.config.line_width =
-                    Some(val.maybe_int().ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'lineWidth' must have type 'int'"
-                                .to_string(),
-                        )
-                    })?);
-                Ok(())
+            Prop::LineWidth => {
+                let i = expect_int(prop, val)?;
+                self.config.line_width = Some(i);
+                Ok(PropVal::Int(i))
             }
-            "matchCoverageEnabled" => {
+            Prop::MatchCoverageEnabled => {
+                let b = expect_bool(prop, val)?;
                 self.session.borrow_mut().config.match_coverage_enabled =
-                    Some(val.expect_bool());
-                Ok(())
+                    Some(b);
+                Ok(PropVal::Bool(b))
             }
-            "matchStrict" => {
-                self.config.match_strict =
-                    Some(val.maybe_bool().ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'matchStrict' must have type 'bool'"
-                                .to_string(),
-                        )
-                    })?);
-                Ok(())
+            Prop::MatchStrict => {
+                let b = expect_bool(prop, val)?;
+                self.config.match_strict = Some(b);
+                Ok(PropVal::Bool(b))
             }
-            "mode" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'mode' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
-                self.config.mode =
-                    Some(s.parse::<Mode>().map_err(|vs| one_of("mode", &vs))?);
-                Ok(())
+            Prop::Mode => {
+                let s = expect_string(prop, val)?;
+                let m = s.parse::<Mode>().map_err(|vs| one_of("mode", &vs))?;
+                self.config.mode = Some(m);
+                Ok(PropVal::Mode(m))
             }
-            "now" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'now' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
-                self.session.borrow_mut().config.now = Some(Rc::new(s));
-                Ok(())
+            Prop::Now => {
+                let s = Rc::new(expect_string(prop, val)?);
+                self.session.borrow_mut().config.now = Some(s.clone());
+                Ok(PropVal::String(s))
             }
-            "optionalInt" => {
-                let v = val.maybe_int().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'optionalInt' must have type 'int'"
-                            .to_string(),
-                    )
-                })?;
-                self.config.optional_int = Some(v);
-                self.session.borrow_mut().config.optional_int = Some(v);
-                Ok(())
+            Prop::OptionalInt => {
+                let i = expect_int(prop, val)?;
+                self.config.optional_int = Some(i);
+                self.session.borrow_mut().config.optional_int = Some(i);
+                Ok(PropVal::Int(i))
             }
-            "output" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'output' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
-                self.config.output = Some(
-                    s.parse::<Output>().map_err(|vs| one_of("output", &vs))?,
-                );
-                Ok(())
+            Prop::Output => {
+                let s = expect_string(prop, val)?;
+                let x =
+                    s.parse::<Output>().map_err(|vs| one_of("output", &vs))?;
+                self.config.output = Some(x);
+                Ok(PropVal::Output(x))
             }
-            "printDepth" => {
-                self.config.print_depth =
-                    Some(val.maybe_int().ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'printDepth' must have type 'int'"
-                                .to_string(),
-                        )
-                    })?);
-                Ok(())
+            Prop::PrintDepth => {
+                let i = expect_int(prop, val)?;
+                self.config.print_depth = Some(i);
+                Ok(PropVal::Int(i))
             }
-            "printLength" => {
-                self.config.print_length =
-                    Some(val.maybe_int().ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'printLength' must have type 'int'"
-                                .to_string(),
-                        )
-                    })?);
-                Ok(())
+            Prop::PrintLength => {
+                let i = expect_int(prop, val)?;
+                self.config.print_length = Some(i);
+                Ok(PropVal::Int(i))
             }
-            "rangeMaxLength" => {
+            Prop::RangeMaxLength => {
                 // The limit is an "IntInf.int", so it may be larger than
                 // an "int" can hold; such a value is written as a
                 // numeral in a string.
@@ -621,139 +628,130 @@ impl Kernel {
                     .or_else(|| {
                         val.maybe_string().and_then(|s| BigInt::parse(&s))
                     })
-                    .ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'rangeMaxLength' must have \
-                             type 'IntInf.int'"
-                                .to_string(),
-                        )
-                    })?;
+                    .map(Rc::new)
+                    .ok_or_else(|| wrong_type(prop, "IntInf.int"))?;
                 self.session.borrow_mut().config.range_max_length =
-                    Some(Rc::new(i));
-                Ok(())
+                    Some(i.clone());
+                Ok(PropVal::BigInt(i))
             }
-            "stringDepth" => {
-                self.config.string_depth =
-                    Some(val.maybe_int().ok_or_else(|| {
-                        Error::Runtime(
-                            "value for property 'stringDepth' must have type 'int'"
-                                .to_string(),
-                        )
-                    })?);
-                Ok(())
+            Prop::ScriptDirectory => {
+                let b = Rc::new(PathBuf::from(expect_file(prop, val)?));
+                self.session.borrow_mut().config.script_directory =
+                    Some(b.clone());
+                Ok(PropVal::PathBuf(b))
             }
-            "stringFold" => {
-                let i = val.maybe_int().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'stringFold' must have type 'int'"
-                            .to_string(),
-                    )
-                })?;
+            Prop::StringDepth => {
+                let i = expect_int(prop, val)?;
+                self.config.string_depth = Some(i);
+                Ok(PropVal::Int(i))
+            }
+            Prop::StringFold => {
+                let i = expect_int(prop, val)?;
                 self.config.string_fold = Some(i);
                 self.session.borrow_mut().config.string_fold = Some(i);
-                Ok(())
+                Ok(PropVal::Int(i))
             }
-            "terminalBackground" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'terminalBackground' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
+            Prop::TerminalBackground => {
+                let s = Rc::new(expect_string(prop, val)?);
                 self.session.borrow_mut().config.terminal_background =
-                    Some(Rc::new(s));
-                Ok(())
+                    Some(s.clone());
+                Ok(PropVal::String(s))
             }
-            "timeZone" => {
-                let s = val.maybe_string().ok_or_else(|| {
-                    Error::Runtime(
-                        "value for property 'timeZone' must have type 'string'"
-                            .to_string(),
-                    )
-                })?;
-                self.session.borrow_mut().config.time_zone = Some(Rc::new(s));
-                Ok(())
+            Prop::TimeZone => {
+                let s = Rc::new(expect_string(prop, val)?);
+                self.session.borrow_mut().config.time_zone = Some(s.clone());
+                Ok(PropVal::String(s))
             }
-            _ => todo!("set_prop: {}", prop),
+            // No component reads the remaining properties from a field, so
+            // the session's property map is their only storage. Their
+            // default value gives the type they take; every one of them is
+            // required, and therefore has a default.
+            _ => match prop.default_value() {
+                PropVal::Bool(_) => Ok(PropVal::Bool(expect_bool(prop, val)?)),
+                PropVal::Int(_) => Ok(PropVal::Int(expect_int(prop, val)?)),
+                PropVal::String(_) => {
+                    Ok(PropVal::String(Rc::new(expect_string(prop, val)?)))
+                }
+                _ => todo!("set {}", prop.camel_name()),
+            },
         }
     }
 
-    pub(crate) fn unset_prop(&mut self, prop: &str) -> Result<(), Error> {
+    /// Removes a property's value, as `Sys.unset` does. The property
+    /// reverts to its default value, if it has one.
+    pub(crate) fn unset_prop(&mut self, prop_name: &str) {
+        // As in `set_prop`, the evaluator has already rejected an unknown
+        // property name.
+        let prop = Prop::lookup(prop_name).unwrap_or_else(|| {
+            panic!("unset: unknown property '{}'", prop_name)
+        });
+        self.session.borrow_mut().config.props.remove(&prop);
         match prop {
-            // lint: sort until '#}' where '##[^ }]'
-            "colorScheme" => {
+            // lint: sort until '#}' where '##Prop::'
+            Prop::ColorScheme => {
                 self.session.borrow_mut().config.color_scheme = None;
-                Ok(())
             }
-            "excludeStructures" => {
+            Prop::Directory => {
+                self.session.borrow_mut().config.directory = None;
+            }
+            Prop::ExcludeStructures => {
                 // Required property: unset reverts to the default regex.
                 self.session.borrow_mut().config.exclude_structures =
                     Some(Rc::new(String::from("^Test$")));
-                Ok(())
             }
-            "hybrid" => {
+            Prop::Hybrid => {
                 self.session.borrow_mut().config.hybrid = None;
-                Ok(())
             }
-            "lineWidth" => {
+            Prop::LineWidth => {
                 self.config.line_width = None;
-                Ok(())
             }
-            "matchCoverageEnabled" => {
+            Prop::MatchCoverageEnabled => {
                 self.session.borrow_mut().config.match_coverage_enabled = None;
-                Ok(())
             }
-            "matchStrict" => {
+            Prop::MatchStrict => {
                 self.config.match_strict = None;
-                Ok(())
             }
-            "mode" => {
+            Prop::Mode => {
                 self.config.mode = None;
-                Ok(())
             }
-            "now" => {
+            Prop::Now => {
                 self.session.borrow_mut().config.now = None;
-                Ok(())
             }
-            "optionalInt" => {
+            Prop::OptionalInt => {
                 self.config.optional_int = None;
                 self.session.borrow_mut().config.optional_int = None;
-                Ok(())
             }
-            "output" => {
+            Prop::Output => {
                 self.config.output = None;
-                Ok(())
             }
-            "printDepth" => {
+            Prop::PrintDepth => {
                 self.config.print_depth = None;
-                Ok(())
             }
-            "printLength" => {
+            Prop::PrintLength => {
                 self.config.print_length = None;
-                Ok(())
             }
-            "rangeMaxLength" => {
+            Prop::RangeMaxLength => {
                 self.session.borrow_mut().config.range_max_length = None;
-                Ok(())
             }
-            "stringDepth" => {
+            Prop::ScriptDirectory => {
+                self.session.borrow_mut().config.script_directory = None;
+            }
+            Prop::StringDepth => {
                 self.config.string_depth = None;
-                Ok(())
             }
-            "stringFold" => {
+            Prop::StringFold => {
                 self.config.string_fold = None;
                 self.session.borrow_mut().config.string_fold = None;
-                Ok(())
             }
-            "terminalBackground" => {
+            Prop::TerminalBackground => {
                 self.session.borrow_mut().config.terminal_background = None;
-                Ok(())
             }
-            "timeZone" => {
+            Prop::TimeZone => {
                 self.session.borrow_mut().config.time_zone = None;
-                Ok(())
             }
-            _ => todo!("unset_prop: {}", prop),
+            // The remaining properties live only in the property map,
+            // which we have already cleared.
+            _ => {}
         }
     }
 
@@ -1165,13 +1163,18 @@ impl Kernel {
                     result.push_str(&line);
                     result.push('\n');
                 }
-                Effect::SetShellProp(prop, val) => {
-                    if let Err(e) = self.set_prop(&prop, &val) {
+                Effect::SetShellProp(prop, val, span) => {
+                    if let Err(msg) = self.set_prop(&prop, &val) {
+                        let e = MorelError::Runtime2(
+                            BuiltInExn::Fail,
+                            Some(msg),
+                            span,
+                        );
                         return Ok(format!("{}\n", e));
                     }
                 }
                 Effect::UnsetShellProp(prop) => {
-                    let _ = self.unset_prop(&prop);
+                    self.unset_prop(&prop);
                 }
                 Effect::UseFile(path, silent) => {
                     // Resolve the file path relative to the script

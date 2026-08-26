@@ -33,6 +33,7 @@ pub trait Configurable {
 }
 
 /// Tagged value of a property.
+#[derive(Clone)]
 pub enum PropVal {
     BigInt(Rc<BigInt>),
     Bool(bool),
@@ -168,14 +169,16 @@ macro_rules! define_props {
                 }
             }
 
-            /// Looks up a property by name (case-insensitive)
+            /// Looks up a property by name.
+            ///
+            /// A property has two names, the camelCase name (for example
+            /// "printLength") and the UPPER_CASE name ("PRINT_LENGTH");
+            /// both are accepted. The match is case-sensitive, and other
+            /// spellings (for example "printlength") are not recognized.
             pub fn lookup(prop_name: &str) -> Option<Self> {
-                let upper_name = prop_name.to_uppercase();
-                let lower_name = prop_name.to_lowercase();
-
                 $(
-                    if upper_name == stringify!($variant).to_uppercase()
-                        || lower_name == $camel.to_lowercase()
+                    if prop_name == $camel
+                        || prop_name == upper_name($camel)
                     {
                         return Some(Prop::$variant);
                     }
@@ -256,6 +259,19 @@ macro_rules! define_props {
             }
         }
     };
+}
+
+/// Converts a property's camelCase name to its UPPER_CASE name; for
+/// example, "printLength" becomes "PRINT_LENGTH".
+fn upper_name(camel_name: &str) -> String {
+    let mut s = String::with_capacity(camel_name.len() + 4);
+    for c in camel_name.chars() {
+        if c.is_ascii_uppercase() {
+            s.push('_');
+        }
+        s.push(c.to_ascii_uppercase());
+    }
+    s
 }
 
 /// Creates the banner string for the Morel shell.
@@ -615,9 +631,25 @@ mod tests {
 
     #[test]
     fn test_lookup() {
+        // Every property can be looked up under either of its names.
+        for prop in Prop::all() {
+            assert_eq!(Prop::lookup(prop.camel_name()), Some(*prop));
+            assert_eq!(
+                Prop::lookup(&upper_name(prop.camel_name())),
+                Some(*prop)
+            );
+        }
         assert_eq!(Prop::lookup("directory"), Some(Prop::Directory));
         assert_eq!(Prop::lookup("DIRECTORY"), Some(Prop::Directory));
+        assert_eq!(Prop::lookup("printLength"), Some(Prop::PrintLength));
+        assert_eq!(Prop::lookup("PRINT_LENGTH"), Some(Prop::PrintLength));
         assert_eq!(Prop::lookup("invalid"), None);
+
+        // Lookup is case-sensitive; no other spelling is recognized.
+        assert_eq!(Prop::lookup("printlength"), None);
+        assert_eq!(Prop::lookup("PRINTLENGTH"), None);
+        assert_eq!(Prop::lookup("PrintLength"), None);
+        assert_eq!(Prop::lookup("Directory"), None);
     }
 
     #[test]

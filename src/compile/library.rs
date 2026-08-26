@@ -1435,7 +1435,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "{}"))]
     SysFile,
     #[strum(props(p = "Sys", name = "parseTree"))]
-    #[strum(props(type = "string -> string"))]
+    #[strum(props(type = "string -> string", throws = "Fail"))]
     SysParseTree,
     #[strum(props(p = "Sys", name = "plan", global = true))]
     #[strum(props(type = "unit -> string"))]
@@ -1444,16 +1444,16 @@ pub enum BuiltInFunction {
     #[strum(props(type = "string -> string"))]
     SysPlanEx,
     #[strum(props(p = "Sys", name = "set", global = true))]
-    #[strum(props(type = "forall 1 string * 'a -> unit"))]
+    #[strum(props(type = "forall 1 string * 'a -> unit", throws = "Fail"))]
     SysSet,
     #[strum(props(p = "Sys", name = "show", global = true))]
-    #[strum(props(type = "string -> string option"))]
+    #[strum(props(type = "string -> string option", throws = "Fail"))]
     SysShow,
     #[strum(props(p = "Sys", name = "showAll", global = true))]
     #[strum(props(type = "unit -> (string * string option) list"))]
     SysShowAll,
     #[strum(props(p = "Sys", name = "unset", global = true))]
-    #[strum(props(type = "string -> unit"))]
+    #[strum(props(type = "string -> unit", throws = "Fail"))]
     SysUnset,
     /// Test-only aggregate `Test.bagSum`, of type `'a bag -> 'a`.
     #[strum(props(p = "Test", name = "bagSum"))]

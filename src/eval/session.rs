@@ -314,6 +314,14 @@ impl Session {
 
 /// Configuration of a [Session].
 pub struct Config {
+    /// Values assigned by `Sys.set`, keyed by property. Every property
+    /// that `Sys.set` accepts is recorded here, including the ones whose
+    /// value is mirrored into a field below (or into the shell's own
+    /// [crate::shell::config::Config]) for the code that reads them.
+    /// `Sys.show` and `Sys.showAll` read this map, so that they report
+    /// what was set rather than the property's default.
+    pub props: HashMap<Prop, PropVal>,
+
     pub color_scheme: Option<Rc<String>>,
     pub directory: Option<Rc<PathBuf>>,
     pub exclude_structures: Option<Rc<String>>,
@@ -333,6 +341,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            props: HashMap::new(),
             color_scheme: None,
             directory: None,
             exclude_structures: Some(Rc::new(String::from("^Test$"))),
@@ -352,6 +361,25 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Returns the value that `Sys.set` assigned to `prop`, or `None` if
+    /// the property has not been set (or has since been unset).
+    pub fn assigned(&self, prop: Prop) -> Option<&PropVal> {
+        self.props.get(&prop)
+    }
+
+    /// Returns the value of `prop` as `Sys.show` reports it: the value
+    /// that `Sys.set` assigned, else the property's default value, else
+    /// `None` for a property that is not required and has no default.
+    pub fn shown(&self, prop: Prop) -> Option<PropVal> {
+        if let Some(val) = self.assigned(prop) {
+            return Some(val.clone());
+        }
+        if prop.is_required() {
+            return Some(self.get(prop));
+        }
+        self.get_optional(prop)
+    }
+
     /// Returns the value of an optional (non-required) property, or `None`
     /// if it has not been set.
     pub fn get_optional(&self, prop: Prop) -> Option<PropVal> {

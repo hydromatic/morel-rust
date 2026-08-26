@@ -64,7 +64,7 @@ use crate::eval::vector::Vector;
 use crate::eval::word;
 use crate::shell::highlight::highlight_concise;
 use crate::shell::kernel::{Kernel, MorelError};
-use crate::shell::prop::{Configurable, Prop};
+use crate::shell::prop::Prop;
 use crate::syntax::ast_dumper::dump as ast_dumper_dump;
 use crate::syntax::parser::parse_statement;
 use std::cell::RefCell;
@@ -119,8 +119,10 @@ pub enum Effect {
     EmitCode(Arc<Code>),
     /// Emits an output line.
     EmitLine(String),
-    /// Sets a shell property.
-    SetShellProp(String, Val),
+    /// Sets a shell property. The span is that of the `Sys.set` call, so
+    /// that a value the property will not take can be reported as a
+    /// `Fail` raised there.
+    SetShellProp(String, Val, Span),
     /// Unsets a shell property.
     UnsetShellProp(String),
     /// Loads and executes a file. The bool indicates whether
@@ -2577,23 +2579,9 @@ impl EagerF0 {
                     .iter()
                     .map(|prop| {
                         let name = prop.camel_name().to_string();
-                        let value = if prop.is_required() {
-                            let val = r.session.config.get(*prop);
-                            Val::Some(Box::new(Val::String(
-                                (val.to_string()).into(),
-                            )))
-                        } else if let Some(val) =
-                            r.session.config.get_optional(*prop)
-                        {
-                            Val::Some(Box::new(Val::String(
-                                (val.to_string()).into(),
-                            )))
-                        } else {
-                            Val::Unit // NONE is represented as Unit
-                        };
                         Val::List(Rc::new(vec![
                             Val::String((name).into()),
-                            value,
+                            shown_val(r, *prop),
                         ]))
                     })
                     .collect();
@@ -2838,29 +2826,13 @@ impl EagerF1 {
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
-                let result = if let Some(prop) = Prop::lookup(prop_name) {
-                    if prop.is_required() {
-                        let val = r.session.config.get(prop);
-                        Val::Some(Box::new(Val::String(
-                            (val.to_string()).into(),
-                        )))
-                    } else if let Some(val) =
-                        r.session.config.get_optional(prop)
-                    {
-                        Val::Some(Box::new(Val::String(
-                            (val.to_string()).into(),
-                        )))
-                    } else {
-                        Val::Unit // NONE is represented as Unit
-                    }
-                } else {
-                    Val::Unit // NONE is represented as Unit
-                };
-                Ok(result)
+                let prop = lookup_prop("show", prop_name, span.unwrap())?;
+                Ok(shown_val(r, prop))
             }
             SysUnset => {
-                let prop = a0.expect_string();
-                r.emit_effect(Effect::UnsetShellProp(prop.to_string()));
+                let prop_name = a0.expect_string();
+                lookup_prop("unset", prop_name, span.unwrap())?;
+                r.emit_effect(Effect::UnsetShellProp(prop_name.to_string()));
                 Ok(Val::Unit)
             }
             TimeFromReal => time::from_real(a0.expect_real(), span.unwrap()),
@@ -4314,9 +4286,14 @@ impl EagerF2 {
                 Str::translate(r, f, &a0, s)
             }
             SysSet => {
-                let prop = a0.expect_string();
-                let val = a1;
-                r.emit_effect(Effect::SetShellProp(prop.to_string(), val));
+                let prop_name = a0.expect_string();
+                let span = span.unwrap();
+                lookup_prop("set", prop_name, span)?;
+                r.emit_effect(Effect::SetShellProp(
+                    prop_name.to_string(),
+                    a1,
+                    span.clone(),
+                ));
                 Ok(Val::Unit)
             }
             TimeFmt => {
@@ -5507,6 +5484,36 @@ fn validate_partial_arg1(
         }
         BuiltInFunction::RealFmt => Real::validate_fmt_spec(a0, span),
         _ => Ok(()),
+    }
+}
+
+/// Looks up a property by name, as `Sys.set`, `Sys.show` and `Sys.unset`
+/// do, raising `Fail` if there is no such property.
+///
+/// `fn_name` is the name of the function that is looking the property up
+/// (for example "set"); it appears in the message, because the three
+/// functions are otherwise indistinguishable in it.
+fn lookup_prop(
+    fn_name: &str,
+    prop_name: &str,
+    span: &Span,
+) -> Result<Prop, MorelError> {
+    Prop::lookup(prop_name).ok_or_else(|| {
+        MorelError::Runtime2(
+            BuiltInExn::Fail,
+            Some(format!("{}: unknown property '{}'", fn_name, prop_name)),
+            span.clone(),
+        )
+    })
+}
+
+/// Returns a property's value as `Sys.show` and `Sys.showAll` report it:
+/// `SOME` of the value that `Sys.set` assigned, else `SOME` of the
+/// property's default value, else `NONE`.
+fn shown_val(r: &EvalEnv, prop: Prop) -> Val {
+    match r.session.config.shown(prop) {
+        Some(val) => Val::Some(Box::new(Val::String((val.to_string()).into()))),
+        None => Val::Unit, // NONE is represented as Unit
     }
 }
 
