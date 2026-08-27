@@ -37,98 +37,127 @@ use crate::eval::color_scheme::{Category, ColorScheme};
 /// [`Category`].
 const CONSTANTS: &[&str] = &["false", "nil", "true"];
 
-/// Reserved words, SML's and Morel's. Deliberately its own set rather
-/// than the parser's `RESERVED_WORDS`: the highlighter colors words the
-/// parser treats contextually (`desc`, `remove`, `on`), and morel-java's
-/// highlighter keeps its own set for the same reason. Keep in step with
-/// `MorelHighlighter.SML_KEYWORDS` and `MOREL_KEYWORDS`.
-pub(crate) const KEYWORDS: &[&str] = &[
+/// Standard ML reserved words that Morel implements. Every one of
+/// these is a keyword of the Morel grammar.
+pub(crate) const SML_KEYWORDS: &[&str] = &[
     // lint: sort until '];'
-    "abstype",
-    "all",
     "and",
     "andalso",
     "as",
     "case",
-    "compute",
-    "current",
     "datatype",
-    "desc",
-    "distinct",
     "div",
-    "do",
-    "elem",
-    "elements",
     "else",
     "end",
     "eqtype",
-    "except",
     "exception",
+    "fn",
+    "fun",
+    "if",
+    "in",
+    "let",
+    "mod",
+    "of",
+    "op",
+    "orelse",
+    "raise",
+    "rec",
+    "sig",
+    "signature",
+    "then",
+    "type",
+    "val",
+    "where",
+    "with",
+];
+
+/// Standard ML reserved words that Morel does not implement. They are
+/// highlighted so that Standard ML code, which a Morel document may
+/// quote, reads correctly; the Morel parser knows none of them.
+pub(crate) const UNIMPLEMENTED_SML_KEYWORDS: &[&str] = &[
+    // lint: sort until '];'
+    "abstype",
+    "do",
+    "handle",
+    "infix",
+    "infixr",
+    "local",
+    "nonfix",
+    "open",
+    "sharing",
+    "struct",
+    "structure",
+    "while",
+    "withtype",
+];
+
+/// Morel's own keywords. Deliberately its own set rather than the
+/// parser's `RESERVED_WORDS`: it also holds the words the parser treats
+/// contextually (`all`, `lenient`, `or`), which are keywords only where
+/// a record modifier expects them.
+pub(crate) const MOREL_KEYWORDS: &[&str] = &[
+    // lint: sort until '];'
+    "all",
+    "compute",
+    "current",
+    "distinct",
+    "elem",
+    "elements",
+    "except",
     "exists",
     "extend",
-    "fn",
     "forall",
     "from",
     "full",
-    "fun",
     "group",
-    "handle",
-    "if",
     "implies",
-    "in",
-    "infix",
-    "infixr",
     "inst",
     "intersect",
     "into",
     "join",
     "left",
     "lenient",
-    "let",
-    "local",
-    "mod",
-    "nonfix",
-    "not",
     "notelem",
     "o",
-    "of",
     "on",
-    "op",
-    "open",
     "or",
     "order",
     "ordinal",
-    "orelse",
     "over",
-    "raise",
-    "rec",
     "remove",
     "rename",
     "replace",
     "require",
     "right",
-    "sharing",
-    "sig",
-    "signature",
     "skip",
-    "struct",
-    "structure",
     "take",
-    "then",
     "through",
-    "type",
     "type_string",
     "typeof",
     "union",
     "unorder",
-    "val",
-    "where",
-    "while",
-    "with",
-    "withtype",
     "yield",
     "yieldAll",
 ];
+
+/// Words that the parser treats as ordinary identifiers but that are
+/// highlighted as keywords all the same. `not` is a function, `bool ->
+/// bool`, but it reads as an operator and is colored like one.
+pub(crate) const PSEUDO_KEYWORDS: &[&str] = &["not"];
+
+/// Whether the highlighter colors `word` as a keyword: the union of
+/// [`SML_KEYWORDS`], [`UNIMPLEMENTED_SML_KEYWORDS`], [`MOREL_KEYWORDS`]
+/// and [`PSEUDO_KEYWORDS`].
+fn is_keyword(word: &str) -> bool {
+    [
+        SML_KEYWORDS,
+        UNIMPLEMENTED_SML_KEYWORDS,
+        MOREL_KEYWORDS,
+        PSEUDO_KEYWORDS,
+    ]
+    .iter()
+    .any(|words| words.binary_search(&word).is_ok())
+}
 
 /// Characters that group into a single punctuation token.
 const PUNCT_CHARS: &str = "()[]{}=,;|.";
@@ -417,7 +446,7 @@ fn tokenize(s: &str) -> Vec<(usize, usize, Class)> {
                 end
             };
             let word = &s[i..end];
-            let class = if !quoted && KEYWORDS.binary_search(&word).is_ok() {
+            let class = if !quoted && is_keyword(word) {
                 cx.keyword(word);
                 Class::Kr
             } else if end < n && b[end] == b'.' {
@@ -754,6 +783,21 @@ mod tests {
         (defined, reserved)
     }
 
+    /// Tests that the highlighter colors exactly the grammar's keywords,
+    /// plus the two categories of word that are deliberately not
+    /// keywords of it.
+    ///
+    /// A keyword the parser knows and the highlighter does not is a bug
+    /// -- the word is a keyword on the screen and back-ticked on output,
+    /// yet displayed as an identifier. The converse is a bug too, and a
+    /// quieter one: `desc` sat in the Morel list long after the language
+    /// stopped having it, coloring a name no program can use.
+    ///
+    /// So the comparison is by equality. The words the highlighter
+    /// colors that the grammar does not know are accounted for by
+    /// category -- Standard ML keywords Morel does not implement, and
+    /// identifiers colored as keywords anyway -- and the categories are
+    /// disjoint, so every word belongs to exactly one and none can hide.
     #[test]
     fn test_keywords_match_grammar() {
         // `all`, `lenient` and `or` are keywords only where a record
@@ -773,18 +817,31 @@ mod tests {
             "a keyword the grammar defines is neither reserved nor one of \
              the three that are keywords only in a record modifier"
         );
-        // The highlighter may know more keywords than the parser -- it
-        // colors the Standard ML words Morel does not implement -- but a
-        // keyword the parser knows and the highlighter does not would be
-        // back-ticked on output yet shown as an identifier on screen.
-        let missing: Vec<&String> = defined
+        // The categories partition the words the highlighter colors:
+        // their union is every such word, and no word is in two of them.
+        let mut all: Vec<&str> = SML_KEYWORDS
             .iter()
-            .filter(|k| KEYWORDS.binary_search(&k.as_str()).is_err())
+            .chain(UNIMPLEMENTED_SML_KEYWORDS)
+            .chain(MOREL_KEYWORDS)
+            .chain(PSEUDO_KEYWORDS)
+            .copied()
             .collect();
-        assert!(
-            missing.is_empty(),
-            "keywords the highlighter does not highlight: {:?}",
-            missing
+        all.sort_unstable();
+        let shared: Vec<&str> = all
+            .windows(2)
+            .filter(|w| w[0] == w[1])
+            .map(|w| w[0])
+            .collect();
+        assert!(shared.is_empty(), "a word in two categories: {:?}", shared);
+        // The words left when the two non-grammar categories are removed
+        // are the grammar's keywords, exactly.
+        let mut highlighted: Vec<&str> =
+            SML_KEYWORDS.iter().chain(MOREL_KEYWORDS).copied().collect();
+        highlighted.sort_unstable();
+        let defined: Vec<&str> = defined.iter().map(String::as_str).collect();
+        assert_eq!(
+            highlighted, defined,
+            "the highlighter and the grammar disagree about keywords"
         );
     }
 
