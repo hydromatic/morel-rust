@@ -89,52 +89,38 @@ type u2 = u2 list and v2 = u2;
 > type u2 = int list
 > type v2 = int
 
-(* The following sections are validated, not evaluated: morel-rust
- * does not yet mark a displaced datatype '?.d', nor keep a value of
- * one from acquiring the datatype that took over its name. *)
-
 (* A datatype is generative, so it cannot be expanded; the displaced
  * type is displayed '?.d2', as in Standard ML. *)
 datatype d2 = A2 | B2;
 > datatype d2 = A2 | B2
-set("mode", "validate");
-> val it = () : unit
 type d2 = d2 list;
 > type d2 = ?.d2 list
-set("mode", "evaluate");
-> val it = () : unit
 
 (* Shadowing the same name twice gives two distinct displaced types.
  * Standard ML displays both '?.d3', which does not distinguish them;
  * we expand the alias, which does. *)
 datatype d3 = A3 | B3;
 > datatype d3 = A3 | B3
-set("mode", "validate");
-> val it = () : unit
 type d3 = d3 list;
 > type d3 = ?.d3 list
 type d3 = d3 list;
 > type d3 = ?.d3 list list
-set("mode", "evaluate");
-> val it = () : unit
 
 (*) Each displaced datatype is a separate type, though both print '?.e3'.
 datatype e3 = P3 | Q3;
 > datatype e3 = P3 | Q3
-set("mode", "validate");
-> val it = () : unit
 type e3 = e3 list;
 > type e3 = ?.e3 list
-set("mode", "evaluate");
-> val it = () : unit
 datatype e3 = R3 | S3;
 > datatype e3 = R3 | S3
-set("mode", "validate");
-> val it = () : unit
 type e3 = e3 list;
 > type e3 = ?.e3 list
-set("mode", "evaluate");
-> val it = () : unit
+
+(* The following section is validated, not evaluated: morel-rust marks
+ * a displaced datatype '?.d' where a type declaration displaces it, but
+ * not in the type of a value bound before the displacement, and it does
+ * not keep a value of one from acquiring the datatype that took over its
+ * name. *)
 
 (* A displaced datatype keeps its identity: its constructors still
  * belong to it, and match against it. Whether a name still refers to

@@ -29,7 +29,7 @@ use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::type_env::{BindType, SchemeTypeEnv, TypeEnv};
 use crate::compile::types;
-use crate::compile::types::Label;
+use crate::compile::types::{Label, displace};
 use crate::compile::types::{
     Predicate, PrimitiveType, Subst, Type, TypeVariable,
 };
@@ -2147,6 +2147,16 @@ impl TypeResolver {
                     }
                 }
                 for (name, rhs_type) in expanded {
+                    // A datatype is generative, so it cannot be expanded.
+                    // Where the body names the datatype this declaration
+                    // displaces, that datatype is now nameless, and is
+                    // displayed '?.d', as Standard ML displays it.
+                    let rhs_type = match prior_aliases.get(&name) {
+                        Some(Type::Data(n, _)) if *n == name => {
+                            displace(&rhs_type, &name)
+                        }
+                        _ => rhs_type,
+                    };
                     self.type_aliases.insert(name.clone(), rhs_type.clone());
                     self.expanded_type_binds.insert(name, rhs_type);
                 }

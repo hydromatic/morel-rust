@@ -56,6 +56,53 @@ pub fn instantiate(type_: &Type, args: &[Rc<Type>]) -> Type {
     }
 }
 
+/// The name under which a type is displayed once a later declaration has
+/// taken over its name, following Standard ML. Two types displaced from
+/// the same name are displayed alike; Standard ML does not tell them
+/// apart either.
+pub fn shadow_name(name: &str) -> String {
+    format!("?.{}", name)
+}
+
+/// Renames, throughout a type, the datatype called `name` to its shadow
+/// name, because a later declaration has taken the name over.
+///
+/// A datatype is generative, so it cannot be expanded the way an alias
+/// can; the values of the displaced type keep it, and it needs a name to
+/// be displayed under.
+pub fn displace(type_: &Type, name: &str) -> Type {
+    match type_ {
+        // lint: sort until '#}' where '##Type::'
+        Type::Bag(t) => Type::Bag(Rc::new(displace(t, name))),
+        Type::Data(n, ts) => Type::Data(
+            if n == name {
+                shadow_name(name)
+            } else {
+                n.clone()
+            },
+            ts.iter().map(|t| Rc::new(displace(t, name))).collect(),
+        ),
+        Type::Fn(a, b) => {
+            Type::Fn(Rc::new(displace(a, name)), Rc::new(displace(b, name)))
+        }
+        Type::List(t) => Type::List(Rc::new(displace(t, name))),
+        Type::Record(p, fields) => Type::Record(
+            *p,
+            fields
+                .iter()
+                .map(|(k, v): (&Label, &Rc<Type>)| {
+                    (k.clone(), Rc::new(displace(v, name)))
+                })
+                .collect(),
+        ),
+        Type::Tuple(ts) => {
+            Type::Tuple(ts.iter().map(|t| Rc::new(displace(t, name))).collect())
+        }
+        // #}
+        _ => type_.clone(),
+    }
+}
+
 /// The name to show for a type constructor. A collection whose
 /// orderedness nothing has decided reads back as a bag, so that is
 /// what it is called; its internal name is not something to show
