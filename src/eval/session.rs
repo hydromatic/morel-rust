@@ -26,7 +26,7 @@ use crate::compile::type_env::{
     BindType, EmptyTypeEnv, FunTypeEnv, SimpleTypeEnv, TypeEnv, TypeEnvBuilder,
 };
 use crate::compile::type_resolver::{BindingKind, Resolved, TypeResolver};
-use crate::compile::types::Type;
+use crate::compile::types::{Type, displace, shadow_name};
 use crate::eval::big_int::BigInt;
 use crate::eval::code::Code;
 use crate::eval::color_scheme;
@@ -265,6 +265,53 @@ impl Session {
             self.user_datatype_arities.insert(name.clone(), *arity);
         }
 
+        // A declaration that takes over a name a datatype holds displaces
+        // it. The datatype survives -- its constructors still belong to
+        // it, and its values still have it -- but its name now belongs to
+        // something else, so it is displayed '?.d', as Standard ML
+        // displays it.
+        let displaced: Vec<String> = self
+            .datatype_constructors
+            .keys()
+            .filter(|name| {
+                // Redeclared as a datatype, with different constructors.
+                let redeclared = resolved
+                    .type_map
+                    .datatype_constructors
+                    .get(*name)
+                    .is_some_and(|cons| {
+                        Some(cons) != self.datatype_constructors.get(*name)
+                    });
+                // Or the name now means an alias. A datatype registers
+                // its own name as an alias for itself, which is not one.
+                let aliased = match type_resolver.type_aliases.get(*name) {
+                    Some(Type::Data(n, _)) => n != *name,
+                    Some(_) => true,
+                    None => false,
+                };
+                redeclared || aliased
+            })
+            .cloned()
+            .collect();
+        for name in &displaced {
+            if let Some(cons) = self.datatype_constructors.get(name).cloned() {
+                self.datatype_constructors.insert(shadow_name(name), cons);
+            }
+            for (type_, _) in self.type_bindings.values_mut() {
+                *type_ = displace(type_, name);
+            }
+            // The name no longer names a datatype, so nothing later
+            // should displace it again.
+            if !resolved.type_map.datatype_constructors.contains_key(name) {
+                self.datatype_constructors.remove(name);
+            }
+        }
+        if !displaced.is_empty() {
+            // A `type` declaration binds no value, so nothing else would
+            // rebuild the environment the rewritten types live in.
+            self.rebuild_type_env();
+        }
+
         // Capture any new constructor sets from datatype declarations.
         for (name, cons) in &resolved.type_map.datatype_constructors {
             self.datatype_constructors
@@ -300,15 +347,21 @@ impl Session {
         // We keep the FunTypeEnv (built-ins) as the base and create a single
         // ResolvedTypeEnv with all accumulated bindings.
         if has_new_bindings {
-            let empty_type_env = EmptyTypeEnv {};
-            let fun_type_env = FunTypeEnv {
-                parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
-            };
-            self.type_env = Rc::new(ResolvedTypeEnv {
-                parent: Rc::new(fun_type_env) as Rc<dyn TypeEnv>,
-                bindings: self.type_bindings.clone(),
-            }) as Rc<dyn TypeEnv>;
+            self.rebuild_type_env();
         }
+    }
+
+    /// Rebuilds the type environment from the accumulated bindings,
+    /// keeping the built-ins as the base.
+    fn rebuild_type_env(&mut self) {
+        let empty_type_env = EmptyTypeEnv {};
+        let fun_type_env = FunTypeEnv {
+            parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
+        };
+        self.type_env = Rc::new(ResolvedTypeEnv {
+            parent: Rc::new(fun_type_env) as Rc<dyn TypeEnv>,
+            bindings: self.type_bindings.clone(),
+        }) as Rc<dyn TypeEnv>;
     }
 }
 

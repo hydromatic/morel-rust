@@ -116,28 +116,18 @@ datatype e3 = R3 | S3;
 type e3 = e3 list;
 > type e3 = ?.e3 list
 
-(* The following section is validated, not evaluated: morel-rust marks
- * a displaced datatype '?.d' where a type declaration displaces it, but
- * not in the type of a value bound before the displacement, and it does
- * not keep a value of one from acquiring the datatype that took over its
- * name. *)
-
 (* A displaced datatype keeps its identity: its constructors still
  * belong to it, and match against it. Whether a name still refers to
  * a type is decided when the type is displayed, so the same value
  * prints 'e4' before the name is taken over and '?.e4' after. *)
 datatype d4 = A4 | B4;
 > datatype d4 = A4 | B4
-set("mode", "validate");
-> val it = () : unit
 type d4 = d4 list;
 > type d4 = ?.d4 list
 B4;
 > val it = B4 : ?.d4
 [A4];
 > val it = [A4] : ?.d4 list
-set("mode", "evaluate");
-> val it = () : unit
 case A4 of A4 => 1 | B4 => 2;
 > val it = 1 : int
 
@@ -148,12 +138,8 @@ val x4 = P4;
 > val x4 = P4 : e4
 datatype e4 = R4 | S4;
 > datatype e4 = R4 | S4
-set("mode", "validate");
-> val it = () : unit
 x4;
 > val it = P4 : ?.e4
-set("mode", "evaluate");
-> val it = () : unit
 val y4 = R4;
 > val y4 = R4 : e4
 
