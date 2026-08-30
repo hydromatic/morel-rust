@@ -862,17 +862,27 @@ impl Kernel {
             (type_only_flag, result)
         };
 
+        let base_line = leading_comment_lines(&actual_code);
+
         // Try to parse the statement
         let statement = match parser::parse_statement(&actual_code) {
             Err(e) => {
-                let span = Span::from_line_col(&e.line_col);
                 // A rule that rejects what it parsed says why; the
                 // grammar failing to match says only where.
-                let message = match &e.variant {
-                    pest::error::ErrorVariant::CustomError { message } => {
-                        message.clone()
-                    }
-                    _ => "syntax error".to_string(),
+                //
+                // A rejection is about the statement, so its line is
+                // counted from the first line of code, as every other
+                // error's is. A lexical error is about the text, and
+                // morel-java reports the line it is actually on.
+                let (message, span) = match &e.variant {
+                    pest::error::ErrorVariant::CustomError { message } => (
+                        message.clone(),
+                        Span::from_line_col_base(&e.line_col, base_line),
+                    ),
+                    _ => (
+                        "syntax error".to_string(),
+                        Span::from_line_col(&e.line_col),
+                    ),
                 };
                 return Ok(format!(
                     "{} Error: {}\n  raised at: {}\n",
@@ -905,8 +915,6 @@ impl Kernel {
             // idempotent mode.
             return Ok(strip_prefix("> ", expected_output.unwrap()));
         }
-
-        let base_line = leading_comment_lines(&actual_code);
 
         if type_only {
             // We are running in type-only mode (via :t prefix).

@@ -1554,9 +1554,25 @@ impl<'a> Compiler<'a> {
                 let (record_type, _) = t.expect_fn();
                 Code::new_nth(record_type, *slot)
             }
-            Expr::Tuple(_, args) => {
-                let codes = self.compile_arg_list(cx, args);
-                Code::new_tuple(&codes)
+            Expr::Tuple(type_, args) => {
+                // The empty tuple is unit, and `{}` parses as one. A
+                // pattern that matches `()` looks for `Val::Unit`, so an
+                // empty tuple value would not match it, though both print
+                // as "()".
+                if args.is_empty()
+                    && matches!(
+                        type_.as_ref(),
+                        Type::Primitive(PrimitiveType::Unit)
+                    )
+                {
+                    Code::new_constant(
+                        &Type::Primitive(PrimitiveType::Unit),
+                        Val::Unit,
+                    )
+                } else {
+                    let codes = self.compile_arg_list(cx, args);
+                    Code::new_tuple(&codes)
+                }
             }
             _ => todo!("{:?}", expr),
         }

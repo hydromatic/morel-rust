@@ -46,14 +46,30 @@ impl Span {
     }
 
     pub fn from_line_col(lc: &pest::error::LineColLocation) -> Self {
+        Self::from_line_col_base(lc, 0)
+    }
+
+    /// As [`Self::from_line_col`], but reporting lines relative to the
+    /// first line of code, so that a statement preceded by comments is
+    /// reported from line 1 as every other error is.
+    pub fn from_line_col_base(
+        lc: &pest::error::LineColLocation,
+        base_line: usize,
+    ) -> Self {
         use pest::error::LineColLocation;
         match lc {
-            LineColLocation::Pos((line, col)) => {
-                Self::new(&format!("stdIn:{}.{}", line, col))
-            }
-            LineColLocation::Span((l1, c1), (l2, c2)) => {
-                Self::new(&format!("stdIn:{}.{}-{}.{}", l1, c1, l2, c2))
-            }
+            LineColLocation::Pos((line, col)) => Self::new(&format!(
+                "stdIn:{}.{}",
+                line.saturating_sub(base_line),
+                col
+            )),
+            LineColLocation::Span((l1, c1), (l2, c2)) => Self::new(&format!(
+                "stdIn:{}.{}-{}.{}",
+                l1.saturating_sub(base_line),
+                c1,
+                l2.saturating_sub(base_line),
+                c2
+            )),
         }
     }
 }

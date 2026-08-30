@@ -313,6 +313,15 @@ val v = {x=1,y=2};
 
 (* Without braces there is no base for the modifiers to apply to: they
  * need a single field, and it may not have a label of its own. *)
+{a = 1, v remove x};
+> stdIn:1.1-1.20 Error: a record modifier applies to a base expression; enclose the expression and its modifiers in braces
+>   raised at: stdIn:1.1-1.20
+{v = v remove x};
+> stdIn:1.1-1.17 Error: a record modifier applies to a base expression; enclose the expression and its modifiers in braces
+>   raised at: stdIn:1.1-1.17
+{a = 1, b = 2 remove a};
+> stdIn:1.1-1.24 Error: a record modifier applies to a base expression; enclose the expression and its modifiers in braces
+>   raised at: stdIn:1.1-1.24
 
 (* A verb pair joined by 'or' names both cases -- the record has the
  * label already, or it does not -- so neither is an error. Each verb
@@ -531,6 +540,16 @@ fun countOption2 NONE: int = 0
   | countOption2 (SOME x) = 1;
 > val countOption2 = fn : 'a option -> int
 
+(*
+sml-nj gives the following error:
+stdIn:1.6-2.32 Error: parameter or result constraints of clauses don't agree [tycon mismatch]
+  this clause:      'Z option -> string list
+  previous clauses:      'Z option -> int list
+  in declaration:
+    f = (fn NONE => nil: int list
+          | SOME x => nil: string list)
+*)
+
 (* typeof --------------------------------------------------------- *)
 
 (*) Annotations that use 'typeof'
@@ -731,6 +750,8 @@ foo3 [true, false];
 fun one () = 1;
 > val one = fn : unit -> int
 one ();
+> val it = 1 : int
+one {};
 > val it = 1 : int
 let
   fun one () = 1
