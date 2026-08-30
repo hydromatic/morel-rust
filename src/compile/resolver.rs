@@ -1875,10 +1875,19 @@ impl<'a> Resolver<'a> {
                 .iter()
                 .map(|con| {
                     let tvs = &datatype_bind.type_vars;
-                    let core_type = con
-                        .type_
-                        .as_ref()
-                        .and_then(|t| ast_type_to_core_type_with_vars(t, tvs));
+                    let core_type = con.type_.as_ref().and_then(|t| {
+                        // `BOX of typeof e` has no syntactic conversion;
+                        // the type resolver deduced the expression's type
+                        // and left it here.
+                        if let TypeKind::Expression(expr) = &t.kind {
+                            self.type_map
+                                .decl_exp_types
+                                .get(&expr.span.extent())
+                                .cloned()
+                        } else {
+                            ast_type_to_core_type_with_vars(t, tvs)
+                        }
+                    });
                     CoreConBind {
                         name: con.name.clone(),
                         type_: core_type,

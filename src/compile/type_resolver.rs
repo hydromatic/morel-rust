@@ -103,6 +103,11 @@ pub struct TypeMap {
     /// statement; see
     /// [`TypeResolver::expanded_type_binds`](TypeResolver::expanded_type_binds).
     pub expanded_type_binds: HashMap<String, Type>,
+    /// Types deduced for the expressions of `typeof` written in type and
+    /// datatype declarations, keyed by the expression's span. The
+    /// resolver converts a constructor's argument type syntactically and
+    /// cannot deduce one itself.
+    pub decl_exp_types: HashMap<(usize, usize), Type>,
     /// Overload constraints that were still unresolved when unification
     /// finished: `(name, type term, candidate instance terms)`. They become
     /// the predicates of a qualified type; see
@@ -130,6 +135,7 @@ impl TypeMap {
             var_term_map: HashMap::new(),
             op_defs,
             expanded_type_binds: HashMap::new(),
+            decl_exp_types: HashMap::new(),
             predicate_terms: Vec::new(),
             var_alias_map: HashMap::new(),
             datatype_constructors: HashMap::new(),
@@ -738,6 +744,15 @@ pub enum BindingKind {
 #[allow(dead_code)]
 pub struct TypeResolver {
     warnings: Vec<Warning>,
+    /// Types of the expressions of `typeof` written in type declarations,
+    /// keyed by the expression's span.
+    ///
+    /// Resolving one is a nested deduction, and the same expression is
+    /// asked for more than once: a datatype's constructor argument is
+    /// converted twice, and a declaration may be deduced twice. Deducing
+    /// it again would be wasted, and would report any warning it produces
+    /// once per attempt.
+    decl_exp_types: HashMap<(usize, usize), Type>,
 
     /// Mapping from node ids (patterns and expressions) to the unifier variable
     /// that holds the node's type.
@@ -1164,6 +1179,69 @@ impl TypeResolver {
             .or_else(|| self.user_datatype_arities.get(name).copied())
     }
 
+    /// Deduces the type of the expression of a `typeof` written in a type
+    /// declaration, by deducing it as a statement of its own against the
+    /// environment the declaration sees.
+    ///
+    /// Memoized: a datatype converts a constructor's argument twice, and a
+    /// declaration may be deduced twice, so without this a warning from
+    /// inside the expression would be reported once per attempt.
+    fn decl_exp_type(&mut self, env: &dyn TypeEnv, expr: &Expr) -> Type {
+        let key = expr.span.extent();
+        if let Some(type_) = self.decl_exp_types.get(&key) {
+            return type_.clone();
+        }
+        let statement = Statement {
+            kind: StatementKind::Expr(expr.kind.clone()),
+            span: expr.span.clone(),
+            id: None,
+            attributes: Vec::new(),
+        };
+        let mut resolver = TypeResolver::new();
+        resolver.type_aliases = self.type_aliases.clone();
+        resolver.user_datatype_arities = self.user_datatype_arities.clone();
+        resolver.prior_datatype_constructors =
+            self.prior_datatype_constructors.clone();
+        resolver.prior_constructor_arg_types =
+            self.prior_constructor_arg_types.clone();
+        resolver.match_coverage_enabled = self.match_coverage_enabled;
+        let type_ = match resolver.deduce_type(env, &statement) {
+            Ok(resolved) => {
+                // Deduction may rewrite the expression -- an `order` step
+                // is copied so that its warning can be attached -- so read
+                // the type from the declaration it returned, not from the
+                // node it was given.
+                self.warnings.extend(resolved.warnings.iter().cloned());
+                Self::val_decl_expr_type(&resolved)
+                    .unwrap_or(Type::Primitive(PrimitiveType::Unit))
+            }
+            Err(Error::Compile(msg, span)) => {
+                self.field_errors.borrow_mut().push((msg, span));
+                Type::Primitive(PrimitiveType::Unit)
+            }
+            Err(_) => Type::Primitive(PrimitiveType::Unit),
+        };
+        self.decl_exp_types.insert(key, type_.clone());
+        type_
+    }
+
+    /// The type of the expression of the sole `val` binding of a resolved
+    /// statement.
+    fn val_decl_expr_type(resolved: &Resolved) -> Option<Type> {
+        let DeclKind::Val(_, _, val_binds) = &resolved.decl.kind else {
+            return None;
+        };
+        let expr = &val_binds.first()?.expr;
+        // The type the expression was shown to have, alias and all: a
+        // `typeof` names what is displayed, as `type_string` does.
+        let id = expr.id?;
+        let type_ = resolved
+            .type_map
+            .get_type_with_alias(id)
+            .or_else(|| resolved.type_map.get_type(id))?;
+        Some((*type_).clone())
+    }
+
     /// Expands an AST type to a core type, resolving every named type
     /// against `aliases` (the aliases and datatypes in scope) and the
     /// built-in type constructors. A type alias is transparent, so it is
@@ -1171,17 +1249,29 @@ impl TypeResolver {
     ///
     /// Returns the offending name and span if a name is not bound to a type.
     fn expand_ast_type(
-        &self,
+        &mut self,
+        env: &dyn TypeEnv,
         ast_type: &AstType,
         aliases: &HashMap<String, Type>,
     ) -> Result<Type, (String, Span)> {
         let unbound =
             |name: &str| Err((name.to_string(), ast_type.span.clone()));
         match &ast_type.kind {
-            TypeKind::Con(_) | TypeKind::Expression(_) | TypeKind::Var(_) => {
-                // A type variable, `typeof e`, or a constructor: not
-                // expanded here. Fall back to the unexpanded lowering, or
-                // to `unit` if that is not possible.
+            TypeKind::Expression(expr) => {
+                // `typeof e`. A type declaration is elaborated before
+                // anything in it has been deduced, so there is no
+                // substitution to read the type from. But a name in the
+                // body of one means the environment before the
+                // declaration -- that is what makes `type t = t` mean "the
+                // previous t" -- so the expression cannot mention what the
+                // declaration binds, and its type can be deduced on its
+                // own.
+                Ok(self.decl_exp_type(env, expr))
+            }
+            TypeKind::Con(_) | TypeKind::Var(_) => {
+                // A type variable or a constructor: not expanded here.
+                // Fall back to the unexpanded lowering, or to `unit` if
+                // that is not possible.
                 Ok(ast_type_to_core_type(ast_type)
                     .unwrap_or(Type::Primitive(PrimitiveType::Unit)))
             }
@@ -1190,8 +1280,8 @@ impl TypeResolver {
                 Ok(Type::Primitive(PrimitiveType::Unit))
             }
             TypeKind::Fn(a, b) => Ok(Type::Fn(
-                Rc::new(self.expand_ast_type(a, aliases)?),
-                Rc::new(self.expand_ast_type(b, aliases)?),
+                Rc::new(self.expand_ast_type(env, a, aliases)?),
+                Rc::new(self.expand_ast_type(env, b, aliases)?),
             )),
             TypeKind::Id(name) => {
                 if let Some(p) = PrimitiveType::parse_name(name) {
@@ -1210,7 +1300,11 @@ impl TypeResolver {
                 for field in fields {
                     field_map.insert(
                         Label::from(field.label.name.clone()),
-                        Rc::new(self.expand_ast_type(&field.type_, aliases)?),
+                        Rc::new(self.expand_ast_type(
+                            env,
+                            &field.type_,
+                            aliases,
+                        )?),
                     );
                 }
                 Ok(Type::Record(false, field_map))
@@ -1218,7 +1312,7 @@ impl TypeResolver {
             TypeKind::Tuple(types) => {
                 let mut args = Vec::with_capacity(types.len());
                 for t in types {
-                    args.push(Rc::new(self.expand_ast_type(t, aliases)?));
+                    args.push(Rc::new(self.expand_ast_type(env, t, aliases)?));
                 }
                 Ok(Type::Tuple(args))
             }
@@ -1230,7 +1324,7 @@ impl TypeResolver {
                 let flat_args = AstType::flatten(args);
                 let mut args2 = Vec::with_capacity(flat_args.len());
                 for a in &flat_args {
-                    args2.push(Rc::new(self.expand_ast_type(a, aliases)?));
+                    args2.push(Rc::new(self.expand_ast_type(env, a, aliases)?));
                 }
                 if args2.len() == 1 {
                     match name.as_str() {
@@ -1342,6 +1436,7 @@ impl TypeResolver {
         let int_op = unifier.op("int", Some(0));
         Self {
             warnings: Vec::new(),
+            decl_exp_types: HashMap::new(),
             node_var_map: HashMap::new(),
             compute_stack: Vec::new(),
             aggregate_depth: 0,
@@ -1575,6 +1670,7 @@ impl TypeResolver {
         }
 
         type_map.expanded_type_binds = self.expanded_type_binds.clone();
+        type_map.decl_exp_types = self.decl_exp_types.clone();
 
         // A record whose modifiers were never desugared, because the
         // fields of its base never became known. morel-java's
@@ -2133,7 +2229,7 @@ impl TypeResolver {
                 let mut expanded = Vec::with_capacity(type_binds.len());
                 for tb in type_binds {
                     self.validate_ast_type(&tb.type_);
-                    match self.expand_ast_type(&tb.type_, &prior_aliases) {
+                    match self.expand_ast_type(env, &tb.type_, &prior_aliases) {
                         Ok(rhs_type) => {
                             expanded.push((tb.name.clone(), rhs_type));
                         }
@@ -2418,7 +2514,7 @@ impl TypeResolver {
     /// can reference any sibling's type.
     fn deduce_datatype_decl_type(
         &mut self,
-        _env: &dyn TypeEnv,
+        env: &dyn TypeEnv,
         datatype_binds: &[DatatypeBind],
         term_map: &mut Vec<(String, Term)>,
     ) -> Result<(), Error> {
@@ -2455,11 +2551,17 @@ impl TypeResolver {
                     // Surface composite/arity errors that would
                     // otherwise be swallowed by the unwrap_or below.
                     self.validate_ast_type(ast_type);
-                    let arg_core = ast_type_to_core_type_with_vars(
-                        ast_type,
-                        &db.type_vars,
-                    )
-                    .unwrap_or(Type::Primitive(PrimitiveType::Unit));
+                    // `BOX of typeof e`: the argument's type is the
+                    // expression's, deduced on its own as for a `type`
+                    // declaration.
+                    let arg_core = if let TypeKind::Expression(expr) =
+                        &ast_type.kind
+                    {
+                        self.decl_exp_type(env, expr)
+                    } else {
+                        ast_type_to_core_type_with_vars(ast_type, &db.type_vars)
+                            .unwrap_or(Type::Primitive(PrimitiveType::Unit))
+                    };
                     Type::Fn(Rc::new(arg_core), Rc::new(data_type.clone()))
                 } else {
                     data_type.clone()
