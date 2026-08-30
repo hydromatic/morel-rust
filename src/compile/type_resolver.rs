@@ -2041,6 +2041,23 @@ impl TypeResolver {
         match &decl.kind {
             DeclKind::Val(_rec, _inst, val_binds) => {
                 for val_bind in val_binds {
+                    // `val x = e : typeof y` annotates the expression,
+                    // not the pattern, and names the type `y` was shown
+                    // to have.
+                    if let PatKind::Identifier(name) = &val_bind.pat.kind
+                        && let ExprKind::Annotated(_, ann) = &val_bind.expr.kind
+                        && let TypeKind::Expression(operand) = &ann.kind
+                        && let Some(t) =
+                            type_map.decl_exp_types.get(&operand.span.extent())
+                        && matches!(t, Type::Alias(..))
+                    {
+                        bindings.push(TypeBinding {
+                            name: name.clone(),
+                            resolved_type: t.clone(),
+                            kind: BindingKind::Val,
+                        });
+                        continue;
+                    }
                     Self::collect_bindings_from_pat(
                         &val_bind.pat,
                         type_map,
@@ -2167,6 +2184,22 @@ impl TypeResolver {
                 // If the annotation references a type alias, pass the
                 // alias name down so that the binding's resolved type
                 // is wrapped in Type::Alias.
+                // `typeof e` names the type `e` was shown to have, so a
+                // binding annotated with one takes that type, alias and
+                // all, rather than what inference reduced `e` to.
+                if let TypeKind::Expression(operand) = &ann_type.kind
+                    && let Some(t) =
+                        type_map.decl_exp_types.get(&operand.span.extent())
+                    && matches!(t, Type::Alias(..))
+                    && let PatKind::Identifier(name) = &inner_pat.kind
+                {
+                    bindings.push(TypeBinding {
+                        name: name.clone(),
+                        resolved_type: t.clone(),
+                        kind: BindingKind::Val,
+                    });
+                    return;
+                }
                 let alias_name: Option<&str> =
                     if let TypeKind::Id(name) = &ann_type.kind {
                         // Check if the annotation type id maps to a var
@@ -7257,9 +7290,12 @@ impl TypeResolver {
                         // arrives here rather than being caught as an
                         // unbound variable. Deducing a pattern has no
                         // `Result` to carry the error, so defer it.
+                        // The name heads the pattern, so the error
+                        // covers the name, not the argument it is
+                        // applied to.
                         self.field_errors.borrow_mut().push((
                             format!("unbound constructor: {}", name),
-                            pat.span.clone(),
+                            pat.span.prefix(name.len()),
                         ));
                         Term::Variable(self.variable())
                     }
@@ -7950,17 +7986,31 @@ impl<'a> TypeToTermConverter<'a> {
                 // ...` names the very variable it annotates. Defer the
                 // error rather than panicking -- deducing a type has no
                 // `Result` to return it in.
-                if let Err(Error::Compile(msg, span)) =
-                    self.type_resolver.deduce_expr_type(self.env, expr, &v_expr)
+                //
+                // Keep the deduced operand: deduction gives it a node id,
+                // and without one nothing can look its type up -- which
+                // is what `typeof` is for.
+                let expr2 = match self
+                    .type_resolver
+                    .deduce_expr_type(self.env, expr, &v_expr)
                 {
-                    self.type_resolver
-                        .field_errors
-                        .borrow_mut()
-                        .push((msg, span));
-                }
+                    Ok(expr2) => expr2,
+                    Err(Error::Compile(msg, span)) => {
+                        self.type_resolver
+                            .field_errors
+                            .borrow_mut()
+                            .push((msg, span));
+                        (**expr).clone()
+                    }
+                    Err(_) => (**expr).clone(),
+                };
+                // Record the type the operand was shown to have, alias
+                // and all: `typeof e` names that, and the substitution
+                // this deduction leaves has the alias weakened away.
+                self.type_resolver.decl_exp_type(self.env, expr);
                 self.type_resolver.equiv(&Term::Variable(v_expr), v);
-                self.type_resolver
-                    .reg_type(&type_node.kind, &type_node.span, v)
+                let kind = TypeKind::Expression(Box::new(expr2));
+                self.type_resolver.reg_type(&kind, &type_node.span, v)
             }
             TypeKind::Fn(param, result) => {
                 let v4 = self.type_resolver.variable();
@@ -8027,9 +8077,13 @@ impl<'a> TypeToTermConverter<'a> {
                     // such a name only sometimes, and one that survives
                     // would reach the type map and crash.
                     if !self.type_resolver.is_type_ctor(name) {
+                        // The span of a type can reach the whitespace
+                        // that follows it, and the error is about the
+                        // name: `fn x: true => x` names `true`, not
+                        // `true `.
                         self.type_resolver.field_errors.borrow_mut().push((
                             format!("unbound type constructor: {}", name),
-                            type_node.span.clone(),
+                            type_node.span.prefix(name.len()),
                         ));
                     }
                     let data_type = Type::Data(name.clone(), vec![]);

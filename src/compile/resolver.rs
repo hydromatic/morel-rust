@@ -282,6 +282,11 @@ pub struct Resolver<'a> {
     base_line: usize,
     /// Errors detected during resolution (e.g. field-not-found).
     errors: RefCell<Vec<(String, Span)>>,
+    /// Span of the receiver of the field selector being resolved, if
+    /// any. A field error names the receiver -- the thing that is not a
+    /// record -- rather than the whole projection, as morel-java and
+    /// morel-go do.
+    selector_receiver_span: RefCell<Option<Span>>,
     /// Names of user-defined functions whose first parameter is
     /// (or contains) `self`, so the postfix dispatcher can rewrite
     /// `x.name arg` into a direct application to `name`.
@@ -421,6 +426,7 @@ impl<'a> Resolver<'a> {
             type_map,
             base_line,
             errors: RefCell::new(Vec::new()),
+            selector_receiver_span: RefCell::new(None),
             self_fns: RefCell::new(HashSet::new()),
             aggregate_input_is_bag: Cell::new(None),
         }
@@ -725,9 +731,19 @@ impl<'a> Resolver<'a> {
                 {
                     return core;
                 }
+                // A field error names the receiver, so make the
+                // argument's span available while the selector resolves.
+                let saved = self.selector_receiver_span.replace(Some(
+                    Span::from_pest_span(
+                        &arg.span.to_pest_span(),
+                        self.base_line,
+                    ),
+                ));
+                let func_core = self.resolve_expr(func);
+                *self.selector_receiver_span.borrow_mut() = saved;
                 CoreExpr::Apply(
                     t,
-                    Box::new(self.resolve_expr(func)),
+                    Box::new(func_core),
                     Box::new(self.resolve_expr(arg)),
                     Span::from_pest_span(
                         &expr.span.to_pest_span(),
@@ -1187,7 +1203,12 @@ impl<'a> Resolver<'a> {
                             name, param_type
                         )
                     };
-                    self.errors.borrow_mut().push((msg, span.clone()));
+                    let error_span = self
+                        .selector_receiver_span
+                        .borrow()
+                        .clone()
+                        .unwrap_or_else(|| span.clone());
+                    self.errors.borrow_mut().push((msg, error_span));
                     CoreExpr::RecordSelector(t, 0)
                 }
             }
@@ -1697,6 +1718,16 @@ impl<'a> Resolver<'a> {
                 // expanded, so `nats` would be `int list` rather than
                 // `nat2 list`. morel-java takes the same route, converting
                 // the written annotation in `deduceRealTypes`.
+                // `typeof e` names the type `e` was shown to have, so a
+                // pattern annotated with one is displayed with that type,
+                // alias and all.
+                if let TypeKind::Expression(operand) = &ann_type.kind
+                    && let Some(t) =
+                        self.type_map.decl_exp_types.get(&operand.span.extent())
+                    && matches!(t, Type::Alias(..))
+                {
+                    return resolved.with_type(Rc::new(t.clone()));
+                }
                 if let TypeKind::Id(name) = &ann_type.kind
                     && let Some(body) = self.type_map.type_aliases.get(name)
                 {
@@ -1831,6 +1862,18 @@ impl<'a> Resolver<'a> {
                             vec![],
                         ))));
                     }
+                }
+                None
+            }
+            ExprKind::Annotated(_, ann_type) => {
+                // `val x = e : typeof y` annotates the expression, and
+                // `typeof` names the type `y` was shown to have.
+                if let TypeKind::Expression(operand) = &ann_type.kind
+                    && let Some(t) =
+                        self.type_map.decl_exp_types.get(&operand.span.extent())
+                    && matches!(t, Type::Alias(..))
+                {
+                    return Some(t.clone());
                 }
                 None
             }

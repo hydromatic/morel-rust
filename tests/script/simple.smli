@@ -1289,11 +1289,11 @@ tup .1;
 
 (*) Unit values have no fields
 ().1;
-> stdIn:1.1-1.5 Error: reference to field 1 of non-record type unit
->   raised at: stdIn:1.1-1.5
+> stdIn:1.1-1.3 Error: reference to field 1 of non-record type unit
+>   raised at: stdIn:1.1-1.3
 {}.1;
-> stdIn:1.1-1.5 Error: reference to field 1 of non-record type unit
->   raised at: stdIn:1.1-1.5
+> stdIn:1.1-1.3 Error: reference to field 1 of non-record type unit
+>   raised at: stdIn:1.1-1.3
 
 (*) Singleton record with numeric field name (not a tuple)
 {1 = "hello"};
@@ -1306,8 +1306,8 @@ tup .1;
 
 (*) Space disambiguates: '3 . 1' applies '.1' to integer 3 (type error)
 3 . 1;
-> stdIn:1.1-1.6 Error: reference to field 1 of non-record type int
->   raised at: stdIn:1.1-1.6
+> stdIn:1.1 Error: reference to field 1 of non-record type int
+>   raised at: stdIn:1.1
 
 (*) Error: field does not exist
 (1, 2, 3).4;

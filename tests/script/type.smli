@@ -106,6 +106,9 @@ val r = {i=1,j=100};
  * error. *)
 val t = {i=1,r=100};
 > val t = {i=1,r=100} : {i:int, r:int}
+{t replace i = r.i};
+> stdIn:1.16 Error: reference to field i of non-record type int
+>   raised at: stdIn:1.16
 
 (* If that field is itself a record, both readings are well-typed, so
  * shadowing changes the answer rather than raising an error: 'r.i' is
@@ -656,6 +659,10 @@ type myInt = int;
 > type myInt = int
 val mi: myInt = 5;
 > val mi = 5 : myInt
+val mi2: typeof mi = 6;
+> val mi2 = 6 : myInt
+val mi3 = 6 : typeof mi;
+> val mi3 = 6 : myInt
 
 (* A type declaration may use 'typeof'. A name in the body of one refers to
  * the environment before the declaration -- that is what makes 'type t = t'
@@ -1626,6 +1633,12 @@ from {b: true, c: char};
 from x: true;
 > stdIn:1.9-1.13 Error: unbound type constructor: true
 >   raised at: stdIn:1.9-1.13
+fn x: true => x;
+> stdIn:1.7-1.11 Error: unbound type constructor: true
+>   raised at: stdIn:1.7-1.11
+val b: true = false;
+> stdIn:1.8-1.12 Error: unbound type constructor: true
+>   raised at: stdIn:1.8-1.12
 from {b: nosuchtype};
 > stdIn:1.10-1.20 Error: unbound type constructor: nosuchtype
 >   raised at: stdIn:1.10-1.20
@@ -1647,5 +1660,8 @@ datatype a = A of b and b = B of a;
 (* The parser reads "Foo x" in a pattern as a constructor applied to an
  * argument, whatever "Foo" turns out to be, so an unbound name arrives
  * at deducePatType rather than being caught as an unbound variable. *)
+fn NOSUCHCON x => x;
+> stdIn:1.4-1.13 Error: unbound constructor: NOSUCHCON
+>   raised at: stdIn:1.4-1.13
 
 (*) End type.smli

@@ -59,6 +59,19 @@ impl Span {
         }
     }
 
+    /// Returns the span of the first `len` characters of this span.
+    ///
+    /// A constructor pattern begins with the constructor's name, so the
+    /// error that the name is unbound covers the name, not the pattern
+    /// it heads.
+    pub fn prefix(&self, len: usize) -> Self {
+        Span {
+            input: self.input.clone(),
+            start: self.start,
+            end: (self.start + len).min(self.end),
+        }
+    }
+
     /// Creates the union of two spans.
     pub fn union(&self, other: &Span) -> Self {
         use std::cmp::{max, min};
