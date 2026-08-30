@@ -2548,12 +2548,17 @@ impl TypeResolver {
                         (&prev_return_type, &fun_match.type_)
                         && prev_type.kind != curr_type.kind
                     {
+                        // Clauses that disagree are an error, not a
+                        // warning: there is no type to give the function,
+                        // so binding the name would bind it to nothing
+                        // sound. The span covers the clauses, from the
+                        // first, as morel-java's does.
                         let combined_span =
-                            prev_type.span.union(&fun_match.span);
-                        self.warnings.push(Warning {
-                            span: combined_span.clone(),
-                            message: W_INCONSISTENT_PARAMETERS.to_string(),
-                        });
+                            fun_bind.matches[0].span.union(&fun_match.span);
+                        self.field_errors.borrow_mut().push((
+                            W_INCONSISTENT_PARAMETERS.to_string(),
+                            combined_span,
+                        ));
                     }
                     prev_return_type = Some(fun_match.type_.clone().unwrap());
                 }

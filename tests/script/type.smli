@@ -549,6 +549,10 @@ stdIn:1.6-2.32 Error: parameter or result constraints of clauses don't agree [ty
     f = (fn NONE => nil: int list
           | SOME x => nil: string list)
 *)
+fun f NONE:int list = []
+  | f (SOME x):string list = [];
+> stdIn:1.5-2.32 Error: parameter or result constraints of clauses don't agree [tycon mismatch]
+>   raised at: stdIn:1.5-2.32
 
 (* typeof --------------------------------------------------------- *)
 
