@@ -1648,11 +1648,11 @@ impl MorelParser {
         Ok(match_nodes!(input.children();
             [identifier(i), type_(t)] => {
                 let name = i.to_string();
-                TypeBind {name, type_: t}
+                TypeBind {type_vars: vec![], name, type_: t}
             },
-            [type_vars(_vars), identifier(i), type_(t)] => {
+            [type_vars(vars), identifier(i), type_(t)] => {
                 let name = i.to_string();
-                TypeBind {name, type_: t}
+                TypeBind {type_vars: vars, name, type_: t}
             },
         ))
     }

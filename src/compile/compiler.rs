@@ -454,6 +454,7 @@ impl<'a> Compiler<'a> {
         if let Some(actions) = actions {
             for tb in type_binds {
                 actions.push(Box::new(TypeDeclAction {
+                    type_vars: tb.type_vars.clone(),
                     name: tb.name.clone(),
                     type_: tb.type_.clone(),
                 }));
@@ -2636,15 +2637,23 @@ impl Action for OverDeclAction {
 }
 
 struct TypeDeclAction {
+    type_vars: Vec<String>,
     name: String,
     type_: Type,
 }
 
 impl Action for TypeDeclAction {
     fn apply(&self, r: &mut EvalEnv, _f: &mut Frame) {
+        // An alias with parameters is written with them, as it was
+        // declared: `type 'a my_list = 'a list`.
+        let head = match self.type_vars.len() {
+            0 => self.name.clone(),
+            1 => format!("{} {}", self.type_vars[0], self.name),
+            _ => format!("({}) {}", self.type_vars.join(", "), self.name),
+        };
         r.emit_effect(Effect::EmitLine(format!(
             "type {} = {}",
-            self.name, self.type_
+            head, self.type_
         )));
     }
 }

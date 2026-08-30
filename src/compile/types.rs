@@ -103,6 +103,54 @@ pub fn displace(type_: &Type, name: &str) -> Type {
     }
 }
 
+/// Expands, throughout a type, the alias called `name`, replacing it
+/// with the type it abbreviates.
+///
+/// A `type` declaration is not recursive, so a name it binds means the
+/// definition being displaced; an alias is transparent, so the displaced
+/// one is expanded rather than kept under a name that now means
+/// something else.
+pub fn expand_alias(type_: &Type, name: &str) -> Type {
+    match type_ {
+        // lint: sort until '#}' where '##Type::'
+        Type::Alias(n, inner, args) => {
+            if n == name {
+                expand_alias(inner, name)
+            } else {
+                Type::Alias(
+                    n.clone(),
+                    Rc::new(expand_alias(inner, name)),
+                    args.clone(),
+                )
+            }
+        }
+        Type::Bag(t) => Type::Bag(Rc::new(expand_alias(t, name))),
+        Type::Data(n, ts) => Type::Data(
+            n.clone(),
+            ts.iter().map(|t| Rc::new(expand_alias(t, name))).collect(),
+        ),
+        Type::Fn(a, b) => Type::Fn(
+            Rc::new(expand_alias(a, name)),
+            Rc::new(expand_alias(b, name)),
+        ),
+        Type::List(t) => Type::List(Rc::new(expand_alias(t, name))),
+        Type::Record(p, fields) => Type::Record(
+            *p,
+            fields
+                .iter()
+                .map(|(k, v): (&Label, &Rc<Type>)| {
+                    (k.clone(), Rc::new(expand_alias(v, name)))
+                })
+                .collect(),
+        ),
+        Type::Tuple(ts) => Type::Tuple(
+            ts.iter().map(|t| Rc::new(expand_alias(t, name))).collect(),
+        ),
+        // #}
+        _ => type_.clone(),
+    }
+}
+
 /// The name to show for a type constructor. A collection whose
 /// orderedness nothing has decided reads back as a bag, so that is
 /// what it is called; its internal name is not something to show
@@ -298,9 +346,10 @@ impl Type {
     ) -> fmt::Result {
         match self {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(_name, ty, _args) => {
-                // For type aliases, just display the underlying type.
-                ty.describe(f, left, right)
+            Type::Alias(name, _ty, _args) => {
+                // An alias is displayed under its own name; that is the
+                // point of it surviving inference.
+                f.write_str(name)
             }
             Type::Bag(elem_type) => {
                 const OP: Op = Op::APPLY;

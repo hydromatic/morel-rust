@@ -1119,6 +1119,9 @@ impl Display for ValBind {
 /// Type binding.
 #[derive(Clone, Debug)]
 pub struct TypeBind {
+    /// Type parameters of the alias, e.g. `'a` in
+    /// `type 'a my_list = 'a list`.
+    pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
 }

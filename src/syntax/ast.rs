@@ -1562,13 +1562,31 @@ impl Display for FunMatch {
 /// Type binding.
 #[derive(Clone, Debug)]
 pub struct TypeBind {
+    /// Type parameters of the alias, e.g. `'a` in
+    /// `type 'a my_list = 'a list`. An alias is a type function, and
+    /// these are its parameters.
+    pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
 }
 
 impl Display for TypeBind {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{} = {}", self.name, self.type_)
+        match self.type_vars.len() {
+            0 => write!(f, "{} = {}", self.name, self.type_),
+            1 => write!(
+                f,
+                "{} {} = {}",
+                self.type_vars[0], self.name, self.type_
+            ),
+            _ => write!(
+                f,
+                "({}) {} = {}",
+                self.type_vars.join(", "),
+                self.name,
+                self.type_
+            ),
+        }
     }
 }
 

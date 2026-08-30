@@ -43,11 +43,52 @@ use std::time::Instant;
 /// leaking internals.
 pub const COLLECTION_OP_NAME: &str = "$collection";
 
+/// Operator prefix of a type-alias sequence, whose sole argument is the
+/// type the alias abbreviates. Mirrors `TypeResolver::ALIAS_TY_CON`.
+pub const ALIAS_PREFIX: &str = "$alias:";
+
 /// Orderedness atom for a list.
 pub const ORDERED_OP_NAME: &str = "ordered";
 
 /// Orderedness atom for a bag.
 pub const UNORDERED_OP_NAME: &str = "unordered";
+
+/// Whether two head-reduced terms are sequences that disagree at the
+/// head, and so can never unify.
+fn conflicts_at_head(left: &Term, right: &Term) -> bool {
+    matches!((left, right),
+        (Term::Sequence(l), Term::Sequence(r)) if l.op != r.op)
+}
+
+/// Replaces, throughout a term, each alias that met a different type
+/// during unification with what it expands to.
+///
+/// An alias is only as strong as what it abbreviates, so where `nat`
+/// meets `int` the result is `int`. Without this the first type seen
+/// would win, and `[n, i]` and `[i, n]` would differ.
+fn weaken(term: &Term, weakened: &[(Term, Term)]) -> Term {
+    if let Some((_, replacement)) =
+        weakened.iter().find(|(from, _)| from == term)
+    {
+        return weaken(replacement, weakened);
+    }
+    if let Term::Sequence(seq) = term {
+        let mut terms = Vec::with_capacity(seq.terms.len());
+        let mut changed = false;
+        for t in seq.terms.iter() {
+            let t2 = weaken(t, weakened);
+            changed |= &t2 != t;
+            terms.push(t2);
+        }
+        if changed {
+            return Term::Sequence(Sequence {
+                op: seq.op,
+                terms: Rc::from(terms),
+            });
+        }
+    }
+    term.clone()
+}
 
 /// Returns the type-constructor name -- `list` or `bag` -- of an
 /// orderedness atom.
@@ -1306,6 +1347,28 @@ impl Unifier {
     /// Returns whether `left` and `right` are collection terms whose
     /// orderedness atoms are both concrete and differ (that is, one is a list
     /// and the other a bag).
+    /// Expands a type alias, repeatedly, or returns the term unchanged.
+    ///
+    /// A type alias is a sequence whose operator starts with `$alias:`
+    /// and whose sole argument is its expanded body. Expanding lets an
+    /// alias unify with the type it abbreviates, while leaving it in
+    /// place everywhere the two never meet, so that it survives
+    /// inference.
+    fn head_reduce(&self, term: &Term) -> Term {
+        let mut current = term.clone();
+        loop {
+            let next = match &current {
+                Term::Sequence(seq)
+                    if self.op_name(&seq.op).starts_with(ALIAS_PREFIX) =>
+                {
+                    seq.terms[0].clone()
+                }
+                _ => return current,
+            };
+            current = next;
+        }
+    }
+
     fn is_orderedness_conflict(
         &self,
         left: &Sequence,
@@ -1347,7 +1410,10 @@ impl Unifier {
         self.render(term)
     }
 
-    /// Renders a sequence for an error message. See [`Unifier::render`].
+    /// Renders a sequence for an error message, in the syntax a type is
+    /// written in rather than the unifier's internal form: `int * int`
+    /// rather than `tuple(int, int)`, `T list` rather than `list(T)`.
+    /// See [`Unifier::render`].
     pub fn render_sequence(&self, seq: &Sequence) -> String {
         if let Some(ord) = self.orderedness_atom(&Term::Sequence(seq.clone())) {
             // A bare orderedness atom surfaces when two collections are
@@ -1355,23 +1421,76 @@ impl Unifier {
             // as "list"/"bag".
             return collection_name(ord).to_string();
         }
-        if self.op_name(&seq.op) == COLLECTION_OP_NAME && seq.terms.len() == 2 {
+        let op_name = self.op_name(&seq.op);
+        if op_name == COLLECTION_OP_NAME && seq.terms.len() == 2 {
             let kind = match self.orderedness_atom(&seq.terms[1]) {
                 Some(ord) => collection_name(ord),
                 None => "bag",
             };
-            return format!("{}({})", kind, self.render(&seq.terms[0]));
+            return format!("{} {}", self.render_atomic(&seq.terms[0]), kind);
+        }
+        if let Some(name) = op_name.strip_prefix(ALIAS_PREFIX) {
+            // "$alias:t(int)" reads "t (alias for int)".
+            return format!(
+                "{} (alias for {})",
+                name,
+                self.render(&seq.terms[0])
+            );
+        }
+        if op_name == "tuple" && !seq.terms.is_empty() {
+            return self.render_join(&seq.terms, " * ");
+        }
+        if op_name == "fn" && seq.terms.len() == 2 {
+            return format!(
+                "{} -> {}",
+                self.render(&seq.terms[0]),
+                self.render(&seq.terms[1])
+            );
+        }
+        if let Some(labels) = op_name.strip_prefix("record:") {
+            // The operator carries the field names, e.g. "record:a:b".
+            let names: Vec<&str> = labels.split(':').collect();
+            if names.len() == seq.terms.len() {
+                let fields = zip(names, seq.terms.iter())
+                    .map(|(name, term)| {
+                        format!("{}:{}", name, self.render(term))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!("{{{}}}", fields);
+            }
         }
         if seq.terms.is_empty() {
-            return self.op_name(&seq.op).to_string();
+            return op_name.to_string();
         }
-        let args = seq
-            .terms
+        // A type constructor applied to arguments, e.g. "int option".
+        let args = if seq.terms.len() == 1 {
+            self.render_atomic(&seq.terms[0])
+        } else {
+            format!("({})", self.render_join(&seq.terms, ", "))
+        };
+        format!("{} {}", args, op_name)
+    }
+
+    /// Renders a term, parenthesized if it would otherwise bind less
+    /// tightly than the postfix type constructor it is the argument of:
+    /// `(int * int) list`, not `int * int list`.
+    fn render_atomic(&self, term: &Term) -> String {
+        let s = self.render(term);
+        if !s.contains(' ') || s.starts_with('(') || s.starts_with('{') {
+            s
+        } else {
+            format!("({})", s)
+        }
+    }
+
+    /// Renders terms, separated.
+    fn render_join(&self, terms: &[Term], separator: &str) -> String {
+        terms
             .iter()
             .map(|t| self.render(t))
             .collect::<Vec<_>>()
-            .join(", ");
-        format!("{}({})", self.op_name(&seq.op), args)
+            .join(separator)
     }
 
     /// Formats a substitution as a string.
@@ -1495,6 +1614,9 @@ impl Unifier {
         #[cfg(feature = "profiling")]
         let mut iteration = 0;
 
+        // Alias terms that met a different type, and what they expand to.
+        let mut weakened: Vec<(Term, Term)> = Vec::new();
+
         loop {
             #[cfg(feature = "profiling")]
             {
@@ -1506,6 +1628,33 @@ impl Unifier {
             if let Some((left, right)) = seq_pair {
                 if left.op != right.op || left.terms.len() != right.terms.len()
                 {
+                    // Head-reduce. A type alias is a sequence whose sole
+                    // argument is its expanded body; if it meets a term with
+                    // a different operator, the aliases are expanded and the
+                    // pair retried, so that an alias unifies with the type it
+                    // abbreviates.
+                    let left_term = Term::Sequence(left.clone());
+                    let right_term = Term::Sequence(right.clone());
+                    let left2 = self.head_reduce(&left_term);
+                    let right2 = self.head_reduce(&right_term);
+                    if left2 != left_term || right2 != right_term {
+                        // An alias met a different type, so it is only as
+                        // strong as what it abbreviates: remember to weaken
+                        // it in the substitution.
+                        if left2 != left_term {
+                            weakened.push((left_term, left2.clone()));
+                        }
+                        if right2 != right_term {
+                            weakened.push((right_term, right2.clone()));
+                        }
+                        if !conflicts_at_head(&left2, &right2) {
+                            work.add(left2, right2);
+                            continue;
+                        }
+                        // The expansions still disagree, so fall through and
+                        // report the aliases that were written rather than
+                        // what they expand to.
+                    }
                     tracer.on_conflict(&left, &right);
                     let reason = format!(
                         "conflict: {} vs {}",
@@ -1613,7 +1762,12 @@ impl Unifier {
                 println!("Result: {}", work);
             }
 
-            let substitutions = work.result.clone();
+            let mut substitutions = work.result.clone();
+            if !weakened.is_empty() {
+                for term in substitutions.values_mut() {
+                    *term = weaken(term, &weakened);
+                }
+            }
 
             #[cfg(feature = "profiling")]
             {
@@ -1801,6 +1955,14 @@ impl UnifierTest {
         Term::Sequence(self.unifier.apply3(op, term0, term1, term2))
     }
 
+    /// Builds a type-alias term: `name` abbreviating `body`.
+    fn alias(&mut self, name: &str, body: Term) -> Term {
+        let op = self
+            .unifier
+            .op(&format!("{}{}", ALIAS_PREFIX, name), Some(1));
+        Term::Sequence(self.unifier.apply1(op, body))
+    }
+
     fn atom(&mut self, op: &str) -> Term {
         let op_ = self.unifier.op(op, Some(0));
         Term::Sequence(self.unifier.atom(op_))
@@ -1909,6 +2071,50 @@ mod tests {
 
     fn create_with_occurs(occurs: bool) -> UnifierTest {
         UnifierTest::new(occurs)
+    }
+
+    /// An alias unifies with the type it abbreviates, and is weakened to
+    /// it: having met `int`, `nat` is only as strong as `int`.
+    #[test]
+    fn test_alias_unifies_with_its_expansion() {
+        let mut t = create();
+        let int = t.atom("int");
+        let nat = t.alias("nat", int.clone());
+        let x = t.var("X");
+        let pairs = vec![(x.clone(), nat), (x, int)];
+        t.assert_that_unify_pairs(&pairs, "[int/X]");
+    }
+
+    /// An alias that meets nothing to contradict it survives inference.
+    #[test]
+    fn test_alias_survives_unopposed() {
+        let mut t = create();
+        let int = t.atom("int");
+        let nat = t.alias("nat", int);
+        let x = t.var("X");
+        let y = t.var("Y");
+        let pairs = vec![(x.clone(), nat), (y, x)];
+        t.assert_that_unify_pairs(
+            &pairs,
+            "[$alias:nat(int)/X, $alias:nat(int)/Y]",
+        );
+    }
+
+    /// Two aliases whose expansions still disagree conflict, and the
+    /// message names the aliases that were written.
+    #[test]
+    fn test_alias_conflict_names_the_alias() {
+        let mut t = create();
+        let int = t.atom("int");
+        let string = t.atom("string");
+        let nat = t.alias("nat", int);
+        let name = t.alias("name", string);
+        let pairs = vec![(nat, name)];
+        let failure = t.unifier.unify(&pairs, &NullTracer, &[]).unwrap_err();
+        assert_eq!(
+            failure.reason(),
+            "conflict: nat (alias for int) vs name (alias for string)"
+        );
     }
 
     #[test]

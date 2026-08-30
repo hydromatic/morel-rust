@@ -1214,8 +1214,13 @@ impl<'a> Resolver<'a> {
                 elements.iter().map(|e| self.resolve_expr(e)).collect(),
             ),
             ExprKind::TypeString(operand) => {
+                // Prefer the type as it would be displayed, which keeps an
+                // alias; the expanded type would say "int" for a value the
+                // shell prints as `foo`.
                 let moniker = operand
-                    .get_type(self.type_map)
+                    .id
+                    .and_then(|id| self.type_map.get_type_with_alias(id))
+                    .or_else(|| operand.get_type(self.type_map))
                     .map(|ty| ty.to_string())
                     .unwrap_or_default();
                 CoreExpr::Literal(t, Val::String((moniker).into()))
@@ -1687,6 +1692,21 @@ impl<'a> Resolver<'a> {
                 // pattern's type in Type::Alias (unless already
                 // wrapped by the inner Identifier handler).
                 let resolved = self.resolve_pat(inner_pat);
+                // The annotation as written wins, even over an alias the
+                // deduced type already carries: that one's body has been
+                // expanded, so `nats` would be `int list` rather than
+                // `nat2 list`. morel-java takes the same route, converting
+                // the written annotation in `deduceRealTypes`.
+                if let TypeKind::Id(name) = &ann_type.kind
+                    && let Some(body) = self.type_map.type_aliases.get(name)
+                {
+                    let alias_type = Rc::new(Type::Alias(
+                        name.clone(),
+                        Rc::new(body.clone()),
+                        vec![],
+                    ));
+                    return resolved.with_type(alias_type);
+                }
                 if matches!(*resolved.type_(), Type::Alias(..)) {
                     // Already wrapped by get_type_with_alias
                     return resolved;
@@ -1696,7 +1716,17 @@ impl<'a> Resolver<'a> {
                 {
                     let var = Var { id: ann_id };
                     if self.type_map.var_alias_map.contains_key(&var) {
-                        let inner_type = resolved.type_().clone();
+                        // The annotation as written, not the deduced type
+                        // wrapped in the name: an alias whose body names
+                        // another alias keeps it that way, so `nats` is
+                        // `nat2 list`, not `int list`. morel-java takes
+                        // the same route, converting the written
+                        // annotation in `deduceRealTypes`.
+                        let inner_type =
+                            match self.type_map.type_aliases.get(name) {
+                                Some(body) => Rc::new(body.clone()),
+                                None => resolved.type_().clone(),
+                            };
                         let alias_type = Rc::new(Type::Alias(
                             name.clone(),
                             inner_type,
@@ -1857,6 +1887,7 @@ impl<'a> Resolver<'a> {
             .or_else(|| ast_type_to_core_type(&type_bind.type_))
             .unwrap_or(Type::Primitive(PrimitiveType::Unit));
         CoreTypeBind {
+            type_vars: type_bind.type_vars.clone(),
             name: type_bind.name.clone(),
             type_: core_type,
         }

@@ -29,7 +29,7 @@ use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::type_env::{BindType, SchemeTypeEnv, TypeEnv};
 use crate::compile::types;
-use crate::compile::types::{Label, displace};
+use crate::compile::types::{Label, displace, expand_alias, instantiate};
 use crate::compile::types::{
     Predicate, PrimitiveType, Subst, Type, TypeVariable,
 };
@@ -50,8 +50,8 @@ use crate::syntax::ast::{
 };
 use crate::syntax::parser;
 use crate::unify::unifier::{
-    Action, COLLECTION_OP_NAME, Constraint, ConstraintAction, NullTracer,
-    ORDERED_OP_NAME, Op, OpDef, Sequence, Substitution, Term,
+    ALIAS_PREFIX, Action, COLLECTION_OP_NAME, Constraint, ConstraintAction,
+    NullTracer, ORDERED_OP_NAME, Op, OpDef, Sequence, Substitution, Term,
     UNORDERED_OP_NAME, Unifier, Var,
 };
 use std::cell::{OnceCell, RefCell};
@@ -59,6 +59,34 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::iter::{once, zip};
 use std::rc::Rc;
+
+/// Looks through a type alias to the type it abbreviates, resolving
+/// through the substitution as it goes.
+///
+/// An alias reaches only the displayed type; anything that reads a term's
+/// structure -- a record selector looking for its field -- must see the
+/// record, not the alias wrapping it.
+fn unalias_term(
+    term: &Term,
+    op_defs: &[OpDef],
+    substitution: &Substitution,
+) -> Term {
+    let mut term = term.clone();
+    loop {
+        match &term {
+            Term::Sequence(seq)
+                if op_defs[seq.op.0 as usize]
+                    .name
+                    .starts_with(ALIAS_PREFIX) =>
+            {
+                let inner = seq.terms[0].clone();
+                term = substitution.resolve_term(&inner);
+            }
+            _ => return term,
+        }
+    }
+}
+
 use types::ordinal_names;
 
 /// A field of this name indicates that a record type is progressive.
@@ -90,6 +118,21 @@ pub struct TypeMap {
     /// Maps unifier variables to type alias names. Used during
     /// type reconstruction to wrap resolved types in `Type::Alias`.
     pub var_alias_map: HashMap<Var, String>,
+    /// Maps a unifier variable to the alias term it was bound to before
+    /// unification, for those variables bound to one.
+    ///
+    /// The displayed type of a binding comes from the term the node was
+    /// registered with, not from the substitution: an alias that met a
+    /// different type is weakened in the substitution, yet
+    /// `val n: nat = 5` still displays `nat`. Only a type that resolves
+    /// *through* the substitution is weakened, which is why `[n, i]` is
+    /// `int list` while `[n, n]` is `nat list`.
+    pub var_alias_term_map: HashMap<Var, Term>,
+    /// Maps a unifier variable to the term it was bound to before
+    /// unification. Consulted, in `with_alias` mode only, for a variable
+    /// whose written term reaches an alias that the substitution has
+    /// inlined away -- the element of `val list: myInt list = [1]`.
+    pub var_pre_term_map: HashMap<Var, Term>,
     /// Constructor sets for user-defined datatypes. Maps datatype
     /// name → list of constructor names. Used by the coverage
     /// checker to determine whether a set of constructor patterns
@@ -108,6 +151,11 @@ pub struct TypeMap {
     /// resolver converts a constructor's argument type syntactically and
     /// cannot deduce one itself.
     pub decl_exp_types: HashMap<(usize, usize), Type>,
+    /// The body of every type alias in scope, including those declared
+    /// by earlier statements. A binding annotated with an alias takes
+    /// its displayed type from here -- the annotation as written --
+    /// rather than from the deduced type, which has been expanded.
+    pub type_aliases: HashMap<String, Type>,
     /// Overload constraints that were still unresolved when unification
     /// finished: `(name, type term, candidate instance terms)`. They become
     /// the predicates of a qualified type; see
@@ -133,9 +181,12 @@ impl TypeMap {
         Self {
             node_var_map: node_var_map.clone(),
             var_term_map: HashMap::new(),
+            var_alias_term_map: HashMap::new(),
+            var_pre_term_map: HashMap::new(),
             op_defs,
             expanded_type_binds: HashMap::new(),
             decl_exp_types: HashMap::new(),
+            type_aliases: HashMap::new(),
             predicate_terms: Vec::new(),
             var_alias_map: HashMap::new(),
             datatype_constructors: HashMap::new(),
@@ -250,13 +301,43 @@ impl TypeMap {
         })
     }
 
+    /// Whether the term a variable was written with reaches a type alias,
+    /// following the written terms rather than the substitution. Bounded,
+    /// because the written equations may be cyclic.
+    fn reaches_alias(&self, term: &Term, depth: u32) -> bool {
+        if depth == 0 {
+            return false;
+        }
+        match term {
+            Term::Variable(v) => match self.var_pre_term_map.get(v) {
+                Some(t) => self.reaches_alias(t, depth - 1),
+                None => false,
+            },
+            Term::Sequence(seq) => {
+                self.op_defs[seq.op.0 as usize]
+                    .name
+                    .starts_with(ALIAS_PREFIX)
+                    || seq
+                        .terms
+                        .iter()
+                        .any(|t| self.reaches_alias(t, depth - 1))
+            }
+        }
+    }
+
     fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Rc<Type>> {
         if let Some(var) = self.node_var_map.get(&id) {
-            let term = self
-                .var_term_map
-                .get(var)
-                .cloned()
-                .unwrap_or(Term::Variable(*var));
+            // The alias as it was written wins over the substitution; see
+            // `var_alias_term_map`.
+            let written = self.var_pre_term_map.get(var);
+            let term = match written {
+                Some(t) if with_alias && self.reaches_alias(t, 20) => t.clone(),
+                _ => self
+                    .var_term_map
+                    .get(var)
+                    .cloned()
+                    .unwrap_or(Term::Variable(*var)),
+            };
             // When with_alias, replace inlined sub-Sequences
             // that match an alias var's concrete term with
             // Variable(alias_var), so term_type can detect them.
@@ -592,6 +673,20 @@ impl<'a> TermToTypeConverter<'a> {
                             .collect();
                         self.lib.intern(Type::Tuple(types))
                     }
+                    s if s.starts_with(ALIAS_PREFIX) => {
+                        // The alias reaches only the displayed type; every
+                        // type the compiler examines has its aliases
+                        // expanded, so nothing that inspects a type
+                        // structurally has to know an alias exists.
+                        assert_eq!(sequence.terms.len(), 1);
+                        let name = s[ALIAS_PREFIX.len()..].to_string();
+                        let inner = self.term_type(&sequence.terms[0]);
+                        if self.with_alias {
+                            self.lib.intern(Type::Alias(name, inner, vec![]))
+                        } else {
+                            inner
+                        }
+                    }
                     s if s.starts_with("record") => {
                         let labels = TypeResolver::field_list(
                             &self.type_map.op_defs,
@@ -634,6 +729,17 @@ impl<'a> TermToTypeConverter<'a> {
                 }
             }
             Term::Variable(v) => {
+                // The alias as it was written wins over the substitution,
+                // which weakens an alias that met a different type. This is
+                // what keeps `nat` in `val n: nat = 5`, whose alias term did
+                // meet `int`.
+                if self.with_alias
+                    && let Some(term) =
+                        self.type_map.var_pre_term_map.get(v).cloned()
+                    && self.type_map.reaches_alias(&term, 20)
+                {
+                    return self.term_type(&term);
+                }
                 // Check if this variable carries a type alias,
                 // either directly or by resolving to the same
                 // concrete term as an alias var.
@@ -806,6 +912,10 @@ pub struct TypeResolver {
     /// User-defined type aliases, populated from `type` declarations
     /// and `datatype` declarations.
     pub type_aliases: HashMap<String, Type>,
+    /// Number of parameters of each type alias, e.g. 1 for
+    /// `type 'a my_list = 'a list`. An alias is a type function,
+    /// and must be applied to exactly this many arguments.
+    pub alias_arities: HashMap<String, usize>,
 
     /// The expanded core type of each `type` binding declared by this
     /// statement, so that `type t = t list` displays its expansion.
@@ -1177,6 +1287,7 @@ impl TypeResolver {
     fn arity_of_type_ctor(&self, name: &str) -> Option<usize> {
         library::builtin_type_arity(name)
             .or_else(|| self.user_datatype_arities.get(name).copied())
+            .or_else(|| self.alias_arities.get(name).copied())
     }
 
     /// Deduces the type of the expression of a `typeof` written in a type
@@ -1253,6 +1364,7 @@ impl TypeResolver {
         env: &dyn TypeEnv,
         ast_type: &AstType,
         aliases: &HashMap<String, Type>,
+        type_vars: &[String],
     ) -> Result<Type, (String, Span)> {
         let unbound =
             |name: &str| Err((name.to_string(), ast_type.span.clone()));
@@ -1268,10 +1380,28 @@ impl TypeResolver {
                 // own.
                 Ok(self.decl_exp_type(env, expr))
             }
-            TypeKind::Con(_) | TypeKind::Var(_) => {
-                // A type variable or a constructor: not expanded here.
-                // Fall back to the unexpanded lowering, or to `unit` if
-                // that is not possible.
+            TypeKind::Var(name) => {
+                // A type variable of the alias's own head is a parameter:
+                // an alias is a type function, and applying it
+                // substitutes for these. One that is not in the head has
+                // nothing to stand for; declare it, as
+                // `type 'a my_list = 'a list` does.
+                if let Some(i) = type_vars.iter().position(|v| v == name) {
+                    return Ok(Type::Variable(TypeVariable::new(i)));
+                }
+                self.field_errors.borrow_mut().push((
+                    format!(
+                        "unbound type variable in type declaration: {}",
+                        name
+                    ),
+                    ast_type.span.clone(),
+                ));
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+            TypeKind::Con(_) => {
+                // A constructor: not expanded here. Fall back to the
+                // unexpanded lowering, or to `unit` if that is not
+                // possible.
                 Ok(ast_type_to_core_type(ast_type)
                     .unwrap_or(Type::Primitive(PrimitiveType::Unit)))
             }
@@ -1280,14 +1410,25 @@ impl TypeResolver {
                 Ok(Type::Primitive(PrimitiveType::Unit))
             }
             TypeKind::Fn(a, b) => Ok(Type::Fn(
-                Rc::new(self.expand_ast_type(env, a, aliases)?),
-                Rc::new(self.expand_ast_type(env, b, aliases)?),
+                Rc::new(self.expand_ast_type(env, a, aliases, type_vars)?),
+                Rc::new(self.expand_ast_type(env, b, aliases, type_vars)?),
             )),
             TypeKind::Id(name) => {
                 if let Some(p) = PrimitiveType::parse_name(name) {
                     Ok(Type::Primitive(p))
                 } else if let Some(t) = aliases.get(name) {
-                    Ok(t.clone())
+                    // Keep the name: an alias survives inference, and a
+                    // 'type' declaration displays its body as written. A
+                    // datatype registers its own name here, and that is
+                    // not an alias.
+                    match t {
+                        Type::Data(n, _) if n == name => Ok(t.clone()),
+                        _ => Ok(Type::Alias(
+                            name.clone(),
+                            Rc::new(t.clone()),
+                            vec![],
+                        )),
+                    }
                 } else if library::builtin_type_arity(name.as_str()) == Some(0)
                 {
                     Ok(Type::Data(name.clone(), vec![]))
@@ -1304,6 +1445,7 @@ impl TypeResolver {
                             env,
                             &field.type_,
                             aliases,
+                            type_vars,
                         )?),
                     );
                 }
@@ -1312,7 +1454,9 @@ impl TypeResolver {
             TypeKind::Tuple(types) => {
                 let mut args = Vec::with_capacity(types.len());
                 for t in types {
-                    args.push(Rc::new(self.expand_ast_type(env, t, aliases)?));
+                    args.push(Rc::new(
+                        self.expand_ast_type(env, t, aliases, type_vars)?,
+                    ));
                 }
                 Ok(Type::Tuple(args))
             }
@@ -1324,7 +1468,9 @@ impl TypeResolver {
                 let flat_args = AstType::flatten(args);
                 let mut args2 = Vec::with_capacity(flat_args.len());
                 for a in &flat_args {
-                    args2.push(Rc::new(self.expand_ast_type(env, a, aliases)?));
+                    args2.push(Rc::new(
+                        self.expand_ast_type(env, a, aliases, type_vars)?,
+                    ));
                 }
                 if args2.len() == 1 {
                     match name.as_str() {
@@ -1336,6 +1482,13 @@ impl TypeResolver {
                         }
                         _ => {}
                     }
+                }
+                // An alias is a type function: applying it substitutes
+                // the arguments into its body and expands.
+                if let Some(body) = aliases.get(name)
+                    && !matches!(body, Type::Data(n, _) if n == name)
+                {
+                    return Ok(instantiate(body, &args2));
                 }
                 if self.arity_of_type_ctor(name).is_some() {
                     Ok(Type::Data(name.clone(), args2))
@@ -1455,6 +1608,7 @@ impl TypeResolver {
             fn_op,
             decl_type_vars: BTreeMap::new(),
             type_aliases: HashMap::new(),
+            alias_arities: HashMap::new(),
             expanded_type_binds: HashMap::new(),
             user_datatype_arities: HashMap::new(),
             datatype_bindings: Vec::new(),
@@ -1665,12 +1819,24 @@ impl TypeResolver {
             TypeMap::new(&self.node_var_map, Rc::clone(&self.unifier.op_defs));
         let residual_constraints = unify_result.residual_constraints;
         let substitution = unify_result.substitution;
+        // Record the alias terms as they were written, before the
+        // substitution -- which weakens an alias that met a different
+        // type -- is copied in.
+        for (v, term) in &self.terms {
+            if let Term::Sequence(seq) = term {
+                if self.unifier.op_name(&seq.op).starts_with(ALIAS_PREFIX) {
+                    type_map.var_alias_term_map.insert(*v, term.clone());
+                }
+                type_map.var_pre_term_map.entry(*v).or_insert(term.clone());
+            }
+        }
         for (v, term) in substitution.substitutions.clone() {
             type_map.var_term_map.insert(v, term);
         }
 
         type_map.expanded_type_binds = self.expanded_type_binds.clone();
         type_map.decl_exp_types = self.decl_exp_types.clone();
+        type_map.type_aliases = self.type_aliases.clone();
 
         // A record whose modifiers were never desugared, because the
         // fields of its base never became known. morel-java's
@@ -1917,9 +2083,19 @@ impl TypeResolver {
                         type_map.get_type_with_alias(id)
                     } {
                         let resolved_type = if let Some(alias_name) = alias {
+                            // The alias body as written, not the deduced
+                            // type wrapped in the name: `nats` is
+                            // `nat2 list`, not `int list`. morel-java
+                            // converts the written annotation in
+                            // `deduceRealTypes` for the same reason.
+                            let body =
+                                match type_map.type_aliases.get(alias_name) {
+                                    Some(body) => Rc::new(body.clone()),
+                                    None => resolved_type,
+                                };
                             Rc::new(Type::Alias(
                                 alias_name.to_string(),
-                                resolved_type,
+                                body,
                                 vec![],
                             ))
                         } else {
@@ -2229,7 +2405,12 @@ impl TypeResolver {
                 let mut expanded = Vec::with_capacity(type_binds.len());
                 for tb in type_binds {
                     self.validate_ast_type(&tb.type_);
-                    match self.expand_ast_type(env, &tb.type_, &prior_aliases) {
+                    match self.expand_ast_type(
+                        env,
+                        &tb.type_,
+                        &prior_aliases,
+                        &tb.type_vars,
+                    ) {
                         Ok(rhs_type) => {
                             expanded.push((tb.name.clone(), rhs_type));
                         }
@@ -2242,7 +2423,21 @@ impl TypeResolver {
                         }
                     }
                 }
+                let group: Vec<String> =
+                    type_binds.iter().map(|tb| tb.name.clone()).collect();
+                for tb in type_binds {
+                    // An alias is a type function; remember how many
+                    // arguments it takes, so a use with the wrong number
+                    // is reported.
+                    self.alias_arities
+                        .insert(tb.name.clone(), tb.type_vars.len());
+                }
                 for (name, rhs_type) in expanded {
+                    // An alias the group itself binds is displaced, and an
+                    // alias is transparent, so it is expanded rather than
+                    // kept under a name that now means something else.
+                    let rhs_type =
+                        group.iter().fold(rhs_type, |t, n| expand_alias(&t, n));
                     // A datatype is generative, so it cannot be expanded.
                     // Where the body names the datatype this declaration
                     // displaces, that datatype is now nameless, and is
@@ -5242,6 +5437,7 @@ impl TypeResolver {
                 // `Rc<Vec<OpDef>>`, the snapshot is silently split off,
                 // so the action would index into a stale vec and panic
                 // with "index out of bounds".
+                let term = &unalias_term(term, op_defs, substitution);
                 if let Term::Sequence(sequence) = term {
                     if let Some(field_list) =
                         TypeResolver::field_list(op_defs, sequence)
@@ -5926,6 +6122,21 @@ impl TypeResolver {
     }
 
     /// Creates a term for a bag type and associates it with a variable.
+    /// Creates a term for a type alias -- a sequence whose sole argument
+    /// is the type the alias abbreviates -- and associates it with a
+    /// variable. The unifier expands it only as far as unification
+    /// requires, so the name survives inference.
+    fn alias_term<'a>(
+        &mut self,
+        name: &str,
+        term: Term,
+        v: &'a Var,
+    ) -> &'a Var {
+        let op = self.unifier.op(&format!("{ALIAS_PREFIX}{name}"), Some(1));
+        let sequence = self.unifier.apply1(op, term);
+        self.equiv(&Term::Sequence(sequence), v)
+    }
+
     fn bag_term<'a>(&mut self, term: Term, v: &'a Var) -> &'a Var {
         let unordered = self.unordered_atom();
         let sequence = self.collection_term(term, unordered);
@@ -6343,14 +6554,15 @@ impl TypeResolver {
     pub(crate) fn type_term(&mut self, type_: &Type, subst: &Subst, v: &Var) {
         match type_ {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(_name, type_, _args) => {
-                // During type inference, we pretend that an alias type is its
-                // underlying type. For example, if we have 'type t = int', and
-                // 'val i = 1: t', we treat 'i' as having type 'int'.
-                //
-                // After type inference is complete, we can deduce the true type
-                // bottom-up. Thus, '[1: t]' has "t list" as its type.
-                self.type_term(&type_, subst, v)
+            Type::Alias(name, type_, _args) => {
+                // An alias is a term of its own, wrapping the type it
+                // abbreviates. The unifier head-reduces it only where it
+                // meets a different type, so the name survives inference:
+                // 'val i = 1: t' gives 'i' the type 't', and '[1: t]' the
+                // type 't list', while 'i + 1' still unifies with 'int'.
+                let v2 = self.variable();
+                self.type_term(type_, subst, &v2);
+                self.alias_term(name, Term::Variable(v2), v);
             }
             Type::Bag(element_type) => {
                 let v2 = self.variable();
@@ -6789,6 +7001,8 @@ impl TypeResolver {
     /// with no fields, so its names are the empty list, not `None`;
     /// otherwise `{{} extend i = 1}` would never desugar.
     fn term_field_names(&self, seq: &Sequence) -> Option<Vec<String>> {
+        // A record reached through an alias is still a record.
+        let seq = &self.unalias_sequence(seq.clone())?;
         if self.unifier.op_defs[seq.op.0 as usize].name == "unit" {
             return Some(Vec::new());
         }
@@ -6849,11 +7063,33 @@ impl TypeResolver {
         for (var, term) in self.terms.iter().rev() {
             if var == v {
                 if let Term::Sequence(seq) = term {
-                    return Some(seq.clone());
+                    return self.unalias_sequence(seq.clone());
                 }
             }
         }
         None
+    }
+
+    /// Looks through a type alias to the type it abbreviates.
+    ///
+    /// An alias reaches only the displayed type; anything that reads a
+    /// term's structure -- a record modifier looking for its base's
+    /// fields, a query projecting a field of a row -- must see the
+    /// record, not the alias wrapping it.
+    fn unalias_sequence(&self, seq: Sequence) -> Option<Sequence> {
+        let mut seq = seq;
+        loop {
+            if !self.unifier.op_name(&seq.op).starts_with(ALIAS_PREFIX) {
+                return Some(seq);
+            }
+            match &seq.terms[0] {
+                Term::Sequence(inner) => seq = inner.clone(),
+                Term::Variable(v) => {
+                    let v = *v;
+                    return self.variable_to_sequence(&v);
+                }
+            }
+        }
     }
 
     /// Given a record sequence and a field label, returns the unifier variable
@@ -7154,6 +7390,10 @@ impl TypeResolver {
                             // op created in between would not be in it,
                             // and looking the sequence's op up would run
                             // off the end.
+                            // A record reached through an alias is still
+                            // a record; the pattern must see the fields.
+                            let term =
+                                &unalias_term(term, op_defs, substitution);
                             if let Term::Sequence(seq) = term
                                 && let Some(field_list) =
                                     TypeResolver::field_list(op_defs, seq)
@@ -7577,6 +7817,33 @@ impl<'a> TypeToTermConverter<'a> {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, t) => {
                 if let TypeKind::Id(name) = t.kind.clone() {
+                    // An alias is a type function: applying it
+                    // substitutes the arguments into its body. The result
+                    // is an ordinary type, so the term is built from it
+                    // and the alias name plays no part in unification.
+                    if let Some(body) =
+                        self.type_resolver.type_aliases.get(&name).cloned()
+                        && !matches!(&body, Type::Data(n, _) if *n == name)
+                    {
+                        let flat_args = AstType::flatten(args);
+                        let mut args2 = Vec::with_capacity(flat_args.len());
+                        let mut arg_subst = Subst::Empty;
+                        for (i, arg) in flat_args.iter().enumerate() {
+                            let v2 = self.type_resolver.variable();
+                            args2.push(self.type_term(arg, subst, &v2));
+                            arg_subst = arg_subst.plus(
+                                &TypeVariable::new(i),
+                                Term::Variable(v2),
+                            );
+                        }
+                        self.type_resolver.type_term(&body, &arg_subst, &v);
+                        let x = TypeKind::App(args2, t.clone());
+                        return self.type_resolver.reg_type(
+                            &x,
+                            &type_node.span,
+                            &v,
+                        );
+                    }
                     let mut terms = Vec::new();
                     let mut args2 = Vec::new();
                     let flat_args = AstType::flatten(args);
@@ -7697,13 +7964,39 @@ impl<'a> TypeToTermConverter<'a> {
             TypeKind::Id(name) => {
                 // First check user-defined type aliases ('type myInt = int').
                 // If found, register the alias's underlying type term.
+                // An alias is a type function, so using it bare when it
+                // takes parameters is an arity error, as for any type
+                // constructor.
+                if let Some(arity) =
+                    self.type_resolver.alias_arities.get(name).copied()
+                    && arity > 0
+                {
+                    self.type_resolver.field_errors.borrow_mut().push((
+                        format!(
+                            "type constructor {} given 0 arguments, \
+                             wants {}",
+                            name, arity
+                        ),
+                        type_node.span.clone(),
+                    ));
+                    return self.type_resolver.reg_type(
+                        &type_node.kind,
+                        &type_node.span,
+                        &v,
+                    );
+                }
                 if let Some(alias_type) =
                     self.type_resolver.type_aliases.get(name).cloned()
                 {
-                    self.type_resolver.type_term(&alias_type, subst, v);
-                    // Record that this variable carries an alias, so
-                    // that type reconstruction wraps the resolved type
-                    // in Type::Alias.
+                    // The term carries the alias, so the name survives
+                    // inference and reaches the type displayed.
+                    let alias =
+                        Type::Alias(name.clone(), Rc::new(alias_type), vec![]);
+                    self.type_resolver.type_term(&alias, subst, v);
+                    // The term carries the alias where it survives
+                    // unification; this side table still carries it where
+                    // the alias is on the expression, and the pattern's
+                    // own variable never holds an alias term.
                     self.type_resolver.var_alias_map.insert(*v, name.clone());
                     return self.type_resolver.reg_type(
                         &type_node.kind,

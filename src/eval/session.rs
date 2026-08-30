@@ -65,6 +65,9 @@ pub struct Session {
     /// this map so that aliases defined in one statement are visible in
     /// later ones.
     pub type_aliases: HashMap<String, Type>,
+    /// Number of parameters of each type alias; see
+    /// [`TypeResolver::alias_arities`].
+    pub alias_arities: HashMap<String, usize>,
     /// Accumulated constructor sets from `datatype` declarations.
     /// Each new `TypeMap` is seeded with this map so that the match
     /// coverage checker knows the constructor set of previously
@@ -146,6 +149,7 @@ impl Session {
             type_env: Rc::new(type_env) as Rc<dyn TypeEnv>,
             type_bindings: HashMap::new(),
             type_aliases: HashMap::new(),
+            alias_arities: HashMap::new(),
             datatype_constructors,
             user_datatype_arities: HashMap::new(),
             constructor_arg_types: HashMap::new(),
@@ -214,6 +218,7 @@ impl Session {
         // so that 'type myInt = int' in one statement and 'val x: myInt = 5'
         // in the next can both refer to the alias.
         type_resolver.type_aliases = self.type_aliases.clone();
+        type_resolver.alias_arities = self.alias_arities.clone();
         // Same for user-declared datatype arities (built-ins live
         // in `library`, queried on demand).
         type_resolver.user_datatype_arities =
@@ -258,6 +263,9 @@ impl Session {
         // Capture any new aliases introduced by this statement.
         for (name, t) in &type_resolver.type_aliases {
             self.type_aliases.insert(name.clone(), t.clone());
+        }
+        for (name, arity) in &type_resolver.alias_arities {
+            self.alias_arities.insert(name.clone(), *arity);
         }
 
         // Capture any new (or redeclared) user datatype arities.
