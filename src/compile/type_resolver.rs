@@ -2560,6 +2560,14 @@ impl TypeResolver {
                             combined_span,
                         ));
                     }
+                    // The clauses agree, so the annotation is the
+                    // function's return type; it constrains the body of
+                    // every clause, and through it the parameters --
+                    // `fun f (e1 :: e2 :: rest): int = e2 | ...` makes
+                    // the list an `int list`.
+                    if type_annotation.is_none() {
+                        type_annotation = fun_match.type_.clone();
+                    }
                     prev_return_type = Some(fun_match.type_.clone().unwrap());
                 }
             }

@@ -539,6 +539,11 @@ fun countOption1 (NONE) = 0
 fun countOption2 NONE: int = 0
   | countOption2 (SOME x) = 1;
 > val countOption2 = fn : 'a option -> int
+fun firstOrSecond (e1 :: e2 :: rest): int = e2
+  | firstOrSecond (e1 :: rest) = e1;
+> stdIn:1.5-2.36 Warning: match nonexhaustive
+>   raised at: stdIn:1.5-2.36
+> val firstOrSecond = fn : int list -> int
 
 (*
 sml-nj gives the following error:
