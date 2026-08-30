@@ -400,17 +400,26 @@ impl Real {
     /// `1.0e10` prints as "1E10").
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_string(r: f32) -> String {
+        Self::to_string_negation(r, '~')
+    }
+
+    /// As [`Self::to_string`], but writing the sign of a negative number
+    /// or exponent with `negation`.
+    ///
+    /// Standard ML writes negation as a tilde, `~2.5`; a table is not
+    /// Standard ML text, and writes it as a minus sign, `-2.5`.
+    pub(crate) fn to_string_negation(r: f32, negation: char) -> String {
         if r.is_nan() {
             "nan".to_string()
         } else if r.is_infinite() {
             if r > 0.0 {
                 "inf".to_string()
             } else {
-                "~inf".to_string()
+                format!("{}inf", negation)
             }
         } else if r == 0.0 {
             if r.is_sign_negative() {
-                "~0".to_string()
+                format!("{}0", negation)
             } else {
                 "0".to_string()
             }
@@ -421,21 +430,34 @@ impl Real {
                 // Format in scientific notation with uppercase E.
                 // Rust's default precision for '{:E}' already strips
                 // trailing zeros ("1E10" rather than "1.0E10").
-                format!("{:E}", r).replace("-", "~")
+                Self::negate(format!("{:E}", r), negation)
             } else if r.fract() == 0.0 && abs < i64::MAX as f32 {
                 // Whole numbers display without any fractional part,
                 // matching SML's Real.toString ("1" rather than "1.0").
-                format!("{}", r.trunc() as i64).replace("-", "~")
+                Self::negate(format!("{}", r.trunc() as i64), negation)
             } else {
                 // For non-whole numbers, use default formatting.
-                format!("{}", r).replace('-', "~")
+                Self::negate(format!("{}", r), negation)
             };
             // `Real.minPos`: SML reports 1.4e-45, not the shorter "1E~45".
-            match s.as_str() {
-                "1E~45" => "1.4E~45".to_string(),
-                "~1E~45" => "~1.4E~45".to_string(),
-                _ => s,
+            let min_pos = format!("1E{}45", negation);
+            let neg_min_pos = format!("{}1E{}45", negation, negation);
+            if s == min_pos {
+                format!("1.4E{}45", negation)
+            } else if s == neg_min_pos {
+                format!("{}1.4E{}45", negation, negation)
+            } else {
+                s
             }
+        }
+    }
+
+    /// Rewrites the `-` that Rust's formatting produces as `negation`.
+    fn negate(s: String, negation: char) -> String {
+        if negation == '-' {
+            s
+        } else {
+            s.replace('-', &negation.to_string())
         }
     }
 

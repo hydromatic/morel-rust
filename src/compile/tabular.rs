@@ -736,18 +736,10 @@ fn stringify_scalar(value: &Val, string_depth: i32) -> String {
     match value {
         Val::Bool(b) => (if *b { "true" } else { "false" }).to_string(),
         Val::Char(c) => char_to_string(*c),
-        Val::Int(i) => {
-            if *i < 0 {
-                if *i == i32::MIN {
-                    "~2147483648".to_string()
-                } else {
-                    format!("~{}", -i)
-                }
-            } else {
-                i.to_string()
-            }
-        }
-        Val::Real(f) => Real::to_string(*f),
+        // A table is not Standard ML text, and reads better with minus
+        // signs than with the tildes of a classic-style value.
+        Val::Int(i) => i.to_string(),
+        Val::Real(f) => Real::to_string_negation(*f, '-'),
         Val::Word(w) => format!("0wx{:X}", w),
         Val::String(s) => {
             if string_depth >= 0 && char_len(s) > string_depth as usize {
@@ -818,7 +810,11 @@ mod tests {
         assert_eq!(stringify_scalar(&Val::Unit, -1), "()");
         assert_eq!(stringify_scalar(&Val::Bool(true), -1), "true");
         assert_eq!(stringify_scalar(&Val::Int(3), -1), "3");
-        assert_eq!(stringify_scalar(&Val::Int(-3), -1), "~3");
+        // A table writes negation as a minus sign, not the tilde of a
+        // classic-style value.
+        assert_eq!(stringify_scalar(&Val::Int(-3), -1), "-3");
+        assert_eq!(stringify_scalar(&Val::Real(-2.5), -1), "-2.5");
+        assert_eq!(stringify_scalar(&Val::Real(f32::NEG_INFINITY), -1), "-inf");
         assert_eq!(stringify_scalar(&Val::String("a".into()), -1), "a");
     }
 }
