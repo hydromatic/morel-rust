@@ -31,6 +31,7 @@ mod pat_coverage;
 pub mod postfix;
 mod pretty;
 pub mod progressive_widen;
+pub mod record_modifiers;
 pub mod replacer;
 pub mod resolver;
 pub mod sat;

@@ -884,3 +884,39 @@ impl Display for Subst {
         write!(f, "{:?}", map)
     }
 }
+
+/// Returns the fields of a record-like type -- a record, a tuple, or
+/// `unit` -- keyed by label.
+///
+/// A tuple is a record whose labels are `1`, `2`, ..., and `unit` is the
+/// record with no fields, so both answer rather than failing.
+pub fn record_fields(t: &Type) -> BTreeMap<Label, Rc<Type>> {
+    match t {
+        Type::Record(_, fields) => fields.clone(),
+        Type::Tuple(types) => types
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (Label::Ordinal(i + 1), t.clone()))
+            .collect(),
+        Type::Primitive(PrimitiveType::Unit) => BTreeMap::new(),
+        _ => panic!("Expected record type, got {}", t),
+    }
+}
+
+/// Returns the type of a record with the given fields: `unit` if there
+/// are none, a tuple if the labels are `1`, `2`, ... and there is more
+/// than one of them, and a record otherwise.
+///
+/// The rule is the one [`crate::compile::type_resolver::TypeResolver`]
+/// uses to build the corresponding term, so that a type derived here
+/// agrees with the type inference deduced.
+pub fn record_type(fields: BTreeMap<Label, Rc<Type>>) -> Type {
+    if fields.is_empty() {
+        Type::Primitive(PrimitiveType::Unit)
+    } else if fields.len() != 1 && Label::are_contiguous(fields.keys().cloned())
+    {
+        Type::Tuple(fields.into_values().collect())
+    } else {
+        Type::Record(false, fields)
+    }
+}

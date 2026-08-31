@@ -33,22 +33,24 @@ use crate::compile::inliner::Env;
 use crate::compile::library;
 use crate::compile::library::{BuiltIn, BuiltInFunction};
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
+use crate::compile::record_modifiers::{self, Source};
 use crate::compile::span::Span;
 use crate::compile::type_resolver::{
     Resolved, TypeMap, Typed, ast_type_to_core_type,
     ast_type_to_core_type_with_vars,
 };
-use crate::compile::types::{PrimitiveType, Type};
+use crate::compile::types;
+use crate::compile::types::{Label, PrimitiveType, Type};
 use crate::eval::val::Val;
 use crate::syntax::ast::{
     DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunMatch, Literal,
-    LiteralKind, Match, Pat, PatField, PatKind, Step as AstStep,
+    LiteralKind, Match, Modifier, Pat, PatField, PatKind, Step as AstStep,
     StepKind as AstStepKind, Type as AstType, TypeBind, TypeKind, ValBind,
 };
 use crate::syntax::parser;
 use crate::unify::unifier::Var;
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 /// Converts an AST to a Core tree.
@@ -296,6 +298,10 @@ pub struct Resolver<'a> {
     /// Used to dispatch an overloaded aggregate function (e.g.
     /// `Test.overCount`) to its bag or list variant. `None` elsewhere.
     aggregate_input_is_bag: Cell<Option<bool>>,
+    /// Counter for the names of the temporary variables that building a
+    /// modified record needs. `$` is not a character a user can write,
+    /// so a generated name never captures one the user chose.
+    temp_counter: Cell<u32>,
 }
 
 /// Builds `F elem`, where `F` is the functor of `map` (`ListMap`, `BagMap`,
@@ -429,7 +435,228 @@ impl<'a> Resolver<'a> {
             selector_receiver_span: RefCell::new(None),
             self_fns: RefCell::new(HashSet::new()),
             aggregate_input_is_bag: Cell::new(None),
+            temp_counter: Cell::new(0),
         }
+    }
+
+    /// Returns a name no user can have written, for a temporary the
+    /// building of a modified record introduces.
+    fn temp_name(&self) -> String {
+        let i = self.temp_counter.get();
+        self.temp_counter.set(i + 1);
+        format!("$v{}", i)
+    }
+
+    /// Converts a record that has modifiers into the `let`s it means:
+    /// one per modifier, each binding the fields of the record the
+    /// modifier before it produced, and ending in a record built from
+    /// those fields.
+    ///
+    /// [`TypeResolver`] types the record as it is written, and leaves it
+    /// to be built here, where the types are settled. Building it
+    /// earlier would lose the type of the record being modified.
+    fn to_core_modified(
+        &self,
+        base: &Expr,
+        modifiers: &[Modifier],
+        span: &Span,
+    ) -> CoreExpr {
+        // The base, and the argument of each `all` modifier, are
+        // evaluated outside the modifiers -- in this environment, which
+        // does not have their fields -- and in the order they are
+        // written.
+        let mut exprs: Vec<&Expr> = vec![base];
+        for modifier in modifiers {
+            if let Modifier::All(_, _, e) = modifier {
+                exprs.push(e);
+            }
+        }
+        self.bind_operands(modifiers, &exprs, 0, &mut Vec::new(), span)
+    }
+
+    /// Binds the operands of a modified record, then applies its
+    /// modifiers.
+    fn bind_operands(
+        &self,
+        modifiers: &[Modifier],
+        exprs: &[&Expr],
+        i: usize,
+        operands: &mut Vec<CoreExpr>,
+        span: &Span,
+    ) -> CoreExpr {
+        if i == exprs.len() {
+            let base = operands[0].clone();
+            return self.modify(modifiers, 0, base, operands, span);
+        }
+        let value = self.resolve_expr(exprs[i]);
+        self.let_value(value, span, |id| {
+            operands.push(id.clone());
+            self.bind_operands(modifiers, exprs, i + 1, operands, span)
+        })
+    }
+
+    /// Applies the modifiers of a record, from `i` onwards.
+    fn modify(
+        &self,
+        modifiers: &[Modifier],
+        i: usize,
+        value: CoreExpr,
+        operands: &[CoreExpr],
+        span: &Span,
+    ) -> CoreExpr {
+        if i == modifiers.len() {
+            return value;
+        }
+        let modifier = &modifiers[i];
+        // Operand 0 is the base; the `all` arguments follow, in the
+        // order the modifiers that carry them are written.
+        let all = matches!(modifier, Modifier::All(..)).then(|| {
+            1 + modifiers[..i]
+                .iter()
+                .filter(|m| matches!(m, Modifier::All(..)))
+                .count()
+        });
+        self.let_value(value, span, |id| {
+            let fields = types::record_fields(&id.type_());
+            let names = label_names(&fields);
+            let all_names = all.map(|k| {
+                label_names(&types::record_fields(&operands[k].type_()))
+            });
+            // The rules were checked when the record was typed, so
+            // applying them again cannot fail.
+            let sources =
+                record_modifiers::apply(modifier, &names, all_names.as_deref())
+                    .expect("checked by TypeResolver");
+            // Only an assignment has expressions, and only they can refer
+            // to the fields by name.
+            let bound: &[String] = if matches!(modifier, Modifier::Assign(..)) {
+                &names
+            } else {
+                &[]
+            };
+            self.bind_fields(id, bound, 0, span, &|| {
+                let record =
+                    self.build(&sources, id, all.map(|k| &operands[k]), span);
+                self.modify(modifiers, i + 1, record, operands, span)
+            })
+        })
+    }
+
+    /// Binds an expression to a name and applies `body` to it.
+    ///
+    /// The `let` is what stops the expression being evaluated twice, once
+    /// to read its type and once for the result.
+    fn let_value<F>(&self, value: CoreExpr, span: &Span, body: F) -> CoreExpr
+    where
+        F: FnOnce(&CoreExpr) -> CoreExpr,
+    {
+        if matches!(value, CoreExpr::Identifier(..)) {
+            // Already a variable, so reading it twice costs nothing.
+            return body(&value);
+        }
+        let t = value.type_();
+        let name = self.temp_name();
+        let id = CoreExpr::Identifier(t.clone(), name.clone());
+        let body_expr = body(&id);
+        self.core_let(CorePat::Identifier(t, name), value, body_expr, span)
+    }
+
+    /// Binds each field of a record to its own name, so that the
+    /// expressions a modifier assigns can refer to it, and applies
+    /// `body` in the environment that results.
+    ///
+    /// The names shadow the enclosing environment, which is what lets
+    /// `{r replace i = j, j = i}` mean what it looks like.
+    fn bind_fields(
+        &self,
+        record: &CoreExpr,
+        fields: &[String],
+        i: usize,
+        span: &Span,
+        body: &dyn Fn() -> CoreExpr,
+    ) -> CoreExpr {
+        if i == fields.len() {
+            return body();
+        }
+        let field = &fields[i];
+        let value = self.select(record, field, span);
+        let pat = CorePat::Identifier(value.type_(), field.clone());
+        let inner = self.bind_fields(record, fields, i + 1, span, body);
+        self.core_let(pat, value, inner, span)
+    }
+
+    /// Builds the record that a modifier produces.
+    ///
+    /// Its type is derived from the fields, rather than read from the
+    /// type map, because only the last modifier has an entry there, and
+    /// because that entry is the type as the user would see it, whereas
+    /// Core needs the type erased.
+    fn build(
+        &self,
+        sources: &[(String, Source)],
+        record: &CoreExpr,
+        all_record: Option<&CoreExpr>,
+        span: &Span,
+    ) -> CoreExpr {
+        let mut args: BTreeMap<Label, CoreExpr> = BTreeMap::new();
+        for (label, source) in sources {
+            let value = match source {
+                Source::Kept(field) => self.select(record, field, span),
+                Source::Taken { field, .. } => {
+                    self.select(all_record.expect("all"), field, span)
+                }
+                Source::Assigned { expr, .. } => self.resolve_expr(expr),
+            };
+            args.insert(Label::from(label.as_str()), value);
+        }
+        let field_types = args
+            .iter()
+            .map(|(label, value)| (label.clone(), value.type_()))
+            .collect();
+        CoreExpr::Tuple(
+            Rc::new(types::record_type(field_types)),
+            args.into_values().collect(),
+        )
+    }
+
+    /// Returns an expression that selects a field of a record.
+    fn select(&self, record: &CoreExpr, field: &str, span: &Span) -> CoreExpr {
+        let record_type = record.type_();
+        let slot = record_type
+            .lookup_field(field)
+            .expect("field of a record whose fields are known");
+        let field_type = types::record_fields(&record_type)
+            .values()
+            .nth(slot)
+            .expect("slot")
+            .clone();
+        let selector_type =
+            Rc::new(Type::Fn(record_type.clone(), field_type.clone()));
+        CoreExpr::Apply(
+            field_type,
+            Box::new(CoreExpr::RecordSelector(selector_type, slot)),
+            Box::new(record.clone()),
+            span.clone(),
+        )
+    }
+
+    /// Returns `let val <pat> = <value> in <body> end`.
+    fn core_let(
+        &self,
+        pat: CorePat,
+        value: CoreExpr,
+        body: CoreExpr,
+        _span: &Span,
+    ) -> CoreExpr {
+        let t = pat.type_();
+        let decl = CoreDecl::NonRecVal(Box::new(CoreValBind {
+            pat,
+            t: (*t).clone(),
+            expr: value,
+            overload_pat: None,
+            span: None,
+        }));
+        CoreExpr::Let(body.type_(), vec![decl], Box::new(body))
     }
 
     /// Records function names whose first parameter is `self`, so
@@ -1126,8 +1353,11 @@ impl<'a> Resolver<'a> {
             ExprKind::Raise(e) => {
                 CoreExpr::Raise(t, Box::new(self.resolve_expr(e)), span.clone())
             }
-            ExprKind::Record(with_base, fields, _) => {
+            ExprKind::Record(with_base, fields, modifiers) => {
                 match with_base {
+                    Some(base) if !modifiers.is_empty() => {
+                        self.to_core_modified(base, modifiers, &span)
+                    }
                     None => {
                         // Plain record `{a=e1, b=e2}`: resolve each field in
                         // order and emit as a tuple.
@@ -2895,4 +3125,9 @@ fn fn_expr_has_self_first_param(expr: &Expr) -> bool {
         ExprKind::Fn(matches) => matches.iter().any(|m| pat_has_self(&m.pat)),
         _ => false,
     }
+}
+
+/// The names of a record's fields, in label order.
+fn label_names(fields: &BTreeMap<Label, Rc<Type>>) -> Vec<String> {
+    fields.keys().map(Label::to_string).collect()
 }
