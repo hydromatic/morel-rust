@@ -5388,7 +5388,10 @@ impl TypeResolver {
                 // type is unresolved here, but postfix_dispatch only keys on
                 // the collection constructor.
                 let element = Rc::new(Type::Primitive(PrimitiveType::Unit));
-                Some(Rc::new(if self.term_is_ordered(&seq.terms[1]) {
+                // Orderedness that is not yet settled is not a bag. A query
+                // decides its own when its steps are typed, and dispatching
+                // before then would settle it here, on a guess.
+                Some(Rc::new(if self.orderedness_of(&seq.terms[1])? {
                     Type::List(element)
                 } else {
                     Type::Bag(element)
