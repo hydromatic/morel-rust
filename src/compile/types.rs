@@ -16,7 +16,8 @@
 // License.
 
 use crate::syntax::parser::append_id;
-use crate::unify::unifier::{COLLECTION_OP_NAME, Term};
+use crate::unify::unifier::{COLLECTION_OP_NAME, Term, Var};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
@@ -819,6 +820,10 @@ pub(crate) fn ordinal_names(n: usize) -> Vec<String> {
     v
 }
 
+/// The orderedness variables of the collections in one instantiation,
+/// by element type. See [`Subst::orderedness`].
+pub type Orderedness = Rc<RefCell<Vec<(Type, Var)>>>;
+
 /// Substitution mapping type variables to unifier variables.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
@@ -828,6 +833,12 @@ pub enum Subst {
         parent: Box<Subst>,
         type_var: TypeVariable,
         variable: Term,
+    },
+    /// Starts a scope in which the collections of one instantiation share
+    /// an orderedness, by element type. See [`Subst::orderedness`].
+    Instantiating {
+        parent: Box<Subst>,
+        orderedness: Orderedness,
     },
 }
 
@@ -857,6 +868,38 @@ impl Subst {
                     }
                     current = parent;
                 }
+                Subst::Instantiating { parent, .. } => current = parent,
+            }
+        }
+    }
+
+    /// Returns a substitution that starts an instantiation's orderedness.
+    pub fn instantiating(&self) -> Self {
+        Subst::Instantiating {
+            parent: Box::new(self.clone()),
+            orderedness: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    /// The orderedness variables of the collections in one instantiation,
+    /// by element type, or none outside an instantiation.
+    ///
+    /// A collection's orderedness is decided by its use, and the
+    /// collections of one instantiation are one use: `iterate`, of type
+    /// `'a collection -> ('a collection * 'a collection -> 'a collection)
+    /// -> 'a collection`, applied to a list returns a list. Give each
+    /// occurrence an orderedness of its own and nothing relates them, so
+    /// the argument being a list says nothing about the result, which is
+    /// then read back as a bag.
+    pub fn orderedness(&self) -> Option<Orderedness> {
+        let mut current = self;
+        loop {
+            match current {
+                Subst::Empty => return None,
+                Subst::Cons { parent, .. } => current = parent,
+                Subst::Instantiating { orderedness, .. } => {
+                    return Some(Rc::clone(orderedness));
+                }
             }
         }
     }
@@ -878,6 +921,7 @@ impl Display for Subst {
                     map.entry(type_var.clone()).or_insert(variable.clone());
                     current = parent;
                 }
+                Subst::Instantiating { parent, .. } => current = parent,
             }
         }
 

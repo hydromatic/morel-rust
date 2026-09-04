@@ -6595,14 +6595,33 @@ impl TypeResolver {
                     self.type_term(&arguments[0], subst, &v2);
                     self.bag_term(Term::Variable(v2), v);
                 } else if name == COLLECTION_OP_NAME {
-                    // The orderedness is a fresh variable, so the use
-                    // decides whether the collection is a list or a
-                    // bag. Where nothing decides, it reads back as a
-                    // bag.
+                    // The orderedness is a variable, so the use decides
+                    // whether the collection is a list or a bag. Where
+                    // nothing decides, it reads back as a bag.
+                    //
+                    // Collections of the same element type in one
+                    // instantiation share it, so that a function from a
+                    // collection to a collection returns what it was
+                    // given: `iterate` applied to a list returns a list.
                     assert_eq!(arguments.len(), 1);
                     let v2 = self.variable();
                     self.type_term(&arguments[0], subst, &v2);
-                    let o = self.variable();
+                    let o = if let Some(orderedness) = subst.orderedness() {
+                        let found = orderedness
+                            .borrow()
+                            .iter()
+                            .find(|(t, _)| *t == *arguments[0])
+                            .map(|(_, o)| *o);
+                        found.unwrap_or_else(|| {
+                            let o = self.variable();
+                            orderedness
+                                .borrow_mut()
+                                .push(((*arguments[0]).clone(), o));
+                            o
+                        })
+                    } else {
+                        self.variable()
+                    };
                     let sequence = self
                         .collection_term(Term::Variable(v2), Term::Variable(o));
                     self.equiv(&Term::Sequence(sequence), v);
@@ -6638,7 +6657,10 @@ impl TypeResolver {
                 self.fn_term(&v2, &v3, v);
             }
             Type::Forall(type_, parameter_count) => {
-                let mut subst2 = subst.clone();
+                // The collections of one instantiation share an
+                // orderedness, so that a function from a collection to a
+                // collection gives back what it was given.
+                let mut subst2 = subst.instantiating();
                 for i in 0..*parameter_count {
                     let type_var = TypeVariable::new(i);
                     subst2 =

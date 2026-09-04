@@ -65,8 +65,14 @@ Sys.deduceColorScheme ();
 (*) val env : unit -> string list
 Sys.env;
 > val it = fn : unit -> (string * string) list
-Sys.env ();
-> 1              2
+(* A few bindings are an implementation's own, and differ between them,
+ * so they are left out: 'scott', which is bound only where its data
+ * source is, and '$csComplement' and '$dsRanges', internals that
+ * morel-go has no counterpart for. *)
+from (name, t) in Sys.env ()
+  where name notelem ["$csComplement", "$dsRanges", "scott"]
+  order name;
+> name           t
 > -------------- ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 > ::             forall 'a. 'a * 'a list -> 'a list
 > ALL            forall 'a. 'a range
@@ -140,7 +146,7 @@ Sys.env ();
 > RECORD         (string * variant) list -> variant
 > Range          {complement:forall 'a. 'a continuous_set -> 'a continuous_set, contains:forall 'a. 'a range -> 'a -> bool, continuousSetOf:forall 'a. 'a range list -> 'a continuous_set, discreteSetOf:forall 'a. 'a range list -> 'a discrete_set, flatten:forall 'a. 'a range list -> 'a list, ranges:forall 'a. 'a continuous_set -> 'a range list, toBag:forall 'a. 'a discrete_set -> 'a bag, toList:forall 'a. 'a discrete_set -> 'a list}
 > Real           {*:real * real -> real, +:real * real -> real, -:real * real -> real, /:real * real -> real, <:real * real -> bool, <=:real * real -> bool, <>:real * real -> bool, =:real * real -> bool, >:real * real -> bool, >=:real * real -> bool, abs:real -> real, ceil:real -> int, checkFloat:real -> real, compare:real * real -> order, copySign:real * real -> real, floor:real -> int, fmt:realfmt -> real -> string, fromInt:int -> real, fromManExp:{exp:int, man:real} -> real, fromString:string -> real option, isFinite:real -> bool, isNan:real -> bool, isNormal:real -> bool, max:real * real -> real, maxFinite:real, min:real * real -> real, minNormalPos:real, minPos:real, negInf:real, posInf:real, precision:int, radix:int, realCeil:real -> real, realFloor:real -> real, realMod:real -> real, realRound:real -> real, realTrunc:real -> real, rem:real * real -> real, round:real -> int, sameSign:real * real -> bool, scan:forall 'a. ('a -> (char * 'a) option) -> 'a -> (real * 'a) option, sign:real -> int, signBit:real -> bool, split:real -> {frac:real, whole:real}, toManExp:real -> {exp:int, man:real}, toString:real -> string, trunc:real -> int, unordered:real * real -> bool, ~:real -> real}
-> Relational     {compare:forall 'a. 'a * 'a -> order, count:forall 'a. 'a bag -> int, empty:forall 'a. 'a bag -> bool, iterate:forall 'a. 'a -> ('a * 'a -> 'a) -> 'a, max:forall 'a. 'a bag -> 'a, maxBy:forall 'a 'b. ('a -> 'b) -> 'a bag -> 'a, min:forall 'a. 'a bag -> 'a, minBy:forall 'a 'b. ('a -> 'b) -> 'a bag -> 'a, nonEmpty:forall 'a. 'a bag -> bool, only:forall 'a. 'a bag -> 'a, sum:forall 'a. 'a bag -> 'a}
+> Relational     {compare:forall 'a. 'a * 'a -> order, count:forall 'a. 'a bag -> int, empty:forall 'a. 'a bag -> bool, iterate:forall 'a. 'a bag -> ('a bag * 'a bag -> 'a bag) -> 'a bag, max:forall 'a. 'a bag -> 'a, maxBy:forall 'a 'b. ('a -> 'b) -> 'a bag -> 'a, min:forall 'a. 'a bag -> 'a, minBy:forall 'a 'b. ('a -> 'b) -> 'a bag -> 'a, nonEmpty:forall 'a. 'a bag -> bool, only:forall 'a. 'a bag -> 'a, sum:forall 'a. 'a bag -> 'a}
 > SCI            int option -> realfmt
 > SOME           forall 'a. 'a -> 'a option
 > STRING         string -> variant
@@ -169,10 +175,9 @@ Sys.env ();
 > false          bool
 > it             unit -> (string * string) list
 > nil            forall 'a. 'a list
-> scott          {bonuses:{comm:real, ename:string, job:string, sal:real} bag, depts:{deptno:int, dname:string, loc:string} bag, emps:{comm:real, deptno:int, empno:int, ename:string, hiredate:string, job:string, mgr:int, sal:real} bag, salgrades:{grade:int, hisal:real, losal:real} bag}
 > true           bool
 >
-> val it : (string * string) list
+> val it : {name:string, t:string} list
 
 env;
 > val it = fn : unit -> (string * string) list

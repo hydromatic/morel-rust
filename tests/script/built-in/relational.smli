@@ -30,8 +30,8 @@ Relational;
 >   {compare=fn,count=fn,empty=fn,iterate=fn,max=fn,maxBy=fn,min=fn,minBy=fn,
 >    nonEmpty=fn,only=fn,sum=fn}
 >   : {compare:'a * 'a -> order, count:'b bag -> int, empty:'c bag -> bool,
->       iterate:'d -> ('d * 'd -> 'd) -> 'd, max:'e bag -> 'e,
->       maxBy:('f -> 'g) -> 'f bag -> 'f, min:'h bag -> 'h,
+>       iterate:'d bag -> ('d bag * 'd bag -> 'd bag) -> 'd bag,
+>       max:'e bag -> 'e, maxBy:('f -> 'g) -> 'f bag -> 'f, min:'h bag -> 'h,
 >       minBy:('i -> 'j) -> 'i bag -> 'i, nonEmpty:'k bag -> bool,
 >       only:'l bag -> 'l, sum:'m bag -> 'm}
 
