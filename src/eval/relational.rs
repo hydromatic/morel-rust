@@ -17,6 +17,7 @@
 
 use crate::compile::library::BuiltInExn;
 use crate::compile::span::Span;
+use crate::eval::code::{EvalEnv, Frame};
 use crate::eval::comparator::{Comparator, NaturalComparator};
 use crate::eval::order::Order;
 use crate::eval::val::Val;
@@ -59,6 +60,37 @@ impl Relational {
             .min_by(|a, b| NaturalComparator.compare(a, b))
             .unwrap()
             .clone())
+    }
+
+    /// Returns the element of `list` for which `key_fn` gives the
+    /// greatest key, or the least if `greatest` is false.
+    ///
+    /// The keys are compared as the shell orders values. Where several
+    /// elements are tied, the first the traversal meets is returned, so
+    /// for a bag -- whose order is arbitrary -- which one that is is not
+    /// specified. Throws Empty if the list is empty.
+    pub(crate) fn extreme_by(
+        r: &mut EvalEnv,
+        f: &mut Frame,
+        key_fn: &Val,
+        list: &[Val],
+        greatest: bool,
+        span: &Span,
+    ) -> Result<Val, MorelError> {
+        let Some((first, rest)) = list.split_first() else {
+            return Err(MorelError::Runtime(BuiltInExn::Empty, span.clone()));
+        };
+        let mut best = first;
+        let mut best_key = key_fn.apply_f1(r, f, first)?;
+        for element in rest {
+            let key = key_fn.apply_f1(r, f, element)?;
+            let cmp = NaturalComparator.compare(&key, &best_key);
+            if if greatest { cmp.is_gt() } else { cmp.is_lt() } {
+                best = element;
+                best_key = key;
+            }
+        }
+        Ok(best.clone())
     }
 
     /// Returns the sole element of the list.

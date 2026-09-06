@@ -583,6 +583,23 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compiles the argument to "apply".
+    /// Returns a comparator for the keys that a `maxBy` or `minBy` key
+    /// function yields. `key_fn` has type `element -> key`, and it is the
+    /// keys that are compared, so a `DESC` key reverses as it does in an
+    /// `order`.
+    fn key_comparator(&self, key_fn: &Expr) -> CmpRef {
+        let type_ = key_fn.type_();
+        let key_type = match type_.as_ref() {
+            Type::Fn(_, key) => key.as_ref(),
+            t => t,
+        };
+        CmpRef(comparator::comparator_for_with(
+            key_type,
+            &self.type_map.datatype_constructors,
+            &self.type_map.constructor_arg_types,
+        ))
+    }
+
     pub fn compile_arg(&mut self, cx: &Context, expr: &Expr) -> Code {
         self.compile_expr(cx, None, expr)
     }
@@ -1073,6 +1090,23 @@ impl<'a> Compiler<'a> {
                             &[Binding::of_name("__arg")],
                         ));
                         let body = match impl_ {
+                            _ if *f == BuiltInFunction::RelationalMaxBy
+                                || *f == BuiltInFunction::RelationalMinBy =>
+                            {
+                                Code::ExtremeBy(
+                                    self.key_comparator(a),
+                                    *f == BuiltInFunction::RelationalMaxBy,
+                                    Box::new(Code::GetLocal(
+                                        frame_def.clone(),
+                                        0,
+                                    )),
+                                    Box::new(Code::GetLocal(
+                                        frame_def.clone(),
+                                        1,
+                                    )),
+                                    span.clone(),
+                                )
+                            }
                             Impl::E2(e2) => Code::Native2(
                                 e2,
                                 Box::new(Code::GetLocal(frame_def.clone(), 0)),
@@ -1083,7 +1117,10 @@ impl<'a> Compiler<'a> {
                                 ef2,
                                 Box::new(Code::GetLocal(frame_def.clone(), 0)),
                                 Box::new(Code::GetLocal(frame_def.clone(), 1)),
-                                None,
+                                // The closure may be called far from here, so
+                                // it carries the span of the site that made
+                                // it; that is where the blame belongs.
+                                ef2.is_throwing().then(|| span.clone()),
                             ),
                             _ => unreachable!(),
                         };
@@ -1228,6 +1265,21 @@ impl<'a> Compiler<'a> {
                     if let Expr::Literal(_t, Val::Fn(func)) = middle_f.as_ref()
                         && matches!(func.get_impl(), Impl::EF2(_) | Impl::E2(_))
                     {
+                        // `maxBy keyFn collection` compares the keys, so
+                        // the comparator is made for the key's type --
+                        // the result of `keyFn` -- and a `DESC` key
+                        // reverses as it does in an `order`.
+                        if *func == BuiltInFunction::RelationalMaxBy
+                            || *func == BuiltInFunction::RelationalMinBy
+                        {
+                            return Code::ExtremeBy(
+                                self.key_comparator(second_arg),
+                                *func == BuiltInFunction::RelationalMaxBy,
+                                Box::new(self.compile_arg(cx, second_arg)),
+                                Box::new(self.compile_arg(cx, a)),
+                                span.clone(),
+                            );
+                        }
                         // This is a curried call to an EF2 or E2 function.
                         // Gather both arguments.
                         let mut arg1 = self.compile_arg(cx, second_arg);

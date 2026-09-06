@@ -269,6 +269,13 @@ pub enum Code {
     /// pairs until it can bind the argument to a pattern and finally
     /// evaluates the expression. `no_match` is the error to return when
     /// no pattern matches.
+    /// `ExtremeBy(comparator, greatest, key_code, list_code, span)`
+    /// evaluates the list and returns the element for which the key
+    /// function gives the greatest key, or the least if `greatest` is
+    /// false. The keys are compared with a comparator made for the key's
+    /// type, so a `DESC` key reverses as it does in an `order`. Raises
+    /// `Empty` at `span` if the list is empty.
+    ExtremeBy(CmpRef, bool, Box<Code>, Box<Code>, Span),
     Fn(Arc<FrameDef>, Arc<[(Code, Code)]>, Option<MorelError>),
 
     /// `FromRowSink(factory)` evaluates a query using push-based row sinks.
@@ -742,6 +749,7 @@ impl Code {
             // A non-capturing lambda is also a value: in a position such as
             // a `case` subject or arm body it is evaluated, not applied,
             // and yields itself as a `Val::Code`.
+            Code::ExtremeBy(_, _, _, _, _) => *mode == EvalMode::EagerF0,
             Code::Fn(_, _, _) => {
                 *mode == EvalMode::EagerV1 || *mode == EvalMode::EagerF0
             }
@@ -917,6 +925,28 @@ impl Code {
                         });
                     Ok(Val::Closure(arc))
                 }
+            }
+            Code::ExtremeBy(cmp, greatest, key_code, list_code, span) => {
+                let key_fn = key_code.eval_f0(r, f)?;
+                let list = list_code.eval_f0(r, f)?;
+                let items = list.expect_list();
+                let Some((first, rest)) = items.split_first() else {
+                    return Err(MorelError::Runtime(
+                        BuiltInExn::Empty,
+                        span.clone(),
+                    ));
+                };
+                let mut best = first;
+                let mut best_key = key_fn.apply_f1(r, f, first)?;
+                for element in rest {
+                    let key = key_fn.apply_f1(r, f, element)?;
+                    let ord = cmp.0.compare(&key, &best_key);
+                    if if *greatest { ord.is_gt() } else { ord.is_lt() } {
+                        best = element;
+                        best_key = key;
+                    }
+                }
+                Ok(best.clone())
             }
             Code::Fn(_, _, _) | Code::Nth(_, _) => {
                 // Fn and Nth are practically literals. When evaluated, they
@@ -1863,6 +1893,13 @@ impl Display for Code {
                 }
                 write!(f, "))")
             }
+            Self::ExtremeBy(_, greatest, key, code, _) => write!(
+                f,
+                "{}({}, {})",
+                if *greatest { "maxBy" } else { "minBy" },
+                key,
+                code
+            ),
             Self::Fn(_, matches, _) => {
                 write!(f, "fn(")?;
                 let mut first = true;
@@ -3949,6 +3986,8 @@ pub enum EagerF2 {
     RealCompare,
     RealScan,
     RelationalIterate,
+    RelationalMaxBy,
+    RelationalMinBy,
     StringCollate,
     StringConcatWith,
     StringCvtScanString,
@@ -3989,7 +4028,7 @@ impl EagerF2 {
     }
 
     /// See [`EagerF1::is_throwing`].
-    fn is_throwing(&self) -> bool {
+    pub(crate) fn is_throwing(&self) -> bool {
         LIBRARY.with(|lib| lib.eager_f2_throws.contains(self))
     }
 
@@ -4247,6 +4286,22 @@ impl EagerF2 {
                     new_list = genuinely_new;
                 }
             }
+            RelationalMaxBy => Relational::extreme_by(
+                r,
+                f,
+                &a0,
+                a1.expect_list(),
+                true,
+                span.unwrap(),
+            ),
+            RelationalMinBy => Relational::extreme_by(
+                r,
+                f,
+                &a0,
+                a1.expect_list(),
+                false,
+                span.unwrap(),
+            ),
             StringCollate => {
                 let tuple = a1.expect_list();
                 if tuple.len() != 2 {
@@ -5271,7 +5326,9 @@ fn build_library() -> Lib {
     Eager1::RelationalEmpty.implements(&mut b, RelationalEmpty);
     EagerF2::RelationalIterate.implements(&mut b, RelationalIterate);
     EagerF1::RelationalMax.implements(&mut b, RelationalMax);
+    EagerF2::RelationalMaxBy.implements(&mut b, RelationalMaxBy);
     EagerF1::RelationalMin.implements(&mut b, RelationalMin);
+    EagerF2::RelationalMinBy.implements(&mut b, RelationalMinBy);
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
     EagerF1::RelationalOnly.implements(&mut b, RelationalOnly);
     Eager1::RelationalSum.implements(&mut b, RelationalSum);

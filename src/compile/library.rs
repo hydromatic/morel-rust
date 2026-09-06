@@ -1227,9 +1227,25 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Relational", name = "max", global = true))]
     #[strum(props(type = "forall 1 'a collection -> 'a", throws = "Empty"))]
     RelationalMax,
+    // `maxBy keyFn collection` gives the element for which `keyFn` gives
+    // the greatest key. Where several are tied, and the collection is
+    // unordered, which one it gives is not specified.
+    #[strum(props(p = "Relational", name = "maxBy", global = true))]
+    #[strum(props(
+        type = "forall 2 ('a -> 'b) -> 'a collection -> 'a",
+        throws = "Empty"
+    ))]
+    RelationalMaxBy,
     #[strum(props(p = "Relational", name = "min", global = true))]
     #[strum(props(type = "forall 1 'a collection -> 'a", throws = "Empty"))]
     RelationalMin,
+    // `minBy` is `maxBy` with the comparison reversed.
+    #[strum(props(p = "Relational", name = "minBy", global = true))]
+    #[strum(props(
+        type = "forall 2 ('a -> 'b) -> 'a collection -> 'a",
+        throws = "Empty"
+    ))]
+    RelationalMinBy,
     #[strum(props(p = "Relational", name = "nonEmpty", global = true))]
     #[strum(props(type = "forall 1 'a collection -> bool"))]
     RelationalNonEmpty,
