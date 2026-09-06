@@ -389,6 +389,14 @@ fn tuple_type(
     {
         match field_expr {
             Expr::Identifier(_, field_name) => {
+                // The field's value may come from outside the query --
+                // `yield {h}` where `h` is a variable of the enclosing
+                // environment. The step is then neither the identity nor
+                // a rename of the current row; it replaces the row, so
+                // it has to be kept.
+                if !env.bindings.iter().any(|b| &b.id.name == field_name) {
+                    return TupleType::Other;
+                }
                 // For identity: field label == field value name == binding.
                 // If the label differs from the value name, this is a rename.
                 if field_name != field_label || field_name != &binding.id.name {
