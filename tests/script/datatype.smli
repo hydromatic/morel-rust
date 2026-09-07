@@ -147,14 +147,14 @@ Z;
  * type such as `(int, string) either`. The following are all errors;
  * use `int * bool` for a tuple type. *)
 datatype bar = X of int | Y of (int, bool) | Z;
-> stdIn:1.32-1.44 Error: tuple types must be written 't1 * ... * tn', not '(t1, ..., tn)'
->   raised at: stdIn:1.32-1.44
+> stdIn:1.32-1.43 Error: type-application argument list `(t1, ..., tn)` must be followed by a type constructor name; use `t1 * ... * tn` for a tuple type
+>   raised at: stdIn:1.32-1.43
 type t = (bool, int list);
-> stdIn:1.10-1.26 Error: tuple types must be written 't1 * ... * tn', not '(t1, ..., tn)'
+> stdIn:1.10-1.26 Error: type-application argument list `(t1, ..., tn)` must be followed by a type constructor name; use `t1 * ... * tn` for a tuple type
 >   raised at: stdIn:1.10-1.26
 val x : (int, int) = (1, 2);
-> stdIn:1.9-1.20 Error: tuple types must be written 't1 * ... * tn', not '(t1, ..., tn)'
->   raised at: stdIn:1.9-1.20
+> stdIn:1.9-1.19 Error: type-application argument list `(t1, ..., tn)` must be followed by a type constructor name; use `t1 * ... * tn` for a tuple type
+>   raised at: stdIn:1.9-1.19
 
 (*) The arity must match the type constructor's arity.
 fn (x: (bool, int) list) => 1;

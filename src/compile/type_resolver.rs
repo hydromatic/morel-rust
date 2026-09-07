@@ -702,6 +702,14 @@ enum CollectionKind {
 /// must still reach that field. Mirrors morel-java's `Z_ORDINAL`.
 const ORDINAL: &str = "$ordinal";
 
+/// Reported where `(t1, ..., tn)` stands on its own. It is the argument
+/// list of a parameterized type, as in `(int, string) either`, and means
+/// nothing without the constructor it belongs to.
+const TUPLE_TYPE_ERROR: &str = concat!(
+    "type-application argument list `(t1, ..., tn)` must be followed by ",
+    "a type constructor name; use `t1 * ... * tn` for a tuple type"
+);
+
 // What [`ORDINAL`] binds is not the occurrence's own type -- that is
 // always `int` -- but the *collection* whose rows it counts, put there by
 // the step that produced them. Reading it is what decides which step an
@@ -1831,10 +1839,11 @@ impl TypeResolver {
             TypeKind::Checked(t, _) => self.validate_ast_type(t),
             TypeKind::Composite(types) => {
                 self.field_errors.borrow_mut().push((
-                    "tuple types must be written 't1 * ... * tn', \
-                     not '(t1, ..., tn)'"
-                        .to_string(),
-                    ast_type.span.clone(),
+                    TUPLE_TYPE_ERROR.to_string(),
+                    // A type's span runs on into the whitespace before
+                    // what follows it, and an error that quotes a type
+                    // should stop where the type does.
+                    ast_type.span.trim_end(),
                 ));
                 for t in types {
                     self.validate_ast_type(t);
@@ -9370,10 +9379,8 @@ impl<'a> TypeToTermConverter<'a> {
                 // It is not valid by itself: a tuple type must be
                 // written `t1 * ... * tn`, e.g. `int * string`.
                 self.type_resolver.field_errors.borrow_mut().push((
-                    "tuple types must be written 't1 * ... * tn', \
-                     not '(t1, ..., tn)'"
-                        .to_string(),
-                    type_node.span.clone(),
+                    TUPLE_TYPE_ERROR.to_string(),
+                    type_node.span.trim_end(),
                 ));
                 // Bind to a fresh variable so resolution can continue
                 // and the error is reported.
