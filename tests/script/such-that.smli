@@ -1406,7 +1406,7 @@ from x where isS2 x;
 >   raised at: stdIn:1.6
 
 fun isS3 x = exists y where isR y andalso x < y;
-> val isS3 = fn : int -> bool
+> val isS3 = fn : 'a -> bool
 
 (*) isS3 is unsafe — `x` only appears in an arithmetic subgoal.
 from x where isS3 x;

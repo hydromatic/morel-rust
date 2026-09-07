@@ -3774,7 +3774,6 @@ impl TypeResolver {
             ExprKind::GreaterThan(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op >", left, right, v)?;
-                self.prefer_left_int(&left2);
                 let x =
                     ExprKind::GreaterThan(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -3782,7 +3781,6 @@ impl TypeResolver {
             ExprKind::GreaterThanOrEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op >=", left, right, v)?;
-                self.prefer_left_int(&left2);
                 let x = ExprKind::GreaterThanOrEqual(
                     Box::new(left2),
                     Box::new(right2),
@@ -3873,14 +3871,12 @@ impl TypeResolver {
             ExprKind::LessThan(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <", left, right, v)?;
-                self.prefer_left_int(&left2);
                 let x = ExprKind::LessThan(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::LessThanOrEqual(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op <=", left, right, v)?;
-                self.prefer_left_int(&left2);
                 let x = ExprKind::LessThanOrEqual(
                     Box::new(left2),
                     Box::new(right2),

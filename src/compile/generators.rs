@@ -2674,6 +2674,23 @@ fn upper_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
     None
 }
 
+/// Names a comparison by its `int` instance.
+///
+/// A comparison in a polymorphic function's body keeps the generic
+/// operator -- `fun le (x, y) = x <= y` is an `'a * 'a -> bool` -- and a
+/// call that instantiates it at `int` inlines that body unchanged. The
+/// bound it states is the same one either way, and the caller has already
+/// established that the pattern is an `int`.
+fn int_comparison(f: BuiltInFunction) -> Option<BuiltInFunction> {
+    Some(match f {
+        BuiltInFunction::GGe | BuiltInFunction::IntGe => BuiltInFunction::IntGe,
+        BuiltInFunction::GGt | BuiltInFunction::IntGt => BuiltInFunction::IntGt,
+        BuiltInFunction::GLe | BuiltInFunction::IntLe => BuiltInFunction::IntLe,
+        BuiltInFunction::GLt | BuiltInFunction::IntLt => BuiltInFunction::IntLt,
+        _ => return None,
+    })
+}
+
 /// Normalises a comparison constraint into the form `pat op expr`,
 /// where `op` is one of the `Int{Lt,Le,Gt,Ge}` built-ins and
 /// `expr` doesn't reference `pat_name`. Returns `None` if the
@@ -2689,12 +2706,17 @@ fn try_isolate_bound(
     pat_name: &str,
 ) -> Option<(BuiltInFunction, Expr)> {
     let ops = [
-        BuiltInFunction::IntGt,
+        BuiltInFunction::GGe,
+        BuiltInFunction::GGt,
+        BuiltInFunction::GLe,
+        BuiltInFunction::GLt,
         BuiltInFunction::IntGe,
-        BuiltInFunction::IntLt,
+        BuiltInFunction::IntGt,
         BuiltInFunction::IntLe,
+        BuiltInFunction::IntLt,
     ];
     let (lhs, rhs, op) = call2_args_op(c, &ops)?;
+    let op = int_comparison(op)?;
     // Try lhs-side: `(pat ± k) op rhs` ⇒ `pat op (rhs ∓ k)`.
     if let Some(adj) = isolate_pat_offset(lhs, pat_name)
         && !free_names_in(rhs).contains(pat_name)

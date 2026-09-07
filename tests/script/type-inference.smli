@@ -126,13 +126,13 @@ Sys.set ("lineWidth", 78);
 :t fn (x, y) => x implies y;
 > val it : bool * bool -> bool
 :t fn (x, y) => x < y;
-> val it : int * int -> bool
+> val it : 'a * 'a -> bool
 :t fn (x, y) => x <= y;
-> val it : int * int -> bool
+> val it : 'a * 'a -> bool
 :t fn (x, y) => x > y;
-> val it : int * int -> bool
+> val it : 'a * 'a -> bool
 :t fn (x, y) => x >= y;
-> val it : int * int -> bool
+> val it : 'a * 'a -> bool
 (* Default-to-int does not override an explicit type constraint. *)
 :t fn (x, y: string) => x < y;
 > val it : string * string -> bool
