@@ -26,7 +26,7 @@
 //!
 //! This is the Rust equivalent of Java's `SignatureChecker` class.
 
-use crate::compile::library::BuiltInFunction;
+use crate::compile::library::{BuiltInExn, BuiltInFunction};
 use crate::syntax::ast::{
     DeclKind, SigBind, SpecKind, Statement, StatementKind,
 };
@@ -37,7 +37,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use strum::IntoEnumIterator;
+use strum::{EnumProperty, IntoEnumIterator};
 
 /// Validates signature files against built-in definitions.
 ///
@@ -152,6 +152,7 @@ impl SignatureValidator {
             ValidationError::ParseError(path.to_path_buf(), Box::new(e))
         })?;
         self.check_strum_consistency(&stmt, path)?;
+        self.check_exception_consistency(&stmt, path)?;
         Ok(())
     }
 
@@ -198,6 +199,52 @@ impl SignatureValidator {
             });
         }
         Ok(())
+    }
+
+    /// Cross-checks the `exception` specs in a signature against the
+    /// [`BuiltInExn`] entries whose `p` prop names that structure.
+    ///
+    /// Both directions matter. An exception the runtime raises but no
+    /// signature declares is undocumented -- `Constraint` was, for the
+    /// length of hydromatic/morel#239 -- and one a signature declares but
+    /// the runtime does not have is a promise nothing keeps.
+    fn check_exception_consistency(
+        &self,
+        stmt: &Statement,
+        path: &Path,
+    ) -> Result<(), ValidationError> {
+        let Some(structure) = structure_from_sig_file_name(path) else {
+            return Ok(());
+        };
+        let declared: HashSet<String> = collect_sig_binds(stmt)
+            .iter()
+            .flat_map(|bind| &bind.specs)
+            .filter_map(|spec| match &spec.kind {
+                SpecKind::Exception(descs) => Some(descs),
+                _ => None,
+            })
+            .flatten()
+            .map(|desc| desc.name.clone())
+            .collect();
+        let known: HashSet<String> = BuiltInExn::iter()
+            .filter(|e| e.get_str("p") == Some(structure.as_str()))
+            .map(|e| e.to_string())
+            .collect();
+        let mut undeclared: Vec<String> =
+            known.difference(&declared).cloned().collect();
+        let mut unknown: Vec<String> =
+            declared.difference(&known).cloned().collect();
+        undeclared.sort();
+        unknown.sort();
+        if undeclared.is_empty() && unknown.is_empty() {
+            return Ok(());
+        }
+        Err(ValidationError::ExceptionMismatch {
+            file: path.to_path_buf(),
+            structure,
+            undeclared,
+            unknown,
+        })
     }
 }
 
@@ -282,6 +329,14 @@ pub enum ValidationError {
     DirectoryNotFound(PathBuf),
     /// Failed to read the directory.
     DirectoryReadError(PathBuf, io::Error),
+    /// A structure's `exception` specs and its [`BuiltInExn`] entries
+    /// disagree.
+    ExceptionMismatch {
+        file: PathBuf,
+        structure: String,
+        undeclared: Vec<String>,
+        unknown: Vec<String>,
+    },
     /// Failed to read a signature file.
     FileReadError(PathBuf, io::Error),
     /// No signature files were found in the directory.
@@ -331,6 +386,33 @@ impl fmt::Display for ValidationError {
                     path.display(),
                     err
                 )
+            }
+            ValidationError::ExceptionMismatch {
+                file,
+                structure,
+                undeclared,
+                unknown,
+            } => {
+                write!(
+                    f,
+                    "Exceptions in {} do not match BuiltInExn:",
+                    file.display()
+                )?;
+                for name in undeclared {
+                    write!(
+                        f,
+                        "\n  {structure}.{name} is raised but not declared; \
+                         add `exception {name}` to the signature"
+                    )?;
+                }
+                for name in unknown {
+                    write!(
+                        f,
+                        "\n  {structure}.{name} is declared but has no \
+                         BuiltInExn entry"
+                    )?;
+                }
+                Ok(())
             }
             ValidationError::FileReadError(path, err) => {
                 write!(

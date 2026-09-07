@@ -797,9 +797,11 @@ fn test_signatures() {
     use morel::compile::signature_validator::SignatureValidator;
 
     let validator = SignatureValidator::new("lib");
-    validator
-        .validate_all()
-        .expect("Signature validation failed");
+    // `Display` says what to do about it; `Debug`, which `expect` would
+    // use, only says what was found.
+    if let Err(e) = validator.validate_all() {
+        panic!("Signature validation failed: {e}");
+    }
 
     // Also verify header format using lint_file
     let entries = fs::read_dir("lib")
