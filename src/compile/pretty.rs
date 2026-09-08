@@ -264,7 +264,7 @@ impl Pretty {
     fn value_doc(&self, type_ref: &Type, value: &Val, depth: i32) -> Doc {
         // Strip any alias.
         let mut current_type = type_ref;
-        while let Type::Alias(_, inner, _) = current_type {
+        while let Type::Alias(_, inner, _, _) = current_type {
             current_type = inner;
         }
 
@@ -746,7 +746,23 @@ impl Pretty {
     fn type_doc(&self, type_ref: &Type, left: u8, right: u8) -> Doc {
         match type_ref {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(name, _inner, _args) => text(name),
+            // An alias is written by its name. One that has no name of
+            // its own -- a checked type a record modifier derived --
+            // has only its body and its conditions to be written by, so
+            // it is written in full. A generated name begins with `$`,
+            // which a user cannot write.
+            Type::Alias(name, inner, _args, checks) => {
+                if !name.starts_with('$') {
+                    return text(name);
+                }
+                if wraps(Op::CHECKED, left, right) {
+                    return parenthesize(self.type_doc(type_ref, 0, 0));
+                }
+                beside(
+                    self.type_doc(inner, left, Op::CHECKED.right),
+                    text(&checks.to_string()),
+                )
+            }
             Type::Bag(element_type) => self.collection_type_doc(
                 type_ref,
                 left,
@@ -964,10 +980,11 @@ impl TypeVarRenumberer {
     fn visit(&mut self, type_ref: &Type) -> Type {
         match type_ref {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(name, type_, args) => Type::Alias(
+            Type::Alias(name, type_, args, checks) => Type::Alias(
                 name.clone(),
                 Rc::new(self.visit(type_)),
                 self.visit_list(args.as_slice()),
+                checks.clone(),
             ),
             Type::Bag(inner) => Type::Bag(Rc::new(self.visit(inner))),
             Type::Data(name, args) => {

@@ -98,6 +98,8 @@ pub(crate) const UNIMPLEMENTED_SML_KEYWORDS: &[&str] = &[
 pub(crate) const MOREL_KEYWORDS: &[&str] = &[
     // lint: sort until '];'
     "all",
+    "asOpt",
+    "check",
     "compute",
     "current",
     "distinct",

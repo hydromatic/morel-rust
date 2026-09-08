@@ -23,6 +23,7 @@
 //!
 //! Ported from morel-java: `PatternCoverageChecker.java`.
 
+use crate::compile::postfix::peel_type;
 use crate::compile::sat::{Formula, Sat};
 use crate::compile::type_resolver::{TypeMap, Warning};
 use crate::compile::types::{Label, PrimitiveType, Type};
@@ -215,11 +216,14 @@ impl<'a> CoverageChecker<'a> {
                 // Anonymous fields and ellipses don't constrain the value
                 // beyond the others. Unknown record types are treated as
                 // exhaustive (Formula::True).
-                let labels: Vec<&Label> = match type_ {
+                // A name is not a shape, so a record type written under
+                // one is peeled to find its fields.
+                let peeled = peel_type(type_);
+                let labels: Vec<&Label> = match peeled {
                     Type::Record(_, fs) => fs.keys().collect(),
                     _ => return Formula::True,
                 };
-                let field_types: Vec<Type> = match type_ {
+                let field_types: Vec<Type> = match peeled {
                     Type::Record(_, fs) => {
                         fs.values().map(|t| (**t).clone()).collect()
                     }
@@ -458,6 +462,23 @@ fn and2(a: Formula, b: Formula) -> Formula {
 // AST walker
 // ---------------------------------------------------------------------------
 
+/// Returns whether a match list matches every value of its argument
+/// type.
+///
+/// Used to decide whether a `check` condition needs `| _ => false`
+/// appending: a condition need not be exhaustive, and a value it does
+/// not match does not satisfy it.
+pub fn is_exhaustive(matches: &[Match], type_map: &TypeMap) -> bool {
+    let Some(arg_type) = matches[0].pat.id.and_then(|id| type_map.get_type(id))
+    else {
+        // The argument type is not known, so nothing can be said; treat
+        // the match as exhaustive and append nothing.
+        return true;
+    };
+    let mut checker = CoverageChecker::new(type_map);
+    checker.check_match(matches, &arg_type).0
+}
+
 /// Checks pattern coverage for all match expressions in a declaration.
 ///
 /// Returns warnings (non-exhaustive) or an error (redundant arm).
@@ -523,6 +544,12 @@ fn visit_expr(
             }
         }
 
+        ExprKind::Check(e, checks) => {
+            visit_expr(e, type_map, warnings)?;
+            for c in checks {
+                visit_expr(c, type_map, warnings)?;
+            }
+        }
         ExprKind::Fn(matches) => {
             if !matches.is_empty() {
                 check_matches(matches, &expr.span, type_map, warnings)?;
@@ -561,6 +588,7 @@ fn visit_expr(
 
         ExprKind::Negate(e)
         | ExprKind::Annotated(e, _)
+        | ExprKind::Cast(_, e, _)
         | ExprKind::Raise(e) => {
             visit_expr(e, type_map, warnings)?;
         }

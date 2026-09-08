@@ -72,6 +72,38 @@ impl Span {
         }
     }
 
+    /// Returns the span from this span's start to `other`'s end.
+    ///
+    /// Unlike [`union`](Self::union) the result does not extend past
+    /// `other`: a type declaration's binding ends where the type it
+    /// declares ends, not where its `check` clauses do.
+    pub fn to(&self, other: &Span) -> Self {
+        Span {
+            input: self.input.clone(),
+            start: self.start,
+            end: other.end.max(self.start),
+        }
+    }
+
+    /// Returns this span with trailing whitespace removed.
+    ///
+    /// A type's span can run on to what follows it, and an error that
+    /// quotes a declaration should not include the space before its
+    /// `check` clause.
+    pub fn trim_end(&self) -> Self {
+        let mut end = self.end;
+        while end > self.start
+            && self.input.as_bytes()[end - 1].is_ascii_whitespace()
+        {
+            end -= 1;
+        }
+        Span {
+            input: self.input.clone(),
+            start: self.start,
+            end,
+        }
+    }
+
     /// Creates the union of two spans.
     pub fn union(&self, other: &Span) -> Self {
         use std::cmp::{max, min};
@@ -326,6 +358,21 @@ pub enum ExprKind<SubExpr> {
 
     // Type annotation
     Annotated(Box<SubExpr>, Box<Type>),
+    /// `Check(e, conditions)` is `e check m`: the expression `e`, at a
+    /// type that is `e`'s own with those conditions added. It claims
+    /// them, so they are checked, and the type it gives back carries
+    /// them -- the counterpart of `as` for a type that is not named.
+    Check(Box<SubExpr>, Vec<Expr>),
+
+    /// `Cast(kind, e, t)` converts a value to a type whose conditions
+    /// may not hold of it: `e as t` raises `Constraint` if they do not,
+    /// `e asOpt t` answers `NONE`.
+    ///
+    /// Both are well-typed if the erasure of `t` unifies with the type
+    /// of `e`; because erasure deletes conditions, every type built over
+    /// `int` may be converted to every other. A conversion between
+    /// different erasures is an ordinary type error.
+    Cast(CastKind, Box<SubExpr>, Box<Type>),
 }
 
 impl ExprKind<Expr> {
@@ -364,6 +411,8 @@ impl ExprKind<Expr> {
             ExprKind::Apply(..) => Op::APPLY,
             ExprKind::Caret(..) => Op::CARET,
             ExprKind::Case(..) => Op::LOW_EXPR,
+            ExprKind::Cast(..) => Op::ANNOTATED_EXP,
+            ExprKind::Check(..) => Op::CHECK_EXP,
             ExprKind::Compose(..) => Op::COMPOSE,
             ExprKind::Cons(..) => Op::CONS,
             ExprKind::Current => Op::ATOM,
@@ -450,6 +499,22 @@ impl ExprKind<Expr> {
                     write!(f, "{} => {}", match_.pat, match_.expr)?;
                 }
                 Ok(())
+            }
+            ExprKind::Cast(kind, e, typ) => {
+                let op = Op::ANNOTATED_EXP;
+                write_sub(f, e, left, op.left)?;
+                write!(f, " {} ", kind)?;
+                write!(f, "{}", typ)
+            }
+            ExprKind::Check(e, checks) => {
+                let op = Op::CHECK_EXP;
+                if left > op.left || right > op.right {
+                    f.write_str("(")?;
+                    self.unparse(f, 0, 0)?;
+                    return f.write_str(")");
+                }
+                write_sub(f, e, left, op.left)?;
+                f.write_str(&checks_text(checks))
             }
             ExprKind::Compose(a0, a1) => {
                 infix(f, a0, Op::COMPOSE, a1, left, right)
@@ -725,7 +790,15 @@ impl Display for LiteralKind {
             // lint: sort until '#}' where '##LiteralKind::'
             LiteralKind::Bool(b) => write!(f, "{}", b)?,
             LiteralKind::Char(s) => write!(f, "{}", s)?,
-            LiteralKind::Fn(built_in) => write!(f, "{:?}", built_in)?,
+            // A built-in function value can only have got into an
+            // expression by a rewrite -- a postfix call becomes a call
+            // to the function it dispatched to -- so it is written the
+            // way the user would have written it: `#length Bag`, not the
+            // name of an internal variant.
+            LiteralKind::Fn(built_in) => match built_in.package() {
+                Some(p) => write!(f, "#{} {}", built_in.name(), p)?,
+                None => write!(f, "{}", built_in.name())?,
+            },
             LiteralKind::Int(s) => write!(f, "{}", s)?,
             LiteralKind::Real(s) => write!(f, "{}", s)?,
             LiteralKind::String(s) => write!(f, "{}", s)?,
@@ -776,6 +849,25 @@ pub struct Attribute {
     /// Possibly dotted name, e.g. `"warning"`, `"foo.bar"`.
     pub name: String,
     pub payload: Option<AttributePayload>,
+}
+
+/// How a conversion reports a value that does not satisfy the type it
+/// is converted to.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum CastKind {
+    /// `e as t` raises `Constraint`.
+    As,
+    /// `e asOpt t` answers `NONE`; it asks rather than claims.
+    AsOpt,
+}
+
+impl Display for CastKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(match self {
+            CastKind::As => "as",
+            CastKind::AsOpt => "asOpt",
+        })
+    }
 }
 
 /// Label within a record expression or record pattern.
@@ -1581,6 +1673,97 @@ pub struct TypeBind {
     pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
+    /// Extent of the binding: from its type parameters, or its name,
+    /// to the end of the type it declares.
+    pub span: Span,
+    /// Conditions on the type, one per `check` clause. A type
+    /// declaration lifts them off the type it declares, because there
+    /// they belong to the name being declared.
+    pub checks: Vec<Expr>,
+}
+
+impl TypeBind {
+    /// Creates a type binding, lifting any `check` clauses off the type
+    /// it declares.
+    ///
+    /// A type may carry a condition wherever it is written, so the
+    /// parser has already taken them; here they belong to the name
+    /// being declared.
+    pub fn new(
+        type_vars: Vec<String>,
+        name: String,
+        type_: Type,
+        span: Span,
+    ) -> Self {
+        if let TypeKind::Checked(t, checks) = type_.kind {
+            // The binding ends where the type it declares ends; the
+            // conditions that follow are not part of it.
+            let span = span.to(&t.span).trim_end();
+            return TypeBind {
+                type_vars,
+                name,
+                type_: *t,
+                span,
+                checks,
+            };
+        }
+        TypeBind {
+            type_vars,
+            name,
+            type_,
+            span,
+            checks: Vec::new(),
+        }
+    }
+
+    /// Appends the type's conditions, as they are written.
+    pub fn append_checks(&self, f: &mut Formatter<'_>) -> FmtResult {
+        append_checks(f, &self.checks)
+    }
+}
+
+/// The `check` clauses of a type, rendered as they are written.
+/// Renders `e check m ...` as it is written, parenthesizing `e` where a
+/// reader would need it: a condition binds as loosely as an annotation,
+/// so `(e : int) check c => c > 0` needs its parentheses to be read the
+/// way it was written.
+pub fn check_exp_text(e: &Expr, checks: &[Expr]) -> String {
+    struct Sub<'a>(&'a Expr);
+    impl Display for Sub<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            write_sub(f, self.0, 0, Op::CHECK_EXP.left)
+        }
+    }
+    format!("{}{}", Sub(e), checks_text(checks))
+}
+
+pub fn checks_text(checks: &[Expr]) -> String {
+    struct Rendered<'a>(&'a [Expr]);
+    impl Display for Rendered<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            append_checks(f, self.0)
+        }
+    }
+    Rendered(checks).to_string()
+}
+
+/// Appends `check` clauses, as they are written.
+fn append_checks(f: &mut Formatter<'_>, checks: &[Expr]) -> FmtResult {
+    for check in checks {
+        match &check.kind {
+            ExprKind::Fn(matches) => {
+                f.write_str(" check ")?;
+                for (i, m) in matches.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{} => {}", m.pat, m.expr)?;
+                }
+            }
+            _ => write!(f, " check {}", check)?,
+        }
+    }
+    Ok(())
 }
 
 impl Display for TypeBind {
@@ -1599,7 +1782,8 @@ impl Display for TypeBind {
                 self.name,
                 self.type_
             ),
-        }
+        }?;
+        self.append_checks(f)
     }
 }
 
@@ -1909,6 +2093,14 @@ pub enum TypeKind {
     /// application. For example, `(int, string) either` comes out of the parser
     /// as `App(Composite([int, string]), Id(either))`.
     Composite(Vec<Type>),
+    /// `Checked(t, checks)` is a type that carries `check` conditions:
+    /// `int check i => i >= 0`. Each condition is an
+    /// [`ExprKind::Fn`] from a value of the type to `bool`.
+    ///
+    /// The branches of one condition are alternatives, whereas
+    /// separate conditions are conjoined, so the two may not be
+    /// flattened into one list.
+    Checked(Box<Type>, Vec<Expr>),
 }
 
 impl TypeKind {
@@ -1995,16 +2187,36 @@ impl Type {
         }
     }
 
+    /// Renders this type where it is not the whole type, parenthesizing
+    /// it if it needs to be.
+    ///
+    /// A condition extends as far right as it can, so a checked type
+    /// written inside another swallows what follows it unless it is
+    /// bracketed: `(int check c => c >= 0) * int` is a pair, and
+    /// `int check c => c >= 0 * int` is an `int` whose condition
+    /// compares `c >= 0 * int`.
+    fn display_nested(&self, f: &mut Formatter<'_>) -> FmtResult {
+        if matches!(self.kind, TypeKind::Checked(..)) {
+            return write!(f, "({})", self);
+        }
+        write!(f, "{}", self)
+    }
+
     fn kind_display(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self.kind {
             // lint: sort until '#}' where '##TypeKind::'
             TypeKind::App(args, t) => {
-                let args_str = args
-                    .iter()
-                    .map(|a| format!("{}", a))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{}<{}>", t, args_str)
+                // A type application is written as Morel writes it, the
+                // argument first: `int list`, `(int, string) either`.
+                for a in args {
+                    a.display_nested(f)?;
+                    write!(f, " ")?;
+                }
+                write!(f, "{}", t)
+            }
+            TypeKind::Checked(t, checks) => {
+                write!(f, "{}", t)?;
+                append_checks(f, checks)
             }
             TypeKind::Composite(types) => {
                 write!(f, "(")?;
@@ -2012,6 +2224,8 @@ impl Type {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
+                    // The brackets and commas delimit, so a condition
+                    // written here needs no parentheses of its own.
                     write!(f, "{}", t)?;
                 }
                 write!(f, ")")
@@ -2019,7 +2233,8 @@ impl Type {
             TypeKind::Con(name) => write!(f, "{}", name),
             TypeKind::Expression(expr) => write!(f, "<expr:{}>", expr),
             TypeKind::Fn(t1, t2) => {
-                write!(f, "{} -> ", t1)?;
+                t1.display_nested(f)?;
+                write!(f, " -> ")?;
                 t2.display_paren_if_attributed(f)
             }
             TypeKind::Id(name) => write!(f, "{}", name),
@@ -2034,12 +2249,14 @@ impl Type {
                 write!(f, "{{{}}}", fields_str)
             }
             TypeKind::Tuple(types) => {
-                let types_str = types
-                    .iter()
-                    .map(|t| format!("{}", t))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({})", types_str)
+                // A tuple type is a product: `int * string`.
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " * ")?;
+                    }
+                    t.display_nested(f)?;
+                }
+                Ok(())
             }
             TypeKind::Unit => write!(f, "()"),
             TypeKind::Var(name) => write!(f, "{}", name),

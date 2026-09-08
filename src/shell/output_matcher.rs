@@ -579,7 +579,7 @@ fn parse_value(sc: &mut Scanner, type_: &Type) -> Option<Parsed> {
 /// Resolves through `Alias` wrappers to the underlying type.
 fn peel_alias(t: &Type) -> &Type {
     match t {
-        Type::Alias(_, inner, _) => peel_alias(inner),
+        Type::Alias(_, inner, _, _) => peel_alias(inner),
         _ => t,
     }
 }

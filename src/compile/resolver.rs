@@ -28,10 +28,13 @@ use crate::compile::core::{
     TypeBind as CoreTypeBind, ValBind as CoreValBind,
 };
 use crate::compile::expander;
+use crate::compile::expander::and_all;
+use crate::compile::free_finder::free_names_in;
 use crate::compile::from_builder::FromBuilder;
 use crate::compile::inliner::Env;
 use crate::compile::library;
 use crate::compile::library::{BuiltIn, BuiltInFunction};
+use crate::compile::pat_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::record_modifiers::{self, Source};
 use crate::compile::span::Span;
@@ -40,15 +43,19 @@ use crate::compile::type_resolver::{
     ast_type_to_core_type_with_vars,
 };
 use crate::compile::types;
-use crate::compile::types::{Label, PrimitiveType, Type};
+use crate::compile::types::{
+    Checks, Label, PrimitiveType, Type, TypeVariable, instantiate,
+};
+use crate::eval::code::LIBRARY;
 use crate::eval::val::Val;
 use crate::syntax::ast::{
-    DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunMatch, Literal,
-    LiteralKind, Match, Modifier, Pat, PatField, PatKind, Step as AstStep,
-    StepKind as AstStepKind, Type as AstType, TypeBind, TypeKind, ValBind,
+    CastKind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunMatch, Literal,
+    LiteralKind, Match, Modifier, Pat, PatField, PatKind, Span as AstSpan,
+    Step as AstStep, StepKind as AstStepKind, Type as AstType, TypeBind,
+    TypeKind, ValBind,
 };
 use crate::syntax::parser;
-use crate::unify::unifier::Var;
+use crate::unify::unifier::{ANON_CHECK_PREFIX, Var};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -88,6 +95,11 @@ pub fn resolve_with_session_fns_rec(
     rec_session_fns: &expander::FnEnv,
 ) -> (CoreDecl, expander::FnEnv, Vec<(String, Span)>) {
     let resolver = Resolver::new(&resolved.type_map, resolved.base_line);
+    // A checked type that has no name may have been made in this very
+    // statement -- a record modifier gives one -- and its conditions were
+    // deduced here, so here is where they can be compiled. A later
+    // statement that meets the type again could not.
+    resolver.register_anon_checks();
     let pre_decl = resolver.resolve_decl(&resolved.decl);
     let mut pre_fn_env = expander::FnEnv::new();
     expander::collect_session_fn_bindings(&pre_decl, &mut pre_fn_env);
@@ -659,6 +671,1047 @@ impl<'a> Resolver<'a> {
         CoreExpr::Let(body.type_(), vec![decl], Box::new(body))
     }
 
+    /// Wraps an expression in a check, if the type it is being bound at
+    /// constrains anything.
+    ///
+    /// This is where a value flows into a claim: the binding says the
+    /// value is a `nat`, so the condition the type carries must hold of
+    /// it. Everywhere else the name has reduced to the type it
+    /// abbreviates, so nothing is claimed and nothing need be checked.
+    fn with_checks(&self, expr: CoreExpr, pat: &Pat, span: &Span) -> CoreExpr {
+        match self.claimed_type(pat, &expr.type_()) {
+            Some(claimed) => self.checked(expr, &claimed, span),
+            None => expr,
+        }
+    }
+
+    /// The checked type a pattern claims, or none if it claims nothing.
+    ///
+    /// A claim is an annotation the user wrote, not a type inference
+    /// deduced. The two differ: inference gives the meet, which for a
+    /// checked type is the type it abbreviates, so a deduced type has no
+    /// condition left to check.
+    fn claimed_type(&self, pat: &Pat, erased: &Type) -> Option<Type> {
+        match &pat.kind {
+            PatKind::Annotated(_, t) => self.claimed_ast_type(t),
+            PatKind::As(_, inner) => self.claimed_type(inner, erased),
+            // A pattern that destructures claims per component: an
+            // annotation on one of them claims that one, and the rest
+            // claim nothing. The shape is the value's, not the
+            // pattern's, so that a record pattern which does not mention
+            // every field still lines up with the value.
+            PatKind::Tuple(pats) => {
+                let fields = types::record_fields(erased);
+                if pats.len() != fields.len() {
+                    return None;
+                }
+                let claims: Vec<Option<Type>> = pats
+                    .iter()
+                    .zip(fields.values())
+                    .map(|(p, t)| self.claimed_type(p, t))
+                    .collect();
+                if claims.iter().all(Option::is_none) {
+                    return None;
+                }
+                Some(Type::Tuple(
+                    claims
+                        .into_iter()
+                        .zip(fields.values())
+                        .map(|(c, t)| {
+                            Rc::new(c.unwrap_or_else(|| (**t).clone()))
+                        })
+                        .collect(),
+                ))
+            }
+            PatKind::Record(pat_fields, _) => {
+                let fields = types::record_fields(erased);
+                let mut claims: BTreeMap<String, Type> = BTreeMap::new();
+                for pat_field in pat_fields {
+                    let (label, p) = match pat_field {
+                        PatField::Labeled(_, name, p) => (name.clone(), p),
+                        PatField::Anonymous(_, p) => (implicit_label(p)?, p),
+                    };
+                    let t = fields.get(&Label::from(label.as_str()))?;
+                    if let Some(c) = self.claimed_type(p, t) {
+                        claims.insert(label, c);
+                    }
+                }
+                if claims.is_empty() {
+                    return None;
+                }
+                let mut map = BTreeMap::new();
+                for (label, t) in &fields {
+                    let claim = claims
+                        .remove(&label.to_string())
+                        .unwrap_or_else(|| (**t).clone());
+                    map.insert(label.clone(), Rc::new(claim));
+                }
+                Some(types::record_type(map))
+            }
+            _ => None,
+        }
+    }
+
+    /// The type a written type names, as written -- keeping the aliases
+    /// that say where the conditions are -- or none if it claims
+    /// nothing.
+    fn claimed_ast_type(&self, ast_type: &AstType) -> Option<Type> {
+        let claimed = self.written_type(ast_type)?;
+        if !self.has_check(&claimed) {
+            return None;
+        }
+        // A check on a value is made when the value is made, and a
+        // function value is not a value its type can be checked
+        // against: to check `nat -> nat` every argument it is ever
+        // given and every result it ever returns would have to be
+        // checked, which means replacing the function with a proxy.
+        // Rather than do that silently, or accept the claim and check
+        // nothing, the claim is rejected.
+        if claims_function(&claimed) {
+            self.errors.borrow_mut().push((
+                format!("cannot claim a checked function type '{}'", claimed),
+                Span::from_pest_span(
+                    &ast_type.span.trim_end().to_pest_span(),
+                    self.base_line,
+                ),
+            ));
+            return None;
+        }
+        Some(claimed)
+    }
+
+    /// The type a name means, as its declaration wrote it, if it means
+    /// anything that carries a condition.
+    fn named_type(&self, name: &str) -> Option<Type> {
+        let body = self.type_map.type_aliases.get(name)?;
+        let claimed = Type::Alias(
+            name.to_string(),
+            Rc::new(body.clone()),
+            vec![],
+            self.type_map.checks_of(name),
+        );
+        self.has_check(&claimed).then_some(claimed)
+    }
+
+    /// The type a checked type that has no name means, if the name is
+    /// one.
+    ///
+    /// A named type says what it means through its declaration; this one
+    /// has none, so its body is the type of the value that claims it, and
+    /// its conditions are the ones its name was derived from.
+    fn anon_checked_type(&self, name: &str, value: &CoreExpr) -> Option<Type> {
+        if !name.starts_with(ANON_CHECK_PREFIX) {
+            return None;
+        }
+        let checks = self.type_map.checks_of(name);
+        if checks.is_empty() {
+            return None;
+        }
+        Some(Type::Alias(name.to_string(), value.type_(), vec![], checks))
+    }
+
+    /// A written type, as written: keeping the aliases that say where
+    /// the conditions are, so that a claim can be walked.
+    ///
+    /// Unlike the syntactic conversion, a name that is an alias stays
+    /// one; unlike the deduced type, nothing has been expanded or met
+    /// with anything.
+    fn written_type(&self, ast_type: &AstType) -> Option<Type> {
+        match &ast_type.kind {
+            TypeKind::Checked(t, checks) => {
+                // A condition written where a type is used claims what a
+                // declared type's condition claims. The type has no name
+                // of its own, so it takes the one its conditions give it.
+                //
+                // The body may be a type variable standing for whatever
+                // inference gives the expression, which is how a condition
+                // written on an expression rather than on a type is said.
+                // Nothing is claimed of the body -- only the conditions
+                // are -- so a variable will do where it is not written.
+                let checks = Checks::new(checks.clone());
+                let body = self
+                    .written_type(t)
+                    .unwrap_or(Type::Variable(TypeVariable::new(0)));
+                Some(Type::Alias(
+                    checks.anon_name(),
+                    Rc::new(body),
+                    vec![],
+                    checks,
+                ))
+            }
+            // `typeof e` names the type `e` was shown to have, conditions
+            // and all, so an annotation that writes it claims what that
+            // type claims.
+            TypeKind::Expression(expr) => self
+                .type_map
+                .decl_exp_types
+                .get(&expr.span.extent())
+                .cloned(),
+            TypeKind::Id(name) => match self.type_map.type_aliases.get(name) {
+                Some(body) => Some(Type::Alias(
+                    name.clone(),
+                    Rc::new(body.clone()),
+                    vec![],
+                    self.type_map.checks_of(name),
+                )),
+                None => ast_type_to_core_type(ast_type),
+            },
+            TypeKind::Fn(a, b) => Some(Type::Fn(
+                Rc::new(self.written_type(a)?),
+                Rc::new(self.written_type(b)?),
+            )),
+            TypeKind::Tuple(types) => {
+                let args: Vec<Rc<Type>> = types
+                    .iter()
+                    .map(|t| self.written_type(t).map(Rc::new))
+                    .collect::<Option<_>>()?;
+                Some(Type::Tuple(args))
+            }
+            TypeKind::Record(fields) => {
+                let mut map = BTreeMap::new();
+                for field in fields {
+                    map.insert(
+                        Label::from(field.label.name.as_str()),
+                        Rc::new(self.written_type(&field.type_)?),
+                    );
+                }
+                Some(types::record_type(map))
+            }
+            TypeKind::App(args, head) => {
+                let TypeKind::Id(name) = &head.kind else {
+                    return ast_type_to_core_type(ast_type);
+                };
+                let flat = AstType::flatten(args);
+                let args: Vec<Rc<Type>> = flat
+                    .iter()
+                    .map(|t| self.written_type(t).map(Rc::new))
+                    .collect::<Option<_>>()?;
+                Some(match (name.as_str(), args.len()) {
+                    ("list", 1) => Type::List(args[0].clone()),
+                    ("bag", 1) => Type::Bag(args[0].clone()),
+                    _ => Type::Data(name.clone(), args),
+                })
+            }
+            _ => ast_type_to_core_type(ast_type),
+        }
+    }
+
+    /// Whether a type, or any type within it, carries a condition.
+    fn has_check(&self, claimed: &Type) -> bool {
+        match claimed {
+            Type::Alias(_, body, _, checks) => {
+                !checks.is_empty() || self.has_check(body)
+            }
+            Type::Record(_, fields) => {
+                fields.values().any(|t| self.has_check(t))
+            }
+            Type::Tuple(types) => types.iter().any(|t| self.has_check(t)),
+            Type::List(elem) | Type::Bag(elem) => self.has_check(elem),
+            // A datatype carries a condition if one of the types it was
+            // given does; the walk finds where the constructors put it.
+            Type::Data(_, args) => args.iter().any(|t| self.has_check(t)),
+            // A function's parameter and result are looked at so that a
+            // claim on them can be rejected; `deep_condition` builds no
+            // condition for a function, so nothing reaches Core.
+            Type::Fn(a, b) => self.has_check(a) || self.has_check(b),
+            _ => false,
+        }
+    }
+
+    /// Returns a condition that holds if `value` satisfies every
+    /// condition its type carries, or none if the type carries none.
+    ///
+    /// A condition on a composite type is the conjunction of the
+    /// conditions of its components and its own, in that order: a
+    /// type's own condition may assume that its components satisfy
+    /// theirs.
+    ///
+    /// Two types are walked in step. `claimed` is the type as the user
+    /// wrote it, which keeps its aliases and so knows where the
+    /// conditions are; `erased` is the same type with its aliases
+    /// expanded, and is what the expressions being built are typed
+    /// with, because an alias must not reach Core.
+    ///
+    /// `blame` says what the value is of -- `field empno`,
+    /// `component 2`, `[_]` -- and is empty at the outermost level,
+    /// where the value is the whole. A condition on a component raises
+    /// for itself, so that the message names the component and quotes
+    /// it; the outermost condition is left bare, for the `$check` that
+    /// wraps the whole value to report.
+    fn deep_condition(
+        &self,
+        claimed: &Type,
+        erased: &Rc<Type>,
+        value: &CoreExpr,
+        blame: &str,
+        span: &Span,
+    ) -> Option<CoreExpr> {
+        self.deep_condition_walking(
+            claimed,
+            erased,
+            value,
+            blame,
+            span,
+            &mut Vec::new(),
+            true,
+        )
+    }
+
+    /// As [`Self::deep_condition`], for a condition that asks rather
+    /// than claims: a component that fails answers false instead of
+    /// raising for itself.
+    fn deep_condition_asking(
+        &self,
+        claimed: &Type,
+        erased: &Rc<Type>,
+        value: &CoreExpr,
+        span: &Span,
+    ) -> Option<CoreExpr> {
+        self.deep_condition_walking(
+            claimed,
+            erased,
+            value,
+            "",
+            span,
+            &mut Vec::new(),
+            false,
+        )
+    }
+
+    /// As [`Self::deep_condition`], carrying the datatypes whose walk is
+    /// in progress.
+    ///
+    /// A datatype may contain itself, so walking one cannot be an
+    /// expansion. morel-java builds a function for each and calls it
+    /// where the datatype recurs; morel-rust stops instead, which
+    /// claims less and never more.
+    fn deep_condition_walking(
+        &self,
+        claimed: &Type,
+        erased: &Rc<Type>,
+        value: &CoreExpr,
+        blame: &str,
+        span: &Span,
+        walking: &mut Vec<(String, String)>,
+        raising: bool,
+    ) -> Option<CoreExpr> {
+        match claimed {
+            Type::Alias(name, body, _, checks) => {
+                let inner = self.deep_condition_walking(
+                    body, erased, value, blame, span, walking, raising,
+                );
+                if checks.is_empty() {
+                    return inner;
+                }
+                // The borrow ends here: compiling the conditions may
+                // register them, which borrows again.
+                let compiled =
+                    self.type_map.check_predicates.borrow().get(name).cloned();
+                let predicates = match compiled {
+                    Some(predicates) => predicates,
+                    // A checked type that has no name was never declared,
+                    // so nothing compiled its conditions when a
+                    // declaration would have. Compile them here; they are
+                    // in hand, on the type itself.
+                    //
+                    // Unless they were never deduced -- a condition
+                    // written inside a type declaration, on a field say,
+                    // is not yet -- and then there is nothing to compile
+                    // them from, so the condition is dropped.
+                    None if name.starts_with(ANON_CHECK_PREFIX)
+                        && checks
+                            .fns
+                            .iter()
+                            .all(|f| f.get_type(self.type_map).is_some()) =>
+                    {
+                        let predicates: Vec<CoreExpr> = checks
+                            .fns
+                            .iter()
+                            .map(|f| self.make_total(self.resolve_expr(f), f))
+                            .collect();
+                        // Keep them: a later statement that meets this
+                        // type again -- through `typeof`, say -- cannot
+                        // compile them, because the conditions were
+                        // deduced in this one.
+                        self.type_map
+                            .check_predicates
+                            .borrow_mut()
+                            .insert(name.clone(), predicates.clone());
+                        predicates
+                    }
+                    None => return None,
+                };
+                let own = if blame.is_empty() || !raising {
+                    and_all(self.conditions(value, &predicates, span))
+                } else {
+                    self.check_call(
+                        value,
+                        &type_moniker(claimed),
+                        &predicates,
+                        BuiltInFunction::ZRequire,
+                        Rc::new(Type::Primitive(PrimitiveType::Bool)),
+                        blame,
+                        span,
+                    )
+                };
+                Some(match inner {
+                    None => own,
+                    Some(inner) => and_all(vec![inner, own]),
+                })
+            }
+            Type::Record(..) | Type::Tuple(_) => {
+                let fields = types::record_fields(claimed);
+                let erased_fields = types::record_fields(erased);
+                let mut conditions = Vec::new();
+                for (i, (label, field_type)) in fields.iter().enumerate() {
+                    let erased_field = erased_fields.values().nth(i)?;
+                    let field_value =
+                        self.select_slot(value, i, erased_field.clone(), span);
+                    if let Some(c) = self.deep_condition_walking(
+                        field_type,
+                        erased_field,
+                        &field_value,
+                        &append_blame(blame, &field_blame(claimed, label)),
+                        span,
+                        walking,
+                        raising,
+                    ) {
+                        conditions.push(c);
+                    }
+                }
+                (!conditions.is_empty()).then(|| and_all(conditions))
+            }
+            Type::List(elem) | Type::Bag(elem) => self.element_condition(
+                elem, erased, value, blame, span, walking, raising,
+            ),
+            // A vector's elements are walked like a collection's.
+            Type::Data(name, args) if name == "vector" && args.len() == 1 => {
+                self.element_condition(
+                    &args[0], erased, value, blame, span, walking, raising,
+                )
+            }
+            Type::Data(name, args) => self.datatype_condition(
+                name, args, erased, value, blame, span, walking, raising,
+            ),
+            _ => None,
+        }
+    }
+
+    /// A condition that holds if every element of a collection or vector
+    /// satisfies the element type's condition.
+    #[allow(clippy::too_many_arguments)]
+    fn element_condition(
+        &self,
+        elem: &Rc<Type>,
+        erased: &Rc<Type>,
+        value: &CoreExpr,
+        blame: &str,
+        span: &Span,
+        walking: &mut Vec<(String, String)>,
+        raising: bool,
+    ) -> Option<CoreExpr> {
+        {
+            {
+                if !self.has_check(elem) {
+                    return None;
+                }
+                // Every element must satisfy the element type's
+                // condition, so the collection is walked.
+                let erased_elem = match erased.as_ref() {
+                    Type::List(e) | Type::Bag(e) => e.clone(),
+                    Type::Data(n, args) if n == "vector" && args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    _ => return None,
+                };
+                let name = self.temp_name();
+                let element =
+                    CoreExpr::Identifier(erased_elem.clone(), name.clone());
+                let condition = self.deep_condition_walking(
+                    elem,
+                    &erased_elem,
+                    &element,
+                    &append_blame(blame, "[_]"),
+                    span,
+                    walking,
+                    raising,
+                )?;
+                let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+                let predicate = CoreExpr::Fn(
+                    Rc::new(Type::Fn(erased_elem.clone(), bool_t.clone())),
+                    vec![CoreMatch {
+                        pat: CorePat::Identifier(erased_elem.clone(), name),
+                        expr: condition,
+                    }],
+                    span.clone(),
+                );
+                // A bag is walked by `Bag.all`, a list by `List.all`,
+                // a vector by `Vector.all`.
+                let all = match erased.as_ref() {
+                    Type::Bag(_) => BuiltInFunction::BagAll,
+                    Type::Data(n, _) if n == "vector" => {
+                        BuiltInFunction::VectorAll
+                    }
+                    _ => BuiltInFunction::ListAll,
+                };
+                let all_t = Rc::new(Type::Fn(
+                    predicate.type_(),
+                    Rc::new(Type::Fn(erased.clone(), bool_t.clone())),
+                ));
+                Some(CoreExpr::Apply(
+                    bool_t.clone(),
+                    Box::new(CoreExpr::Apply(
+                        Rc::new(Type::Fn(erased.clone(), bool_t)),
+                        Box::new(CoreExpr::Literal(all_t, Val::Fn(all))),
+                        Box::new(predicate),
+                        span.clone(),
+                    )),
+                    Box::new(value.clone()),
+                    span.clone(),
+                ))
+            }
+        }
+    }
+
+    /// Returns a condition that holds if every value a datatype's
+    /// constructors carry satisfies the conditions its type arguments
+    /// carry.
+    ///
+    /// Without this a condition under a type parameter is claimed and
+    /// never checked: `val w: nat option = SOME ~1` printed `nat option`
+    /// and held a value that is not one. Records and collections were
+    /// already walked; a datatype is the remaining way to reach a type.
+    #[allow(clippy::too_many_arguments)]
+    fn datatype_condition(
+        &self,
+        name: &str,
+        args: &[Rc<Type>],
+        erased: &Rc<Type>,
+        value: &CoreExpr,
+        blame: &str,
+        span: &Span,
+        walking: &mut Vec<(String, String)>,
+        raising: bool,
+    ) -> Option<CoreExpr> {
+        let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+        // A datatype met again is called rather than expanded.
+        if let Some((_, predicate)) = walking.iter().find(|(n, _)| n == name) {
+            let fn_t = Rc::new(Type::Fn(erased.clone(), bool_t.clone()));
+            return Some(CoreExpr::Apply(
+                bool_t,
+                Box::new(CoreExpr::Identifier(fn_t, predicate.clone())),
+                Box::new(value.clone()),
+                span.clone(),
+            ));
+        }
+        let constructors =
+            self.type_map.datatype_constructors.get(name)?.clone();
+        let erased_args = match erased.as_ref() {
+            Type::Data(_, erased_args) => erased_args.clone(),
+            _ => return None,
+        };
+        // The condition is a function, applied to the value, because a
+        // datatype may contain itself. A recursive datatype calls the
+        // function being built; one that does not recurse builds it all
+        // the same, and the inliner takes it away.
+        let predicate_name = self.temp_name();
+        let param_name = self.temp_name();
+        let param = CoreExpr::Identifier(erased.clone(), param_name.clone());
+        let t = erased.clone();
+        walking.push((name.to_string(), predicate_name.clone()));
+        let mut matches = Vec::new();
+        let mut any = false;
+        for constructor in &constructors {
+            // A constructor that carries nothing has nothing to check.
+            let arg_type = self.constructor_arg_type(constructor);
+            let arm = match &arg_type {
+                None => None,
+                Some(arg_type) => {
+                    let claimed_arg = instantiate(arg_type, args);
+                    let erased_arg =
+                        Rc::new(instantiate(arg_type, &erased_args));
+                    if self.has_check(&claimed_arg) {
+                        let arg_name = self.temp_name();
+                        let arg_value = CoreExpr::Identifier(
+                            erased_arg.clone(),
+                            arg_name.clone(),
+                        );
+                        self.deep_condition_walking(
+                            &claimed_arg,
+                            &erased_arg,
+                            &arg_value,
+                            &append_blame(blame, constructor),
+                            span,
+                            walking,
+                            raising,
+                        )
+                        .map(|condition| {
+                            (
+                                CorePat::Identifier(erased_arg, arg_name),
+                                condition,
+                            )
+                        })
+                    } else {
+                        None
+                    }
+                }
+            };
+            let (pat, expr) = match arm {
+                Some((arg_pat, condition)) => {
+                    any = true;
+                    (Some(Box::new(arg_pat)), condition)
+                }
+                None => (
+                    arg_type.map(|arg_type| {
+                        Box::new(CorePat::Wildcard(Rc::new(instantiate(
+                            &arg_type,
+                            &erased_args,
+                        ))))
+                    }),
+                    CoreExpr::Literal(bool_t.clone(), Val::Bool(true)),
+                ),
+            };
+            matches.push(CoreMatch {
+                pat: CorePat::Constructor(t.clone(), constructor.clone(), pat),
+                expr,
+            });
+        }
+        walking.pop();
+        if !any {
+            return None;
+        }
+        let body = CoreExpr::Case(
+            bool_t.clone(),
+            Box::new(param),
+            matches,
+            span.clone(),
+        );
+        let fn_t = Rc::new(Type::Fn(erased.clone(), bool_t.clone()));
+        let predicate = CoreExpr::Fn(
+            fn_t.clone(),
+            vec![CoreMatch {
+                pat: CorePat::Identifier(erased.clone(), param_name),
+                expr: body,
+            }],
+            span.clone(),
+        );
+        let decl = CoreDecl::RecVal(vec![CoreValBind {
+            pat: CorePat::Identifier(fn_t.clone(), predicate_name.clone()),
+            t: (*fn_t).clone(),
+            expr: predicate,
+            overload_pat: None,
+            span: None,
+        }]);
+        Some(CoreExpr::Let(
+            bool_t.clone(),
+            vec![decl],
+            Box::new(CoreExpr::Apply(
+                bool_t,
+                Box::new(CoreExpr::Identifier(fn_t, predicate_name)),
+                Box::new(value.clone()),
+                span.clone(),
+            )),
+        ))
+    }
+
+    /// The type of a constructor's argument, or none if it carries
+    /// nothing.
+    ///
+    /// A user-declared constructor's is recorded by its declaration; a
+    /// built-in one's is read from the type the library gives it.
+    fn constructor_arg_type(&self, constructor: &str) -> Option<Type> {
+        if let Some(t) = self.type_map.constructor_arg_types.get(constructor) {
+            return Some(t.clone());
+        }
+        LIBRARY.with(|lib| {
+            let BuiltIn::Fn(f) = lib.lookup(constructor)? else {
+                return None;
+            };
+            if !f.is_constructor() {
+                return None;
+            }
+            let mut t = lib.fn_type(f).as_ref();
+            while let Type::Forall(inner, _) = t {
+                t = inner;
+            }
+            match t {
+                Type::Fn(arg, _) => Some((**arg).clone()),
+                _ => None,
+            }
+        })
+    }
+
+    /// Returns an expression that selects the `i`th field of a record.
+    fn select_slot(
+        &self,
+        record: &CoreExpr,
+        slot: usize,
+        field_type: Rc<Type>,
+        span: &Span,
+    ) -> CoreExpr {
+        let selector_type =
+            Rc::new(Type::Fn(record.type_(), field_type.clone()));
+        CoreExpr::Apply(
+            field_type,
+            Box::new(CoreExpr::RecordSelector(selector_type, slot)),
+            Box::new(record.clone()),
+            span.clone(),
+        )
+    }
+
+    /// Returns an expression that gives the value of `expr` if the
+    /// conditions of the type it is claimed at hold of it, and otherwise
+    /// raises `Constraint`.
+    ///
+    /// The `let` is what stops the expression being evaluated twice,
+    /// once for the condition and once for the result.
+    fn checked(&self, expr: CoreExpr, claimed: &Type, span: &Span) -> CoreExpr {
+        self.checked_blamed(expr, claimed, "", span)
+    }
+
+    /// As [`Self::checked`], but says what the value is of, for a value
+    /// that is a component of something -- the argument of a
+    /// constructor, say.
+    fn checked_blamed(
+        &self,
+        expr: CoreExpr,
+        claimed: &Type,
+        blame: &str,
+        span: &Span,
+    ) -> CoreExpr {
+        self.let_value(expr, span, |id| {
+            let erased = id.type_();
+            let Some(condition) =
+                self.deep_condition(claimed, &erased, id, blame, span)
+            else {
+                return id.clone();
+            };
+            self.apply_check(
+                condition,
+                id,
+                &type_moniker(claimed),
+                BuiltInFunction::ZCheck,
+                erased,
+                blame,
+                span,
+            )
+        })
+    }
+
+    /// The conjuncts of a type's own conditions, of a value.
+    fn conditions(
+        &self,
+        value: &CoreExpr,
+        predicates: &[CoreExpr],
+        span: &Span,
+    ) -> Vec<CoreExpr> {
+        let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+        predicates
+            .iter()
+            .map(|p| {
+                CoreExpr::Apply(
+                    bool_t.clone(),
+                    Box::new(p.clone()),
+                    Box::new(value.clone()),
+                    span.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Applies one of the checking operators to a value and the
+    /// conjunction of its type's own conditions.
+    fn check_call(
+        &self,
+        id: &CoreExpr,
+        name: &str,
+        predicates: &[CoreExpr],
+        operator: BuiltInFunction,
+        result_t: Rc<Type>,
+        blame: &str,
+        span: &Span,
+    ) -> CoreExpr {
+        let condition = and_all(self.conditions(id, predicates, span));
+        self.apply_check(condition, id, name, operator, result_t, blame, span)
+    }
+
+    /// Applies one of the checking operators to a value and a condition.
+    fn apply_check(
+        &self,
+        condition: CoreExpr,
+        id: &CoreExpr,
+        name: &str,
+        operator: BuiltInFunction,
+        result_t: Rc<Type>,
+        blame: &str,
+        span: &Span,
+    ) -> CoreExpr {
+        {
+            let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+            let string_t = Rc::new(Type::Primitive(PrimitiveType::String));
+            let value_t = id.type_();
+            // Every clause must hold, so they are conjoined; the
+            // branches within one clause are alternatives, and the
+            // condition itself decides between them.
+            let arg_t = Rc::new(Type::Tuple(vec![
+                bool_t,
+                value_t.clone(),
+                string_t.clone(),
+                string_t.clone(),
+            ]));
+            let arg = CoreExpr::Tuple(
+                arg_t.clone(),
+                vec![
+                    condition,
+                    id.clone(),
+                    CoreExpr::Literal(
+                        string_t.clone(),
+                        Val::String(Rc::from(name)),
+                    ),
+                    CoreExpr::Literal(string_t, Val::String(Rc::from(blame))),
+                ],
+            );
+            let fn_t = Rc::new(Type::Fn(arg_t, result_t.clone()));
+            CoreExpr::Apply(
+                result_t,
+                Box::new(CoreExpr::Literal(fn_t, Val::Fn(operator))),
+                Box::new(arg),
+                span.clone(),
+            )
+        }
+    }
+
+    /// Makes a condition total, by appending `_ => false` if it does not
+    /// already match every value.
+    ///
+    /// A condition need not be exhaustive: `type z = int check 0 =>
+    /// true` says that zero is the only value of the type, and reads
+    /// better than spelling out the other case. Without this the
+    /// condition would fail to match any other value, rather than
+    /// rejecting it.
+    ///
+    /// The appended branch is not part of the type as it was written,
+    /// so it reaches only the compiled condition, never the display.
+    fn make_total(&self, predicate: CoreExpr, ast: &Expr) -> CoreExpr {
+        let CoreExpr::Fn(t, matches, span) = predicate else {
+            return predicate;
+        };
+        let ExprKind::Fn(ast_matches) = &ast.kind else {
+            return CoreExpr::Fn(t, matches, span);
+        };
+        if pat_coverage::is_exhaustive(ast_matches, self.type_map) {
+            return CoreExpr::Fn(t, matches, span);
+        }
+        let arg_type = matches[0].pat.type_();
+        let mut matches = matches;
+        matches.push(CoreMatch {
+            pat: CorePat::Wildcard(arg_type),
+            expr: CoreExpr::Literal(
+                Rc::new(Type::Primitive(PrimitiveType::Bool)),
+                Val::Bool(false),
+            ),
+        });
+        CoreExpr::Fn(t, matches, span)
+    }
+
+    /// Reports an error if a condition refers to anything but the value
+    /// it is given and the standard basis.
+    ///
+    /// That is what lets a checked type be interned like any other type
+    /// -- two are the same type when their conditions are textually
+    /// equal, which would not follow if a condition could also depend on
+    /// an environment -- and it settles what a condition means when the
+    /// names it used are re-bound, by making the question not arise.
+    ///
+    /// Closedness is decided by the binding rather than the name, so
+    /// shadowing a basis name does not smuggle an environment in.
+    fn check_closed(&self, name: &str, predicate: &CoreExpr, span: &Span) {
+        for free in free_names_in(predicate) {
+            if self.type_map.user_bindings.contains(&free)
+                || library::lookup(&free).is_none()
+            {
+                self.errors.borrow_mut().push((
+                    format!(
+                        "condition of checked type '{}' is not closed; \
+                         it refers to '{}'",
+                        name, free
+                    ),
+                    span.clone(),
+                ));
+                return;
+            }
+        }
+    }
+
+    /// Returns `SOME v`.
+    fn some(
+        &self,
+        value: CoreExpr,
+        option_t: &Rc<Type>,
+        span: &Span,
+    ) -> CoreExpr {
+        let fn_t = Rc::new(Type::Fn(value.type_(), Rc::clone(option_t)));
+        CoreExpr::Apply(
+            Rc::clone(option_t),
+            Box::new(CoreExpr::Literal(
+                fn_t,
+                Val::Fn(BuiltInFunction::OptionSome),
+            )),
+            Box::new(value),
+            span.clone(),
+        )
+    }
+
+    /// Returns an expression that gives `SOME v` if the conditions of
+    /// the type hold of `v`, and `NONE` if they do not:
+    ///
+    /// ```text
+    /// let val v = e in if c1 v andalso c2 v then SOME v else NONE end
+    /// ```
+    ///
+    /// `asOpt` asks rather than claims, so a condition that is false is
+    /// an answer; but one that raises has no answer, so it raises too.
+    fn checked_opt(
+        &self,
+        expr: CoreExpr,
+        claimed: &Type,
+        option_t: &Rc<Type>,
+        span: &Span,
+    ) -> CoreExpr {
+        self.let_value(expr, span, |id| {
+            let erased = id.type_();
+            let condition = self
+                .deep_condition(claimed, &erased, id, "", span)
+                .expect("the type claims something");
+            let attempt = self.apply_check(
+                condition,
+                id,
+                &type_moniker(claimed),
+                BuiltInFunction::ZAttempt,
+                Rc::new(Type::Primitive(PrimitiveType::Bool)),
+                "",
+                span,
+            );
+            let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+            CoreExpr::Case(
+                Rc::clone(option_t),
+                Box::new(attempt),
+                vec![
+                    CoreMatch {
+                        pat: CorePat::Literal(bool_t.clone(), Val::Bool(true)),
+                        expr: self.some(id.clone(), option_t, span),
+                    },
+                    CoreMatch {
+                        pat: CorePat::Literal(bool_t, Val::Bool(false)),
+                        expr: CoreExpr::Literal(
+                            Rc::clone(option_t),
+                            Val::Fn(BuiltInFunction::OptionNone),
+                        ),
+                    },
+                ],
+                span.clone(),
+            )
+        })
+    }
+
+    /// The condition of the checked type a scan is over, or none if it
+    /// is not over one.
+    ///
+    /// A scan over a checked type enumerates the values of that type,
+    /// so the type's condition belongs in the scan's filter, where the
+    /// planner can use it to generate the values rather than generate
+    /// and reject them. It does not raise: which values the type has is
+    /// the question being asked, not something already claimed of a
+    /// value in hand.
+    fn scan_type_condition(
+        &self,
+        pat: &Pat,
+        core_pat: &CorePat,
+        span: &Span,
+    ) -> Option<CoreExpr> {
+        let PatKind::Annotated(_, ast_type) = &pat.kind else {
+            return None;
+        };
+        let claimed = self.claimed_ast_type(ast_type)?;
+        // The erased type comes from the value, not the pattern: a
+        // record pattern reaches Core as a tuple, whose fields are
+        // named 1, 2.
+        let value = self.row_value(core_pat, &claimed)?;
+        let erased = value.type_();
+        self.deep_condition_asking(&claimed, &erased, &value, span)
+    }
+
+    /// An expression for the row a scan's pattern binds, or none if the
+    /// pattern is one this does not know how to reassemble.
+    fn row_value(
+        &self,
+        core_pat: &CorePat,
+        claimed: &Type,
+    ) -> Option<CoreExpr> {
+        match core_pat {
+            CorePat::Identifier(t, name) => {
+                Some(CoreExpr::Identifier(t.clone(), name.clone()))
+            }
+            CorePat::Record(_, pat_fields, _) => {
+                // A record pattern binds its fields by name.
+                let fields = types::record_fields(claimed);
+                let mut values = Vec::with_capacity(fields.len());
+                for label in fields.keys() {
+                    let name = label.to_string();
+                    let bound = pat_fields.iter().find_map(|f| match f {
+                        CorePatField::Labeled(l, p) if *l == name => {
+                            Some(p.as_ref())
+                        }
+                        _ => None,
+                    })?;
+                    let CorePat::Identifier(t, bound_name) = bound else {
+                        return None;
+                    };
+                    values.push(CoreExpr::Identifier(
+                        t.clone(),
+                        bound_name.clone(),
+                    ));
+                }
+                let types_: BTreeMap<Label, Rc<Type>> = fields
+                    .keys()
+                    .cloned()
+                    .zip(values.iter().map(CoreExpr::type_))
+                    .collect();
+                Some(CoreExpr::Tuple(
+                    Rc::new(types::record_type(types_)),
+                    values,
+                ))
+            }
+            CorePat::Tuple(_, args) => {
+                // A record pattern, `{i, j}`, reaches Core as a tuple of
+                // the fields in field order, so the names -- and the
+                // types the condition is written against -- come from
+                // the type the user wrote, not from the pattern.
+                let fields = types::record_fields(claimed);
+                if fields.len() != args.len() {
+                    return None;
+                }
+                let mut values = Vec::with_capacity(args.len());
+                for arg in args {
+                    let CorePat::Identifier(t, name) = arg else {
+                        return None;
+                    };
+                    values.push(CoreExpr::Identifier(t.clone(), name.clone()));
+                }
+                let types_: BTreeMap<Label, Rc<Type>> = fields
+                    .keys()
+                    .cloned()
+                    .zip(values.iter().map(CoreExpr::type_))
+                    .collect();
+                Some(CoreExpr::Tuple(
+                    Rc::new(types::record_type(types_)),
+                    values,
+                ))
+            }
+            _ => None,
+        }
+    }
+
     /// Records function names whose first parameter is `self`, so
     /// postfix calls against receivers of matching types can be
     /// rewritten into direct applications. Called from `resolve_decl`
@@ -743,7 +1796,7 @@ impl<'a> Resolver<'a> {
             DeclKind::Type(type_binds) => CoreDecl::Type(
                 type_binds
                     .iter()
-                    .map(|tb| self.resolve_type_bind(tb))
+                    .map(|tb| self.resolve_type_bind(tb, &decl.span))
                     .collect(),
             ),
             DeclKind::Val(rec, _overload, val_binds) => {
@@ -868,11 +1921,47 @@ impl<'a> Resolver<'a> {
             ExprKind::AndAlso(a0, a1) => {
                 self.call2(t, BuiltInFunction::BoolAndAlso, &span, a0, a1)
             }
-            ExprKind::Annotated(expr, _) => self.resolve_expr(expr),
+            ExprKind::Annotated(inner, ann) => {
+                // An ascription is a claim, like a binding, so it is
+                // checked wherever it appears -- not only where its
+                // value is bound.
+                let value = self.resolve_expr(inner);
+                match self.claimed_ast_type(ann) {
+                    Some(claimed) => self.checked(value, &claimed, &span),
+                    None => value,
+                }
+            }
             ExprKind::Append(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListAt, &span, a0, a1)
             }
             ExprKind::Apply(func, arg) => {
+                // Applying a datatype constructor is a construction
+                // site, like a binding: `Box ~1` claims that `~1` is a
+                // `nat`, because that is what `Box` was declared to
+                // hold.
+                if let ExprKind::Identifier(name) = &func.kind
+                    && let Some(arg_type) =
+                        self.type_map.constructor_arg_types.get(name)
+                    && self.has_check(arg_type)
+                {
+                    let arg_type = arg_type.clone();
+                    let core_arg = self.resolve_expr(arg);
+                    let blame = format!("argument of {}", name);
+                    // The constructor is what claims the type, so it is
+                    // what the message blames -- not the application.
+                    let fn_span = Span::from_pest_span(
+                        &func.span.to_pest_span(),
+                        self.base_line,
+                    );
+                    let checked = self
+                        .checked_blamed(core_arg, &arg_type, &blame, &fn_span);
+                    return CoreExpr::Apply(
+                        t,
+                        Box::new(self.resolve_expr(func)),
+                        Box::new(checked),
+                        span.clone(),
+                    );
+                }
                 // Safe navigation `e?.f`: lower to a projection through the
                 // receiver's functor layers.
                 if let ExprKind::SafeRecordSelector(name) = &func.kind {
@@ -987,6 +2076,37 @@ impl<'a> Resolver<'a> {
                 matches.iter().map(|m| self.resolve_match(m)).collect(),
                 span.clone(),
             ),
+            ExprKind::Cast(kind, inner, target) => {
+                let value = self.resolve_expr(inner);
+                let Some(claimed) = self.claimed_ast_type(target) else {
+                    // Converting to a type that constrains nothing
+                    // claims nothing, so it is erased, as an annotation
+                    // is -- except that `asOpt` still has to answer.
+                    return match kind {
+                        CastKind::As => value,
+                        CastKind::AsOpt => self.some(value, &t, &span),
+                    };
+                };
+                match kind {
+                    CastKind::As => self.checked(value, &claimed, &span),
+                    CastKind::AsOpt => {
+                        self.checked_opt(value, &claimed, &t, &span)
+                    }
+                }
+            }
+            ExprKind::Check(e, checks) => {
+                // A condition written on an expression is a claim, like
+                // an ascription, so it is checked where it is written.
+                let checks = Checks::new(checks.clone());
+                let value = self.resolve_expr(e);
+                let claimed = Type::Alias(
+                    checks.anon_name(),
+                    value.type_(),
+                    vec![],
+                    checks,
+                );
+                self.checked(value, &claimed, &span)
+            }
             ExprKind::Cons(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListCons, &span, a0, a1)
             }
@@ -1137,13 +2257,16 @@ impl<'a> Resolver<'a> {
                 // However, if the identifier is locally bound (e.g.
                 // as a function parameter or let binding), the local
                 // binding shadows the built-in.
-                let is_shadowed =
-                    if let Some(local_type) = expr.get_type(self.type_map) {
-                        // If the local type differs from the built-in's
-                        // type, the identifier is shadowed by a local
-                        // binding. A simple heuristic: if the built-in
-                        // is a function type but the local type is not,
-                        // it's shadowed.
+                // A name the user has bound is the user's, whatever it
+                // is: `val not = fn b => true` declares a value of their
+                // own, and `not` afterwards means that one. Whether a
+                // reference is to the basis is decided by the binding,
+                // not by the name.
+                let is_shadowed = self.type_map.user_bindings.contains(name)
+                    || if let Some(local_type) = expr.get_type(self.type_map) {
+                        // A local binding of a basis name shadows it too.
+                        // This does not see one whose type is the same as
+                        // the built-in's, which the binding above does.
                         !matches!(local_type.as_ref(), Type::Fn(_, _))
                             && library::lookup(name).is_some()
                     } else {
@@ -1356,7 +2479,35 @@ impl<'a> Resolver<'a> {
             ExprKind::Record(with_base, fields, modifiers) => {
                 match with_base {
                     Some(base) if !modifiers.is_empty() => {
-                        self.to_core_modified(base, modifiers, &span)
+                        let built =
+                            self.to_core_modified(base, modifiers, &span);
+                        // A chain that leaves the record's shape alone
+                        // gives back the type it was given, and the
+                        // type resolver says so by giving the two the
+                        // same type. That is the chain claiming it: the
+                        // field keeps its declared type, so the value
+                        // assigned to it must have it, and the claim is
+                        // checked here because nobody else wrote the
+                        // type down.
+                        let claimed = self
+                            .type_map
+                            .claiming_records
+                            .get(&expr.span.extent())
+                            .and_then(|name| {
+                                self.named_type(name).or_else(|| {
+                                    self.anon_checked_type(name, &built)
+                                })
+                            });
+                        // The deduced type has been met with what was
+                        // assigned to each field, so it is the alias's
+                        // name that says what was claimed, and the
+                        // declaration that says what the name means.
+                        match claimed {
+                            Some(claimed) => {
+                                self.checked(built, &claimed, &span)
+                            }
+                            None => built,
+                        }
                     }
                     None => {
                         // Plain record `{a=e1, b=e2}`: resolve each field in
@@ -1965,6 +3116,7 @@ impl<'a> Resolver<'a> {
                         name.clone(),
                         Rc::new(body.clone()),
                         vec![],
+                        self.type_map.checks_of(name),
                     ));
                     return resolved.with_type(alias_type);
                 }
@@ -1992,6 +3144,7 @@ impl<'a> Resolver<'a> {
                             name.clone(),
                             inner_type,
                             vec![],
+                            self.type_map.checks_of(name),
                         ));
                         return resolved.with_type(alias_type);
                     }
@@ -2090,6 +3243,7 @@ impl<'a> Resolver<'a> {
                             name.clone(),
                             elem_type.clone(),
                             vec![],
+                            self.type_map.checks_of(name),
                         ))));
                     }
                 }
@@ -2114,6 +3268,7 @@ impl<'a> Resolver<'a> {
     fn resolve_val_bind(&self, val_bind: &ValBind) -> CoreValBind {
         let pat = self.resolve_pat(&val_bind.pat);
         let expr = self.resolve_expr(&val_bind.expr);
+
         // Get type from type annotation if present, otherwise from type map.
         let type_ = if let Some(type_annotation) = &val_bind.type_annotation {
             Rc::new(self.resolve_ast_type(type_annotation))
@@ -2149,7 +3304,11 @@ impl<'a> Resolver<'a> {
     /// alias's right-hand side is converted to a core type via
     /// the same simple-shape recogniser used by the type-resolver.
     /// Unsupported shapes fall back to `unit`.
-    fn resolve_type_bind(&self, type_bind: &TypeBind) -> CoreTypeBind {
+    fn resolve_type_bind(
+        &self,
+        type_bind: &TypeBind,
+        decl_span: &AstSpan,
+    ) -> CoreTypeBind {
         // Prefer the type resolver's expansion, which resolves names against
         // the aliases in scope before the declaration.
         let core_type = self
@@ -2159,10 +3318,132 @@ impl<'a> Resolver<'a> {
             .cloned()
             .or_else(|| ast_type_to_core_type(&type_bind.type_))
             .unwrap_or(Type::Primitive(PrimitiveType::Unit));
+        let checks = self.type_map.checks_of(&type_bind.name);
+        // A condition is compiled once, here, where it was written and
+        // where its nodes have types. Where a check is inserted is
+        // usually a later statement, whose type map knows nothing of
+        // them.
+        if !checks.is_empty() {
+            // The declaration is what is at fault when a condition is
+            // not closed, so it is what the error blames.
+            let span = Span::from_pest_span(
+                &decl_span.to(&type_bind.span).trim_end().to_pest_span(),
+                self.base_line,
+            );
+            let predicates = checks
+                .fns
+                .iter()
+                .map(|f| {
+                    let predicate = self.make_total(self.resolve_expr(f), f);
+                    self.check_closed(&type_bind.name, &predicate, &span);
+                    predicate
+                })
+                .collect();
+            self.type_map
+                .check_predicates
+                .borrow_mut()
+                .insert(type_bind.name.clone(), predicates);
+        }
+        // A condition written inside the declaration -- on a field, on a
+        // component, on an element -- belongs to a checked type that has
+        // no name of its own, and no declaration of its own to compile it.
+        // This is that declaration, so it is compiled here; the
+        // conditions are carried from statement to statement compiled,
+        // and the type will be met again where nothing can deduce them.
+        self.register_nested_checks(&core_type);
         CoreTypeBind {
             type_vars: type_bind.type_vars.clone(),
             name: type_bind.name.clone(),
             type_: core_type,
+            checks,
+        }
+    }
+
+    /// Compiles the conditions of every checked type that has no name
+    /// and was made in this statement, so that a later statement which
+    /// meets the type again finds them ready.
+    fn register_anon_checks(&self) {
+        let names: Vec<String> = self
+            .type_map
+            .type_checks
+            .keys()
+            .filter(|name| name.starts_with(ANON_CHECK_PREFIX))
+            .cloned()
+            .collect();
+        for name in names {
+            let checks = self.type_map.checks_of(&name);
+            self.register_checks(&name, &checks);
+        }
+    }
+
+    /// Compiles the conditions of a checked type that has no name, if
+    /// they were deduced in this statement and are not compiled already.
+    fn register_checks(&self, name: &str, checks: &Checks) {
+        if checks.is_empty()
+            || self.type_map.check_predicates.borrow().contains_key(name)
+            || !checks
+                .fns
+                .iter()
+                .all(|f| f.get_type(self.type_map).is_some())
+        {
+            return;
+        }
+        let predicates = checks
+            .fns
+            .iter()
+            .map(|f| self.make_total(self.resolve_expr(f), f))
+            .collect();
+        self.type_map
+            .check_predicates
+            .borrow_mut()
+            .insert(name.to_string(), predicates);
+    }
+
+    /// Compiles the conditions of every checked type that has no name
+    /// within a type, and registers them under the name its conditions
+    /// gave it.
+    fn register_nested_checks(&self, type_: &Type) {
+        match type_ {
+            Type::Alias(name, body, args, checks) => {
+                if name.starts_with(ANON_CHECK_PREFIX)
+                    && !checks.is_empty()
+                    && !self
+                        .type_map
+                        .check_predicates
+                        .borrow()
+                        .contains_key(name)
+                    && checks
+                        .fns
+                        .iter()
+                        .all(|f| f.get_type(self.type_map).is_some())
+                {
+                    let predicates = checks
+                        .fns
+                        .iter()
+                        .map(|f| self.make_total(self.resolve_expr(f), f))
+                        .collect();
+                    self.type_map
+                        .check_predicates
+                        .borrow_mut()
+                        .insert(name.clone(), predicates);
+                }
+                self.register_nested_checks(body);
+                args.iter().for_each(|t| self.register_nested_checks(t));
+            }
+            Type::Record(_, fields) => {
+                fields.values().for_each(|t| self.register_nested_checks(t));
+            }
+            Type::Tuple(types) | Type::Data(_, types) => {
+                types.iter().for_each(|t| self.register_nested_checks(t));
+            }
+            Type::List(t) | Type::Bag(t) | Type::Forall(t, _) => {
+                self.register_nested_checks(t);
+            }
+            Type::Fn(a, b) => {
+                self.register_nested_checks(a);
+                self.register_nested_checks(b);
+            }
+            _ => {}
         }
     }
 
@@ -2211,9 +3492,58 @@ impl<'a> Resolver<'a> {
 
     /// Resolves an AST match to a core match.
     fn resolve_match(&self, ast_match: &Match) -> CoreMatch {
+        let pat = self.resolve_pat(&ast_match.pat);
+        let expr = self.resolve_expr(&ast_match.expr);
+        // Entering a branch whose pattern claims a type is where a value
+        // flows into the claim, so that is where the check goes. A
+        // branch is what a function's parameter and a `case` have in
+        // common, so both are checked here, and a function of several
+        // branches is checked in whichever branch claims -- the
+        // parameter of the function as a whole claims nothing, because
+        // another branch may match instead.
+        //
+        //   (n: nat) => e
+        //
+        // becomes
+        //
+        //   v => let val n = $check (c v, v, "nat", "") in e end
+        //
+        // rather than checking and discarding, which an optimizer would
+        // be entitled to remove: the body reads the name the check
+        // binds. It is inside the function, so it travels with the
+        // function value and fires however the function is called --
+        // including from polymorphic code that knows nothing of the
+        // checked type.
+        let Some(claimed) = self.claimed_type(&ast_match.pat, &pat.type_())
+        else {
+            return CoreMatch { pat, expr };
+        };
+        let t = &pat.type_();
+        let span = Span::from_pest_span(
+            &ast_match
+                .pat
+                .span
+                .union(&ast_match.expr.span)
+                .to_pest_span(),
+            self.base_line,
+        );
+        let raw_name = self.temp_name();
+        let raw = CorePat::Identifier(t.clone(), raw_name.clone());
+        let value = CoreExpr::Identifier(t.clone(), raw_name);
+        let checked = self.checked(value, &claimed, &span);
+        // A `case` rather than a `let`, because a body that never reads
+        // the name the check binds would leave the binding unused, and
+        // an optimizer that reasons about values alone is entitled to
+        // drop an unused binding. A scrutinee is evaluated whatever the
+        // branch does with it, and raising is a check's only effect.
         CoreMatch {
-            pat: self.resolve_pat(&ast_match.pat),
-            expr: self.resolve_expr(&ast_match.expr),
+            pat: raw,
+            expr: CoreExpr::Case(
+                expr.type_(),
+                Box::new(checked),
+                vec![CoreMatch { pat, expr }],
+                span.clone(),
+            ),
         }
     }
 
@@ -2373,12 +3703,21 @@ impl<'a> Resolver<'a> {
 
                 // Add the scan step, preserving the join type (inner / left
                 // / right / full).
+                let span = Span::from_pest_span(
+                    &pat.span.to_pest_span(),
+                    self.base_line,
+                );
                 builder.scan_with_join(
                     *join_type,
-                    resolved_pat,
+                    resolved_pat.clone(),
                     resolved_expr,
                     resolved_condition,
                 );
+                if let Some(condition) =
+                    self.scan_type_condition(pat, &resolved_pat, &span)
+                {
+                    builder.where_(condition);
+                }
             }
             AstStepKind::ScanEq(pat, expr) => {
                 // `join pat = expr` is a cross join with a singleton list.
@@ -2417,8 +3756,16 @@ impl<'a> Resolver<'a> {
                     &pat.span.to_pest_span(),
                     self.base_line,
                 );
-                let extent = CoreExpr::Extent(extent_type, span);
-                builder.scan_with_condition(resolved_pat, extent, None);
+                let extent = CoreExpr::Extent(extent_type, span.clone());
+                builder.scan_with_condition(resolved_pat.clone(), extent, None);
+                // The type's condition becomes a step of its own rather
+                // than part of the scan's condition, which only a join
+                // reads.
+                if let Some(condition) =
+                    self.scan_type_condition(pat, &resolved_pat, &span)
+                {
+                    builder.where_(condition);
+                }
             }
             AstStepKind::Skip(expr) => {
                 let resolved_expr = self.resolve_expr(expr);
@@ -2606,6 +3953,13 @@ impl<'a> Resolver<'a> {
                 &val_bind.pat.span.union(&val_bind.expr.span).to_pest_span(),
                 self.base_line,
             ));
+            // A binding at a checked type is where a value flows into a
+            // claim, so the type's condition is checked here.
+            let core_expr = self.with_checks(
+                core_expr,
+                &val_bind.pat,
+                span.as_ref().expect("just built"),
+            );
 
             pat_exps.push(PatExpr {
                 pat: core_pat,
@@ -3130,4 +4484,100 @@ fn fn_expr_has_self_first_param(expr: &Expr) -> bool {
 /// The names of a record's fields, in label order.
 fn label_names(fields: &BTreeMap<Label, Rc<Type>>) -> Vec<String> {
     fields.keys().map(Label::to_string).collect()
+}
+
+/// How a claimed type is written, for a message.
+fn type_moniker(claimed: &Type) -> String {
+    match claimed {
+        // A checked type that has no name is not named in the message
+        // either. Its made-up name would be no use to a reader, and its
+        // conditions are already written where the value was claimed.
+        Type::Alias(name, _, _, _)
+            if name.is_empty() || name.starts_with(ANON_CHECK_PREFIX) =>
+        {
+            "value".to_string()
+        }
+        _ => claimed.to_string(),
+    }
+}
+
+/// The label an anonymous field of a record pattern gives its value:
+/// `{x, y}` names its fields `x` and `y`, and `{x: nat}` names its `x`.
+fn implicit_label(pat: &Pat) -> Option<String> {
+    match &pat.kind {
+        PatKind::Identifier(name) => Some(name.clone()),
+        PatKind::Annotated(inner, _) => implicit_label(inner),
+        PatKind::As(name, _) => Some(name.clone()),
+        _ => None,
+    }
+}
+
+/// What a component of a value is of: `field empno`, `component 2`.
+fn field_blame(record: &Type, label: &Label) -> String {
+    match record {
+        Type::Tuple(_) => format!("component {}", label),
+        _ => format!("field {}", label),
+    }
+}
+
+/// Appends a segment to a blame path.
+fn append_blame(blame: &str, segment: &str) -> String {
+    if blame.is_empty() {
+        return segment.to_string();
+    }
+    // A path reads as one selection: `field lead.empno`, not
+    // `field lead.field empno`.
+    match segment.strip_prefix("field ") {
+        Some(field) => format!("{}.{}", blame, field),
+        None => match segment.strip_prefix("component ") {
+            Some(ordinal) => format!("{}.{}", blame, ordinal),
+            // An element is written as a subscript, so it joins what it
+            // is an element of without a space: `[_][_]`, `emps[_].sal`.
+            None if segment.starts_with('[') => {
+                format!("{}{}", blame, segment)
+            }
+            None => format!("{} {}", blame, segment),
+        },
+    }
+}
+
+/// Whether a type claims a condition on a function's parameter or
+/// result, at any depth.
+///
+/// A condition on the function type itself is not this: it is given the
+/// function value, and is checked like any other. Where the condition
+/// lands is decided by parenthesization, so `int -> int check c => ...`
+/// is allowed and `(int check c => ...) -> int` is not.
+fn claims_function(claimed: &Type) -> bool {
+    match claimed {
+        Type::Fn(a, b) => {
+            has_condition(a)
+                || has_condition(b)
+                || claims_function(a)
+                || claims_function(b)
+        }
+        Type::Alias(_, body, _, _) => claims_function(body),
+        Type::Record(_, fields) => fields.values().any(|t| claims_function(t)),
+        Type::Tuple(types) => types.iter().any(|t| claims_function(t)),
+        Type::List(elem) | Type::Bag(elem) => claims_function(elem),
+        _ => false,
+    }
+}
+
+/// Whether a type, or any type within it, carries a condition.
+///
+/// The free counterpart of [`Resolver::has_check`], for the checks that
+/// do not need the type map.
+fn has_condition(t: &Type) -> bool {
+    match t {
+        Type::Alias(_, body, _, checks) => {
+            !checks.is_empty() || has_condition(body)
+        }
+        Type::Record(_, fields) => fields.values().any(|t| has_condition(t)),
+        Type::Tuple(types) => types.iter().any(|t| has_condition(t)),
+        Type::List(elem) | Type::Bag(elem) => has_condition(elem),
+        Type::Data(_, args) => args.iter().any(|t| has_condition(t)),
+        Type::Fn(a, b) => has_condition(a) || has_condition(b),
+        _ => false,
+    }
 }

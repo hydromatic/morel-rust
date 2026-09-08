@@ -613,8 +613,8 @@ fn collect_fn_bindings(decl: &Decl, env: &mut FnEnv) {
         if let Pat::Identifier(_, name) = &b.pat
             && let Expr::Fn(_, arms, _) = &b.expr
             && arms.len() == 1
-            && let Match { pat, expr } = &arms[0]
         {
+            let Match { pat, expr } = &arms[0];
             env.insert(name.clone(), (pat.clone(), expr.clone()));
         }
     }

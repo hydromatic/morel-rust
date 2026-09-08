@@ -15,11 +15,13 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::syntax::ast::{Expr, checks_text};
 use crate::syntax::parser::append_id;
-use crate::unify::unifier::{COLLECTION_OP_NAME, Term, Var};
+use crate::unify::unifier::{ANON_CHECK_PREFIX, COLLECTION_OP_NAME, Term, Var};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 /// Substitutes `Type::Variable(i)` with `args[i]` throughout a type.
@@ -114,7 +116,7 @@ pub fn displace(type_: &Type, name: &str) -> Type {
 pub fn expand_alias(type_: &Type, name: &str) -> Type {
     match type_ {
         // lint: sort until '#}' where '##Type::'
-        Type::Alias(n, inner, args) => {
+        Type::Alias(n, inner, args, checks) => {
             if n == name {
                 expand_alias(inner, name)
             } else {
@@ -122,6 +124,7 @@ pub fn expand_alias(type_: &Type, name: &str) -> Type {
                     n.clone(),
                     Rc::new(expand_alias(inner, name)),
                     args.clone(),
+                    checks.clone(),
                 )
             }
         }
@@ -189,10 +192,22 @@ pub enum Type {
     /// For example, `order` or `int option`.
     Named(Vec<Rc<Type>>, String),
 
-    /// `Alias(name, type_, args)` represents the declaration
+    /// `Alias(name, type_, args, checks)` represents the declaration
     /// `type name = args type_`; for example,
     /// `type int_pair_list = (int * int) list`.
-    Alias(String, Rc<Type>, Vec<Rc<Type>>),
+    ///
+    /// If `checks` is not empty the alias is a *checked type*: its base
+    /// type plus a condition every value of the type satisfies, as in
+    /// `type nat = int check i => i >= 0`.
+    ///
+    /// A checked type is erased. Its representation is that of the type
+    /// it abbreviates, and the condition does not survive the peeling
+    /// that reads a type structurally ([`crate::compile::postfix::peel_type`]
+    /// and the like), so everything that examines a type that way --
+    /// choosing an overload, aggregating, printing -- behaves as it does
+    /// for the base type. That is what makes widening free and
+    /// narrowing checked.
+    Alias(String, Rc<Type>, Vec<Rc<Type>>, Checks),
     Data(String, Vec<Rc<Type>>),
 
     /// `Forall(type_, parameter_count)` represents the type
@@ -308,29 +323,29 @@ impl Type {
         types: &[Rc<Type>],
         f: &mut Formatter,
         op: &Op,
-        mut left: u8,
-        mut right: u8,
+        left: u8,
+        right: u8,
     ) -> fmt::Result {
-        let surround =
-            if op.always_surround || left > op.left || right > op.right {
-                left = 0;
-                right = 0;
-                true
-            } else {
-                false
-            };
+        let surround = op.always_surround || left > op.left || right > op.right;
         if surround {
             f.write_str(op.open)?;
         }
         for (i, type_) in types.iter().enumerate() {
-            if i == 0 {
-                type_.describe(f, left, op.right)?;
-            } else if i == types.len() - 1 {
+            if i > 0 {
                 f.write_str(op.sep)?;
-                type_.describe(f, op.right, right)?;
+            }
+            // The brackets and the commas delimit, so an element needs no
+            // parentheses of its own: `(int -> int,string) either`, and a
+            // condition is written where it stands. A tuple is the
+            // exception -- `*` builds a sequence as `,` does, and one
+            // inside the other is read by knowing which binds tighter, so
+            // the brackets stay.
+            if matches!(type_.as_ref(), Type::Tuple(_)) {
+                f.write_str("(")?;
+                type_.describe(f, 0, 0)?;
+                f.write_str(")")?;
             } else {
-                f.write_str(op.sep)?;
-                type_.describe(f, op.right, op.left)?;
+                type_.describe(f, 0, 0)?;
             }
         }
         if surround {
@@ -347,10 +362,24 @@ impl Type {
     ) -> fmt::Result {
         match self {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(name, _ty, _args) => {
+            Type::Alias(name, ty, _args, checks) => {
                 // An alias is displayed under its own name; that is the
-                // point of it surviving inference.
-                f.write_str(name)
+                // point of it surviving inference. One that has no name
+                // -- a checked type a record modifier derived, say --
+                // has only its body and its conditions to be written by,
+                // so it is written in full. A generated name begins with
+                // `$`, which a user cannot write.
+                if !name.starts_with('$') {
+                    return f.write_str(name);
+                }
+                const OP: Op = Op::CHECKED;
+                if left > OP.left || right > OP.right {
+                    write!(f, "(")?;
+                    self.describe(f, 0, 0)?;
+                    return write!(f, ")");
+                }
+                ty.describe(f, left, OP.right)?;
+                write!(f, "{}", checks)
             }
             Type::Bag(elem_type) => {
                 const OP: Op = Op::APPLY;
@@ -699,6 +728,22 @@ impl Op {
     /// that appears before the type application `(int, string) tree`.
     pub const LIST: Op = Op::bracketed(8, "(", ",", ")", true);
 
+    /// `e check m`: a condition written on an expression. It binds as
+    /// loosely as an annotation, and the condition extends as far right
+    /// as it can, so anything tighter that follows is part of it.
+    /// Its left operand binds tighter than an annotation, because a
+    /// condition written after one is part of the type: `e : int check c
+    /// => c > 0` says the type is `int check ...`, so writing the
+    /// condition on the annotated expression instead needs parentheses.
+    pub const CHECK_EXP: Op = Op::new(2, 1, "(", " check ", ")", false);
+
+    /// A `check` condition binds more loosely than anything else in a type,
+    /// because a condition is an expression and extends as far right as it
+    /// can. So a checked type is parenthesized wherever it is not the whole
+    /// type: `(int check i => i >= 0) list`, not `int check i => i >= 0
+    /// list`, which would read the `list` as part of the condition.
+    pub const CHECKED: Op = Op::new(11, 10, "(", " check ", ")", false);
+
     /// The function arrow "->" is right-associative and has a lower precedence
     /// than the tuple constructor "*".
     pub const FN: Op = Op::new(13, 12, "(", " -> ", ")", false);
@@ -929,6 +974,64 @@ impl Display for Subst {
     }
 }
 
+/// Collapses an alias of itself.
+///
+/// A type may reach the display carrying the same alias twice -- the
+/// term carries it, and the side table that says which variable the
+/// alias was written on says it again -- and `Alias(n, Alias(n, t))`
+/// means no more than `Alias(n, t)`. A name hides the repetition,
+/// because a named alias is written by its name; a nameless one does
+/// not, and would say its conditions once for every layer.
+pub fn collapse_aliases(type_: &Rc<Type>) -> Rc<Type> {
+    match type_.as_ref() {
+        Type::Alias(name, body, args, checks) => {
+            let body = collapse_aliases(body);
+            if let Type::Alias(name2, body2, args2, _) = body.as_ref()
+                && name2 == name
+                && args2 == args
+            {
+                return Rc::new(Type::Alias(
+                    name.clone(),
+                    body2.clone(),
+                    args.clone(),
+                    checks.clone(),
+                ));
+            }
+            Rc::new(Type::Alias(
+                name.clone(),
+                body,
+                args.clone(),
+                checks.clone(),
+            ))
+        }
+        Type::Bag(t) => Rc::new(Type::Bag(collapse_aliases(t))),
+        Type::Data(name, args) => Rc::new(Type::Data(
+            name.clone(),
+            args.iter().map(collapse_aliases).collect(),
+        )),
+        Type::Fn(a, b) => {
+            Rc::new(Type::Fn(collapse_aliases(a), collapse_aliases(b)))
+        }
+        Type::Forall(t, n) => Rc::new(Type::Forall(collapse_aliases(t), *n)),
+        Type::List(t) => Rc::new(Type::List(collapse_aliases(t))),
+        Type::Named(args, name) => Rc::new(Type::Named(
+            args.iter().map(collapse_aliases).collect(),
+            name.clone(),
+        )),
+        Type::Record(progressive, fields) => Rc::new(Type::Record(
+            *progressive,
+            fields
+                .iter()
+                .map(|(l, t)| (l.clone(), collapse_aliases(t)))
+                .collect(),
+        )),
+        Type::Tuple(types) => {
+            Rc::new(Type::Tuple(types.iter().map(collapse_aliases).collect()))
+        }
+        _ => type_.clone(),
+    }
+}
+
 /// Returns the fields of a record-like type -- a record, a tuple, or
 /// `unit` -- keyed by label.
 ///
@@ -936,6 +1039,8 @@ impl Display for Subst {
 /// record with no fields, so both answer rather than failing.
 pub fn record_fields(t: &Type) -> BTreeMap<Label, Rc<Type>> {
     match t {
+        // An alias is whatever it abbreviates.
+        Type::Alias(_, body, _, _) => record_fields(body),
         Type::Record(_, fields) => fields.clone(),
         Type::Tuple(types) => types
             .iter()
@@ -962,5 +1067,71 @@ pub fn record_type(fields: BTreeMap<Label, Rc<Type>>) -> Type {
         Type::Tuple(fields.into_values().collect())
     } else {
         Type::Record(false, fields)
+    }
+}
+
+/// The conditions of a checked type: one function per `check` clause,
+/// each from a value of the type to `bool`. Empty if the type is
+/// unchecked.
+///
+/// A condition is part of the type's identity -- two checked types are
+/// the same type when their conditions are textually equal -- but it
+/// does not survive the peeling that reads a type structurally
+/// ([`crate::compile::postfix::peel_type`] and the like), so nothing
+/// that examines a type that way sees it.
+#[derive(Clone, Debug, Default)]
+pub struct Checks {
+    /// One [`crate::syntax::ast::ExprKind::Fn`] per clause. Read by
+    /// the pass that inserts the checks these conditions call for; the
+    /// type only has to carry them.
+    #[allow(dead_code)]
+    pub fns: Vec<Expr>,
+    /// The conditions, rendered. A condition is closed, so its text
+    /// decides whether two checked types are the same type; an
+    /// expression does not compare by value.
+    text: String,
+}
+
+impl Checks {
+    /// Creates the conditions of a checked type.
+    pub fn new(fns: Vec<Expr>) -> Self {
+        let text = checks_text(&fns);
+        Checks { fns, text }
+    }
+
+    /// Whether the type carries no condition, and so claims nothing.
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.fns.is_empty()
+    }
+
+    /// The name of a checked type that has no name of its own.
+    ///
+    /// A term identifies a type by its name, and this type has none, so it
+    /// is given one derived from its conditions -- which is what it has to
+    /// be known by. Deriving it means every part that meets the same
+    /// conditions agrees on the name without having to be told it.
+    pub fn anon_name(&self) -> String {
+        format!("{ANON_CHECK_PREFIX}{}", self.text)
+    }
+}
+
+impl PartialEq for Checks {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+    }
+}
+
+impl Eq for Checks {}
+
+impl Hash for Checks {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+    }
+}
+
+impl Display for Checks {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text)
     }
 }

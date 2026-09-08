@@ -883,13 +883,13 @@ from i in [1,2,3,4,5] take current;
 (*) Records in queries
 :t
 from d in [{a=1,b=true}] yield d.x;
-> stdIn:1.32-1.35 Error: no field 'x' in type '{a:int, b:bool}'
->   raised at: stdIn:1.32-1.35
+> stdIn:1.34 Error: no field 'x' in type '{a:int, b:bool}'
+>   raised at: stdIn:1.34
 
 :t
 from d in [{a=1,b=true}] yield #x d;
-> stdIn:1.32-1.36 Error: no field 'x' in type '{a:int, b:bool}'
->   raised at: stdIn:1.32-1.36
+> stdIn:1.32-1.34 Error: no field 'x' in type '{a:int, b:bool}'
+>   raised at: stdIn:1.32-1.34
 
 (*) with
 :t from d in [{a=1,b=true}], i in [2] yield {d replace b=false};

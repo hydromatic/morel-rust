@@ -47,6 +47,13 @@ pub const COLLECTION_OP_NAME: &str = "$collection";
 /// type the alias abbreviates. Mirrors `TypeResolver::ALIAS_TY_CON`.
 pub const ALIAS_PREFIX: &str = "$alias:";
 
+/// Name prefix of a checked type that has no name: one written where a
+/// type is used, or one a record modifier gives back. The name is made up,
+/// so that the conditions can be carried and looked up the way a declared
+/// type's are; it starts with a character no user name may, and a type that
+/// wears it displays as its body and its conditions.
+pub const ANON_CHECK_PREFIX: &str = "$check";
+
 /// Orderedness atom for a list.
 pub const ORDERED_OP_NAME: &str = "ordered";
 

@@ -28,7 +28,7 @@
 
 (*) Number of values in initial environment.
 val eLen = List.length (Sys.env());
-> val eLen = 102 : int
+> val eLen = 103 : int
 
 (*) Now we have one more (due to "eLen").
 List.length (Sys.env()) - eLen;
@@ -63,7 +63,7 @@ Sys.clearEnv();
 > val it = () : unit
 (*) Back down to the original eLen plus one (for "it").
 List.length (Sys.env());
-> val it = 103 : int
+> val it = 104 : int
 List.last (Sys.env());
 > val it = ("true","bool") : string * string
 

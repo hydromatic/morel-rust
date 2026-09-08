@@ -18,12 +18,12 @@
 #![allow(clippy::result_large_err)]
 
 use crate::syntax::ast::{
-    Attribute, AttributeKind, AttributePayload, ConBind, ConDesc, DatatypeBind,
-    DatatypeDesc, Decl, DeclKind, ExnDesc, Expr, ExprKind, FunBind, FunMatch,
-    JoinType, Label, LabeledExpr, Literal, LiteralKind, Match, Modifier,
-    ModifierVerb, Pat, PatField, PatKind, RangeItem, SigBind, Span, Spec,
-    SpecKind, Statement, StatementKind, Step, StepKind, Type, TypeBind,
-    TypeDesc, TypeField, TypeKind, TypeScheme, ValBind, ValDesc,
+    Attribute, AttributeKind, AttributePayload, CastKind, ConBind, ConDesc,
+    DatatypeBind, DatatypeDesc, Decl, DeclKind, ExnDesc, Expr, ExprKind,
+    FunBind, FunMatch, JoinType, Label, LabeledExpr, Literal, LiteralKind,
+    Match, Modifier, ModifierVerb, Pat, PatField, PatKind, RangeItem, SigBind,
+    Span, Spec, SpecKind, Statement, StatementKind, Step, StepKind, Type,
+    TypeBind, TypeDesc, TypeField, TypeKind, TypeScheme, ValBind, ValDesc,
 };
 use pest_consume::Parser;
 use pest_consume::match_nodes;
@@ -305,11 +305,39 @@ impl MorelParser {
 
     fn expr_annotated(input: ParseInput) -> ParseResult<Expr> {
         Ok(match_nodes!(input.children();
-            [expr_implies(e)] => e,
-            [expr_implies(e), type_(t)] => {
-                ExprKind::Annotated(Box::new(e), Box::new(t)).wrap(input)
+            [expr_implies(e), conversion(cs)..] => converted(e, cs),
+            [expr_implies(e), conversion(cs).., expr_checks(checks)] => {
+                checked_exp(converted(e, cs), checks)
             },
         ))
+    }
+
+    /// The body of a condition: an expression that does not itself take a
+    /// `check`, so that a match ends where the next condition begins.
+    fn check_body(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [expr_implies(e), conversion(cs)..] => converted(e, cs),
+        ))
+    }
+
+    /// One `: t`, `as t` or `asOpt t`. `None` is an annotation, which
+    /// claims a type but converts nothing.
+    fn conversion(input: ParseInput) -> ParseResult<(Option<CastKind>, Type)> {
+        Ok(match_nodes!(input.children();
+            [conversion_op(kind), type_(t)] => (kind, t),
+        ))
+    }
+
+    fn conversion_op(input: ParseInput) -> ParseResult<Option<CastKind>> {
+        Ok(match input.as_str() {
+            "as" => Some(CastKind::As),
+            "asOpt" => Some(CastKind::AsOpt),
+            _ => None,
+        })
+    }
+
+    fn _as_opt(input: ParseInput) -> ParseResult<()> {
+        Ok(())
     }
 
     fn expr_implies(input: ParseInput) -> ParseResult<Expr> {
@@ -1645,14 +1673,15 @@ impl MorelParser {
     }
 
     fn type_bind(input: ParseInput) -> ParseResult<TypeBind> {
+        let span = input_to_span(&input);
         Ok(match_nodes!(input.children();
             [identifier(i), type_(t)] => {
                 let name = i.to_string();
-                TypeBind {type_vars: vec![], name, type_: t}
+                TypeBind::new(vec![], name, t, span)
             },
             [type_vars(vars), identifier(i), type_(t)] => {
                 let name = i.to_string();
-                TypeBind {type_vars: vars, name, type_: t}
+                TypeBind::new(vars, name, t, span)
             },
         ))
     }
@@ -1945,6 +1974,42 @@ impl MorelParser {
     fn type_(input: ParseInput) -> ParseResult<Type> {
         Ok(match_nodes!(input.children();
             [fn_type(t)] => t,
+            [fn_type(t), check_clause(c)..] => {
+                let checks: Vec<Expr> = c.collect();
+                if checks.is_empty() {
+                    t
+                } else {
+                    TypeKind::Checked(Box::new(t), checks).wrap(input)
+                }
+            },
+        ))
+    }
+
+    /// A `check` clause: the condition it states, as a function from a
+    /// value of the type to `bool`.
+    fn expr_checks(input: ParseInput) -> ParseResult<Vec<Expr>> {
+        Ok(match_nodes!(input.children();
+            [check_clause(checks)..] => checks.collect(),
+        ))
+    }
+
+    fn check_clause(input: ParseInput) -> ParseResult<Expr> {
+        Ok(match_nodes!(input.children();
+            [_check(_), check_match_list(matches)] => {
+                ExprKind::Fn(matches).wrap(input)
+            },
+        ))
+    }
+
+    fn check_match_list(input: ParseInput) -> ParseResult<Vec<Match>> {
+        Ok(match_nodes!(input.children();
+            [check_match(matches)..] => matches.collect(),
+        ))
+    }
+
+    fn check_match(input: ParseInput) -> ParseResult<Match> {
+        Ok(match_nodes!(input.children();
+            [pat(p), check_body(e)] => Match { pat: p, expr: e },
         ))
     }
 
@@ -2197,6 +2262,10 @@ impl MorelParser {
     }
 
     fn _case(input: ParseInput) -> ParseResult<()> {
+        Ok(())
+    }
+
+    fn _check(input: ParseInput) -> ParseResult<()> {
         Ok(())
     }
 
@@ -2489,6 +2558,47 @@ fn fold_heterogeneous(
     })
 }
 
+/// Folds `: t`, `as t` and `asOpt t` onto an expression. They chain left
+/// to right, so `i as nat as int` is `(i as nat) as int`.
+fn converted(
+    e: Expr,
+    cs: impl Iterator<Item = (Option<CastKind>, Type)>,
+) -> Expr {
+    cs.fold(e, |e, (kind, t)| {
+        let span = e.span.union(&t.span).trim_end();
+        match kind {
+            None => {
+                ExprKind::Annotated(Box::new(e), Box::new(t)).spanned(&span)
+            }
+            Some(kind) => {
+                ExprKind::Cast(kind, Box::new(e), Box::new(t)).spanned(&span)
+            }
+        }
+    })
+}
+
+/// An expression with `check` conditions written on it.
+///
+/// The conditions belong to the expression, all of them: nesting them
+/// would put each in the type of the last, and only the last would be
+/// seen.
+fn checked_exp(e: Expr, checks: Vec<Expr>) -> Expr {
+    if checks.is_empty() {
+        return e;
+    }
+    let span = e.span.union(&checks[checks.len() - 1].span).trim_end();
+    // Several conditions belong to one expression, however they were
+    // written: '(e check c1) check c2' says what 'e check c1 check c2'
+    // says. Nesting them would put each in the type of the last, and
+    // only the last would be seen.
+    if let ExprKind::Check(inner, inner_checks) = e.kind {
+        let mut all = inner_checks;
+        all.extend(checks);
+        return ExprKind::Check(inner, all).spanned(&span);
+    }
+    ExprKind::Check(Box::new(e), checks).spanned(&span)
+}
+
 /// Given quoted identifier `abc` returns abc. Converts any
 /// doubled back-ticks to a single back-tick. Assumes there are no single
 /// back-ticks.
@@ -2639,7 +2749,9 @@ pub const RESERVED_WORDS: &[&str] = &[
     "and",
     "andalso",
     "as",
+    "asOpt",
     "case",
+    "check",
     "compute",
     "current",
     "datatype",
@@ -3138,7 +3250,7 @@ mod test {
 
         // Test signature with value spec
         ml("signature STACK = sig val empty : 'a stack end").assert_statement(
-            is("signature STACK = sig val empty : stack<'a> end"),
+            is("signature STACK = sig val empty : 'a stack end"),
         );
 
         // Test the full STACK signature from the example
@@ -3203,9 +3315,9 @@ mod test {
     #[test]
     fn test_parse_signature_statement() {
         // Test that we can parse a complete signature as a statement
-        // Note: Type applications are printed as 'stack<'a>' not ''a stack'
+        // A type application is printed as Morel writes it, ''a stack'.
         ml("signature STACK = sig val empty : 'a stack end").assert_statement(
-            is("signature STACK = sig val empty : stack<'a> end"),
+            is("signature STACK = sig val empty : 'a stack end"),
         );
 
         // Test signature with multiple specs

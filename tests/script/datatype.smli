@@ -168,16 +168,16 @@ fn (x: int either) => 1;
 >   raised at: stdIn:1.8-1.18
 
 (* A datatype's body may not use a type variable that is not in the head;
- * declare it, e.g. `datatype 'a my_option = ...`. Morel-rust does not
- * reject the unbound variable yet; it drops the constructor's argument,
- * where morel-java raises "unbound type variable in type declaration". *)
+ * declare it, e.g. `datatype 'a my_option = ...`. *)
 datatype my_option = MY_NONE | MY_SOME of 'a;
-> datatype my_option = MY_NONE | MY_SOME
+> stdIn:1.43-1.45 Error: unbound type variable in type declaration: 'a
+>   raised at: stdIn:1.43-1.45
 datatype 'a my_option = MY_NONE | MY_SOME of 'a;
 > datatype 'a my_option = MY_NONE | MY_SOME of 'a
 (*) The body uses 'b, which is not in the head.
 datatype 'a pair = PAIR of 'a * 'b;
-> datatype 'a pair = PAIR
+> stdIn:1.33-1.35 Error: unbound type variable in type declaration: 'b
+>   raised at: stdIn:1.33-1.35
 datatype ('a, 'b) pair = PAIR of 'a * 'b;
 > datatype ('a,'b) pair = PAIR of 'a * 'b
 (* A head type variable need not be used in the body; here 'b is a phantom

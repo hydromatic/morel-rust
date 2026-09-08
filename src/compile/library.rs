@@ -426,49 +426,53 @@ pub enum BuiltInFunction {
     #[strum(props(type = "`exn`"))]
     #[strum(props(constructor_ordinal = "1"))]
     ExnChr,
-    #[strum(props(p = "General", name = "Div", global = true))]
+    #[strum(props(p = "General", name = "Constraint", global = true))]
     #[strum(props(type = "`exn`"))]
     #[strum(props(constructor_ordinal = "2"))]
+    ExnConstraint,
+    #[strum(props(p = "General", name = "Div", global = true))]
+    #[strum(props(type = "`exn`"))]
+    #[strum(props(constructor_ordinal = "3"))]
     ExnDiv,
     #[strum(props(p = "General", name = "Domain", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "3"))]
+    #[strum(props(constructor_ordinal = "4"))]
     ExnDomain,
     #[strum(props(p = "List", name = "Empty", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "4"))]
+    #[strum(props(constructor_ordinal = "5"))]
     ExnEmpty,
     #[strum(props(p = "General", name = "Fail", global = true))]
     #[strum(props(type = "string -> exn"))]
-    #[strum(props(constructor_ordinal = "5"))]
+    #[strum(props(constructor_ordinal = "6"))]
     ExnFail,
     #[strum(props(p = "General", name = "Match", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "6"))]
+    #[strum(props(constructor_ordinal = "7"))]
     ExnMatch,
     #[strum(props(p = "General", name = "Overflow", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "7"))]
+    #[strum(props(constructor_ordinal = "8"))]
     ExnOverflow,
     #[strum(props(p = "General", name = "Size", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "8"))]
+    #[strum(props(constructor_ordinal = "9"))]
     ExnSize,
     #[strum(props(p = "General", name = "Span", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "9"))]
+    #[strum(props(constructor_ordinal = "10"))]
     ExnSpan,
     #[strum(props(p = "General", name = "Subscript", global = true))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "10"))]
+    #[strum(props(constructor_ordinal = "11"))]
     ExnSubscript,
     #[strum(props(p = "ListPair", name = "UnequalLengths"))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "11"))]
+    #[strum(props(constructor_ordinal = "12"))]
     ExnUnequalLengths,
     #[strum(props(p = "IEEEReal", name = "Unordered"))]
     #[strum(props(type = "`exn`"))]
-    #[strum(props(constructor_ordinal = "12"))]
+    #[strum(props(constructor_ordinal = "13"))]
     ExnUnordered,
     #[strum(props(p = "Fn", name = "apply"))]
     #[strum(props(type = "forall 2 ('a -> 'b) * 'a -> 'b"))]
@@ -1854,6 +1858,38 @@ pub enum BuiltInFunction {
     WordWordSize,
     #[strum(props(p = "Word", name = "xorb", type = "word * word -> word"))]
     WordXorb,
+    /// Internal operator that enforces a checked type. Given the result
+    /// of the type's condition, the value, the type's name and what the
+    /// value is of, it returns the value, or raises `Constraint` if the
+    /// condition did not hold.
+    ///
+    /// It is never written in code, and it is compiled rather than
+    /// applied, because the message quotes the value and so needs its
+    /// type.
+    /// Internal operator that tests a checked type.
+    ///
+    /// It takes the same arguments as [`Self::ZCheck`] but returns the
+    /// result of the condition rather than raising when it does not
+    /// hold, so that `asOpt` can answer `NONE`. It still raises
+    /// `Constraint` if evaluating the condition raised, because then
+    /// the question has no answer.
+    #[strum(props(name = "$attempt"))]
+    #[strum(props(type = "forall 1 bool * 'a * string * string -> bool"))]
+    ZAttempt,
+    #[strum(props(name = "$check"))]
+    #[strum(props(type = "forall 1 bool * 'a * string * string -> 'a"))]
+    ZCheck,
+    /// Internal operator that enforces a checked type on a component of
+    /// a value.
+    ///
+    /// It takes the same arguments as [`Self::ZCheck`] but returns
+    /// `true` rather than the value, so that it can be a conjunct of
+    /// the condition of the value that contains it. That is what lets a
+    /// message name the component that failed, and quote the component
+    /// rather than the whole.
+    #[strum(props(name = "$require"))]
+    #[strum(props(type = "forall 1 bool * 'a * string * string -> bool"))]
+    ZRequire,
 }
 
 impl BuiltInFunction {
@@ -2098,6 +2134,8 @@ pub enum BuiltInExn {
     Chr,
     #[strum(props(p = "Date"))]
     Date,
+    #[strum(props(p = "General"))]
+    Constraint,
     #[strum(props(p = "General", explain = "divide by zero"))]
     Div,
     #[strum(props(p = "General", explain = "domain error"))]
@@ -2176,7 +2214,7 @@ pub enum BuiltInDatatype {
     #[strum(props(name = "exn"))]
     #[strum(props(varCount = "0"))]
     #[strum(props(
-        constructors = "Bind,Chr,Div,Domain,Empty,Fail,Match,Overflow,Size,Span,Subscript,UnequalLengths,Unordered"
+        constructors = "Bind,Chr,Constraint,Div,Domain,Empty,Fail,Match,Overflow,Size,Span,Subscript,UnequalLengths,Unordered"
     ))]
     Exn,
     #[strum(props(p = "Date"))]

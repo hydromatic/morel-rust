@@ -224,7 +224,7 @@ fn type_contains_var(t: &Type) -> bool {
         Type::Named(args, _) | Type::Data(_, args) => {
             args.iter().any(|t| type_contains_var(t))
         }
-        Type::Alias(_, t, args) => {
+        Type::Alias(_, t, args, _) => {
             type_contains_var(t) || args.iter().any(|t| type_contains_var(t))
         }
     }
@@ -1342,6 +1342,9 @@ impl Kernel {
     }
 }
 
+/// How a description of an uncaught exception begins.
+pub const UNCAUGHT_PREFIX: &str = "uncaught exception ";
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum MorelError {
     Runtime(BuiltInExn, Span),
@@ -1350,6 +1353,15 @@ pub enum MorelError {
     /// `Fail "boom"`). Rendered as
     /// `uncaught exception Fail [Fail: boom]`.
     Runtime2(BuiltInExn, Option<String>, Span),
+
+    /// An exception whose payload describes the failure in full, and is
+    /// therefore rendered without the exception's name:
+    /// `uncaught exception Constraint [~1 is not a valid nat]`.
+    ///
+    /// That reads better than `[Constraint: ...]` when the description
+    /// is a sentence and the exception carries no value at the Morel
+    /// level.
+    Described(BuiltInExn, String, Span),
 
     /// Surfaces a caller error with a custom message (e.g. "not a
     /// discrete type: real" raised by `Range.discreteSetOf`).
@@ -1372,7 +1384,7 @@ impl Display for MorelError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             MorelError::Runtime(exn, loc) => {
-                write!(f, "uncaught exception {}", exn)?;
+                write!(f, "{}{}", UNCAUGHT_PREFIX, exn)?;
                 if let Some(explanation) = exn.explain() {
                     write!(f, " [{}]", explanation)?;
                 }
@@ -1383,10 +1395,14 @@ impl Display for MorelError {
                 // built-in description: a programmer who writes
                 // `raise Bind` is reusing the exception value, not
                 // signaling the original cause.
-                write!(f, "uncaught exception {}", exn)?;
+                write!(f, "{}{}", UNCAUGHT_PREFIX, exn)?;
                 if let Some(msg) = payload {
                     write!(f, " [{}: {}]", exn, msg)?;
                 }
+                write!(f, "\n  raised at: {}", loc)
+            }
+            MorelError::Described(exn, description, loc) => {
+                write!(f, "{}{} [{}]", UNCAUGHT_PREFIX, exn, description)?;
                 write!(f, "\n  raised at: {}", loc)
             }
             MorelError::IllegalArgument(msg, loc) => {

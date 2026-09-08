@@ -21,11 +21,12 @@ use crate::compile::core::{
     StepEnv, StepKind, TypeBind, ValBind,
 };
 use crate::compile::library::{self, BuiltInExn, BuiltInFunction, name_to_rec};
+use crate::compile::postfix::peel_type;
 use crate::compile::pretty::Pretty;
 use crate::compile::span::Span;
 use crate::compile::type_env::{Binding, Id};
 use crate::compile::type_resolver::TypeMap;
-use crate::compile::types::{Label, PrimitiveType, Type};
+use crate::compile::types::{Checks, Label, PrimitiveType, Type};
 use crate::compile::var_collector::VarCollector;
 use crate::eval::code::{
     self, CmpRef, Code, Effect, EvalEnv, EvalMode, Frame, Impl,
@@ -457,6 +458,7 @@ impl<'a> Compiler<'a> {
                     type_vars: tb.type_vars.clone(),
                     name: tb.name.clone(),
                     type_: tb.type_.clone(),
+                    checks: tb.checks.clone(),
                 }));
             }
         }
@@ -538,7 +540,10 @@ impl<'a> Compiler<'a> {
                 // emit the sub-pattern code or Wildcard if not mentioned.
                 // A tuple is a record whose labels are the ordinals
                 // `1`, `2`, ..., so a record pattern matches one.
-                let labels: Vec<Label> = match type_.as_ref() {
+                // The type may be written under a name -- `val {i, j}: pp
+                // = ...` -- and a name is not a shape, so it is peeled to
+                // find the fields to match.
+                let labels: Vec<Label> = match peel_type(type_) {
                     Type::Record(_, type_fields) => {
                         type_fields.keys().cloned().collect()
                     }
@@ -804,6 +809,33 @@ impl<'a> Compiler<'a> {
             Expr::Apply(result_type, f, a, span) => match f.as_ref() {
                 Expr::Literal(_t, Val::Fn(f)) => {
                     let impl_ = f.get_impl();
+                    // `$check` needs the value's type, to quote it in the
+                    // message if the condition does not hold, so it is
+                    // compiled rather than applied. Its argument is
+                    // always a quadruple: the condition, the value, the
+                    // name of the checked type, and what the value is of.
+                    if let Some(kind) = check_kind(*f)
+                        && let Expr::Tuple(_, args) = a.as_ref()
+                        && args.len() == 4
+                        && let Expr::Literal(_, Val::String(name)) = &args[2]
+                        && let Expr::Literal(_, Val::String(blame)) = &args[3]
+                    {
+                        return Code::Check(Box::new(code::CheckCode {
+                            condition: self.compile_arg(cx, &args[0]),
+                            value: self.compile_arg(cx, &args[1]),
+                            type_: args[1].type_(),
+                            name: name.to_string(),
+                            blame: blame.to_string(),
+                            span: span.clone(),
+                            kind,
+                            constructor_arg_types: Rc::new(
+                                self.type_map.constructor_arg_types.clone(),
+                            ),
+                            datatype_constructors: Rc::new(
+                                self.type_map.datatype_constructors.clone(),
+                            ),
+                        }));
+                    }
                     // For 1-arg functions (E1, EF1), always compile the
                     // argument as a single Code — even if it's a tuple
                     // expression. The function takes one argument; a
@@ -2708,6 +2740,7 @@ struct TypeDeclAction {
     type_vars: Vec<String>,
     name: String,
     type_: Type,
+    checks: Checks,
 }
 
 impl Action for TypeDeclAction {
@@ -2720,8 +2753,8 @@ impl Action for TypeDeclAction {
             _ => format!("({}) {}", self.type_vars.join(", "), self.name),
         };
         r.emit_effect(Effect::EmitLine(format!(
-            "type {} = {}",
-            head, self.type_
+            "type {} = {}{}",
+            head, self.type_, self.checks
         )));
     }
 }
@@ -2919,5 +2952,15 @@ impl CompiledStatement for CompiledStatementImpl {
         for action in &self.actions {
             action.apply(&mut eval_env, &mut frame);
         }
+    }
+}
+
+/// Which checking operator a built-in is, if it is one.
+fn check_kind(f: BuiltInFunction) -> Option<code::CheckKind> {
+    match f {
+        BuiltInFunction::ZAttempt => Some(code::CheckKind::Attempt),
+        BuiltInFunction::ZCheck => Some(code::CheckKind::Check),
+        BuiltInFunction::ZRequire => Some(code::CheckKind::Require),
+        _ => None,
     }
 }

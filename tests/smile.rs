@@ -216,6 +216,11 @@ fn built_in_word() {
 }
 
 #[test]
+fn check() {
+    run_script("tests/script/check.smli");
+}
+
+#[test]
 fn closure() {
     run_script("tests/script/closure.smli");
 }

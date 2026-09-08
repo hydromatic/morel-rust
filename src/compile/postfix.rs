@@ -123,7 +123,7 @@ fn strip_forall(t: &Type) -> &Type {
 /// Peels type aliases and Forall wrappers for dispatch purposes.
 pub fn peel_type(t: &Type) -> &Type {
     match t {
-        Type::Alias(_, inner, _) => peel_type(inner),
+        Type::Alias(_, inner, _, _) => peel_type(inner),
         Type::Forall(inner, _) => peel_type(inner),
         _ => t,
     }

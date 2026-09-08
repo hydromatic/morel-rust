@@ -17,6 +17,7 @@
 
 // lint: sort until '^$' erase 'pub '
 pub mod compiler;
+mod conditions;
 pub mod core;
 pub mod expander;
 pub mod fbbt;
@@ -29,7 +30,7 @@ pub mod library;
 pub mod lindig;
 mod pat_coverage;
 pub mod postfix;
-mod pretty;
+pub mod pretty;
 pub mod progressive_widen;
 pub mod record_modifiers;
 pub mod replacer;

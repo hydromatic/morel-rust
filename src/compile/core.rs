@@ -15,9 +15,10 @@
 // language governing permissions and limitations under the
 // License.
 
+use crate::compile::postfix::peel_type;
 use crate::compile::span::Span;
 use crate::compile::type_env::Id;
-use crate::compile::types::{Label, Type};
+use crate::compile::types::{Checks, Label, Type};
 use crate::eval::val::Val;
 use crate::syntax::ast::JoinType;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
@@ -785,7 +786,9 @@ impl Pat {
                 // A tuple is a record whose labels are ordinals, so a
                 // record pattern matches one: `{1=a}` takes the first
                 // field of a pair.
-                let labels: Option<Vec<Label>> = match t.as_ref() {
+                // A name is not a shape, so a type written under one --
+                // `val {i, j}: pp = ...` -- is peeled to find the fields.
+                let labels: Option<Vec<Label>> = match peel_type(t) {
                     Type::Record(_, type_fields) => {
                         Some(type_fields.keys().cloned().collect())
                     }
@@ -913,7 +916,7 @@ impl Display for Pat {
                 // listing every field of the record type (with `_` for
                 // any field not bound by the pattern), so that the
                 // unparser output matches morel-java.
-                let labels: Vec<&Label> = match t.as_ref() {
+                let labels: Vec<&Label> = match peel_type(t) {
                     Type::Record(_, fs) => fs.keys().collect(),
                     _ => Vec::new(),
                 };
@@ -1124,11 +1127,15 @@ pub struct TypeBind {
     pub type_vars: Vec<String>,
     pub name: String,
     pub type_: Type,
+    /// The conditions of a checked type, empty if the type is
+    /// unchecked. They are carried so that the declaration echoes as it
+    /// was written.
+    pub checks: Checks,
 }
 
 impl Display for TypeBind {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{}: {}", self.name, self.type_)
+        write!(f, "{}: {}{}", self.name, self.type_, self.checks)
     }
 }
 

@@ -375,10 +375,14 @@ fn maybe_field_generator(
     ordered: bool,
     constraints: &[Expr],
 ) -> bool {
-    if !matches!(pat_type, Type::Record(..) | Type::Tuple(_)) {
+    // An alias is whatever it abbreviates; the pattern's own type is
+    // what the record is built at, so a scan over a named type gives
+    // back that name.
+    let peeled = peel_type(pat_type);
+    if !matches!(peeled, Type::Record(..) | Type::Tuple(_)) {
         return false;
     }
-    let fields = record_fields(pat_type);
+    let fields = record_fields(peeled);
     if fields.is_empty() {
         return false;
     }

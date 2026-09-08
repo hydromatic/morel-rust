@@ -36,49 +36,96 @@ use std::collections::HashMap;
 /// `fn`, `case`, query `Scan`, etc.) are not substituted.
 pub fn substitute(expr: &Expr, map: &HashMap<String, Expr>) -> Expr {
     let mut shadow: Vec<String> = Vec::new();
-    visit_expr(expr, map, &mut shadow)
+    let no_slots = HashMap::new();
+    let selections = Selections {
+        name: "",
+        slots: &no_slots,
+    };
+    visit_expr(expr, map, &mut shadow, &selections)
+}
+
+/// Which selections of a variable to replace, and with what.
+pub struct Selections<'a> {
+    /// The variable whose fields are being selected.
+    name: &'a str,
+    /// The slots to replace, and the expression to replace each with.
+    /// A selection of a slot that is not here is left alone.
+    slots: &'a HashMap<usize, Expr>,
+}
+
+/// Substitutes each `#slot name` named by `selections`.
+///
+/// Whether the rest of the expression still uses `name` is then a
+/// question about free variables: if it does, some use of it was not
+/// one of these selections.
+pub fn substitute_selections(
+    expr: &Expr,
+    name: &str,
+    slots: &HashMap<usize, Expr>,
+) -> Expr {
+    let mut shadow: Vec<String> = Vec::new();
+    let map = HashMap::new();
+    visit_expr(expr, &map, &mut shadow, &Selections { name, slots })
 }
 
 fn visit_expr(
     expr: &Expr,
     map: &HashMap<String, Expr>,
     shadow: &mut Vec<String>,
+    selections: &Selections<'_>,
 ) -> Expr {
     match expr {
         // lint: sort until '#}' where '##Expr::'
         Expr::Aggregate(t, e1, e2, s) => Expr::Aggregate(
             t.clone(),
-            Box::new(visit_expr(e1, map, shadow)),
-            Box::new(visit_expr(e2, map, shadow)),
+            Box::new(visit_expr(e1, map, shadow, selections)),
+            Box::new(visit_expr(e2, map, shadow, selections)),
             s.clone(),
         ),
-        Expr::Apply(t, f, a, span) => Expr::Apply(
-            t.clone(),
-            Box::new(visit_expr(f, map, shadow)),
-            Box::new(visit_expr(a, map, shadow)),
-            span.clone(),
-        ),
+        Expr::Apply(t, f, a, span) => {
+            // A selection of the record on a slot that is being
+            // substituted, and not under a binding of the record's name,
+            // is replaced by what stands for that slot.
+            if let Expr::RecordSelector(_, slot) = f.as_ref()
+                && let Expr::Identifier(_, n) = a.as_ref()
+                && n == selections.name
+                && !shadow.contains(n)
+                && let Some(replacement) = selections.slots.get(slot)
+            {
+                return replacement.clone();
+            }
+            Expr::Apply(
+                t.clone(),
+                Box::new(visit_expr(f, map, shadow, selections)),
+                Box::new(visit_expr(a, map, shadow, selections)),
+                span.clone(),
+            )
+        }
         Expr::Case(t, subject, arms, span) => Expr::Case(
             t.clone(),
-            Box::new(visit_expr(subject, map, shadow)),
-            arms.iter().map(|a| visit_match(a, map, shadow)).collect(),
+            Box::new(visit_expr(subject, map, shadow, selections)),
+            arms.iter()
+                .map(|a| visit_match(a, map, shadow, selections))
+                .collect(),
             span.clone(),
         ),
         Expr::Current(t) => Expr::Current(t.clone()),
         Expr::Exists(t, steps) => {
-            Expr::Exists(t.clone(), visit_steps(steps, map, shadow))
+            Expr::Exists(t.clone(), visit_steps(steps, map, shadow, selections))
         }
         Expr::Extent(t, span) => Expr::Extent(t.clone(), span.clone()),
         Expr::Fn(t, arms, span) => Expr::Fn(
             t.clone(),
-            arms.iter().map(|a| visit_match(a, map, shadow)).collect(),
+            arms.iter()
+                .map(|a| visit_match(a, map, shadow, selections))
+                .collect(),
             span.clone(),
         ),
         Expr::Forall(t, steps) => {
-            Expr::Forall(t.clone(), visit_steps(steps, map, shadow))
+            Expr::Forall(t.clone(), visit_steps(steps, map, shadow, selections))
         }
         Expr::From(t, steps) => {
-            Expr::From(t.clone(), visit_steps(steps, map, shadow))
+            Expr::From(t.clone(), visit_steps(steps, map, shadow, selections))
         }
         Expr::Identifier(t, name) => {
             if !shadow.contains(name)
@@ -97,24 +144,30 @@ fn visit_expr(
             Expr::Let(
                 t.clone(),
                 decls.clone(),
-                Box::new(visit_expr(body, map, shadow)),
+                Box::new(visit_expr(body, map, shadow, selections)),
             )
         }
         Expr::List(t, items) => Expr::List(
             t.clone(),
-            items.iter().map(|e| visit_expr(e, map, shadow)).collect(),
+            items
+                .iter()
+                .map(|e| visit_expr(e, map, shadow, selections))
+                .collect(),
         ),
         Expr::Literal(t, val) => Expr::Literal(t.clone(), val.clone()),
         Expr::Ordinal(t) => Expr::Ordinal(t.clone()),
         Expr::Raise(t, e, span) => Expr::Raise(
             t.clone(),
-            Box::new(visit_expr(e, map, shadow)),
+            Box::new(visit_expr(e, map, shadow, selections)),
             span.clone(),
         ),
         Expr::RecordSelector(t, slot) => Expr::RecordSelector(t.clone(), *slot),
         Expr::Tuple(t, items) => Expr::Tuple(
             t.clone(),
-            items.iter().map(|e| visit_expr(e, map, shadow)).collect(),
+            items
+                .iter()
+                .map(|e| visit_expr(e, map, shadow, selections))
+                .collect(),
         ),
     }
 }
@@ -123,12 +176,13 @@ fn visit_match(
     m: &Match,
     map: &HashMap<String, Expr>,
     shadow: &mut Vec<String>,
+    selections: &Selections<'_>,
 ) -> Match {
     let saved_len = shadow.len();
     collect_pat_bindings(&m.pat, shadow);
     let result = Match {
         pat: m.pat.clone(),
-        expr: visit_expr(&m.expr, map, shadow),
+        expr: visit_expr(&m.expr, map, shadow, selections),
     };
     shadow.truncate(saved_len);
     result
@@ -138,11 +192,12 @@ fn visit_steps(
     steps: &[Step],
     map: &HashMap<String, Expr>,
     shadow: &mut Vec<String>,
+    selections: &Selections<'_>,
 ) -> Vec<Step> {
     let saved_len = shadow.len();
     let mut out = Vec::with_capacity(steps.len());
     for step in steps {
-        out.push(visit_step(step, map, shadow));
+        out.push(visit_step(step, map, shadow, selections));
     }
     shadow.truncate(saved_len);
     out
@@ -152,28 +207,36 @@ fn visit_step(
     step: &Step,
     map: &HashMap<String, Expr>,
     shadow: &mut Vec<String>,
+    selections: &Selections<'_>,
 ) -> Step {
     let kind = match &step.kind {
         // lint: sort until '#}' where '##StepKind::'
         StepKind::Compute(e) => {
-            StepKind::Compute(Box::new(visit_expr(e, map, shadow)))
+            StepKind::Compute(Box::new(visit_expr(e, map, shadow, selections)))
         }
         StepKind::Distinct => StepKind::Distinct,
         StepKind::Except(d, exprs) => StepKind::Except(
             *d,
-            exprs.iter().map(|e| visit_expr(e, map, shadow)).collect(),
+            exprs
+                .iter()
+                .map(|e| visit_expr(e, map, shadow, selections))
+                .collect(),
         ),
         StepKind::Exists => StepKind::Exists,
         StepKind::Group(key, agg) => StepKind::Group(
-            Box::new(visit_expr(key, map, shadow)),
-            agg.as_deref().map(|e| Box::new(visit_expr(e, map, shadow))),
+            Box::new(visit_expr(key, map, shadow, selections)),
+            agg.as_deref()
+                .map(|e| Box::new(visit_expr(e, map, shadow, selections))),
         ),
         StepKind::Intersect(d, exprs) => StepKind::Intersect(
             *d,
-            exprs.iter().map(|e| visit_expr(e, map, shadow)).collect(),
+            exprs
+                .iter()
+                .map(|e| visit_expr(e, map, shadow, selections))
+                .collect(),
         ),
         StepKind::Order(e) => {
-            StepKind::Order(Box::new(visit_expr(e, map, shadow)))
+            StepKind::Order(Box::new(visit_expr(e, map, shadow, selections)))
         }
         StepKind::Scan(pat, source, cond) => {
             // Substitute in the source first (it doesn't see the
@@ -181,29 +244,33 @@ fn visit_step(
             // scope before walking the optional join condition. The
             // bindings stay live for subsequent sibling steps; the
             // outer `visit_steps` truncates at the end.
-            let new_source = Box::new(visit_expr(source, map, shadow));
+            let new_source =
+                Box::new(visit_expr(source, map, shadow, selections));
             collect_pat_bindings(pat, shadow);
             let new_cond = cond
                 .as_deref()
-                .map(|c| Box::new(visit_expr(c, map, shadow)));
+                .map(|c| Box::new(visit_expr(c, map, shadow, selections)));
             StepKind::Scan(pat.clone(), new_source, new_cond)
         }
         StepKind::Skip(e) => {
-            StepKind::Skip(Box::new(visit_expr(e, map, shadow)))
+            StepKind::Skip(Box::new(visit_expr(e, map, shadow, selections)))
         }
         StepKind::Take(e) => {
-            StepKind::Take(Box::new(visit_expr(e, map, shadow)))
+            StepKind::Take(Box::new(visit_expr(e, map, shadow, selections)))
         }
         StepKind::Union(d, exprs) => StepKind::Union(
             *d,
-            exprs.iter().map(|e| visit_expr(e, map, shadow)).collect(),
+            exprs
+                .iter()
+                .map(|e| visit_expr(e, map, shadow, selections))
+                .collect(),
         ),
         StepKind::Unorder => StepKind::Unorder,
         StepKind::Where(e) => {
-            StepKind::Where(Box::new(visit_expr(e, map, shadow)))
+            StepKind::Where(Box::new(visit_expr(e, map, shadow, selections)))
         }
         StepKind::Yield(e) => {
-            StepKind::Yield(Box::new(visit_expr(e, map, shadow)))
+            StepKind::Yield(Box::new(visit_expr(e, map, shadow, selections)))
         }
     };
     Step::new(kind, step.env.clone())

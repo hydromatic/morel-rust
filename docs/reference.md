@@ -72,6 +72,8 @@ In Morel-Rust but not Standard ML:
 * record modifiers: `replace` (functional update for record values, as
   OCaml's `with`), `extend`, `remove`, `rename`, their `or` pairs, `all`
   and `lenient`
+* checked types: a `check` condition on a type declaration, the `check`
+  expression operator, and the `as` and `asOpt` conversion operators
 * `(*)` line comments (syntax as SML/NJ and MLton)
 
 In Standard ML but not in Morel:
@@ -166,6 +168,9 @@ In Standard ML but not in Morel:
     | <b>let</b> <i>dec</i> <b>in</b> <i>exp<sub>1</sub></i> ; ... ; <i>exp<sub>n</sub></i> <b>end</b>
                                 local declaration (n ≥ 1)
     | <i>exp</i> <b>:</b> <i>type</i>                type annotation
+    | <i>exp</i> <b>as</b> <i>typ</i>                 conversion (raises on failure)
+    | <i>exp</i> <b>asOpt</b> <i>typ</i>              conversion (answers an option)
+    | <i>exp</i> <b>check</b> <i>match</i>            checked expression
     | <i>exp<sub>1</sub></i> <b>andalso</b> <i>exp<sub>2</sub></i>         conjunction
     | <i>exp<sub>1</sub></i> <b>orelse</b> <i>exp<sub>2</sub></i>          disjunction
     | <b>if</b> <i>exp<sub>1</sub></i> <b>then</b> <i>exp<sub>2</sub></i> <b>else</b> <i>exp<sub>3</sub></i>
@@ -247,6 +252,60 @@ and let the field take the one its base implies:
 back-ticks to be used as identifiers. `all`, `lenient` and `or` are
 not: they are keywords only in the positions above, and are ordinary
 identifiers everywhere else.
+
+### Checked types
+
+A `check` clause on a type declaration states a condition that every value
+of the type satisfies:
+
+```
+type nat = int check i => i >= 0;
+val n: nat = 5;
+> val n = 5 : nat
+val bad: nat = ~1;
+> uncaught exception Constraint [~1 is not a valid nat]
+```
+
+A clause may be repeated, and each adds a condition. The match may have
+several branches and need not be exhaustive; a value that no branch matches
+does not have the type. The value the match binds may be destructured.
+
+A condition must be *closed*: it may refer only to the value it is given and
+to the standard basis. That is what lets a checked type be interned like any
+other type -- two are the same type when their conditions are textually equal
+-- and it settles what a condition means when the names it used are re-bound.
+Shadowing a basis name does not evade this: the binding decides, not the name.
+
+A checked type is *erased*. Its representation is that of the type it
+abbreviates, and everything that examines a type structurally -- choosing an
+overload, aggregating, printing -- behaves as it does for the base type. So
+widening is free and narrowing is checked: using a `nat` as an `int` needs no
+coercion, and `n - 100` is ordinary `int` subtraction with type `int`.
+
+A condition is claimed only where the type says so, and is checked wherever a
+value flows into a claim: a binding, a function parameter, an ascription, a
+conversion, a datatype constructor, and inside a composite value, where the
+message names the component that failed. A scan over a checked type conjoins
+the condition into the query, so a generator enumerates only values of the
+type.
+
+Two conversion operators ask rather than claim. `exp as typ` converts, raising
+`Constraint` if the condition does not hold; `exp asOpt typ` answers `NONE`
+instead. Both bind as loosely as `:`, are left-associative, and may be mixed
+with it.
+
+A condition may also be written on an expression, `exp check match`, which
+adds to what the expression already claims rather than replacing it, and on
+any type, not only one that is named. `check` binds more loosely than
+anything else in a type or an expression, so parentheses put the condition on
+a component instead.
+
+A function type may not be claimed -- honouring the claim would mean
+inserting a check at every call site -- and a parameterized type may not
+carry a condition. Both are reported rather than silently ignored.
+
+`check` and `asOpt` are reserved words, and need back-ticks to be used as
+identifiers.
 
 ### Patterns
 

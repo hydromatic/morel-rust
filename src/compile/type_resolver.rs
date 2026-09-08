@@ -23,14 +23,22 @@
 // as future-use surface.
 #![allow(dead_code)]
 
+use crate::compile::conditions;
+use crate::compile::core::{
+    Expr as CoreExpr, Match as CoreMatch, Pat as CorePat,
+};
 use crate::compile::expander::DatatypeMap;
+use crate::compile::free_finder::free_names_in;
 use crate::compile::library;
 use crate::compile::pat_coverage::check_coverage;
 use crate::compile::postfix::{PostfixKind, peel_type, postfix_dispatch};
 use crate::compile::record_modifiers::{self, Source};
+use crate::compile::replacer;
 use crate::compile::type_env::{BindType, SchemeTypeEnv, TypeEnv};
 use crate::compile::types;
-use crate::compile::types::{Label, displace, expand_alias, instantiate};
+use crate::compile::types::{
+    Checks, Label, displace, expand_alias, instantiate,
+};
 use crate::compile::types::{
     Predicate, PrimitiveType, Subst, Type, TypeVariable,
 };
@@ -38,20 +46,23 @@ use crate::eval::code::{LIBRARY, Lib};
 use crate::eval::file::TypedValue;
 use crate::shell::error::Error;
 
+/// The compiled conditions of checked types, keyed by type name.
+pub type CheckPredicates = HashMap<String, Vec<CoreExpr>>;
+
 /// Field names of the expressions record modifiers are applied to,
 /// keyed by the extent of each expression's span.
 type ModifierFields = Rc<RefCell<HashMap<(usize, usize), Vec<String>>>>;
 use crate::syntax::ast::{
-    DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, JoinType,
+    CastKind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunBind, JoinType,
     LabeledExpr, Literal, LiteralKind, Match, Modifier, MorelNode, Pat,
     PatField, PatKind, RangeItem, Span, Statement, StatementKind, Step,
     StepKind, Type as AstType, TypeField, TypeKind, TypeScheme, ValBind,
 };
 use crate::syntax::parser;
 use crate::unify::unifier::{
-    ALIAS_PREFIX, Action, COLLECTION_OP_NAME, Constraint, ConstraintAction,
-    NullTracer, ORDERED_OP_NAME, Op, OpDef, Sequence, Substitution, Term,
-    UNORDERED_OP_NAME, Unifier, Var,
+    ALIAS_PREFIX, ANON_CHECK_PREFIX, Action, COLLECTION_OP_NAME, Constraint,
+    ConstraintAction, NullTracer, ORDERED_OP_NAME, Op, OpDef, Sequence,
+    Substitution, Term, UNORDERED_OP_NAME, Unifier, Var,
 };
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -117,6 +128,11 @@ pub struct TypeMap {
     /// Maps unifier variables to type alias names. Used during
     /// type reconstruction to wrap resolved types in `Type::Alias`.
     pub var_alias_map: HashMap<Var, String>,
+    /// Names a query's elements take from the type its scan was written
+    /// with, keyed by the query's own variable. A scan names the type of
+    /// what it scans, and inference reduces it to the type it abbreviates,
+    /// so what was written is recorded here instead.
+    pub element_alias_map: HashMap<Var, String>,
     /// Maps a unifier variable to the alias term it was bound to before
     /// unification, for those variables bound to one.
     ///
@@ -155,6 +171,37 @@ pub struct TypeMap {
     /// its displayed type from here -- the annotation as written --
     /// rather than from the deduced type, which has been expanded.
     pub type_aliases: HashMap<String, Type>,
+    /// The conditions of every checked type in scope, keyed by name.
+    /// A checked type is an alias that carries them; a site that knows
+    /// only the name recovers them here.
+    pub type_checks: HashMap<String, Checks>,
+    /// The conditions of every checked type, compiled, keyed by name.
+    ///
+    /// A condition is compiled once, where the type is declared, and
+    /// read wherever a check is inserted -- which is usually a later
+    /// statement, whose type map knows nothing of the nodes the
+    /// condition was written with. Shared with the session, which is
+    /// what carries it from one statement to the next.
+    pub check_predicates: Rc<RefCell<CheckPredicates>>,
+    /// The names the user has bound, in this statement or an earlier
+    /// one. A `check` condition may refer only to the value it is given
+    /// and to the standard basis, and this is how a reference to
+    /// something the user declared is told from one to a built-in.
+    pub user_bindings: HashSet<String>,
+    /// The name of the alias a checked type that has no name was written
+    /// on, by the name it was given: `one check i => i < 100`, where
+    /// `one` is a `positive`, is a `positive` with a condition added. The
+    /// term does not keep the `positive`, so this does.
+    pub anon_check_base: HashMap<String, String>,
+    /// The records with modifiers whose chain leaves the shape alone,
+    /// and so claims the type of the record it modifies: the extent of
+    /// the record's span, and the name of the type it claims.
+    /// `Resolver` checks the claim.
+    ///
+    /// The name is what has to be carried: a Core type is erased, so by
+    /// the time `Resolver` sees the record its type says `{empno:int,
+    /// ...}` and no longer says which type was claimed.
+    pub claiming_records: HashMap<(usize, usize), String>,
     /// Overload constraints that were still unresolved when unification
     /// finished: `(name, type term, candidate instance terms)`. They become
     /// the predicates of a qualified type; see
@@ -163,6 +210,12 @@ pub struct TypeMap {
 }
 
 impl TypeMap {
+    /// The conditions of the checked type `name`, or none if the name
+    /// is not a checked type.
+    pub fn checks_of(&self, name: &str) -> Checks {
+        self.type_checks.get(name).cloned().unwrap_or_default()
+    }
+
     /// The datatype information the expander needs to enumerate the
     /// values of a datatype: constructor names, and the argument type
     /// of each constructor that takes one.
@@ -186,8 +239,14 @@ impl TypeMap {
             expanded_type_binds: HashMap::new(),
             decl_exp_types: HashMap::new(),
             type_aliases: HashMap::new(),
+            type_checks: HashMap::new(),
+            check_predicates: Rc::new(RefCell::new(HashMap::new())),
+            user_bindings: HashSet::new(),
+            anon_check_base: HashMap::new(),
+            claiming_records: HashMap::new(),
             predicate_terms: Vec::new(),
             var_alias_map: HashMap::new(),
+            element_alias_map: HashMap::new(),
             datatype_constructors: HashMap::new(),
             constructor_arg_types: HashMap::new(),
         }
@@ -303,6 +362,26 @@ impl TypeMap {
     /// Whether the term a variable was written with reaches a type alias,
     /// following the written terms rather than the substitution. Bounded,
     /// because the written equations may be cyclic.
+    /// Returns the term a node's type was written with, following
+    /// variable-to-variable links to find it.
+    ///
+    /// A node's own variable often holds no term of its own -- a value
+    /// binding's variable is linked to the expression's, not equated with a
+    /// term -- and what was written is recorded against whichever variable
+    /// in the chain the annotation was deduced into.
+    fn written_term(&self, v: &Var) -> Option<&Term> {
+        let mut current = *v;
+        loop {
+            if let Some(t) = self.var_pre_term_map.get(&current) {
+                return Some(t);
+            }
+            match self.var_term_map.get(&current) {
+                Some(Term::Variable(next)) => current = *next,
+                _ => return None,
+            }
+        }
+    }
+
     fn reaches_alias(&self, term: &Term, depth: u32) -> bool {
         if depth == 0 {
             return false;
@@ -324,13 +403,36 @@ impl TypeMap {
         }
     }
 
+    /// Whether a term is a function type.
+    fn is_fn_term(&self, term: &Term) -> bool {
+        match term {
+            Term::Sequence(seq) => self.op_defs[seq.op.0 as usize].name == "fn",
+            Term::Variable(_) => false,
+        }
+    }
+
     fn get_type_inner(&self, id: i32, with_alias: bool) -> Option<Rc<Type>> {
         if let Some(var) = self.node_var_map.get(&id) {
             // The alias as it was written wins over the substitution; see
             // `var_alias_term_map`.
-            let written = self.var_pre_term_map.get(var);
+            let written = self.written_term(var);
             let term = match written {
-                Some(t) if with_alias && self.reaches_alias(t, 20) => t.clone(),
+                // A function's type is the one inference gives it, not
+                // the one its parameter was written with. The body may
+                // weaken the parameter -- `fun decr (n: nat) = n - 1` is
+                // an `int -> int`, and `fun branches (i: nat) = if false
+                // then i else 0` is too -- and the term the parameter
+                // was written with would put the condition back. Where
+                // nothing weakened it, the substitution has the alias
+                // anyway, so `fun f (n: nat) = n` is still a
+                // `nat -> nat`.
+                Some(t)
+                    if with_alias
+                        && self.reaches_alias(t, 20)
+                        && !self.is_fn_term(t) =>
+                {
+                    t.clone()
+                }
                 _ => self
                     .var_term_map
                     .get(var)
@@ -354,15 +456,57 @@ impl TypeMap {
                 };
                 c.term_type(&term)
             });
+            // A query's elements may take the name its scan was written
+            // with; inference reduced it to the type it abbreviates.
+            let type_ = match self.element_alias_map.get(var) {
+                Some(name) if with_alias => {
+                    let alias = |t: &Rc<Type>| {
+                        Rc::new(Type::Alias(
+                            name.clone(),
+                            t.clone(),
+                            vec![],
+                            self.checks_of(name),
+                        ))
+                    };
+                    match &*type_ {
+                        Type::List(t) => Rc::new(Type::List(alias(t))),
+                        Type::Bag(t) => Rc::new(Type::Bag(alias(t))),
+                        _ => type_,
+                    }
+                }
+                _ => type_,
+            };
             // Check if this node's var has a top-level alias.
             if with_alias {
                 if let Some(alias_name) = self.var_alias_map.get(var) {
-                    return Some(Rc::new(Type::Alias(
-                        alias_name.clone(),
-                        type_,
-                        vec![],
+                    // A checked type that has no name was written on a
+                    // type that may have had one, and the term does not
+                    // keep that name, so it is put back here.
+                    let body = match self.anon_check_base.get(alias_name) {
+                        Some(inner)
+                            if !matches!(
+                                &*type_, Type::Alias(n, ..) if n == inner
+                            ) =>
+                        {
+                            Rc::new(Type::Alias(
+                                inner.clone(),
+                                type_,
+                                vec![],
+                                self.checks_of(inner),
+                            ))
+                        }
+                        _ => type_,
+                    };
+                    return Some(types::collapse_aliases(&Rc::new(
+                        Type::Alias(
+                            alias_name.clone(),
+                            body,
+                            vec![],
+                            self.checks_of(alias_name),
+                        ),
                     )));
                 }
+                return Some(types::collapse_aliases(&type_));
             }
             return Some(type_);
         }
@@ -436,7 +580,16 @@ impl TypeMap {
                                     for (alias_var, alias_term) in
                                         alias_concrete
                                     {
-                                        if concrete == alias_term {
+                                        // The same shape is not the same
+                                        // type: two components of one type
+                                        // are different slots that often
+                                        // erase to the same thing, and an
+                                        // alias on one says nothing about
+                                        // the other. The second half of
+                                        // `nat * int` is a plain `int`.
+                                        if concrete == alias_term
+                                            && self.linked(v, alias_var)
+                                        {
                                             return Term::Variable(*alias_var);
                                         }
                                     }
@@ -452,6 +605,27 @@ impl TypeMap {
                 })
             }
             _ => term.clone(),
+        }
+    }
+
+    /// Returns whether two variables stand for the same type: one
+    /// reaches the other by following variable-to-variable links.
+    fn linked(&self, v1: &Var, v2: &Var) -> bool {
+        self.reaches(v1, v2) || self.reaches(v2, v1)
+    }
+
+    /// Returns whether `from` reaches `to` by following
+    /// variable-to-variable links.
+    fn reaches(&self, from: &Var, to: &Var) -> bool {
+        let mut current = *from;
+        loop {
+            if current == *to {
+                return true;
+            }
+            match self.var_term_map.get(&current) {
+                Some(Term::Variable(next)) => current = *next,
+                _ => return false,
+            }
         }
     }
 
@@ -681,7 +855,13 @@ impl<'a> TermToTypeConverter<'a> {
                         let name = s[ALIAS_PREFIX.len()..].to_string();
                         let inner = self.term_type(&sequence.terms[0]);
                         if self.with_alias {
-                            self.lib.intern(Type::Alias(name, inner, vec![]))
+                            let checks = self.type_map.checks_of(&name);
+                            self.lib.intern(Type::Alias(
+                                name,
+                                inner,
+                                vec![],
+                                checks,
+                            ))
                         } else {
                             inner
                         }
@@ -761,7 +941,8 @@ impl<'a> TermToTypeConverter<'a> {
                         .clone()
                 };
                 if let Some(name) = alias_name {
-                    self.lib.intern(Type::Alias(name, inner, vec![]))
+                    let checks = self.type_map.checks_of(&name);
+                    self.lib.intern(Type::Alias(name, inner, vec![], checks))
                 } else {
                     inner
                 }
@@ -789,21 +970,46 @@ impl<'a> TermToTypeConverter<'a> {
             }
             current = *next;
         }
-        // Resolve v to its concrete term and check if any alias var
-        // resolves to the same term. This handles cases where the
-        // unifier resolved both v and the alias var to the same
-        // concrete term without linking them.
-        let v_term = self.resolve_to_concrete(v);
+        // An alias variable that stands for the same type as `v` names
+        // it, even though the chain from `v` does not reach it: the
+        // alias may chain to `v` rather than the other way about.
+        //
+        // Standing for the same type means ending at the same variable,
+        // not merely resolving to the same shape. Two components of one
+        // type are different slots that often have the same shape, and
+        // an alias on one says nothing about the other: the second half
+        // of `(int check i => i >= 0) * int` is a plain `int`.
+        let v_end = self.chain_end(v);
         for (alias_var, name) in &self.type_map.var_alias_map {
             if alias_var == v {
                 continue;
             }
-            let alias_term = self.resolve_to_concrete(alias_var);
-            if v_term == alias_term {
+            // A checked type that has no name is known by its
+            // conditions, not by its shape, so another variable that
+            // happens to erase to the same thing is not that type.
+            // `fn i => (i check j => j > 0)` is an `int -> int`: the
+            // condition is a claim about the body, not about `i`.
+            if name.starts_with(ANON_CHECK_PREFIX) {
+                continue;
+            }
+            if self.chain_end(alias_var) == v_end {
                 return Some(name.clone());
             }
         }
         None
+    }
+
+    /// Follows a variable's chain of variable-to-variable links to the
+    /// variable it ends at. Two variables that end at the same one stand
+    /// for the same type.
+    fn chain_end(&self, v: &Var) -> Var {
+        let mut current = *v;
+        while let Some(Term::Variable(next)) =
+            self.type_map.var_term_map.get(&current)
+        {
+            current = *next;
+        }
+        current
     }
 
     /// Resolves a var to its concrete (non-Variable) term.
@@ -911,6 +1117,50 @@ pub struct TypeResolver {
     /// User-defined type aliases, populated from `type` declarations
     /// and `datatype` declarations.
     pub type_aliases: HashMap<String, Type>,
+    /// The conditions of every checked type declared so far, keyed by
+    /// name. A checked type is an alias that carries them.
+    pub type_checks: HashMap<String, Checks>,
+    /// The compiled conditions; see [`TypeMap::check_predicates`]. Held
+    /// so that they can be handed to the type map, and through it to
+    /// `Resolver`.
+    pub check_predicates: Rc<RefCell<CheckPredicates>>,
+    /// The names the user has bound; see [`TypeMap::user_bindings`].
+    pub user_bindings: HashSet<String>,
+    /// See [`TypeMap::claiming_records`].
+    claiming_records: HashMap<(usize, usize), String>,
+    /// See [`TypeMap::anon_check_base`].
+    anon_check_base: HashMap<String, String>,
+    /// Whether a node being deduced should be given a fresh id even if
+    /// it has one. A condition carried over from another statement was
+    /// deduced there, and its ids are that statement's; reusing them
+    /// here would overwrite what this statement's own nodes recorded
+    /// under the same numbers.
+    fresh_ids: bool,
+    /// Variables an annotation claimed a type of after an operator had
+    /// dropped one. An operator drops the condition of its operands, and
+    /// the variable it drops it on is the one an annotation written on
+    /// the operator's result lands on; the two are told apart by which
+    /// came first. `fun decr (n: nat) = n - 1` annotates the parameter,
+    /// which is deduced before the body, so the drop stands; `(n - 1) :
+    /// nat` annotates the result, and its claim is not the operand's
+    /// condition being put back.
+    claimed_after_erasure: HashSet<Var>,
+    /// Variables whose condition an operator dropped; see
+    /// [`Self::erase_alias`]. An annotation that reaches the display
+    /// through `var_alias_map` must not put back what the operator took
+    /// away.
+    erased_vars: Vec<Var>,
+    /// Names a query's elements take from the type its scan was written
+    /// with; see [`Self::scan_type_name`].
+    element_alias_map: HashMap<Var, String>,
+    /// The fields a record with modifiers ends up with, keyed by the
+    /// extent of its span. A `yield` step binds them; the record's own
+    /// term may be the operand's, which says nothing about them.
+    modifier_result_fields: HashMap<(usize, usize), Vec<(String, Var)>>,
+    /// The argument type of each datatype constructor this statement
+    /// declares, as written -- keeping the aliases that say where the
+    /// conditions are.
+    datatype_arg_types: HashMap<String, Type>,
     /// Number of parameters of each type alias, e.g. 1 for
     /// `type 'a my_list = 'a list`. An alias is a type function,
     /// and must be applied to exactly this many arguments.
@@ -1179,6 +1429,27 @@ fn join_source_walk(
 
 /// Collects the names bound by a pattern. Unlike
 /// [`Pat::for_each_id_pat`](crate::syntax::ast::Pat::for_each_id_pat), it does
+/// Returns whether a step leaves a query's elements the values the scan
+/// produced, so that a name written on them is still theirs. `name` is what
+/// the scan bound them to.
+fn step_preserves_elements(step: &Step, name: &str) -> bool {
+    match &step.kind {
+        StepKind::Distinct
+        | StepKind::Order(_)
+        | StepKind::Require(_)
+        | StepKind::Skip(_)
+        | StepKind::Take(_)
+        | StepKind::Unorder
+        | StepKind::Where(_) => true,
+        // Yielding the scanned value itself is not computing a new one.
+        StepKind::Yield(binder, e) => {
+            binder.is_none()
+                && matches!(&e.kind, ExprKind::Identifier(n) if n == name)
+        }
+        _ => false,
+    }
+}
+
 /// not need frame-slot ids (which are not assigned during type resolution).
 fn join_source_pat_names(pat: &Pat, out: &mut Vec<String>) {
     match &pat.kind {
@@ -1309,6 +1580,8 @@ impl TypeResolver {
         };
         let mut resolver = TypeResolver::new();
         resolver.type_aliases = self.type_aliases.clone();
+        resolver.type_checks = self.type_checks.clone();
+        resolver.check_predicates = Rc::clone(&self.check_predicates);
         resolver.user_datatype_arities = self.user_datatype_arities.clone();
         resolver.prior_datatype_constructors =
             self.prior_datatype_constructors.clone();
@@ -1352,6 +1625,38 @@ impl TypeResolver {
         Some((*type_).clone())
     }
 
+    /// Deduces the conditions of a checked type against the type they
+    /// constrain.
+    ///
+    /// A condition sees the type as the type it abbreviates: the value
+    /// has not yet been admitted to the checked type, so the condition
+    /// may not be assumed of it.
+    fn deduce_checks(
+        &mut self,
+        env: &dyn TypeEnv,
+        base: &Type,
+        checks: &[Expr],
+    ) -> Vec<Expr> {
+        let mut deduced = Vec::with_capacity(checks.len());
+        for check in checks {
+            let v_base = self.variable();
+            self.type_term(base, &Subst::Empty, &v_base);
+            let v_bool = self.variable();
+            self.primitive_term(&PrimitiveType::Bool, &v_bool);
+            let v = self.variable();
+            self.fn_term(&v_base, &v_bool, &v);
+            match self.deduce_expr_type(env, check, &v) {
+                Ok(check2) => deduced.push(check2),
+                Err(Error::Compile(msg, span)) => {
+                    self.field_errors.borrow_mut().push((msg, span));
+                    deduced.push(check.clone());
+                }
+                Err(_) => deduced.push(check.clone()),
+            }
+        }
+        deduced
+    }
+
     /// Expands an AST type to a core type, resolving every named type
     /// against `aliases` (the aliases and datatypes in scope) and the
     /// built-in type constructors. A type alias is transparent, so it is
@@ -1368,6 +1673,22 @@ impl TypeResolver {
         let unbound =
             |name: &str| Err((name.to_string(), ast_type.span.clone()));
         match &ast_type.kind {
+            TypeKind::Checked(t, checks) => {
+                // A condition written where a type is used, rather than
+                // on a declaration, gives an anonymous checked type. It
+                // has only its body and its conditions to be known by.
+                let inner = self.expand_ast_type(env, t, aliases, type_vars)?;
+                // A condition is a function from the type it constrains
+                // to `bool`, and is deduced here, where the type is, so
+                // that the types of its nodes reach the type map:
+                // `Resolver` converts a condition to Core in order to
+                // insert the check it calls for.
+                let deduced = self.deduce_checks(env, &inner, checks);
+                let checks = Checks::new(deduced);
+                let name = checks.anon_name();
+                self.type_checks.insert(name.clone(), checks.clone());
+                Ok(Type::Alias(name, Rc::new(inner), vec![], checks))
+            }
             TypeKind::Expression(expr) => {
                 // `typeof e`. A type declaration is elaborated before
                 // anything in it has been deduced, so there is no
@@ -1426,6 +1747,7 @@ impl TypeResolver {
                             name.clone(),
                             Rc::new(t.clone()),
                             vec![],
+                            self.checks_of(name),
                         )),
                     }
                 } else if library::builtin_type_arity(name.as_str()) == Some(0)
@@ -1506,6 +1828,7 @@ impl TypeResolver {
     /// errors.
     fn validate_ast_type(&self, ast_type: &AstType) {
         match &ast_type.kind {
+            TypeKind::Checked(t, _) => self.validate_ast_type(t),
             TypeKind::Composite(types) => {
                 self.field_errors.borrow_mut().push((
                     "tuple types must be written 't1 * ... * tn', \
@@ -1607,6 +1930,17 @@ impl TypeResolver {
             fn_op,
             decl_type_vars: BTreeMap::new(),
             type_aliases: HashMap::new(),
+            type_checks: HashMap::new(),
+            check_predicates: Rc::new(RefCell::new(HashMap::new())),
+            user_bindings: HashSet::new(),
+            claiming_records: HashMap::new(),
+            anon_check_base: HashMap::new(),
+            claimed_after_erasure: HashSet::new(),
+            fresh_ids: false,
+            erased_vars: Vec::new(),
+            element_alias_map: HashMap::new(),
+            modifier_result_fields: HashMap::new(),
+            datatype_arg_types: HashMap::new(),
             alias_arities: HashMap::new(),
             expanded_type_binds: HashMap::new(),
             user_datatype_arities: HashMap::new(),
@@ -1836,6 +2170,11 @@ impl TypeResolver {
         type_map.expanded_type_binds = self.expanded_type_binds.clone();
         type_map.decl_exp_types = self.decl_exp_types.clone();
         type_map.type_aliases = self.type_aliases.clone();
+        type_map.type_checks = self.type_checks.clone();
+        type_map.check_predicates = Rc::clone(&self.check_predicates);
+        type_map.user_bindings = self.user_bindings.clone();
+        type_map.anon_check_base = self.anon_check_base.clone();
+        type_map.claiming_records = self.claiming_records.clone();
 
         // A record whose modifiers were never desugared, because the
         // fields of its base never became known. morel-java's
@@ -1970,6 +2309,37 @@ impl TypeResolver {
         // Transfer alias mappings from the resolver (before collecting
         // bindings, which needs alias info for Type::Alias wrapping).
         type_map.var_alias_map = self.var_alias_map.clone();
+        type_map.element_alias_map = self.element_alias_map.clone();
+
+        // An annotation reaches the display through `var_alias_map`
+        // even when the substitution weakened the alias away, which is
+        // right for `val x = 6 : myInt` -- the pattern's own variable
+        // never held an alias term -- and wrong where an operator
+        // dropped the condition. `fun decr (n: nat) = n - 1` is an
+        // `int -> int`: the body computed a value that is not shown to
+        // be a `nat`, and the parameter is one variable with it.
+        let erased_terms: Vec<Term> = self
+            .erased_vars
+            .iter()
+            .filter_map(|v| type_map.var_term_map.get(v).cloned())
+            .collect();
+        if !erased_terms.is_empty() {
+            let erased = |w: &Var| match type_map.var_term_map.get(w) {
+                Some(t) => erased_terms.contains(t),
+                None => false,
+            };
+            let claimed = &self.claimed_after_erasure;
+            type_map
+                .var_alias_map
+                .retain(|w, _| claimed.contains(w) || !erased(w));
+            // The term the annotation was written with wins over the
+            // substitution, which is what makes `val n: nat = 5` a
+            // `nat`; here it would put back a condition the operator
+            // dropped.
+            type_map
+                .var_pre_term_map
+                .retain(|w, _| claimed.contains(w) || !erased(w));
+        }
 
         // Extract bindings from the declaration
         let mut bindings = Vec::new();
@@ -1994,10 +2364,21 @@ impl TypeResolver {
                 // printer (e.g. record arguments).
                 for con in &db.constructors {
                     if let Some(ast_type) = &con.type_ {
-                        if let Some(arg_type) = ast_type_to_core_type_with_vars(
-                            ast_type,
-                            &db.type_vars,
-                        ) {
+                        // The type as the declaration resolved it, which
+                        // keeps its aliases; the syntactic conversion is
+                        // the fallback for a constructor the deduction
+                        // did not reach.
+                        if let Some(arg_type) = self
+                            .datatype_arg_types
+                            .get(&con.name)
+                            .cloned()
+                            .or_else(|| {
+                                ast_type_to_core_type_with_vars(
+                                    ast_type,
+                                    &db.type_vars,
+                                )
+                            })
+                        {
                             type_map
                                 .constructor_arg_types
                                 .insert(con.name.clone(), arg_type);
@@ -2113,6 +2494,7 @@ impl TypeResolver {
                                 alias_name.to_string(),
                                 body,
                                 vec![],
+                                type_map.checks_of(alias_name),
                             ))
                         } else {
                             resolved_type
@@ -2458,6 +2840,54 @@ impl TypeResolver {
                 let group: Vec<String> =
                     type_binds.iter().map(|tb| tb.name.clone()).collect();
                 for tb in type_binds {
+                    if tb.checks.is_empty() {
+                        self.type_checks.remove(&tb.name);
+                        continue;
+                    }
+                    // A parameterized type may not be checked: the
+                    // condition would have to hold of every
+                    // instantiation, and it is typed against one.
+                    if !tb.type_vars.is_empty() {
+                        self.field_errors.borrow_mut().push((
+                            format!(
+                                "cannot check parameterized type '{}'",
+                                tb.name
+                            ),
+                            tb.span.clone(),
+                        ));
+                        return Ok(decl.clone());
+                    }
+                    // A condition is a function from the type it
+                    // constrains to `bool`. It sees the type as the type
+                    // it abbreviates: the value has not yet been admitted
+                    // to the checked type, so the constraint may not be
+                    // assumed of it.
+                    // The conditions are deduced in this pass, not in a
+                    // nested one, so that the types of their nodes reach
+                    // the type map: `Resolver` converts a condition to
+                    // Core in order to insert the check it calls for.
+                    let mut deduced = Vec::with_capacity(tb.checks.len());
+                    for check in &tb.checks {
+                        let bool_type = TypeKind::Id("bool".to_string())
+                            .spanned(&check.span);
+                        let cond_type = TypeKind::Fn(
+                            Box::new(tb.type_.clone()),
+                            Box::new(bool_type),
+                        )
+                        .spanned(&check.span);
+                        // The type the condition must have is deduced
+                        // first, so that a conflict names what was
+                        // expected before what was found: a condition
+                        // that gives an `int` is a `bool vs int`.
+                        let v = self.variable();
+                        self.deduce_type_type(env, &cond_type, &v);
+                        let check2 = self.deduce_expr_type(env, check, &v)?;
+                        deduced.push(check2);
+                    }
+                    self.type_checks
+                        .insert(tb.name.clone(), Checks::new(deduced));
+                }
+                for tb in type_binds {
                     // An alias is a type function; remember how many
                     // arguments it takes, so a use with the wrong number
                     // is reported.
@@ -2612,12 +3042,36 @@ impl TypeResolver {
         }
 
         if let Some(type_) = type_annotation {
+            // A result annotation is a claim about what the clauses
+            // compute, so a check it calls for is blamed on them and not
+            // on the whole declaration: `fun neg () : nat = ~1` is at
+            // fault in `~1`.
+            let body_span = fun_bind
+                .matches
+                .iter()
+                .map(|m| m.expr.span.clone())
+                .reduce(|a, b| a.union(&b))
+                .unwrap_or_else(|| span.clone());
             let x = ExprKind::Annotated(Box::new(expr), type_);
-            expr = x.spanned(&span);
+            expr = x.spanned(&body_span);
         }
 
-        for var in vars.iter().rev() {
-            let pat = var.clone();
+        // A `fun` clause is one match, and what is at fault in it is the
+        // clause, not the parameter: an error in `f (n: nat) = n` quotes
+        // the whole of it. The clause's span goes on the outermost
+        // parameter, which is the one the match is built around.
+        let clause_span = if fun_bind.matches.len() == 1 {
+            Some(fun_bind.matches[0].span.clone())
+        } else {
+            None
+        };
+        for (i, var) in vars.iter().enumerate().rev() {
+            let mut pat = var.clone();
+            if i == 0
+                && let Some(clause_span) = &clause_span
+            {
+                pat.span = clause_span.clone();
+            }
             let kind = ExprKind::Fn(vec![Match { pat, expr }]);
             expr = kind.spanned(&span);
         }
@@ -2794,14 +3248,32 @@ impl TypeResolver {
                     // `BOX of typeof e`: the argument's type is the
                     // expression's, deduced on its own as for a `type`
                     // declaration.
-                    let arg_core = if let TypeKind::Expression(expr) =
-                        &ast_type.kind
-                    {
-                        self.decl_exp_type(env, expr)
-                    } else {
-                        ast_type_to_core_type_with_vars(ast_type, &db.type_vars)
-                            .unwrap_or(Type::Primitive(PrimitiveType::Unit))
-                    };
+                    let arg_core =
+                        if let TypeKind::Expression(expr) = &ast_type.kind {
+                            self.decl_exp_type(env, expr)
+                        } else {
+                            // Resolve names against the aliases in scope, so
+                            // that `datatype b = B of myInt` holds the alias
+                            // rather than a datatype named `myInt` that
+                            // nothing can unify with. An alias keeps its
+                            // name, which is where a `check` lives.
+                            let aliases = self.type_aliases.clone();
+                            self.expand_ast_type(
+                                env,
+                                ast_type,
+                                &aliases,
+                                &db.type_vars,
+                            )
+                            .unwrap_or_else(|_| {
+                                ast_type_to_core_type_with_vars(
+                                    ast_type,
+                                    &db.type_vars,
+                                )
+                                .unwrap_or(Type::Primitive(PrimitiveType::Unit))
+                            })
+                        };
+                    self.datatype_arg_types
+                        .insert(con.name.clone(), arg_core.clone());
                     Type::Fn(Rc::new(arg_core), Rc::new(data_type.clone()))
                 } else {
                     data_type.clone()
@@ -3012,8 +3484,13 @@ impl TypeResolver {
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Annotated(e, t) => {
-                let e2 = self.deduce_expr_type(env, e, v)?;
+                // The type is deduced first, so that the term it was written
+                // with is the one recorded for each part of it. Deducing the
+                // expression first lets what inference gives its parts get
+                // there instead, and `[1] : nat list` would be an `int list`
+                // -- with the claim still checked, but not displayed.
                 let t2 = self.deduce_type_type(env, &t, v);
+                let e2 = self.deduce_expr_type(env, e, v)?;
                 let x = ExprKind::Annotated(Box::new(e2), Box::new(t2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3058,6 +3535,104 @@ impl TypeResolver {
                 let x = ExprKind::Case(Box::new(e2), match_list2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Cast(kind, e, t) => {
+                // `as` has the type it converts to, and constrains the
+                // operand to the same type; `asOpt` has that type
+                // wrapped in `option`. The check itself is inserted by
+                // `Resolver`, which has the value to check.
+                let v_exp = match kind {
+                    CastKind::As => *v,
+                    CastKind::AsOpt => self.variable(),
+                };
+                let t2 = self.deduce_type_type(env, t, &v_exp);
+                let e2 = self.deduce_expr_type(env, e, &v_exp)?;
+                // A conversion displays the type it was asked for, not
+                // the type inference deduces: inference gives the meet,
+                // which for a checked type is the type it abbreviates,
+                // and the conversion is the record of what was verified.
+                // The last conversion in a chain is the one that
+                // decides, so `i as nat as int` is an `int`.
+                match &t.kind {
+                    TypeKind::Id(name)
+                        if self.type_aliases.contains_key(name) =>
+                    {
+                        // A conversion is written on the operand's
+                        // result, so it stands where an operator dropped
+                        // a condition: `i - 1 as nat` is a `nat`.
+                        self.note_claim(&v_exp);
+                        self.var_alias_map.insert(v_exp, name.clone());
+                    }
+                    _ => {
+                        self.var_alias_map.remove(&v_exp);
+                    }
+                }
+                if *kind == CastKind::AsOpt {
+                    let option_op = self.unifier.op("option", Some(1));
+                    let seq =
+                        self.unifier.apply(option_op, &[Term::Variable(v_exp)]);
+                    self.equiv(&Term::Sequence(seq), v);
+                }
+                let x = ExprKind::Cast(*kind, Box::new(e2), Box::new(t2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
+            ExprKind::Check(e, checks) => {
+                // The type is the expression's own, with these
+                // conditions added.
+                //
+                // A condition is typed against the type the expression's
+                // conditions are typed against -- the type they
+                // abbreviate -- because typing it against a checked type
+                // would make the alias meet its body, and the meet would
+                // take away the condition that made it one.
+                let v_e = self.variable();
+                let e2 = self.deduce_expr_type(env, e, &v_e)?;
+                let mut deduced = Vec::with_capacity(checks.len());
+                for check in checks {
+                    let v_bool = self.variable();
+                    self.primitive_term(&PrimitiveType::Bool, &v_bool);
+                    let v_cond = self.variable();
+                    self.fn_term(&v_e, &v_bool, &v_cond);
+                    deduced.push(self.deduce_expr_type(env, check, &v_cond)?);
+                }
+                // The type the expression was shown to have is the body
+                // of this one, name and all: `one check i => i < 100`,
+                // where `one` is a `positive`, is a `positive` with a
+                // condition added. Keeping the name is what makes the
+                // conditions it carries part of what this type claims --
+                // the walk that inserts the checks goes through the body
+                // -- and what lets the type be written as morel-java
+                // writes it.
+                //
+                // The name is derived from the conditions, so the body's
+                // name is part of it: two types with the same conditions
+                // and different bodies are not the same type.
+                let base = self.alias_name_of(&v_e).filter(|inner| {
+                    !inner.starts_with(ANON_CHECK_PREFIX)
+                        && !self.checks_of(inner).is_empty()
+                });
+                let checks2 = Checks::new(deduced.clone());
+                let name = match &base {
+                    Some(inner) => {
+                        format!("{}:{}", checks2.anon_name(), inner)
+                    }
+                    None => checks2.anon_name(),
+                };
+                self.type_checks.insert(name.clone(), checks2);
+                if let Some(inner) = base {
+                    self.anon_check_base.insert(name.clone(), inner);
+                }
+                // The alias goes on the variable, not into the term: a
+                // type inference deduces is not a claim, so a condition
+                // written on an expression is seen where it was written
+                // and does not travel into a type built around it. `fn i
+                // => (i check j => j > 0)` is an `int -> int`, and
+                // `[1 check c => c > 0]` an `int list`.
+                self.equiv(&Term::Variable(v_e), v);
+                self.note_claim(v);
+                self.var_alias_map.insert(*v, name);
+                let x = ExprKind::Check(Box::new(e2), deduced);
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::Cons(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op ::", left, right, v)?;
@@ -3084,12 +3659,14 @@ impl TypeResolver {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op div", left, right, v)?;
                 self.preferred_vars.push(*v);
+                self.erase_alias(v);
                 let x = ExprKind::Div(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
             ExprKind::Divide(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op /", left, right, v)?;
+                self.erase_alias(v);
                 let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3144,6 +3721,23 @@ impl TypeResolver {
                 let mut matches2 = Vec::new();
                 let v_param = self.variable();
                 let v_result = self.variable();
+                // Where the context already says what the parameter is
+                // -- a condition is a function from the type it
+                // constrains to `bool` -- take it before the clauses are
+                // deduced, so the body is read with the parameter known.
+                // A method is chosen by its receiver's type, and
+                // `ds.length ()` can only be answered once `ds` is known
+                // to be a bag. The result is left until after, because
+                // the body's type and a result annotation have to meet,
+                // and the meet is what makes `fun neg () : nat = ~1` a
+                // `unit -> int`.
+                if let Some(Term::Sequence(seq)) = self.resolve_during_deduce(v)
+                    && self.unifier.op_defs[seq.op.0 as usize].name == "fn"
+                    && seq.terms.len() == 2
+                {
+                    let param = seq.terms[0].clone();
+                    self.equiv(&param, &v_param);
+                }
                 for match_ in matches {
                     matches2.push(
                         self.deduce_match_type(
@@ -3162,6 +3756,9 @@ impl TypeResolver {
             }
             ExprKind::From(steps) => {
                 let steps2 = self.deduce_query_type(env, expr, steps, v)?;
+                if let Some(name) = self.scan_type_name(env, steps) {
+                    self.element_alias_map.insert(*v, name);
+                }
                 let x = ExprKind::From(steps2);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3238,6 +3835,9 @@ impl TypeResolver {
                     );
                     self.equiv(&Term::Sequence(fn_seq), v);
                     self.preferred_vars.push(v_elem);
+                    // `abs` is an operator too: it computes a value the
+                    // argument's type has not been shown to contain.
+                    self.erase_alias(&v_elem);
                 }
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
@@ -3374,6 +3974,7 @@ impl TypeResolver {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op -", left, right, v)?;
                 self.preferred_vars.push(*v);
+                self.erase_alias(v);
                 let x = ExprKind::Minus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3381,6 +3982,7 @@ impl TypeResolver {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op mod", left, right, v)?;
                 self.preferred_vars.push(*v);
+                self.erase_alias(v);
                 let x = ExprKind::Mod(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3388,6 +3990,7 @@ impl TypeResolver {
                 let e2 =
                     self.deduce_call1_type(env, "op ~", e, &expr.span, v)?;
                 self.preferred_vars.push(*v);
+                self.erase_alias(v);
                 let x = ExprKind::Negate(Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3495,6 +4098,7 @@ impl TypeResolver {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op +", left, right, v)?;
                 self.preferred_vars.push(*v);
+                self.erase_alias(v);
                 let x = ExprKind::Plus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3612,6 +4216,7 @@ impl TypeResolver {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op *", left, right, v)?;
                 self.preferred_vars.push(*v);
+                self.erase_alias(v);
                 let x = ExprKind::Times(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3883,6 +4488,81 @@ impl TypeResolver {
         }
     }
 
+    /// Returns the name a query's first scan gives the type of what it
+    /// scans, if it gives one and the query's elements are still those
+    /// values.
+    ///
+    /// Either half of the scan may name it: the pattern, as in `from n: nat
+    /// in [1, 2]`, or the source, as in `from n in ([1] : nat list)`.
+    ///
+    /// The name is the elements' only while they are still the values the
+    /// scan produced. A step that computes new ones -- a `group`, an `into`,
+    /// a `yield` of anything but the scanned value itself -- gives the query
+    /// a different element type, and the name is not about it. An operator
+    /// drops a condition here as it does anywhere, so `yield n` keeps the
+    /// name and `yield n + 0` does not.
+    fn scan_type_name(
+        &mut self,
+        env: &dyn TypeEnv,
+        steps: &[Step],
+    ) -> Option<String> {
+        let StepKind::Scan(_, pat, source, _) = &steps.first()?.kind else {
+            return None;
+        };
+        // A pattern that destructures binds parts, and it is the parts that
+        // have types; no one name covers the whole value.
+        let bound = match &pat.kind {
+            PatKind::Annotated(inner, type_) => match &inner.kind {
+                PatKind::Identifier(name) => Some((name.clone(), Some(type_))),
+                _ => return None,
+            },
+            PatKind::Identifier(name) => Some((name.clone(), None)),
+            _ => None,
+        };
+        let (name, written) = bound?;
+        let type_name = if let Some(t) = written {
+            self.type_alias_name(env, t)?
+        } else {
+            // The pattern says nothing, so the source may.
+            let ExprKind::Annotated(_, t) = &source.kind else {
+                return None;
+            };
+            let TypeKind::App(args, ctor) = &t.kind else {
+                return None;
+            };
+            if !matches!(&ctor.kind, TypeKind::Id(c) if c == "list"
+                || c == "bag")
+            {
+                return None;
+            }
+            let flat = AstType::flatten(args);
+            let [element] = flat.as_slice() else {
+                return None;
+            };
+            self.type_alias_name(env, element)?
+        };
+        for step in &steps[1..] {
+            if !step_preserves_elements(step, &name) {
+                return None;
+            }
+        }
+        Some(type_name)
+    }
+
+    /// Returns the alias name a written type names, if it names one.
+    fn type_alias_name(
+        &mut self,
+        _env: &dyn TypeEnv,
+        type_: &AstType,
+    ) -> Option<String> {
+        match &type_.kind {
+            TypeKind::Id(name) if self.type_aliases.contains_key(name) => {
+                Some(name.clone())
+            }
+            _ => None,
+        }
+    }
+
     /// Deduces a Scan step's type.
     ///
     /// Examples:
@@ -3922,15 +4602,19 @@ impl TypeResolver {
         if !eq {
             self.is_collection_of(&c0, &v0);
         }
+        // The pattern is deduced before the source, so that a type written
+        // on it is the one recorded as written for the values the scan
+        // produces. A scan names the type of what it scans, and the source's
+        // elements would otherwise get there first and take the name away:
+        // `from n: myInt in [1, 2]` scans `myInt`s, and displaying them as
+        // `int`s would be reporting what inference reduced them to.
+        let mut term_map = Vec::new();
+        let pat2 = self.deduce_pat_type(&*p.env, pat, &mut term_map, &v0);
         let expr2 = self.deduce_expr_type(
             &*p.env,
             expr.unwrap(),
             if eq { &v0 } else { &c0 },
         )?;
-
-        // Deduce the type of the pattern and bind variables.
-        let mut term_map = Vec::new();
-        let pat2 = self.deduce_pat_type(&*p.env, pat, &mut term_map, &v0);
 
         // Build a new environment with pattern bindings.
         let mut env_builder = p.env.builder();
@@ -4177,18 +4861,28 @@ impl TypeResolver {
             }
             // Clone the sequence to avoid holding an immutable borrow
             // of `self` while binding.
-            let seq = v.and_then(|v| {
-                self.terms
-                    .iter()
-                    .find(|vt| vt.0 == *v)
-                    .and_then(|vt| match &vt.1 {
-                        Term::Sequence(seq) => Some(seq.clone()),
-                        Term::Variable(_) => None,
-                    })
-            });
+            // A record with modifiers binds the fields the modifiers
+            // gave it. Its own term may be the operand's -- that is what
+            // a chain that claims the operand's type means -- and that
+            // term says nothing about which fields came out.
+            let modifier_fields = (!modifiers.is_empty())
+                .then(|| {
+                    self.modifier_result_fields
+                        .get(&yielded.span.extent())
+                        .cloned()
+                })
+                .flatten();
+            let seq = v.and_then(|v| self.linked_sequence(v));
             // The fields are read from the record's type, not from the
             // expression: a record with modifiers has none of its own.
-            if let Some(seq) = seq.and_then(|seq| self.unalias_sequence(seq))
+            if let Some(modifier_fields) = modifier_fields {
+                field_vars.clear();
+                for (label, var) in modifier_fields {
+                    field_vars.push((label.clone(), var));
+                    envs.push(label, Term::Variable(var));
+                }
+            } else if let Some(seq) =
+                seq.and_then(|seq| self.unalias_sequence(seq))
                 && let Some(labels) = self.term_field_names(&seq)
             {
                 field_vars.clear();
@@ -5071,7 +5765,7 @@ impl TypeResolver {
             let v_rec = self.variable();
             let v_field = self.variable();
             self.deduce_record_selector_type(
-                env, name, &arg.span, &v_rec, &v_field,
+                env, name, &arg.span, &arg.span, &v_rec, &v_field,
             );
             self.fn_term(&v_rec, &v_field, &v_arg);
             self.reg_expr(&arg.kind, &arg.span, arg.id, &v_arg)
@@ -5085,7 +5779,9 @@ impl TypeResolver {
             // "arg" has type "v_arg".
             // When we resolve "v_arg", we can then deduce "v".
             let span = fun.span.union(&arg.span);
-            self.deduce_record_selector_type(env, name, &span, &v_arg, v_result)
+            self.deduce_record_selector_type(
+                env, name, &span, &fun.span, &v_arg, v_result,
+            )
         } else if let ExprKind::SafeRecordSelector(name) = &fun.kind {
             // Safe navigation "arg?.field": tunnel through the receiver's
             // functor layers (option, list, bag, vector) to the record,
@@ -5391,7 +6087,7 @@ impl TypeResolver {
                 // Orderedness that is not yet settled is not a bag. A query
                 // decides its own when its steps are typed, and dispatching
                 // before then would settle it here, on a guess.
-                Some(Rc::new(if self.orderedness_of(&seq.terms[1])? {
+                Some(Rc::new(if self.orderedness_eager(&seq.terms[1])? {
                     Type::List(element)
                 } else {
                     Type::Bag(element)
@@ -5418,6 +6114,7 @@ impl TypeResolver {
         _env: &dyn TypeEnv,
         field_name: &str,
         span: &Span,
+        field_span: &Span,
         v_rec: &Var,
         v_field: &Var,
     ) -> Expr {
@@ -5427,6 +6124,10 @@ impl TypeResolver {
 
         struct ActionImpl {
             field_name: String,
+            /// Where the field was named. A record that has no such
+            /// field is at fault in the name, not in the whole
+            /// selection.
+            field_span: Span,
             v_field: Var,
             errors: Rc<RefCell<Vec<(String, Span)>>>,
             span: Span,
@@ -5510,13 +6211,14 @@ impl TypeResolver {
                                 format!(
                                     "no field '{}' in type '{}'",
                                     self.field_name,
-                                    TypeResolver::type_name(
+                                    TypeResolver::type_name_of(
                                         op_defs,
+                                        substitution,
                                         sequence,
                                         &field_list,
                                     )
                                 ),
-                                self.span.clone(),
+                                self.field_span.clone(),
                             ));
                         }
                     }
@@ -5617,6 +6319,7 @@ impl TypeResolver {
             *v_rec,
             Rc::new(ActionImpl {
                 field_name: field_name.to_string(),
+                field_span: field_span.clone(),
                 v_field: *v_field,
                 errors: self.field_errors.clone(),
                 span: span.clone(),
@@ -6077,7 +6780,7 @@ impl TypeResolver {
                 .map(|t| Self::max_type_var_count(t))
                 .max()
                 .unwrap_or(0),
-            Type::Alias(_, inner, args) => {
+            Type::Alias(_, inner, args, _) => {
                 let inner_count = Self::max_type_var_count(inner);
                 let args_count = args
                     .iter()
@@ -6334,6 +7037,40 @@ impl TypeResolver {
         }
     }
 
+    /// As [`orderedness_of`](Self::orderedness_of), but solves the
+    /// equations gathered so far before giving up.
+    ///
+    /// `self.terms` is a list of equations, not a solved substitution, so
+    /// an orderedness that a scan shares with its source -- `same_orderedness`
+    /// puts one variable in both collection terms -- is not found by the
+    /// linear scan: that variable is never on the left of an equation, only
+    /// inside a term on the right. Solving the equations links it to the
+    /// source's, which is how `(from d in ds).length ()` knows which
+    /// `length` to call when `ds` is a variable rather than a literal.
+    ///
+    /// An orderedness that the equations leave open is a bag, as everywhere
+    /// else: a query says which kind it is, and one that never says is
+    /// unordered. Returns `None` only if the equations do not solve, which
+    /// is a type error the caller will report by another route.
+    fn orderedness_eager(&self, term: &Term) -> Option<bool> {
+        if let Some(ordered) = self.orderedness_of(term) {
+            return Some(ordered);
+        }
+        let term_pairs: Vec<(Term, Term)> = self
+            .terms
+            .iter()
+            .map(|(var, t)| (t.clone(), Term::Variable(*var)))
+            .collect();
+        let subst = self
+            .unifier
+            .unify(term_pairs.as_ref(), &NullTracer, self.actions.as_ref())
+            .ok()?;
+        Some(match subst.resolve_term(term) {
+            Term::Sequence(seq) => seq.op == self.ordered_op,
+            Term::Variable(_) => false,
+        })
+    }
+
     /// As [`orderedness_of`](Self::orderedness_of), but an orderedness that
     /// is not yet determined reads back as a bag, so it yields `false`.
     fn term_is_ordered(&self, term: &Term) -> bool {
@@ -6545,7 +7282,7 @@ impl TypeResolver {
                 Self::collect_type_var_ids(a, ids);
                 Self::collect_type_var_ids(b, ids);
             }
-            Type::Alias(_, t, args) => {
+            Type::Alias(_, t, args, _) => {
                 Self::collect_type_var_ids(t, ids);
                 args.iter().for_each(|a| Self::collect_type_var_ids(a, ids));
             }
@@ -6573,7 +7310,7 @@ impl TypeResolver {
     pub(crate) fn type_term(&mut self, type_: &Type, subst: &Subst, v: &Var) {
         match type_ {
             // lint: sort until '#}' where '##Type::'
-            Type::Alias(name, type_, _args) => {
+            Type::Alias(name, type_, _args, _checks) => {
                 // An alias is a term of its own, wrapping the type it
                 // abbreviates. The unifier head-reduces it only where it
                 // meets a different type, so the name survives inference:
@@ -6825,6 +7562,90 @@ impl TypeResolver {
 
     /// Inverse of [TypeResolver::record_label_from_set]. Extracts field names
     /// from a sequence.
+    /// Renders a term as a Morel type, for a message.
+    ///
+    /// A term names a type by an operator whose name is an internal one
+    /// -- `$collection` for a collection whose orderedness is not
+    /// settled, `record:a:b` for a record -- so it is written out rather
+    /// than named. A variable is resolved through the substitution; one
+    /// that resolves to nothing is written `'a`, having nothing else to
+    /// be written by.
+    fn term_type_name(
+        op_defs: &[OpDef],
+        substitution: &Substitution,
+        term: &Term,
+    ) -> String {
+        let term = substitution.resolve_term(term);
+        let Term::Sequence(seq) = &term else {
+            return "'a".to_string();
+        };
+        let arg = |i: usize| {
+            Self::term_type_name(op_defs, substitution, &seq.terms[i])
+        };
+        let op_name = &op_defs[seq.op.0 as usize].name;
+        // An alias is transparent here: a message says what the type is,
+        // and the name it was written under is not what the reader is
+        // being told about.
+        if op_name.starts_with(ALIAS_PREFIX) && seq.terms.len() == 1 {
+            return arg(0);
+        }
+        if let Some(fields) = Self::field_list(op_defs, seq) {
+            return Self::type_name_of(op_defs, substitution, seq, &fields);
+        }
+        match op_name.as_str() {
+            COLLECTION_OP_NAME if seq.terms.len() == 2 => {
+                // A collection is a bag until something decides
+                // otherwise, so it is written exactly as one.
+                let ordered = matches!(
+                    &substitution.resolve_term(&seq.terms[1]),
+                    Term::Sequence(o)
+                        if op_defs[o.op.0 as usize].name == ORDERED_OP_NAME
+                );
+                format!("{} {}", arg(0), if ordered { "list" } else { "bag" })
+            }
+            "fn" if seq.terms.len() == 2 => {
+                format!("{} -> {}", arg(0), arg(1))
+            }
+            _ if seq.terms.is_empty() => op_name.clone(),
+            _ if seq.terms.len() == 1 => format!("{} {}", arg(0), op_name),
+            _ => {
+                let args: Vec<String> = (0..seq.terms.len()).map(arg).collect();
+                format!("({}) {}", args.join(","), op_name)
+            }
+        }
+    }
+
+    /// Renders a record or tuple term as a Morel type, for a message.
+    fn type_name_of(
+        op_defs: &[OpDef],
+        substitution: &Substitution,
+        sequence: &Sequence,
+        field_list: &[String],
+    ) -> String {
+        let is_tuple = field_list.len() >= 2
+            && field_list
+                .iter()
+                .enumerate()
+                .all(|(i, l)| l == &(i + 1).to_string());
+        let parts: Vec<String> = field_list
+            .iter()
+            .zip(sequence.terms.iter())
+            .map(|(label, term)| {
+                let t = Self::term_type_name(op_defs, substitution, term);
+                if is_tuple {
+                    t
+                } else {
+                    format!("{}:{}", label, t)
+                }
+            })
+            .collect();
+        if is_tuple {
+            parts.join(" * ")
+        } else {
+            format!("{{{}}}", parts.join(", "))
+        }
+    }
+
     fn field_list(
         op_defs: &[OpDef],
         sequence: &Sequence,
@@ -6858,6 +7679,253 @@ impl TypeResolver {
     /// Generates ordinal names for tuple fields: ["1", "2", "3", ...]
     fn tuple_ordinal_names(size: usize) -> Vec<String> {
         (1..=size).map(|i| i.to_string()).collect()
+    }
+
+    /// Records that the value a variable stands for is one its type has
+    /// not been shown to contain, so any condition on that type is
+    /// dropped.
+    ///
+    /// What drops a condition is the operator, not the operands.
+    /// `n - 1` loses it because the `1` is an `int` that the `nat` has
+    /// to meet, and a meet takes the weaker of the two; but an operator
+    /// applied to operands of its own type has nothing to meet.
+    /// `n + n` computes a value that is not shown to be a `nat` any
+    /// more than `n - 1` is, so the condition goes either way.
+    fn erase_alias(&mut self, v: &Var) {
+        struct EraseAlias;
+        impl Action for EraseAlias {
+            fn accept(
+                &self,
+                variable: &Var,
+                term: &Term,
+                substitution: &Substitution,
+                op_defs: &[OpDef],
+                term_pairs: &mut Vec<(Term, Term)>,
+            ) {
+                let Term::Sequence(seq) = term else {
+                    return;
+                };
+                if !op_defs[seq.op.0 as usize].name.starts_with(ALIAS_PREFIX) {
+                    return;
+                }
+                // Meeting the alias with the type it abbreviates is
+                // what weakens it: the unifier has to expand the alias
+                // to unify, and records that it did.
+                term_pairs.push((
+                    substitution.resolve_term(&Term::Variable(*variable)),
+                    substitution.resolve_term(&seq.terms[0]),
+                ));
+            }
+        }
+        self.erased_vars.push(*v);
+        self.actions.push((*v, Rc::new(EraseAlias)));
+    }
+
+    /// Records that an annotation claimed a type of `v`. If an operator
+    /// had already dropped a condition on `v`, the claim is written on
+    /// the operator's result and stands; see
+    /// [`Self::claimed_after_erasure`].
+    fn note_claim(&mut self, v: &Var) {
+        if self.erased_vars.contains(v) {
+            self.claimed_after_erasure.insert(*v);
+        }
+    }
+
+    /// The name a variable's type is displayed under, if it is an
+    /// alias.
+    ///
+    /// The term carries the alias where it survives unification; the
+    /// side table carries it where the alias is on the expression.
+    fn alias_name_of(&mut self, v: &Var) -> Option<String> {
+        if let Some(name) = self.var_alias_map.get(v) {
+            return Some(name.clone());
+        }
+        let term = self.resolve_during_deduce(v)?;
+        let Term::Sequence(seq) = term else {
+            return None;
+        };
+        self.unifier
+            .op_name(&seq.op)
+            .strip_prefix(ALIAS_PREFIX)
+            .map(str::to_string)
+    }
+
+    /// The conditions of the record a chain of modifiers was applied
+    /// to, carried over to the record it produced.
+    ///
+    /// A condition is typed against the exact record it was written
+    /// for, because records are not width-subtyped, so it can be
+    /// carried over only if it still holds of the new record: every
+    /// field it depends on must have survived under the same name. A
+    /// condition that is dropped claims less, which is sound.
+    fn inherited_checks(
+        &mut self,
+        env: &dyn TypeEnv,
+        operands: &Operands,
+        carried: &BTreeMap<String, String>,
+        new_fields: &BTreeMap<Label, Var>,
+        v_rec: &Var,
+    ) -> (Vec<Expr>, Vec<CoreExpr>) {
+        let none = || (Vec::new(), Vec::new());
+        let Some(name) = self.alias_name_of(&operands.variables[0]) else {
+            return none();
+        };
+        let Some(checks) = self.type_checks.get(&name).cloned() else {
+            return none();
+        };
+        // The conditions were compiled where the type was declared, so
+        // the test is asked of the compiled form; the written form is
+        // what the new type carries, for the display and for the
+        // checks the record's own modification will need.
+        let predicates =
+            match self.check_predicates.borrow().get(&name).cloned() {
+                Some(predicates) => predicates,
+                None => return none(),
+            };
+        if predicates.len() != checks.fns.len() {
+            return none();
+        }
+        // A field survives if the chain carried it over under the name it
+        // had; its slot is the one it had in the record the condition was
+        // written for. A field carried over under another name survives
+        // too, but the condition would have to be rewritten to say so,
+        // which is not done yet, so it is not counted.
+        let base_fields = self
+            .type_aliases
+            .get(&name)
+            .map(types::record_fields)
+            .unwrap_or_default();
+        let mut surviving: Vec<usize> = Vec::new();
+        for (slot, label) in base_fields.keys().enumerate() {
+            if carried.get(&label.to_string()) != Some(&label.to_string()) {
+                continue;
+            }
+            // A condition is compiled once and carried from statement to
+            // statement, so it selects by slot. A field that moved -- the
+            // chain added a field that sorts before it -- would need the
+            // compiled form rewritten, which is not done yet, so the
+            // condition is dropped rather than left selecting the wrong
+            // field.
+            if new_fields.keys().position(|l| l == label) != Some(slot) {
+                continue;
+            }
+            surviving.push(slot);
+        }
+        // A condition written by destructuring is rewritten to select
+        // instead, so that it holds of a record with fields its pattern
+        // does not mention. Otherwise whether a condition could be
+        // inherited would depend on how it happened to be written.
+        //
+        // The rewrite is deduced here, against the record's own
+        // variable, so its nodes have types; it has no compiled form
+        // yet, and `Resolver` makes one where it meets it. Only a type
+        // with one condition is rewritten: a compiled condition and a
+        // rewritten one cannot be carried in the same list.
+        //
+        // A condition on a field the chain renamed is rewritten the same
+        // way: where it selects the field, it is made to name what the
+        // result calls it.
+        let renamed = carried.iter().any(|(a, b)| a != b);
+        let rewritten = if checks.fns.len() == 1 {
+            self.destructured_check(&checks.fns[0], carried)
+                .or_else(|| {
+                    if renamed {
+                        conditions::rename_selections(&checks.fns[0], carried)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            None
+        };
+        if let Some(f) = rewritten {
+            let v_bool = self.variable();
+            self.primitive_term(&PrimitiveType::Bool, &v_bool);
+            let v_cond = self.variable();
+            self.fn_term(v_rec, &v_bool, &v_cond);
+            self.fresh_ids = true;
+            let deduced = self.deduce_expr_type(env, &f, &v_cond);
+            self.fresh_ids = false;
+            return match deduced {
+                Ok(f2) => (vec![f2], Vec::new()),
+                Err(_) => none(),
+            };
+        }
+        checks
+            .fns
+            .iter()
+            .zip(predicates.iter())
+            .filter(|(_, predicate)| selects_only(predicate, &surviving))
+            .map(|(f, p)| (f.clone(), p.clone()))
+            .unzip()
+    }
+
+    /// A condition written by destructuring -- `{i, j} => i mod 2 = j mod
+    /// 2` -- rewritten to select from the record instead:
+    ///
+    /// ```sml
+    /// $r => let val i = #i $r and j = #j $r in i mod 2 = j mod 2 end
+    /// ```
+    ///
+    /// Returns none if the condition is not of that shape, or if a field
+    /// the pattern names was not carried over under its own name, or if a
+    /// sub-pattern is refutable -- one that decides by not matching,
+    /// where a `val` that does not match raises `Bind` rather than
+    /// answering false.
+    fn destructured_check(
+        &self,
+        f: &Expr,
+        carried: &BTreeMap<String, String>,
+    ) -> Option<Expr> {
+        let ExprKind::Fn(matches) = &f.kind else {
+            return None;
+        };
+        let [m] = matches.as_slice() else {
+            return None;
+        };
+        let PatKind::Record(fields, false) = &m.pat.kind else {
+            return None;
+        };
+        let span = &m.pat.span;
+        let record = ExprKind::Identifier(RECORD.to_string()).spanned(span);
+        let mut binds = Vec::new();
+        for field in fields {
+            let (label, pat) = match field {
+                PatField::Labeled(_, name, pat) => (name.clone(), pat),
+                PatField::Anonymous(_, pat) => (pat_name(pat)?, pat),
+            };
+            if !matches!(pat.kind, PatKind::Identifier(_) | PatKind::Wildcard) {
+                return None;
+            }
+            if carried.get(&label) != Some(&label) {
+                return None;
+            }
+            let selector = ExprKind::RecordSelector(label).spanned(span);
+            let select =
+                ExprKind::Apply(Box::new(selector), Box::new(record.clone()))
+                    .spanned(span);
+            binds.push(ValBind::of(pat, None, &select));
+        }
+        let body = if binds.is_empty() {
+            // The pattern binds nothing, so the condition does not
+            // depend on any field and holds of any record.
+            m.expr.clone()
+        } else {
+            let decl = Decl {
+                kind: DeclKind::Val(false, false, binds),
+                span: span.clone(),
+                id: None,
+            };
+            ExprKind::Let(vec![decl], Box::new(m.expr.clone())).spanned(span)
+        };
+        let pat = PatKind::Identifier(RECORD.to_string()).spanned(span);
+        Some(ExprKind::Fn(vec![Match { pat, expr: body }]).spanned(&f.span))
+    }
+
+    /// The conditions of the checked type `name`, or none if the name
+    /// is not a checked type.
+    fn checks_of(&self, name: &str) -> Checks {
+        self.type_checks.get(name).cloned().unwrap_or_default()
     }
 
     /// Creates a type variable.
@@ -7003,6 +8071,23 @@ impl TypeResolver {
         let mut fields = self.field_variables(operands, 0);
         let mut modifiers2 = Vec::new();
         let mut all = 0;
+        // A modifier that assigns claims the type of the record it
+        // modifies: the field keeps its declared type, so the value must
+        // have it. One that adds, removes or renames cannot, because the
+        // result has a different shape; nor can a `lenient` one, which
+        // says the field need not keep its type. Every modifier in a
+        // chain must leave the shape alone for the chain to claim
+        // anything.
+        let mut claims = true;
+        // Which of the base record's fields the chain has carried over
+        // unchanged, and under what label. A condition is written against
+        // the base, so only these are still there to be depended on: one
+        // the chain assigned to holds a value that was never shown to
+        // satisfy anything, and one it removed is not there at all.
+        let mut carried: BTreeMap<String, String> = fields
+            .keys()
+            .map(|label| (label.to_string(), label.to_string()))
+            .collect();
         for modifier in modifiers {
             let all_fields = match modifier {
                 Modifier::All(..) => {
@@ -7023,6 +8108,31 @@ impl TypeResolver {
                 .map(|(label, var)| (label.to_string(), Term::Variable(*var)))
                 .collect();
             let env2 = env.bind_all(&bindings);
+
+            match modifier {
+                Modifier::Assign(_, lenient, _)
+                | Modifier::All(_, lenient, _) => {
+                    if *lenient {
+                        claims = false;
+                    }
+                }
+                Modifier::Remove(..) | Modifier::Rename(..) => {
+                    claims = false;
+                }
+            }
+            // Follow each carried field to the label it now has, and
+            // forget one this modifier did not keep.
+            carried = carried
+                .iter()
+                .filter_map(|(base, label)| {
+                    sources.iter().find_map(|(label2, source)| match source {
+                        Source::Kept(field) if field == label => {
+                            Some((base.clone(), label2.clone()))
+                        }
+                        _ => None,
+                    })
+                })
+                .collect();
 
             let mut fields2: BTreeMap<Label, Var> = BTreeMap::new();
             let mut assigned: Vec<(String, Expr)> = Vec::new();
@@ -7070,13 +8180,66 @@ impl TypeResolver {
                 all,
                 &assigned,
             )?);
+            if fields2.keys().ne(fields.keys()) {
+                claims = false;
+            }
             fields = fields2;
         }
-        let terms: BTreeMap<Label, Term> = fields
-            .iter()
-            .map(|(label, var)| (label.clone(), Term::Variable(*var)))
-            .collect();
-        self.record_term(&terms, v);
+        self.modifier_result_fields.insert(
+            expr.span.extent(),
+            fields
+                .iter()
+                .map(|(label, var)| (label.to_string(), *var))
+                .collect(),
+        );
+        if claims {
+            // Only a named type is worth claiming: an unnamed record
+            // claims nothing that its fields do not claim for
+            // themselves.
+            if let Some(name) = self.alias_name_of(&operands.variables[0]) {
+                self.claiming_records.insert(expr.span.extent(), name);
+            }
+            // The record the chain gives back is the one it was given,
+            // so its type comes back with it -- alias, conditions and
+            // all. Building a record from the fields' variables would
+            // give the meet of each field with what was assigned to it,
+            // which is how the name was lost.
+            self.equiv(&Term::Variable(operands.variables[0]), v);
+        } else {
+            let terms: BTreeMap<Label, Term> = fields
+                .iter()
+                .map(|(label, var)| (label.clone(), Term::Variable(*var)))
+                .collect();
+            // A modifier that changes the record's shape cannot claim
+            // its type, but the type's own conditions need not be lost
+            // with the name. One is carried over if every field it
+            // depends on was left alone; the result is a checked type
+            // that has no name.
+            // The record's own variable is made first: a condition that
+            // has to be rewritten is deduced against it.
+            let v_rec = self.variable();
+            self.record_term(&terms, &v_rec);
+            let (inherited, predicates) =
+                self.inherited_checks(env, operands, &carried, &fields, &v_rec);
+            if inherited.is_empty() {
+                self.record_term(&terms, v);
+            } else {
+                let checks = Checks::new(inherited);
+                let name = checks.anon_name();
+                self.type_checks.insert(name.clone(), checks);
+                // The compiled conditions go under the new name too: a
+                // condition is compiled where its type is declared, and
+                // this type is not declared anywhere. A rewritten one has
+                // none yet -- it was deduced just now, and `Resolver`
+                // compiles it where it meets it.
+                if !predicates.is_empty() {
+                    self.check_predicates
+                        .borrow_mut()
+                        .insert(name.clone(), predicates);
+                }
+                self.alias_term(&name, Term::Variable(v_rec), v);
+            }
+        }
         let x = ExprKind::Record(
             Some(Box::new(operands.exprs[0].clone())),
             Vec::new(),
@@ -7246,6 +8409,26 @@ impl TypeResolver {
         ));
     }
 
+    /// As [`Self::variable_to_sequence`], following a chain of
+    /// variables.
+    ///
+    /// A record with modifiers whose chain claims the type it was given
+    /// is that type -- the two are one variable -- so the sequence is a
+    /// link or two away.
+    fn linked_sequence(&self, v: &Var) -> Option<Sequence> {
+        let mut v = *v;
+        for _ in 0..100 {
+            if let Some(seq) = self.variable_to_sequence(&v) {
+                return Some(seq);
+            }
+            v = self.terms.iter().rev().find_map(|(var, term)| match term {
+                Term::Variable(w) if *var == v => Some(*w),
+                _ => None,
+            })?;
+        }
+        None
+    }
+
     fn variable_to_sequence(&self, v: &Var) -> Option<Sequence> {
         // Search terms in reverse for the most recently added term for v.
         for (var, term) in self.terms.iter().rev() {
@@ -7307,7 +8490,10 @@ impl TypeResolver {
         id: Option<i32>,
         v: &Var,
     ) -> Expr {
-        let id2 = id.unwrap_or_else(|| self.next_id());
+        let id2 = match id {
+            Some(id) if !self.fresh_ids => id,
+            _ => self.next_id(),
+        };
         self.node_var_map.insert(id2, *v);
         Expr {
             kind: kind.clone(),
@@ -7325,7 +8511,10 @@ impl TypeResolver {
         id: Option<i32>,
         v: &Var,
     ) -> Pat {
-        let id2 = id.unwrap_or_else(|| self.next_id());
+        let id2 = match id {
+            Some(id) if !self.fresh_ids => id,
+            _ => self.next_id(),
+        };
         self.node_var_map.insert(id2, *v);
         Pat {
             kind: kind.clone(),
@@ -7396,17 +8585,24 @@ impl TypeResolver {
         term_map: &mut Vec<(String, Term)>,
         v: &Var,
     ) -> Pat {
+        // A type's span runs on into the whitespace before what
+        // follows it, and an error that quotes a pattern should stop
+        // where the pattern does.
+        let outer_span = pat.span.trim_end();
         match &pat.kind {
             // lint: sort until '#}' where '##PatKind::[^ ]* =>'
             PatKind::Annotated(pat, type_) => {
                 let pat2 = self.deduce_pat_type(env, pat, term_map, &v);
                 let type2 = self.deduce_type_type(env, type_, &v);
+                // The annotated pattern's own span, not the span of the
+                // pattern inside it: `(n: nat)` is what the user wrote,
+                // and an error about the annotation should quote it.
                 self.reg_pat(
                     &PatKind::Annotated(
                         Box::new(pat2.clone()),
                         Box::new(type2),
                     ),
-                    &pat2.span,
+                    &outer_span,
                     pat2.id,
                     &v,
                 )
@@ -8100,6 +9296,74 @@ impl<'a> TypeToTermConverter<'a> {
                     panic!("{:?}", type_node.kind)
                 }
             }
+            TypeKind::Checked(t, checks) => {
+                // A condition written where a type is used, rather than on
+                // a declaration, gives a checked type that has no name.
+                // One is made for it, so that the term can carry the
+                // conditions the way a declared type's does; it is not a
+                // name anything can write, and the type displays as its
+                // body and its conditions.
+                // A condition is typed against its base, and the base has
+                // to be materialized to do that, which a `typeof` cannot
+                // be at the point a type is converted. One in a `type` or
+                // `datatype` declaration does work, because there the
+                // expression it names can be deduced on its own.
+                if matches!(t.kind, TypeKind::Expression(_)) {
+                    self.type_resolver.field_errors.borrow_mut().push((
+                        "'typeof' is not supported here".to_string(),
+                        t.span.trim_end(),
+                    ));
+                    return self.type_resolver.reg_type(
+                        &type_node.kind,
+                        &type_node.span,
+                        v,
+                    );
+                }
+                let v_inner = self.type_resolver.variable();
+                let inner = self.type_term(t, subst, &v_inner);
+                // A condition is a function from the type it constrains to
+                // `bool`, and is deduced here rather than in a pass of its
+                // own, so that the types of its nodes reach the type map:
+                // `Resolver` converts a condition to Core in order to
+                // insert the check it calls for.
+                let mut deduced = Vec::with_capacity(checks.len());
+                for check in checks {
+                    let v_bool = self.type_resolver.variable();
+                    self.type_resolver
+                        .primitive_term(&PrimitiveType::Bool, &v_bool);
+                    let v_cond = self.type_resolver.variable();
+                    self.type_resolver.fn_term(&v_inner, &v_bool, &v_cond);
+                    match self
+                        .type_resolver
+                        .deduce_expr_type(self.env, check, &v_cond)
+                    {
+                        Ok(check2) => deduced.push(check2),
+                        Err(Error::Compile(msg, span)) => {
+                            self.type_resolver
+                                .field_errors
+                                .borrow_mut()
+                                .push((msg, span));
+                            deduced.push(check.clone());
+                        }
+                        Err(_) => deduced.push(check.clone()),
+                    }
+                }
+                let checks2 = Checks::new(deduced.clone());
+                let name = checks2.anon_name();
+                self.type_resolver.type_checks.insert(name.clone(), checks2);
+                self.type_resolver.alias_term(
+                    &name,
+                    Term::Variable(v_inner),
+                    v,
+                );
+                self.type_resolver.note_claim(v);
+                self.type_resolver.var_alias_map.insert(*v, name.clone());
+                self.type_resolver.reg_type(
+                    &TypeKind::Checked(Box::new(inner), deduced),
+                    &type_node.span,
+                    v,
+                )
+            }
             TypeKind::Composite(_) => {
                 // `(t1, ..., tn)` is only valid as the argument list of
                 // a parameterized type, e.g. `(int, string) either`.
@@ -8195,13 +9459,19 @@ impl<'a> TypeToTermConverter<'a> {
                 {
                     // The term carries the alias, so the name survives
                     // inference and reaches the type displayed.
-                    let alias =
-                        Type::Alias(name.clone(), Rc::new(alias_type), vec![]);
+                    let checks = self.type_resolver.checks_of(name);
+                    let alias = Type::Alias(
+                        name.clone(),
+                        Rc::new(alias_type),
+                        vec![],
+                        checks,
+                    );
                     self.type_resolver.type_term(&alias, subst, v);
                     // The term carries the alias where it survives
                     // unification; this side table still carries it where
                     // the alias is on the expression, and the pattern's
                     // own variable never holds an alias term.
+                    self.type_resolver.note_claim(v);
                     self.type_resolver.var_alias_map.insert(*v, name.clone());
                     return self.type_resolver.reg_type(
                         &type_node.kind,
@@ -8501,7 +9771,66 @@ impl Operands {
     }
 }
 
+/// The name a condition's record is rebound to when it is rewritten to
+/// select rather than destructure. It begins with `$`, which no user
+/// name may, so it cannot capture anything the condition already names.
+const RECORD: &str = "$r";
+
+/// The name a pattern binds, if it binds exactly one.
+fn pat_name(pat: &Pat) -> Option<String> {
+    match &pat.kind {
+        PatKind::Identifier(name) => Some(name.clone()),
+        PatKind::As(name, _) => Some(name.clone()),
+        _ => None,
+    }
+}
+
 /// The names of a record's fields, in label order.
 fn label_strings(fields: &BTreeMap<Label, Var>) -> Vec<String> {
     fields.keys().map(Label::to_string).collect()
+}
+
+/// Whether a compiled condition uses the record it is given only by
+/// selecting fields that survived.
+///
+/// A condition is typed against the exact record it was written for,
+/// because records are not width-subtyped, so it holds of the new
+/// record only if every field it depends on is still there under the
+/// same name. One that uses the record as a whole does not: a record of
+/// another shape is not that record.
+///
+/// The question is asked of free variables. Replace each surviving
+/// field's selection with a value of that field's type; if the record's
+/// own name is still free, some use of it was not one of those
+/// selections. Shadowing takes care of itself, because a name the
+/// condition rebinds is not free either -- and a use under the shadow
+/// is not the record.
+fn selects_only(predicate: &CoreExpr, surviving: &[usize]) -> bool {
+    let CoreExpr::Fn(_, matches, _) = predicate else {
+        return false;
+    };
+    let [CoreMatch { pat, expr }] = matches.as_slice() else {
+        return false;
+    };
+    let CorePat::Identifier(t, name) = pat else {
+        return false;
+    };
+    let fields = types::record_fields(peel_type(t));
+    let slots: HashMap<usize, CoreExpr> = surviving
+        .iter()
+        .filter_map(|slot| {
+            let field_type = fields.values().nth(*slot)?;
+            // Any value of the field's type will do; nothing reads it,
+            // and only whether the name survives is asked.
+            Some((
+                *slot,
+                CoreExpr::Identifier(
+                    field_type.clone(),
+                    format!("$field{}", slot),
+                ),
+            ))
+        })
+        .collect();
+    let rewritten = replacer::substitute_selections(expr, name, &slots);
+    !free_names_in(&rewritten).contains(name)
 }
