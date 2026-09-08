@@ -339,7 +339,27 @@ impl Display for Expr {
             Expr::Literal(_, lit) => write!(f, "{}", lit),
             Expr::Ordinal(_) => write!(f, "ordinal"),
             Expr::Raise(_, e, _) => write!(f, "raise {}", e),
-            Expr::RecordSelector(_, slot) => write!(f, "#{}", slot),
+            Expr::RecordSelector(t, slot) => {
+                // A selector is written by the field it selects: a
+                // record's label, or a tuple's ordinal, which is
+                // 1-based as it is in the source. `#rev List`, `#1 p`.
+                let field = match t.as_ref() {
+                    Type::Fn(param_type, _) => match peel_type(param_type) {
+                        Type::Record(_, fields) => {
+                            fields.keys().nth(*slot).map(|l| match l {
+                                Label::String(name) => name.clone(),
+                                Label::Ordinal(i) => i.to_string(),
+                            })
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                match field {
+                    Some(name) => write!(f, "#{}", name),
+                    None => write!(f, "#{}", slot + 1),
+                }
+            }
             Expr::Tuple(t, elems) => {
                 if let Type::Record(_, type_fields) = t.as_ref() {
                     write!(f, "{{")?;
