@@ -772,6 +772,16 @@ impl FromBuilder {
         // bindings created here are the ones deduced there.
         let body = let_body(&exp);
         let is_tuple_expr = matches!(body, Expr::Tuple(_, _));
+        // A record literal names the row's fields, so a later step can
+        // read them by name; `Expr::Tuple` also builds a genuine tuple,
+        // whose labels are ordinals and which is a value like any other.
+        // The row is then that value, not a row of its components.
+        let names_fields = is_tuple_expr
+            && matches!(
+                body.type_().as_ref(),
+                Type::Record(_, fields)
+                    if fields.keys().all(|l| matches!(l, Label::String(_)))
+            );
 
         match body {
             Expr::Tuple(_, _) => {
@@ -838,19 +848,15 @@ impl FromBuilder {
             // downstream bindings are exactly env2's single atom binding, not
             // the scattered fields of a record expression.
             env2.bindings.clone()
-        } else if is_tuple_expr {
+        } else if names_fields {
             match body.type_().as_ref() {
                 Type::Record(_, fields) => fields
                     .iter()
-                    .filter_map(|(label, t)| {
-                        if let Label::String(name) = label {
-                            Some(Binding::new(Id::new(name, 0), t.clone()))
-                        } else {
-                            None
-                        }
+                    .map(|(label, t)| {
+                        Binding::new(Id::new(&label.to_string(), 0), t.clone())
                     })
                     .collect(),
-                _ => self.bindings.clone(),
+                _ => unreachable!("guarded by names_fields"),
             }
         } else {
             // Use the expression's full implicit label, which (unlike
@@ -868,7 +874,7 @@ impl FromBuilder {
         self.bindings = output_bindings;
         self.atom = match env2.as_ref() {
             Some(env2) => env2.atom,
-            None => self.bindings.len() == 1 && !is_tuple_expr,
+            None => self.bindings.len() == 1 && !names_fields,
         };
 
         // Create the yield step.

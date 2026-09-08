@@ -25,9 +25,13 @@ use std::thread::Builder;
 /// `type.smli`'s type inference recurses deeply enough to overflow libtest's
 /// default thread stack in debug builds (release stack frames are smaller and
 /// fit), so it gets a larger stack in debug builds only. `match.smli`
-/// evaluates `ack 3 3`, which also recurses deeply.
+/// evaluates `ack 3 3`, which also recurses deeply. `fixed-point.smli`
+/// computes a transitive closure over the states of the USA; its rows are
+/// long rather than its recursion deep, but the two together need more than
+/// libtest's default. The shell runs it on the main thread, which has enough.
 fn custom_stack_size(file_name: &str) -> Option<usize> {
     if file_name.ends_with("/match.smli")
+        || file_name.ends_with("/fixed-point.smli")
         || cfg!(debug_assertions) && file_name.ends_with("/type.smli")
     {
         Some(64 * 1024 * 1024)
