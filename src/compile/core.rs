@@ -297,8 +297,14 @@ impl Display for Expr {
                 }
                 Ok(())
             }
-            Expr::Forall(_, steps) => write!(f, "forall {:?}", steps),
-            Expr::From(_, steps) => write!(f, "from {:?}", steps),
+            Expr::Forall(_, steps) => {
+                write!(f, "forall")?;
+                write_steps(f, steps)
+            }
+            Expr::From(_, steps) => {
+                write!(f, "from")?;
+                write_steps(f, steps)
+            }
             Expr::Identifier(_, name) => write!(f, "{}", name),
             Expr::Let(_, decls, body) => {
                 write!(f, "let ")?;
@@ -884,6 +890,83 @@ impl Pat {
             }
         }
     }
+}
+
+/// Writes a query's steps, as morel-java's core unparser writes them:
+/// each step after the keyword that names it, and the scans after the
+/// first introduced by `join`.
+///
+/// This is what `Sys.planEx` shows.
+fn write_steps(f: &mut Formatter<'_>, steps: &[Step]) -> FmtResult {
+    let mut scanned = false;
+    for step in steps {
+        write!(f, " ")?;
+        match &step.kind {
+            // lint: sort until '#}' where '##StepKind::'
+            StepKind::Compute(e) => write!(f, "compute {}", e)?,
+            StepKind::Distinct => write!(f, "distinct")?,
+            StepKind::Except(all, es) => write_set_step(f, "except", *all, es)?,
+            StepKind::Exists => write!(f, "exists")?,
+            StepKind::Group(key, agg) => {
+                write!(f, "group {}", key)?;
+                if let Some(agg) = agg {
+                    write!(f, " compute {}", agg)?;
+                }
+            }
+            StepKind::Intersect(all, es) => {
+                write_set_step(f, "intersect", *all, es)?;
+            }
+            StepKind::Order(e) => write!(f, "order {}", e)?,
+            StepKind::Scan(pat, source, condition) => {
+                if scanned {
+                    write!(f, "join ")?;
+                }
+                scanned = true;
+                // A pattern that destructures is bracketed, so that what
+                // it binds is not read as part of the step around it. A
+                // tuple pattern is written in brackets already.
+                match pat.as_ref() {
+                    Pat::Identifier(_, _) | Pat::Tuple(_, _) => {
+                        write!(f, "{}", pat)?;
+                    }
+                    _ => write!(f, "({})", pat)?,
+                }
+                // A scan over an extent has no source to name; what it
+                // enumerates is the values of the pattern's type.
+                match source.as_ref() {
+                    Expr::Extent(_, _) => write!(f, " : {}", pat.type_())?,
+                    _ => write!(f, " in {}", source)?,
+                }
+                if let Some(condition) = condition {
+                    write!(f, " on {}", condition)?;
+                }
+            }
+            StepKind::Skip(e) => write!(f, "skip {}", e)?,
+            StepKind::Take(e) => write!(f, "take {}", e)?,
+            StepKind::Union(all, es) => write_set_step(f, "union", *all, es)?,
+            StepKind::Unorder => write!(f, "unorder")?,
+            StepKind::Where(e) => write!(f, "where {}", e)?,
+            StepKind::Yield(e) => write!(f, "yield {}", e)?,
+        }
+    }
+    Ok(())
+}
+
+/// Writes a `union`, `intersect` or `except` step and its operands.
+fn write_set_step(
+    f: &mut Formatter<'_>,
+    keyword: &str,
+    all: bool,
+    exprs: &[Expr],
+) -> FmtResult {
+    write!(f, "{}", keyword)?;
+    if all {
+        write!(f, " all")?;
+    }
+    for (i, e) in exprs.iter().enumerate() {
+        write!(f, "{} {}", if i > 0 { "," } else { "" }, e)?;
+    }
+    Ok(())
 }
 
 impl Display for Pat {
