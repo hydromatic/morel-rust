@@ -33,9 +33,13 @@ Sys.set ("stringDepth", ~1);
 
 from i where i > 0 andalso i < 10;
 > val it = [1,2,3,4,5,6,7,8,9] : int list
+Sys.planEx "3";
+> val it = "val it = from i in #flatten Range ([OPEN (0, 10)])" : string
 
 from i where i >= 0 andalso i <= 10;
 > val it = [0,1,2,3,4,5,6,7,8,9,10] : int list
+Sys.planEx "3";
+> val it = "val it = from i in #flatten Range ([CLOSED (0, 10)])" : string
 
 from i where i >= 0 andalso i <= 5 orelse i = 8 orelse i > 20 andalso i < 22;
 > val it = [0,1,2,3,4,5,8,21] : int list
@@ -1773,10 +1777,12 @@ order DESC profit;
 
 (* -------------------------------------------------------------------
  * Extracted testFromSuchThat* tests from MainTest.java. The
- * `Sys.planEx` checks present in morel-java are intentionally
- * omitted: morel-rust's optimizer plan format differs from
- * morel-java's, and the queries themselves are what the tests
- * exercise.
+ * Most of the `Sys.planEx` checks present in morel-java are omitted:
+ * morel-rust builds the same values by a different plan where the
+ * bounds are not a single range -- a disjunction concatenates one
+ * generator per range rather than flattening a list of them, and a
+ * tuple range materializes -- and the queries themselves are what the
+ * tests exercise. The ones that do agree are kept, above.
  *)
 
 (* testFromSuchThat - Basic function with elem predicate *)

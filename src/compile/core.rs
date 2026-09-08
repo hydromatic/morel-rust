@@ -272,7 +272,16 @@ impl Display for Expr {
                         return write!(f, "{} {} {}", args[0], name, args[1]);
                     }
                 }
-                write!(f, "{} {}", fx, arg)
+                // An argument is bracketed unless it is written as an
+                // atom already: a name, a literal, or something that
+                // carries its own brackets. `#rev List xs`, but
+                // `#flatten Range ([OPEN (0, 10)])`.
+                match arg.as_ref() {
+                    Expr::Identifier(_, _)
+                    | Expr::Literal(_, _)
+                    | Expr::Tuple(_, _) => write!(f, "{} {}", fx, arg),
+                    _ => write!(f, "{} ({})", fx, arg),
+                }
             }
             Expr::Case(_, e, arms, _) => {
                 write!(f, "case {} of ", e)?;

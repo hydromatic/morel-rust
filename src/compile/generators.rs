@@ -568,57 +568,54 @@ fn create_range_generator(
 /// `Bag` equivalent when the surrounding query is unordered.
 fn int_range_collection(lower: &Bound, upper: &Bound, ordered: bool) -> Expr {
     let int_t = Rc::new(Type::Primitive(PrimitiveType::Int));
-
-    let lower_expr = if lower.strict {
-        // x > lower  ⇒  use `lower + 1` as the inclusive low.
-        binop_int(BuiltInFunction::IntPlus, lower.bound.clone(), int_lit(1))
-    } else {
-        lower.bound.clone()
+    // The strictness of the two bounds names the range constructor, so each
+    // endpoint is written as it was deduced rather than nudged by one.
+    let ctor = match (lower.strict, upper.strict) {
+        (false, false) => BuiltInFunction::RangeClosed,
+        (false, true) => BuiltInFunction::RangeClosedOpen,
+        (true, false) => BuiltInFunction::RangeOpenClosed,
+        (true, true) => BuiltInFunction::RangeOpen,
     };
-    let upper_expr = if upper.strict {
-        binop_int(BuiltInFunction::IntMinus, upper.bound.clone(), int_lit(1))
-    } else {
-        upper.bound.clone()
-    };
-
-    let count = binop_int(
-        BuiltInFunction::IntPlus,
-        binop_int(
-            BuiltInFunction::IntMinus,
-            upper_expr.clone(),
-            lower_expr.clone(),
-        ),
-        int_lit(1),
-    );
-
-    // fn k => lower + k
-    let k_pat = Pat::Identifier(int_t.clone(), "k".to_string());
-    let body = binop_int(
-        BuiltInFunction::IntPlus,
-        lower_expr.clone(),
-        Expr::Identifier(int_t.clone(), "k".to_string()),
-    );
-    let fn_t = Rc::new(Type::Fn(int_t.clone(), int_t.clone()));
-    let fn_expr = Expr::Fn(
-        fn_t.clone(),
-        vec![Match {
-            pat: k_pat,
-            expr: body,
-        }],
+    let range_t = Rc::new(Type::Data("range".to_string(), vec![int_t.clone()]));
+    let pair_t = Rc::new(Type::Tuple(vec![int_t.clone(), int_t.clone()]));
+    let ctor_app = Expr::Apply(
+        range_t.clone(),
+        Box::new(Expr::Literal(
+            Rc::new(Type::Fn(pair_t.clone(), range_t.clone())),
+            Val::Fn(ctor),
+        )),
+        Box::new(Expr::Tuple(
+            pair_t,
+            vec![lower.bound.clone(), upper.bound.clone()],
+        )),
         Span::new(""),
     );
-
-    let tabulate = if ordered {
-        BuiltInFunction::ListTabulate
-    } else {
-        BuiltInFunction::BagTabulate
-    };
-    let coll_t = if ordered {
-        Rc::new(Type::List(int_t.clone()))
-    } else {
-        Rc::new(Type::Bag(int_t.clone()))
-    };
-    call2(tabulate, count, fn_expr, coll_t)
+    let ranges_t = Rc::new(Type::List(range_t));
+    let ranges = Expr::List(ranges_t.clone(), vec![ctor_app]);
+    let list_t = Rc::new(Type::List(int_t.clone()));
+    let flatten = Expr::Apply(
+        list_t.clone(),
+        Box::new(Expr::Literal(
+            Rc::new(Type::Fn(ranges_t, list_t.clone())),
+            Val::Fn(BuiltInFunction::RangeFlatten),
+        )),
+        Box::new(ranges),
+        Span::new(""),
+    );
+    if ordered {
+        return flatten;
+    }
+    // `Range.flatten` gives a list; an unordered scan takes a bag of it.
+    let bag_t = Rc::new(Type::Bag(int_t));
+    Expr::Apply(
+        bag_t.clone(),
+        Box::new(Expr::Literal(
+            Rc::new(Type::Fn(list_t, bag_t.clone())),
+            Val::Fn(BuiltInFunction::BagFromList),
+        )),
+        Box::new(flatten),
+        Span::new(""),
+    )
 }
 
 /// Recognises a constraint of the form
