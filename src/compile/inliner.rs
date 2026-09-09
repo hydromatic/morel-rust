@@ -872,8 +872,22 @@ impl Decl {
                 }))
             }
             Decl::RecVal(val_binds) => {
+                // Every name the group binds is in scope in every one of
+                // its right-hand sides, so all of them shadow an outer
+                // binding of the same name -- not only the one whose
+                // right-hand side is being visited. Without this, a
+                // reference from one function of the group to another is
+                // inlined from further out: in `let fun f i = g (i * 2)
+                // and g i = ... in f end`, `g` would be whatever `g`
+                // meant outside the `let`.
+                let mut env2 = env.clone();
+                for b in val_binds {
+                    b.pat.for_each_id_pat(&mut |(t, name): (&Type, &str)| {
+                        env2 = env2.child_none(name, t);
+                    });
+                }
                 let val_binds2 =
-                    val_binds.iter().map(|b| b.visit(env, x)).collect();
+                    val_binds.iter().map(|b| b.visit(&env2, x)).collect();
                 Decl::RecVal(val_binds2)
             }
             // Type and Datatype declarations have no values to inline.
