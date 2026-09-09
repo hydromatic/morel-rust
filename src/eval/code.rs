@@ -2882,22 +2882,29 @@ impl EagerF1 {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::EagerF1::*;
 
+        // A built-in applied as a value -- passed to `o`, say, rather than
+        // called -- has no call site to carry a span, so what it raises is
+        // blamed on the statement. Without this the built-ins that take a
+        // span for their own errors panic on the way to succeeding.
+        let statement = Span::new("stdIn");
+        let span: &Span = span.unwrap_or(&statement);
+
         match &self {
             // lint: sort until '#}' where '##[A-Z]'
-            BagHd => List::hd(a0.expect_list(), span.unwrap()),
+            BagHd => List::hd(a0.expect_list(), span),
             BagOnly | ListOnly | RelationalOnly => {
-                Relational::only(a0.expect_list(), span.unwrap())
+                Relational::only(a0.expect_list(), span)
             }
-            BagTl => List::tl(a0.expect_list(), span.unwrap()),
+            BagTl => List::tl(a0.expect_list(), span),
             BoolFromString => string_cvt::scan_str(
                 r,
                 f,
                 string_cvt::bool_scan,
                 a0.expect_string(),
             ),
-            CharChr => Char::chr(a0.expect_int(), span.unwrap()),
-            CharPred => Char::pred(a0.expect_char(), span.unwrap()),
-            CharSucc => Char::succ(a0.expect_char(), span.unwrap()),
+            CharChr => Char::chr(a0.expect_int(), span),
+            CharPred => Char::pred(a0.expect_char(), span),
+            CharSucc => Char::succ(a0.expect_char(), span),
             DatalogExecute => {
                 let dir = r
                     .session
@@ -2919,19 +2926,14 @@ impl EagerF1 {
                         .into(),
                 ))
             }
-            DateDate => {
-                date::make_date(a0.expect_list(), span.unwrap(), r.session)
-            }
+            DateDate => date::make_date(a0.expect_list(), span, r.session),
             DateFromTimeLocal => {
                 Ok(date::from_time_local(a0.expect_time(), r.session))
             }
             IntAbs => {
                 let i = a0.expect_int();
                 if i == i32::MIN {
-                    Err(MorelError::Runtime(
-                        BuiltInExn::Overflow,
-                        span.unwrap().clone(),
-                    ))
+                    Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
                 } else {
                     Ok(Val::Int(i.abs()))
                 }
@@ -2948,26 +2950,24 @@ impl EagerF1 {
                 r.emit_effect(Effect::UseFile(path.to_string(), true));
                 Ok(Val::Unit)
             }
-            ListHd => List::hd(a0.expect_list(), span.unwrap()),
-            ListLast => List::last(a0.expect_list(), span.unwrap()),
-            ListTl => List::tl(a0.expect_list(), span.unwrap()),
-            OptionValOf => Opt::val_of(&a0, span.unwrap()),
-            RealCeil => Real::ceil(a0.expect_real(), span.unwrap()),
-            RealCheckFloat => {
-                Real::check_float(a0.expect_real(), span.unwrap())
-            }
-            RealFloor => Real::floor(a0.expect_real(), span.unwrap()),
+            ListHd => List::hd(a0.expect_list(), span),
+            ListLast => List::last(a0.expect_list(), span),
+            ListTl => List::tl(a0.expect_list(), span),
+            OptionValOf => Opt::val_of(&a0, span),
+            RealCeil => Real::ceil(a0.expect_real(), span),
+            RealCheckFloat => Real::check_float(a0.expect_real(), span),
+            RealFloor => Real::floor(a0.expect_real(), span),
             RealFromString => string_cvt::scan_str(
                 r,
                 f,
                 string_cvt::real_scan,
                 a0.expect_string(),
             ),
-            RealRound => Real::round(a0.expect_real(), span.unwrap()),
-            RealSign => Real::sign(a0.expect_real(), span.unwrap()),
-            RealTrunc => Real::trunc(a0.expect_real(), span.unwrap()),
-            RelationalMax => Relational::max(a0.expect_list(), span.unwrap()),
-            RelationalMin => Relational::min(a0.expect_list(), span.unwrap()),
+            RealRound => Real::round(a0.expect_real(), span),
+            RealSign => Real::sign(a0.expect_real(), span),
+            RealTrunc => Real::trunc(a0.expect_real(), span),
+            RelationalMax => Relational::max(a0.expect_list(), span),
+            RelationalMin => Relational::min(a0.expect_list(), span),
             StringFromString => string_cvt::scan_str(
                 r,
                 f,
@@ -2988,7 +2988,7 @@ impl EagerF1 {
                         }
                         Err(_) => Err(MorelError::Runtime(
                             BuiltInExn::Fail,
-                            span.unwrap().clone(),
+                            span.clone(),
                         )),
                     }
                 }
@@ -3028,16 +3028,16 @@ impl EagerF1 {
             SysShow => {
                 // Return SOME(value) or NONE for the given property.
                 let prop_name = a0.expect_string();
-                let prop = lookup_prop("show", prop_name, span.unwrap())?;
+                let prop = lookup_prop("show", prop_name, span)?;
                 Ok(shown_val(r, prop))
             }
             SysUnset => {
                 let prop_name = a0.expect_string();
-                lookup_prop("unset", prop_name, span.unwrap())?;
+                lookup_prop("unset", prop_name, span)?;
                 r.emit_effect(Effect::UnsetShellProp(prop_name.to_string()));
                 Ok(Val::Unit)
             }
-            TimeFromReal => time::from_real(a0.expect_real(), span.unwrap()),
+            TimeFromReal => time::from_real(a0.expect_real(), span),
         }
     }
 }
