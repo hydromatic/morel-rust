@@ -259,6 +259,24 @@ impl TypeMap {
 
     /// Gets the type for an AST node, optionally wrapping in
     /// `Type::Alias` if the node's variable carries a type alias.
+    /// Returns the type a variable stands for, with aliases expanded.
+    pub fn var_type(&self, v: &Var) -> Rc<Type> {
+        let term = self
+            .var_term_map
+            .get(v)
+            .cloned()
+            .unwrap_or(Term::Variable(*v));
+        LIBRARY.with(|lib| {
+            let mut c = TermToTypeConverter {
+                type_map: self,
+                lib,
+                var_map: BTreeMap::new(),
+                with_alias: false,
+            };
+            c.term_type(&term)
+        })
+    }
+
     pub fn get_type_with_alias(&self, id: i32) -> Option<Rc<Type>> {
         self.get_type_inner(id, true)
     }
@@ -1161,6 +1179,11 @@ pub struct TypeResolver {
     /// Names a query's elements take from the type its scan was written
     /// with; see [`Self::scan_type_name`].
     element_alias_map: HashMap<Var, String>,
+    /// Arithmetic operators applied, and the variable each one's operands
+    /// share. Their type is not known until unification has run, so the
+    /// check that it is one the operator is defined for waits until then;
+    /// see [`Self::check_arithmetic`].
+    arithmetic: Vec<(&'static str, Var, Span)>,
     /// The fields a record with modifiers ends up with, keyed by the
     /// extent of its span. A `yield` step binds them; the record's own
     /// term may be the operand's, which says nothing about them.
@@ -1959,6 +1982,7 @@ impl TypeResolver {
             match_coverage_enabled: true,
             int_op,
             preferred_vars: Vec::new(),
+            arithmetic: Vec::new(),
             preferred_collection_vars: Vec::new(),
             var_alias_map: HashMap::new(),
             field_errors: Rc::new(RefCell::new(Vec::new())),
@@ -2267,6 +2291,15 @@ impl TypeResolver {
                 }
             }
             self.preferred_vars.clear();
+        }
+
+        // The operands' type is known now, so an arithmetic operator
+        // applied to one it is not defined for can be reported. The
+        // earlier check ran before the type map existed, so this is a
+        // second look at the same list.
+        self.check_arithmetic(&type_map);
+        if let Some((msg, span)) = self.field_errors.borrow().first() {
+            return Err(Error::Compile(msg.clone(), span.clone()));
         }
 
         // Default unconstrained aggregate-input collection variables
@@ -3512,6 +3545,15 @@ impl TypeResolver {
             ExprKind::Apply(left, right) => {
                 let (left2, right2) =
                     self.deduce_apply_type(env, &left, &right, v)?;
+                // `abs` is a global whose declared type says only that it
+                // returns what it was given, so what it is defined for is
+                // checked the way an operator's operands are.
+                if let ExprKind::Identifier(name) = &left.kind
+                    && name == "abs"
+                    && !self.user_bindings.contains(name)
+                {
+                    self.note_arithmetic("abs", v, &expr.span);
+                }
                 let apply2 = ExprKind::Apply(Box::new(left2), Box::new(right2));
                 self.reg_expr(&apply2, &expr.span, expr.id, v)
             }
@@ -3673,6 +3715,7 @@ impl TypeResolver {
             ExprKind::Div(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op div", left, right, v)?;
+                self.note_arithmetic("div", v, &expr.span);
                 self.preferred_vars.push(*v);
                 self.erase_alias(v);
                 let x = ExprKind::Div(Box::new(left2), Box::new(right2));
@@ -3984,6 +4027,7 @@ impl TypeResolver {
             ExprKind::Minus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op -", left, right, v)?;
+                self.note_arithmetic("-", v, &expr.span);
                 self.preferred_vars.push(*v);
                 self.erase_alias(v);
                 let x = ExprKind::Minus(Box::new(left2), Box::new(right2));
@@ -3992,6 +4036,7 @@ impl TypeResolver {
             ExprKind::Mod(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op mod", left, right, v)?;
+                self.note_arithmetic("mod", v, &expr.span);
                 self.preferred_vars.push(*v);
                 self.erase_alias(v);
                 let x = ExprKind::Mod(Box::new(left2), Box::new(right2));
@@ -4000,6 +4045,9 @@ impl TypeResolver {
             ExprKind::Negate(e) => {
                 let e2 =
                     self.deduce_call1_type(env, "op ~", e, &expr.span, v)?;
+                // `~` blames its operand, not the whole expression: that
+                // is where the type it is not defined for came from.
+                self.note_arithmetic("~", v, &e.span);
                 self.preferred_vars.push(*v);
                 self.erase_alias(v);
                 let x = ExprKind::Negate(Box::new(e2));
@@ -4108,6 +4156,7 @@ impl TypeResolver {
             ExprKind::Plus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op +", left, right, v)?;
+                self.note_arithmetic("+", v, &expr.span);
                 self.preferred_vars.push(*v);
                 self.erase_alias(v);
                 let x = ExprKind::Plus(Box::new(left2), Box::new(right2));
@@ -4226,6 +4275,7 @@ impl TypeResolver {
             ExprKind::Times(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op *", left, right, v)?;
+                self.note_arithmetic("*", v, &expr.span);
                 self.preferred_vars.push(*v);
                 self.erase_alias(v);
                 let x = ExprKind::Times(Box::new(left2), Box::new(right2));
@@ -4496,6 +4546,51 @@ impl TypeResolver {
                     field_vars,
                     steps2,
                 ),
+        }
+    }
+
+    /// Records that an arithmetic operator was applied to operands of the
+    /// type `v` stands for, so that [`Self::check_arithmetic`] can say so
+    /// if the type turns out to be one the operator is not defined for.
+    fn note_arithmetic(&mut self, op: &'static str, v: &Var, span: &Span) {
+        self.arithmetic.push((op, *v, span.clone()));
+    }
+
+    /// Reports each arithmetic operator applied to a type it is not
+    /// defined for. `+`, `-`, `*` and `~` are defined for `int`, `real`
+    /// and `word`; `div` and `mod` for the two that are whole.
+    ///
+    /// The check waits for unification because the operands' type is a
+    /// variable until then. A type that is still a variable is left
+    /// alone: the operator does not say which of its types was meant,
+    /// and `preferred_vars` has already defaulted what it could.
+    fn check_arithmetic(&self, type_map: &TypeMap) {
+        for (op, v, span) in &self.arithmetic {
+            let type_ = type_map.var_type(v);
+            let ok = match (*op, peel_type(&type_)) {
+                (_, Type::Variable(_)) => true,
+                ("div" | "mod", t) => matches!(
+                    t,
+                    Type::Primitive(PrimitiveType::Int | PrimitiveType::Word)
+                ),
+                (_, t) => matches!(
+                    t,
+                    Type::Primitive(
+                        PrimitiveType::Int
+                            | PrimitiveType::Real
+                            | PrimitiveType::Word
+                    )
+                ),
+            };
+            if !ok {
+                self.field_errors.borrow_mut().push((
+                    format!(
+                        "operator '{}' is not defined for type '{}'",
+                        op, type_
+                    ),
+                    span.clone(),
+                ));
+            }
         }
     }
 
