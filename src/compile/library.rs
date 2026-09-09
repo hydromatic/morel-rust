@@ -131,7 +131,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bag", name = "toList"))]
     #[strum(props(type = "forall 1 'a bag -> 'a list"))]
     BagToList,
-    #[strum(props(p = "Bool", name = "andalso", alias = "op andalso"))]
+    #[strum(props(p = "Bool", name = "andalso"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolAndAlso,
     #[strum(props(p = "Bool", name = "="))]
@@ -146,7 +146,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bool", name = ">"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolGt,
-    #[strum(props(p = "Bool", name = "implies", alias = "op implies"))]
+    #[strum(props(p = "Bool", name = "implies"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolImplies,
     #[strum(props(p = "Bool", name = "<"))]
@@ -158,7 +158,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Bool", name = "not", global = true))]
     #[strum(props(type = "bool -> bool"))]
     BoolNot,
-    #[strum(props(p = "Bool", name = "orelse", alias = "op orelse"))]
+    #[strum(props(p = "Bool", name = "orelse"))]
     #[strum(props(type = "bool * bool -> bool"))]
     BoolOrElse,
     #[strum(props(p = "Bool", name = "scan"))]
@@ -365,7 +365,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 2 ('a -> unit) -> ('a,'b) either -> unit"))]
     EitherAppLeft,
     #[strum(props(p = "Either", name = "appRight"))]
-    #[strum(props(type = "forall 2 ('a -> unit) -> ('b,'a) either -> unit"))]
+    #[strum(props(type = "forall 2 ('b -> unit) -> ('a,'b) either -> unit"))]
     EitherAppRight,
     #[strum(props(p = "Either", name = "asLeft"))]
     #[strum(props(type = "forall 2 ('a,'b) either -> 'a option"))]
@@ -375,8 +375,8 @@ pub enum BuiltInFunction {
     EitherAsRight,
     #[strum(props(p = "Either", name = "fold"))]
     #[strum(props(
-        type = "forall 3 ('a * 'c -> 'c) * ('b * 'c -> 'c) -> 'c -> ('a,'b) \
-        either -> 'c"
+        type = "forall 3 ('a * 'b -> 'b) * ('c * 'b -> 'b) -> 'b -> ('a,'c) \
+        either -> 'b"
     ))]
     EitherFold,
     #[strum(props(name = "INL", global = true))]
@@ -401,12 +401,12 @@ pub enum BuiltInFunction {
     EitherMap,
     #[strum(props(p = "Either", name = "mapLeft"))]
     #[strum(props(
-        type = "forall 3 ('a -> 'c) -> ('a,'b) either -> ('c,'b) either"
+        type = "forall 3 ('a -> 'b) -> ('a,'c) either -> ('b,'c) either"
     ))]
     EitherMapLeft,
     #[strum(props(p = "Either", name = "mapRight"))]
     #[strum(props(
-        type = "forall 3 ('a -> 'c) -> ('b,'a) either -> ('b,'c) either"
+        type = "forall 3 ('b -> 'c) -> ('a,'b) either -> ('a,'c) either"
     ))]
     EitherMapRight,
     #[strum(props(p = "Either", name = "partition"))]
@@ -493,10 +493,10 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a -> 'a"))]
     FnId,
     #[strum(props(p = "Fn", name = "notEqual"))]
-    #[strum(props(type = "forall 1 'a -> 'a -> bool"))]
+    #[strum(props(type = "forall 2 'a -> 'a -> bool"))]
     FnNotEqual,
-    #[strum(props(p = "Fn", name = "o", alias = "op o"))]
-    #[strum(props(type = "forall 3 ('a -> 'b) * ('c -> 'a) -> 'c -> 'b"))]
+    #[strum(props(p = "Fn", name = "o"))]
+    #[strum(props(type = "forall 3 ('b -> 'c) * ('a -> 'b) -> 'a -> 'c"))]
     FnO,
     #[strum(props(p = "Fn", name = "repeat"))]
     #[strum(props(type = "forall 1 int -> ('a -> 'a) -> 'a -> 'a"))]
@@ -504,43 +504,50 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Fn", name = "uncurry"))]
     #[strum(props(type = "forall 3 ('a -> 'b -> 'c) -> 'a * 'b -> 'c"))]
     FnUncurry,
-    #[strum(props(name = "abs", global = true))]
+    #[strum(props(name = "abs", global = true, prefer = "int"))]
+    #[strum(props(domain = "int real"))]
     #[strum(props(type = "forall 1 'a -> 'a"))]
     GAbs,
-    #[strum(props(name = "div", alias = "op div"))]
+    #[strum(props(name = "op div", global = true, prefer = "int"))]
+    #[strum(props(domain = "int word"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GDiv,
-    #[strum(props(name = "=", alias = "op ="))]
+    #[strum(props(name = "op =", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GEq,
-    #[strum(props(name = ">=", alias = "op >="))]
+    #[strum(props(name = "op >=", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GGe,
-    #[strum(props(name = ">", alias = "op >"))]
+    #[strum(props(name = "op >", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GGt,
-    #[strum(props(name = "<=", alias = "op <="))]
+    #[strum(props(name = "op <=", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GLe,
-    #[strum(props(name = "<", alias = "op <"))]
+    #[strum(props(name = "op <", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GLt,
-    #[strum(props(name = "-", alias = "op -"))]
+    #[strum(props(name = "op -", global = true, prefer = "int"))]
+    #[strum(props(domain = "int real word"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GMinus,
-    #[strum(props(name = "mod", alias = "op mod"))]
+    #[strum(props(name = "op mod", global = true, prefer = "int"))]
+    #[strum(props(domain = "int word"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GMod,
-    #[strum(props(name = "<>", alias = "op <>"))]
+    #[strum(props(name = "op <>", global = true))]
     #[strum(props(type = "forall 1 'a * 'a -> bool"))]
     GNe,
-    #[strum(props(name = "~", alias = "op ~"))]
+    #[strum(props(name = "op ~", global = true, prefer = "int"))]
+    #[strum(props(domain = "int real word"))]
     #[strum(props(type = "forall 1 'a -> 'a"))]
     GNegate,
-    #[strum(props(name = "+", alias = "op +"))]
+    #[strum(props(name = "op +", global = true, prefer = "int"))]
+    #[strum(props(domain = "int real word"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GPlus,
-    #[strum(props(name = "*", alias = "op *"))]
+    #[strum(props(name = "op *", global = true, prefer = "int"))]
+    #[strum(props(domain = "int real word"))]
     #[strum(props(type = "forall 1 'a * 'a -> 'a"))]
     GTimes,
     #[strum(props(p = "General", name = "before", global = true))]
@@ -555,8 +562,8 @@ pub enum BuiltInFunction {
     #[strum(props(p = "General", name = "ignore", global = true))]
     #[strum(props(type = "forall 1 'a -> unit"))]
     GeneralIgnore,
-    #[strum(props(p = "General", name = "o", alias = "op o"))]
-    #[strum(props(type = "forall 3 ('a -> 'b) * ('c -> 'a) -> 'c -> 'b"))]
+    #[strum(props(p = "General", name = "o", alias = "op o", global = true))]
+    #[strum(props(type = "forall 3 ('b -> 'c) * ('a -> 'b) -> 'a -> 'c"))]
     GeneralO,
     #[strum(props(p = "Int", name = "abs", type = "int -> int"))]
     #[strum(props(throws = "Overflow"))]
@@ -712,7 +719,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "app", global = true))]
     #[strum(props(type = "forall 1 ('a -> unit) -> 'a list -> unit"))]
     ListApp,
-    #[strum(props(p = "List", name = "@", alias = "op @"))]
+    #[strum(props(p = "List", name = "@", alias = "op @", global = true))]
     #[strum(props(type = "forall 1 'a list * 'a list -> 'a list"))]
     ListAt,
     #[strum(props(p = "List", name = "collate"))]
@@ -724,14 +731,14 @@ pub enum BuiltInFunction {
     #[strum(props(p = "List", name = "concat"))]
     #[strum(props(type = "forall 1 'a list list -> 'a list"))]
     ListConcat,
-    #[strum(props(name = "::", alias = "op ::"))]
+    #[strum(props(name = "op ::", global = true))]
     #[strum(props(type = "forall 1 'a * 'a list -> 'a list"))]
     #[strum(props(constructor_ordinal = "1"))]
     ListCons,
     #[strum(props(p = "List", name = "drop", throws = "Subscript"))]
     #[strum(props(type = "forall 1 'a list * int -> 'a list"))]
     ListDrop,
-    #[strum(props(name = "elem", global = true))]
+    #[strum(props(name = "op elem", global = true))]
     #[strum(props(type = "forall 1 'a * 'a collection -> bool"))]
     ListElem,
     #[strum(props(p = "List", name = "except"))]
@@ -780,7 +787,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a list"))]
     #[strum(props(constructor_ordinal = "0"))]
     ListNil,
-    #[strum(props(name = "notElem", global = true))]
+    #[strum(props(name = "op notelem", global = true))]
     #[strum(props(type = "forall 1 'a * 'a collection -> bool"))]
     ListNotElem,
     #[strum(props(p = "List", name = "nth", throws = "Subscript"))]
@@ -1028,7 +1035,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a range list -> 'a continuous_set"))]
     #[strum(props(constructor_ordinal = "0"))]
     RangeContinuousSet,
-    #[strum(props(p = "Range", name = "complement"))]
+    #[strum(props(p = "Range", name = "complement", alias = "$csComplement"))]
     #[strum(props(type = "forall 1 'a continuous_set -> 'a continuous_set"))]
     RangeCsComplement,
     #[strum(props(name = "$csContains", global = true))]
@@ -1056,7 +1063,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Range", name = "discreteSetOf"))]
     #[strum(props(type = "forall 1 'a range list -> 'a discrete_set"))]
     RangeDsOf,
-    #[strum(props(name = "$dsRanges"))]
+    #[strum(props(name = "$dsRanges", global = true))]
     #[strum(props(type = "forall 1 'a discrete_set -> 'a range list"))]
     RangeDsRanges,
     #[strum(props(p = "Range", name = "flatten"))]
@@ -1266,7 +1273,7 @@ pub enum BuiltInFunction {
     #[strum(props(name = "sum$real"))]
     #[strum(props(type = "real bag -> real"))]
     RelationalSumReal,
-    #[strum(props(p = "String", name = "^", alias = "op ^"))]
+    #[strum(props(p = "String", name = "^", alias = "op ^", global = true))]
     #[strum(props(type = "string * string -> string"))]
     StringCaret,
     #[strum(props(p = "String", name = "collate"))]
@@ -1328,8 +1335,8 @@ pub enum BuiltInFunction {
     StringCvtRealfmtSci,
     #[strum(props(p = "StringCvt", name = "scanString"))]
     #[strum(props(
-        type = "forall 2 (('b -> (char * 'b) option) -> 'b -> ('a * 'b) \
-                option) -> string -> 'a option"
+        type = "forall 2 (('a -> (char * 'a) option) -> 'a -> ('b * 'a) \
+                option) -> string -> 'b option"
     ))]
     StringCvtScanString,
     #[strum(props(p = "StringCvt", name = "skipWS"))]
@@ -1428,10 +1435,10 @@ pub enum BuiltInFunction {
     #[strum(props(p = "String", name = "translate"))]
     #[strum(props(type = "(char -> string) -> string -> string"))]
     StringTranslate,
-    #[strum(props(p = "Sys", name = "clearEnv", global = true))]
+    #[strum(props(p = "Sys", name = "clearEnv"))]
     #[strum(props(type = "unit -> unit"))]
     SysClearEnv,
-    #[strum(props(p = "Sys", name = "colorSchemes", global = true))]
+    #[strum(props(p = "Sys", name = "colorSchemes"))]
     #[strum(props(
         type = "unit -> {comment:string, constant:string, error:string, \
                 identifier:string, keyword:string, name:string, \
@@ -1439,7 +1446,7 @@ pub enum BuiltInFunction {
                 typeVar:string} list"
     ))]
     SysColorSchemes,
-    #[strum(props(p = "Sys", name = "deduceColorScheme", global = true))]
+    #[strum(props(p = "Sys", name = "deduceColorScheme"))]
     #[strum(props(type = "unit -> string"))]
     SysDeduceColorScheme,
     #[strum(props(p = "Sys", name = "env", global = true))]
@@ -1449,7 +1456,7 @@ pub enum BuiltInFunction {
     /// representing the file system under the `directory` property.
     /// The type widens as fields are accessed.
     #[strum(props(p = "Sys", name = "file", global = true))]
-    #[strum(props(type = "{}"))]
+    #[strum(props(type = "{...}"))]
     SysFile,
     #[strum(props(p = "Sys", name = "parseTree"))]
     #[strum(props(type = "string -> string", throws = "Fail"))]
@@ -1457,7 +1464,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Sys", name = "plan", global = true))]
     #[strum(props(type = "unit -> string"))]
     SysPlan,
-    #[strum(props(p = "Sys", name = "planEx", global = true))]
+    #[strum(props(p = "Sys", name = "planEx"))]
     #[strum(props(type = "string -> string"))]
     SysPlanEx,
     #[strum(props(p = "Sys", name = "set", global = true))]
@@ -1710,7 +1717,7 @@ pub enum BuiltInFunction {
     VectorFind,
     #[strum(props(p = "Vector", name = "findi"))]
     #[strum(props(
-        type = "forall 1 (int * 'a -> bool) -> 'a vector -> (int * 'a) option"
+        type = "forall 2 (int * 'a -> bool) -> 'a vector -> (int * 'a) option"
     ))]
     VectorFindi,
     #[strum(props(p = "Vector", name = "foldl"))]
@@ -2019,10 +2026,24 @@ impl BuiltInFunction {
             && self.get_str("type").is_some_and(|t| !t.contains("->"))
     }
 
-    pub(crate) fn is_global(&self) -> bool {
-        self.get_bool("global").is_some_and(|b| b)
-            || self.alias().is_some()
-            || self.get_str("global").is_some()
+    /// Returns the names this function is bound to at top level: its
+    /// own name if it is global (`abs`, `op +`, `length` for
+    /// `List.length`), its alias (`op /` for `Real./`, `$csComplement`
+    /// for `Range.complement`), and the name it is overloaded under
+    /// (`only` for `Bag.only` and `List.only`). This is morel-java's
+    /// alias table, held on the entries it names.
+    pub(crate) fn global_names(&self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        if self.get_bool("global").is_some_and(|b| b) {
+            names.push(self.name());
+        }
+        if let Some(alias) = self.alias() {
+            names.push(alias);
+        }
+        if let Some(overloaded) = self.overloaded_name() {
+            names.push(overloaded);
+        }
+        names
     }
 
     /// Returns the overloaded global name (e.g. `"only"` for
@@ -2033,6 +2054,83 @@ impl BuiltInFunction {
 
     pub(crate) fn alias(&self) -> Option<&'static str> {
         self.get_str("alias")
+    }
+
+    /// Returns the type an overloaded operator prefers when its operand
+    /// type is otherwise unconstrained, from the `prefer` prop: `int`
+    /// for `+`, as Standard ML says. `None` for a function that is not
+    /// overloaded that way -- the comparisons have no preference, which
+    /// is why `op <` stays `'a * 'a -> bool`.
+    pub(crate) fn preferred_type(&self) -> Option<PrimitiveType> {
+        self.get_str("prefer").and_then(PrimitiveType::parse_name)
+    }
+
+    /// Returns the types an overloaded operator is defined for, from the
+    /// `domain` prop. These are Standard ML's overload classes: `num`
+    /// (`int real word`) for `+`, `-`, `*` and `~`; `wordint` for `div`
+    /// and `mod`; `realint` for `abs`.
+    pub(crate) fn overload_domain(&self) -> Vec<PrimitiveType> {
+        self.get_str("domain")
+            .map(|s| {
+                s.split(' ').filter_map(PrimitiveType::parse_name).collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether this function takes a pair, as `+` does, rather than a
+    /// single value, as `~` and `abs` do. Read from the declared type.
+    pub(crate) fn takes_pair(&self) -> bool {
+        let t = self.get_type();
+        let fn_type = match t.as_ref() {
+            Type::Forall(inner, _) => inner.as_ref(),
+            other => other,
+        };
+        matches!(fn_type, Type::Fn(param, _)
+            if matches!(param.as_ref(), Type::Tuple(_)))
+    }
+
+    /// Returns the infix operator that this function is written as in
+    /// a core expression, or `None` if it has no infix form. Mirrors
+    /// morel-java's `Resolver.toOp`: `+` (int, real or generic), the
+    /// comparisons, `::`, `@`, `andalso` and `orelse` are written infix,
+    /// `x + 1`; every other operator is written as a call of a structure
+    /// member, `#* Int (x, 2)`. A word operator is never infix: morel-java
+    /// routes word operands to the `Word` members, which have no infix
+    /// form.
+    pub(crate) fn infix_op(&self) -> Option<&'static str> {
+        use BuiltInFunction::{
+            BoolAndAlso, BoolEq, BoolGt, BoolLt, BoolNe, BoolOrElse, CharEq,
+            CharGe, CharGt, CharLe, CharLt, CharNe, GEq, GGe, GGt, GLe, GLt,
+            GNe, GPlus, IntEq, IntGe, IntGt, IntLe, IntLt, IntNe, IntPlus,
+            ListAt, ListCons, RealEq, RealGe, RealGt, RealLe, RealLt, RealNe,
+            RealPlus, StringEq, StringGe, StringGt, StringLe, StringLt,
+            StringNe,
+        };
+        match self {
+            GPlus | IntPlus | RealPlus => Some("+"),
+            GEq | IntEq | RealEq | StringEq | CharEq | BoolEq => Some("="),
+            GNe | IntNe | RealNe | StringNe | CharNe | BoolNe => Some("<>"),
+            GLt | IntLt | RealLt | StringLt | CharLt | BoolLt => Some("<"),
+            GLe | IntLe | RealLe | StringLe | CharLe => Some("<="),
+            GGt | IntGt | RealGt | StringGt | CharGt | BoolGt => Some(">"),
+            GGe | IntGe | RealGe | StringGe | CharGe => Some(">="),
+            ListCons => Some("::"),
+            ListAt => Some("@"),
+            BoolAndAlso => Some("andalso"),
+            BoolOrElse => Some("orelse"),
+            _ => None,
+        }
+    }
+
+    /// Returns the `op X` spelling of an operator: the canonical name of
+    /// a global operator such as `op +`, or the alias of a structure
+    /// member such as `Real./`'s `op /`. `None` for a function that
+    /// is not an operator.
+    pub(crate) fn op_name(&self) -> Option<&'static str> {
+        self.alias().or_else(|| {
+            let name = self.name();
+            name.starts_with("op ").then_some(name)
+        })
     }
 
     /// Returns whether `name` is the global name of a built-in overloaded
@@ -2430,7 +2528,7 @@ impl BuiltIn {
 static BY_NAME: LazyLock<BTreeMap<&str, BuiltIn>> = LazyLock::new(|| {
     let mut map = BTreeMap::new();
     for f in BuiltInFunction::iter() {
-        if let Some(op_name) = f.alias() {
+        if let Some(op_name) = f.op_name() {
             map.insert(op_name, BuiltIn::Fn(f));
         }
     }
@@ -2487,48 +2585,20 @@ pub(crate) fn populate_env(map: &mut BTreeMap<&str, (Type, Option<Val>)>) {
             (r.name(), ((**type_).clone(), Some(v.clone())))
         }));
 
-        // Until we can deduce type for records, keep the old logic that
-        // provides the "set" function.
-        map.extend(
-            lib.fn_map
-                .iter()
-                .filter(|(f, _)| f.get_bool("global").is_some_and(|b| b))
-                .map(|(f, (t, _))| {
-                    (f.name(), ((**t).clone(), Some(Val::Fn(*f))))
-                }),
-        );
-
-        // Add global built-in functions to the environment.
-        map.extend(
-            lib.fn_map
-                .iter()
-                .map(|(f, (t, _))| {
-                    (
-                        f.name(),
-                        (
-                            (**t).clone(),
-                            if !f.is_global() {
-                                None
-                            } else if let Type::Fn(_, _) = **t {
-                                Some(Val::Fn(*f))
-                            } else if f == &BuiltInFunction::ListNil
-                                || f == &BuiltInFunction::BagNil
-                            {
-                                // Both List.nil and Bag.nil are empty Val::List
-                                Some(Val::List(Rc::new(Vec::new())))
-                            } else {
-                                None
-                            },
-                        ),
-                    )
-                })
-                .filter(|(_name, (_t, v))| v.is_some()),
-        );
-
-        // Add operator names for functions with alias = "op <name>"
+        // Add the globals: each built-in function under each of its
+        // top-level names. A nullary constructor, `NONE`, is a global
+        // too, bound to the function value that stands for it; `List.nil`
+        // and `Bag.nil` are the empty list.
         for (f, (t, _)) in &lib.fn_map {
-            if let Some(op_name) = f.get_str("global") {
-                map.insert(op_name, ((**t).clone(), Some(Val::Fn(*f))));
+            let value = if f == &BuiltInFunction::ListNil
+                || f == &BuiltInFunction::BagNil
+            {
+                Val::List(Rc::new(Vec::new()))
+            } else {
+                Val::Fn(*f)
+            };
+            for name in f.global_names() {
+                map.insert(name, ((**t).clone(), Some(value.clone())));
             }
         }
     });

@@ -4102,6 +4102,16 @@ impl<'a> Resolver<'a> {
     /// After type resolution, we know the concrete type, so we can
     /// directly map to the specific built-in function.
     fn op_section_to_literal(&self, fn_type: &Type, op_name: &str) -> CoreExpr {
+        // A comparison, `elem` or `notelem` section is the generic function
+        // whatever its operand type, as in morel-java, whose plans show
+        // `constant(<)` for `op <` applied to ints.
+        if matches!(
+            op_name,
+            "=" | "<>" | "<" | "<=" | ">" | ">=" | "elem" | "notelem"
+        ) {
+            let builtin = self.multi_op_to_builtin(op_name);
+            return CoreExpr::Literal(builtin.get_type(), Val::Fn(builtin));
+        }
         match fn_type {
             Type::Forall(_inner_type, _param_count) => {
                 // Polymorphic function
@@ -4146,10 +4156,8 @@ impl<'a> Resolver<'a> {
         arg_type: &Type,
     ) -> BuiltInFunction {
         use BuiltInFunction::{
-            GeneralO, IntDiv, IntGe, IntGt, IntLe, IntLt, IntMinus, IntMod,
-            IntPlus, IntTimes, ListAt, ListCons, RealDivide, RealGe, RealGt,
-            RealLe, RealLt, RealMinus, RealPlus, RealTimes, StringCaret,
-            StringGe, StringGt, StringLe, StringLt,
+            GeneralO, IntDiv, IntMinus, IntMod, IntPlus, IntTimes, ListAt,
+            ListCons, RealDivide, RealMinus, RealPlus, RealTimes, StringCaret,
         };
         match (op_name, arg_type) {
             // Function composition is polymorphic over its operand types.
@@ -4160,27 +4168,15 @@ impl<'a> Resolver<'a> {
             ("*", Type::Primitive(PrimitiveType::Int)) => IntTimes,
             ("div", Type::Primitive(PrimitiveType::Int)) => IntDiv,
             ("mod", Type::Primitive(PrimitiveType::Int)) => IntMod,
-            ("<", Type::Primitive(PrimitiveType::Int)) => IntLt,
-            ("<=", Type::Primitive(PrimitiveType::Int)) => IntLe,
-            (">", Type::Primitive(PrimitiveType::Int)) => IntGt,
-            (">=", Type::Primitive(PrimitiveType::Int)) => IntGe,
 
             // Real operators
             ("+", Type::Primitive(PrimitiveType::Real)) => RealPlus,
             ("-", Type::Primitive(PrimitiveType::Real)) => RealMinus,
             ("*", Type::Primitive(PrimitiveType::Real)) => RealTimes,
             ("/", Type::Primitive(PrimitiveType::Real)) => RealDivide,
-            ("<", Type::Primitive(PrimitiveType::Real)) => RealLt,
-            ("<=", Type::Primitive(PrimitiveType::Real)) => RealLe,
-            (">", Type::Primitive(PrimitiveType::Real)) => RealGt,
-            (">=", Type::Primitive(PrimitiveType::Real)) => RealGe,
 
             // String operators
             ("^", Type::Primitive(PrimitiveType::String)) => StringCaret,
-            ("<", Type::Primitive(PrimitiveType::String)) => StringLt,
-            ("<=", Type::Primitive(PrimitiveType::String)) => StringLe,
-            (">", Type::Primitive(PrimitiveType::String)) => StringGt,
-            (">=", Type::Primitive(PrimitiveType::String)) => StringGe,
 
             // List operators - these work on any element type
             ("::", _) => ListCons,
@@ -4219,7 +4215,7 @@ impl<'a> Resolver<'a> {
     fn multi_op_to_builtin(&self, op_name: &str) -> BuiltInFunction {
         use BuiltInFunction::{
             GDiv, GEq, GGe, GGt, GLe, GLt, GMinus, GMod, GNe, GNegate, GPlus,
-            GTimes, ListCons,
+            GTimes, ListCons, ListElem, ListNotElem,
         };
         match op_name {
             "~" => GNegate,
@@ -4235,6 +4231,8 @@ impl<'a> Resolver<'a> {
             "=" => GEq,
             "<>" => GNe,
             "::" => ListCons,
+            "elem" => ListElem,
+            "notelem" => ListNotElem,
             _ => todo!("overloaded operator '{}' not supported", op_name),
         }
     }

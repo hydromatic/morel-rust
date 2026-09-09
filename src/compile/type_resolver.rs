@@ -1129,7 +1129,6 @@ pub struct TypeResolver {
     overload_op: Op,
     record_op: Op,
     fn_op: Op,
-    int_op: Op,
     actions: Vec<(Var, Rc<dyn Action>)>,
 
     /// Shared scope for explicit type variables within a declaration.
@@ -1183,7 +1182,7 @@ pub struct TypeResolver {
     /// share. Their type is not known until unification has run, so the
     /// check that it is one the operator is defined for waits until then;
     /// see [`Self::check_arithmetic`].
-    arithmetic: Vec<(&'static str, Var, Span)>,
+    arithmetic: Vec<(library::BuiltInFunction, Var, Span)>,
     /// The fields a record with modifiers ends up with, keyed by the
     /// extent of its span. A `yield` step binds them; the record's own
     /// term may be the operand's, which says nothing about them.
@@ -1229,9 +1228,12 @@ pub struct TypeResolver {
     /// Variables that should default to `int` if still free after
     /// unification. Populated when `op +`, `op -`, `op *`, or `op ~` are
     /// used without enough context to determine whether they operate on `int`
-    /// or `real`. Matches Standard ML semantics: numeric operators prefer
-    /// `int`.
-    preferred_vars: Vec<Var>,
+    /// or `real`. Each is paired with the operator of the type it defaults
+    /// to, which is the operator's `prefer` prop in the built-in table:
+    /// `int`, as Standard ML says. The operator is interned when the
+    /// preference is recorded, before unification, so that the type map's
+    /// operator table has it.
+    preferred_vars: Vec<(Var, Op)>,
     /// Collection variables in aggregate inputs that should default to
     /// list (if ordered=true) or bag (if ordered=false) when
     /// unconstrained after unification. Each entry is
@@ -1940,7 +1942,6 @@ impl TypeResolver {
         let overload_op = unifier.op("overload", None);
         let record_op = unifier.op("record", None);
         let fn_op = unifier.op("fn", Some(2));
-        let int_op = unifier.op("int", Some(0));
         Self {
             warnings: Vec::new(),
             decl_exp_types: HashMap::new(),
@@ -1980,7 +1981,6 @@ impl TypeResolver {
             prior_datatype_constructors: HashMap::new(),
             prior_constructor_arg_types: HashMap::new(),
             match_coverage_enabled: true,
-            int_op,
             preferred_vars: Vec::new(),
             arithmetic: Vec::new(),
             preferred_collection_vars: Vec::new(),
@@ -2112,7 +2112,6 @@ impl TypeResolver {
         self.overload_op = self.unifier.op("overload", None);
         self.record_op = self.unifier.op("record", None);
         self.fn_op = self.unifier.op("fn", Some(2));
-        self.int_op = self.unifier.op("int", Some(0));
         self.overloads.clear();
         self.new_overloads.clear();
         self.next_id = 0;
@@ -2267,8 +2266,9 @@ impl TypeResolver {
         // no concrete term, default `v2` to `int`. This handles cases where
         // `pv` is not the canonical representative in the union-find.
         if !self.preferred_vars.is_empty() {
-            let int_term = Term::Sequence(self.unifier.atom(self.int_op));
-            for &pv in &self.preferred_vars {
+            let preferred = std::mem::take(&mut self.preferred_vars);
+            for (pv, op) in preferred {
+                let int_term = Term::Sequence(self.unifier.atom(op));
                 let mut current = pv;
                 loop {
                     match type_map.var_term_map.get(&current).cloned() {
@@ -2290,7 +2290,6 @@ impl TypeResolver {
                     }
                 }
             }
-            self.preferred_vars.clear();
         }
 
         // The operands' type is known now, so an arithmetic operator
@@ -3521,7 +3520,7 @@ impl TypeResolver {
             }
             ExprKind::AndAlso(left, right) => {
                 let (left2, right2) =
-                    self.deduce_call2_type(env, "op andalso", left, right, v)?;
+                    self.deduce_connective_type(env, left, right, v)?;
                 let x = ExprKind::AndAlso(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -3552,7 +3551,7 @@ impl TypeResolver {
                     && name == "abs"
                     && !self.user_bindings.contains(name)
                 {
-                    self.note_arithmetic("abs", v, &expr.span);
+                    self.note_operator("abs", v, &expr.span);
                 }
                 let apply2 = ExprKind::Apply(Box::new(left2), Box::new(right2));
                 self.reg_expr(&apply2, &expr.span, expr.id, v)
@@ -3715,8 +3714,7 @@ impl TypeResolver {
             ExprKind::Div(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op div", left, right, v)?;
-                self.note_arithmetic("div", v, &expr.span);
-                self.preferred_vars.push(*v);
+                self.note_operator("op div", v, &expr.span);
                 self.erase_alias(v);
                 let x = ExprKind::Div(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -3879,21 +3877,10 @@ impl TypeResolver {
                         ));
                     }
                 }
-                // `abs` is overloaded for `int` and `real`; prefer `int`
-                // when unconstrained, matching the default-to-int behavior
-                // of `op ~`.
-                if name == "abs" {
-                    let v_elem = self.variable();
-                    let fn_seq = self.unifier.apply2(
-                        self.fn_op,
-                        Term::Variable(v_elem),
-                        Term::Variable(v_elem),
-                    );
-                    self.equiv(&Term::Sequence(fn_seq), v);
-                    self.preferred_vars.push(v_elem);
-                    // `abs` is an operator too: it computes a value the
-                    // argument's type has not been shown to contain.
-                    self.erase_alias(&v_elem);
+                // An overloaded operator named as a value, `abs`,
+                // prefers its table type when unconstrained.
+                if !self.user_bindings.contains(name) {
+                    self.prefer_operator_value(name, v);
                 }
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
@@ -3913,7 +3900,7 @@ impl TypeResolver {
             }
             ExprKind::Implies(left, right) => {
                 let (left2, right2) =
-                    self.deduce_call2_type(env, "op implies", left, right, v)?;
+                    self.deduce_connective_type(env, left, right, v)?;
                 let x = ExprKind::Implies(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -4027,8 +4014,7 @@ impl TypeResolver {
             ExprKind::Minus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op -", left, right, v)?;
-                self.note_arithmetic("-", v, &expr.span);
-                self.preferred_vars.push(*v);
+                self.note_operator("op -", v, &expr.span);
                 self.erase_alias(v);
                 let x = ExprKind::Minus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4036,8 +4022,7 @@ impl TypeResolver {
             ExprKind::Mod(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op mod", left, right, v)?;
-                self.note_arithmetic("mod", v, &expr.span);
-                self.preferred_vars.push(*v);
+                self.note_operator("op mod", v, &expr.span);
                 self.erase_alias(v);
                 let x = ExprKind::Mod(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4047,8 +4032,7 @@ impl TypeResolver {
                     self.deduce_call1_type(env, "op ~", e, &expr.span, v)?;
                 // `~` blames its operand, not the whole expression: that
                 // is where the type it is not defined for came from.
-                self.note_arithmetic("~", v, &e.span);
-                self.preferred_vars.push(*v);
+                self.note_operator("op ~", v, &e.span);
                 self.erase_alias(v);
                 let x = ExprKind::Negate(Box::new(e2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4094,46 +4078,15 @@ impl TypeResolver {
                         ));
                     }
                 }
-                // Overloaded numeric operators prefer `int` when
-                // unconstrained (Standard ML semantics). Add a fresh
-                // element-type variable and record it in `preferred_vars`
-                // so that, if still free after unification, it defaults
-                // to `int`. Arithmetic ops (+, -, *, ~) return the element
-                // type; comparison ops (<, <=, >, >=) return `bool`.
-                let arith = matches!(
-                    name.as_str(),
-                    "+" | "-" | "*" | "~" | "div" | "mod"
-                );
-                let compare = matches!(name.as_str(), "<" | "<=" | ">" | ">=");
-                if arith || compare {
-                    let v_elem = self.variable();
-                    let v_arg = if name == "~" {
-                        Term::Variable(v_elem)
-                    } else {
-                        let seq = self.unifier.apply2(
-                            self.tuple_op,
-                            Term::Variable(v_elem),
-                            Term::Variable(v_elem),
-                        );
-                        Term::Sequence(seq)
-                    };
-                    let result_term = if compare {
-                        let v_bool = self.variable();
-                        self.primitive_term(&PrimitiveType::Bool, &v_bool);
-                        Term::Variable(v_bool)
-                    } else {
-                        Term::Variable(v_elem)
-                    };
-                    let fn_seq =
-                        self.unifier.apply2(self.fn_op, v_arg, result_term);
-                    self.equiv(&Term::Sequence(fn_seq), v);
-                    self.preferred_vars.push(v_elem);
-                }
+                // An overloaded operator section, `op +`, prefers its
+                // table type when unconstrained; `op <` has none and stays
+                // polymorphic.
+                self.prefer_operator_value(&op_name, v);
                 self.reg_expr(&expr.kind, &expr.span, expr.id, v)
             }
             ExprKind::OrElse(left, right) => {
                 let (left2, right2) =
-                    self.deduce_call2_type(env, "op orelse", left, right, v)?;
+                    self.deduce_connective_type(env, left, right, v)?;
                 let x = ExprKind::OrElse(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
@@ -4156,8 +4109,7 @@ impl TypeResolver {
             ExprKind::Plus(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op +", left, right, v)?;
-                self.note_arithmetic("+", v, &expr.span);
-                self.preferred_vars.push(*v);
+                self.note_operator("op +", v, &expr.span);
                 self.erase_alias(v);
                 let x = ExprKind::Plus(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4275,8 +4227,7 @@ impl TypeResolver {
             ExprKind::Times(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op *", left, right, v)?;
-                self.note_arithmetic("*", v, &expr.span);
-                self.preferred_vars.push(*v);
+                self.note_operator("op *", v, &expr.span);
                 self.erase_alias(v);
                 let x = ExprKind::Times(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4552,41 +4503,74 @@ impl TypeResolver {
     /// Records that an arithmetic operator was applied to operands of the
     /// type `v` stands for, so that [`Self::check_arithmetic`] can say so
     /// if the type turns out to be one the operator is not defined for.
-    fn note_arithmetic(&mut self, op: &'static str, v: &Var, span: &Span) {
-        self.arithmetic.push((op, *v, span.clone()));
+    /// Notes an application of a built-in operator whose result has
+    /// variable `v`. If the operator is overloaded -- its table entry has
+    /// a preferred type -- the type it is applied at defaults to that type
+    /// when nothing else decides it, and is checked after unification
+    /// against the types the operator is defined for; see
+    /// [`Self::check_arithmetic`]. Any other operator needs neither.
+    fn note_operator(&mut self, name: &str, v: &Var, span: &Span) {
+        if let Some(library::BuiltIn::Fn(f)) = library::lookup(name)
+            && let Some(prim) = f.preferred_type()
+        {
+            let op = self.unifier.op(prim.as_str(), Some(0));
+            self.preferred_vars.push((*v, op));
+            self.arithmetic.push((f, *v, span.clone()));
+        }
     }
 
-    /// Reports each arithmetic operator applied to a type it is not
-    /// defined for. `+`, `-`, `*` and `~` are defined for `int`, `real`
-    /// and `word`; `div` and `mod` for the two that are whole.
+    /// Gives an overloaded operator used as a value -- `abs`, `op +` -- a
+    /// fresh element type that defaults to the operator's preferred type,
+    /// and erases any alias from it: the operator computes a value the
+    /// argument's type has not been shown to contain.
+    fn prefer_operator_value(&mut self, name: &str, v: &Var) {
+        if let Some(library::BuiltIn::Fn(f)) = library::lookup(name)
+            && let Some(prim) = f.preferred_type()
+        {
+            let v_elem = self.variable();
+            let v_arg = if f.takes_pair() {
+                let seq = self.unifier.apply2(
+                    self.tuple_op,
+                    Term::Variable(v_elem),
+                    Term::Variable(v_elem),
+                );
+                Term::Sequence(seq)
+            } else {
+                Term::Variable(v_elem)
+            };
+            let fn_seq =
+                self.unifier
+                    .apply2(self.fn_op, v_arg, Term::Variable(v_elem));
+            self.equiv(&Term::Sequence(fn_seq), v);
+            let op = self.unifier.op(prim.as_str(), Some(0));
+            self.preferred_vars.push((v_elem, op));
+            self.erase_alias(&v_elem);
+        }
+    }
+
+    /// Reports each overloaded operator applied to a type it is not
+    /// defined for. The types come from the operator's `domain` prop in
+    /// the built-in table.
     ///
     /// The check waits for unification because the operands' type is a
     /// variable until then. A type that is still a variable is left
     /// alone: the operator does not say which of its types was meant,
     /// and `preferred_vars` has already defaulted what it could.
     fn check_arithmetic(&self, type_map: &TypeMap) {
-        for (op, v, span) in &self.arithmetic {
+        for (f, v, span) in &self.arithmetic {
             let type_ = type_map.var_type(v);
-            let ok = match (*op, peel_type(&type_)) {
-                (_, Type::Variable(_)) => true,
-                ("div" | "mod", t) => matches!(
-                    t,
-                    Type::Primitive(PrimitiveType::Int | PrimitiveType::Word)
-                ),
-                (_, t) => matches!(
-                    t,
-                    Type::Primitive(
-                        PrimitiveType::Int
-                            | PrimitiveType::Real
-                            | PrimitiveType::Word
-                    )
-                ),
+            let ok = match peel_type(&type_) {
+                Type::Variable(_) => true,
+                Type::Primitive(p) => f.overload_domain().contains(p),
+                _ => false,
             };
             if !ok {
+                let name = f.name();
                 self.field_errors.borrow_mut().push((
                     format!(
                         "operator '{}' is not defined for type '{}'",
-                        op, type_
+                        name.strip_prefix("op ").unwrap_or(name),
+                        type_
                     ),
                     span.clone(),
                 ));
@@ -6743,16 +6727,25 @@ impl TypeResolver {
         Ok(arg2)
     }
 
-    /// Marks the type variable of the given expression as preferring `int`
-    /// when unconstrained. Used by overloaded comparison operators whose
-    /// result type is `bool` (so the expression's own variable is not the
-    /// element type).
-    fn prefer_left_int(&mut self, left: &Expr) {
-        if let Some(id) = left.id
-            && let Some(&v_elem) = self.node_var_map.get(&id)
-        {
-            self.preferred_vars.push(v_elem);
-        }
+    /// Deduces the type of a connective, `p andalso q`: both operands and
+    /// the result are `bool`. A connective is syntax, not a function --
+    /// there is no `op andalso`, in Standard ML or in morel-java -- so it
+    /// does not go through the environment.
+    fn deduce_connective_type(
+        &mut self,
+        env: &dyn TypeEnv,
+        left: &Expr,
+        right: &Expr,
+        v: &Var,
+    ) -> Result<(Expr, Expr), Error> {
+        let v_left = self.variable();
+        self.primitive_term(&PrimitiveType::Bool, &v_left);
+        let left2 = self.deduce_expr_type(env, left, &v_left)?;
+        let v_right = self.variable();
+        self.primitive_term(&PrimitiveType::Bool, &v_right);
+        let right2 = self.deduce_expr_type(env, right, &v_right)?;
+        self.primitive_term(&PrimitiveType::Bool, v);
+        Ok((left2, right2))
     }
 
     fn deduce_call2_type(
@@ -8714,8 +8707,9 @@ impl TypeResolver {
                 )
             }
             PatKind::Cons(left, right) => {
-                let (left2, right2) = self
-                    .deduce_pat_call2_type(env, "::", left, right, term_map, v);
+                let (left2, right2) = self.deduce_pat_call2_type(
+                    env, "op ::", left, right, term_map, v,
+                );
                 let x = PatKind::Cons(Box::new(left2), Box::new(right2));
                 self.reg_pat(&x, &pat.span, pat.id, &v)
             }

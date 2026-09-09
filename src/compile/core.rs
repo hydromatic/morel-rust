@@ -245,32 +245,16 @@ impl Display for Expr {
                 write!(f, "({} over {})", a0, a1)
             }
             Expr::Apply(_, fx, arg, _) => {
-                // Render `Apply(Lit(Val::Fn(op)), Tuple([a, b]))` as
-                // `a op b` when `op` has a symbolic name (e.g. `+`,
-                // `^`, `=`). Mirrors morel-java's unparser for
-                // operator applications.
+                // `Apply(Lit(Val::Fn(op)), Tuple([a, b]))` is written
+                // `a op b` when `op` has an infix form, and as a call
+                // otherwise: `x + 1`, but `#* Int (x, 2)`. The set is
+                // morel-java's (see `BuiltInFunction::infix_op`).
                 if let Expr::Literal(_, Val::Fn(func)) = fx.as_ref()
                     && let Expr::Tuple(_, args) = arg.as_ref()
                     && args.len() == 2
+                    && let Some(op) = func.infix_op()
                 {
-                    let name = func.name();
-                    let symbolic = !name.is_empty()
-                        && name
-                            .chars()
-                            .all(|c| !c.is_alphanumeric() && c != '_');
-                    if symbolic {
-                        // A symbolic operator resolved to a specific
-                        // structure member (e.g. word's `+`, which is
-                        // `Word.+`) unparses as `#+ Word (a, b)`, mirroring
-                        // morel-java. The default numeric instances (int,
-                        // real) stay infix.
-                        if let Some(p) = func.parent()
-                            && p == "Word"
-                        {
-                            return write!(f, "#{} {} {}", name, p, arg);
-                        }
-                        return write!(f, "{} {} {}", args[0], name, args[1]);
-                    }
+                    return write!(f, "{} {} {}", args[0], op, args[1]);
                 }
                 // An argument is bracketed unless it is written as an
                 // atom already: a name, a literal, or something that

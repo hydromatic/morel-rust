@@ -399,6 +399,22 @@ impl Val {
             Val::Fn(built_in_fn) => {
                 let impl_ = LIBRARY.with(|lib| lib.fn_impl(*built_in_fn));
                 match &impl_ {
+                    // A polymorphic operator used as a value, such as
+                    // `op <` passed to `List.map`. Mirrors
+                    // `Code::NativeCustom`: a unary one takes its
+                    // argument as is, a binary one takes a pair.
+                    Impl::Custom(custom) => {
+                        use crate::eval::code::Custom;
+                        if matches!(custom, Custom::GAbs | Custom::GNegate) {
+                            Ok(custom.apply(arg.clone(), Val::Unit))
+                        } else if let Val::List(args) = arg
+                            && args.len() == 2
+                        {
+                            Ok(custom.apply(args[0].clone(), args[1].clone()))
+                        } else {
+                            panic!("Expected pair argument for {:?}", custom)
+                        }
+                    }
                     Impl::E1(eager1) => Ok(eager1.apply(arg.clone())),
                     Impl::EF1(eagerf1) => {
                         eagerf1.apply(r, f, arg.clone(), None)
@@ -455,31 +471,20 @@ impl Display for Val {
             Val::Doc(_) => write!(f, "-"),
             Val::File(file) => write!(f, "{}", file::display_file(file)),
             Val::Fn(func) => {
+                // Written as morel-java's unparser writes a built-in:
+                // `not` bare; a constructor (`SOME`, `LESS`) bare, since
+                // it is resolved without its structure name; any other
+                // structure member in record-selector form, `#size
+                // String` or `#* Int`, because in core a call like
+                // `String.size x` is `#size String x`; and a top-level
+                // name as it is, `abs` or `op <`.
                 let name = func.name();
-                // Symbolic operator names (e.g. `^`, `+`, `=`) are shown
-                // as `op name`. Constructor names (e.g. `SOME`, `INL`,
-                // `LESS`) are shown unqualified — they're parsed and
-                // resolved without their structure name. Other
-                // alphabetic names use the record-selector form
-                // `#name Package` (e.g. `#size String`, `#set Sys`)
-                // when they have a structure prefix; otherwise they
-                // are shown bare. Mirrors morel-java's unparser, which
-                // keeps the record-selector form because in core a
-                // call like `String.size x` is `#size String x`.
-                if name.is_empty()
-                    || name
-                        .chars()
-                        .all(|c| c.is_alphanumeric() || c == '.' || c == '_')
-                {
-                    if func.is_constructor() {
-                        write!(f, "{}", name)
-                    } else if let Some(p) = func.package() {
-                        write!(f, "#{} {}", name, p)
-                    } else {
-                        write!(f, "{}", name)
-                    }
+                if func == &BuiltInFunction::BoolNot || func.is_constructor() {
+                    write!(f, "{}", name)
+                } else if let Some(p) = func.package() {
+                    write!(f, "#{} {}", name, p)
                 } else {
-                    write!(f, "op {}", name)
+                    write!(f, "{}", name)
                 }
             }
             Val::Inl(v) => write!(f, "INL {}", v),

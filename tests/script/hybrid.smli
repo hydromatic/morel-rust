@@ -88,7 +88,7 @@ set("mode", "validate");
 > val it = () : unit
 Sys.plan();
 > val it =
->   "let(matchCode0 match(ten, apply2(fnValue +, constant(7), constant(3))), resultCode calcite(plan LogicalProject($f0=[+($2, MOD(13, morelScalar('ten', '{\n  \"type\": \"INTEGER\",\n  \"nullable\": false\n}')))])\n  LogicalFilter(condition=[=($1, morelScalar('#nth List (ten :: 20 :: 30 :: [40], 1)', '{\n  \"type\": \"INTEGER\",\n  \"nullable\": false\n}'))])\n    LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n      JdbcTableScan(table=[[scott, EMP]])\n))"
+>   "let(matchCode0 match(ten, apply2(fnValue Int.+, constant(7), constant(3))), resultCode calcite(plan LogicalProject($f0=[+($2, MOD(13, morelScalar('ten', '{\n  \"type\": \"INTEGER\",\n  \"nullable\": false\n}')))])\n  LogicalFilter(condition=[=($1, morelScalar('#nth List (ten :: 20 :: 30 :: [40], 1)', '{\n  \"type\": \"INTEGER\",\n  \"nullable\": false\n}'))])\n    LogicalProject(comm=[$6], deptno=[$7], empno=[$0], ename=[$1], hiredate=[$4], job=[$2], mgr=[$3], sal=[$5])\n      JdbcTableScan(table=[[scott, EMP]])\n))"
 >   : string
 set("mode", "evaluate");
 > val it = () : unit
@@ -158,7 +158,7 @@ set("mode", "validate");
 > val it = () : unit
 Sys.plan();
 > val it =
->   "apply2(fnValue List.map, match(e, tuple(apply2(fnValue +, constant(1), get(name e)), constant(true))), calcite(plan LogicalValues(tuples=[[]])\n))"
+>   "apply2(fnValue List.map, match(e, tuple(apply2(fnValue Int.+, constant(1), get(name e)), constant(true))), calcite(plan LogicalValues(tuples=[[]])\n))"
 >   : string
 set("mode", "evaluate");
 > val it = () : unit

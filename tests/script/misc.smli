@@ -28,7 +28,7 @@
 
 (*) Number of values in initial environment.
 val eLen = List.length (Sys.env());
-> val eLen = 103 : int
+> val eLen = 186 : int
 
 (*) Now we have one more (due to "eLen").
 List.length (Sys.env()) - eLen;
@@ -37,7 +37,7 @@ List.length (Sys.env()) - eLen;
 List.length (Sys.env()) - eLen;
 > val it = 2 : int
 List.last (Sys.env());
-> val it = ("true","bool") : string * string
+> val it = ("vector","forall 'a. 'a list -> 'a vector") : string * string
 
 (*) Define 3 variables.
 val (x,y,z) = (1,2,3);
@@ -63,9 +63,9 @@ Sys.clearEnv();
 > val it = () : unit
 (*) Back down to the original eLen plus one (for "it").
 List.length (Sys.env());
-> val it = 104 : int
+> val it = 187 : int
 List.last (Sys.env());
-> val it = ("true","bool") : string * string
+> val it = ("vector","forall 'a. 'a list -> 'a vector") : string * string
 
 (* -------------------------------------------------------------------
  * Setting properties whose values are enums

@@ -678,7 +678,7 @@ abs ~5.0;
 (* "op <" : numtext (int, real, string, char, word). Word is unsigned, so a
  * word with the high bit set is large. *)
 op <;
-> val it = fn : int * int -> bool
+> val it = fn : 'a * 'a -> bool
 1 < 2;
 > val it = true : bool
 1.0 < 2.0;
@@ -694,7 +694,7 @@ op <;
 
 (* "op >" : numtext (int, real, string, char, word). *)
 op >;
-> val it = fn : int * int -> bool
+> val it = fn : 'a * 'a -> bool
 2 > 1;
 > val it = true : bool
 2.0 > 1.0;
@@ -708,7 +708,7 @@ op >;
 
 (* "op <=" : numtext (int, real, string, char, word). *)
 op <=;
-> val it = fn : int * int -> bool
+> val it = fn : 'a * 'a -> bool
 2 <= 2;
 > val it = true : bool
 2.0 <= 2.0;
@@ -722,7 +722,7 @@ op <=;
 
 (* "op >=" : numtext (int, real, string, char, word). *)
 op >=;
-> val it = fn : int * int -> bool
+> val it = fn : 'a * 'a -> bool
 2 >= 3;
 > val it = false : bool
 2.0 >= 3.0;

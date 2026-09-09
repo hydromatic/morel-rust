@@ -34,6 +34,11 @@ pub fn string_to_type(code: &str) -> Rc<Type> {
 /// instead of panicking. The error string is human-readable and not
 /// stable.
 pub fn try_string_to_type(code: &str) -> Result<Rc<Type>, String> {
+    // The progressive empty record, the type of `Sys.file` before any
+    // field has been read; the type syntax has no other spelling for it.
+    if code == "{...}" {
+        return Ok(Rc::new(Type::Record(true, Default::default())));
+    }
     let type_scheme = parser::parse_type_scheme(code)
         .map_err(|e| format!("parse error: {}", e))?;
     let mut type_builder = TypeBuilder::new();

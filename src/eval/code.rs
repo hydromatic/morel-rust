@@ -2016,7 +2016,9 @@ impl Display for Code {
             Self::Compare(_, a, b) => write!(f, "compare({}, {})", a, b),
             Self::Constant(_, v) => match v {
                 Val::Char(c) => write!(f, "constant({})", c),
-                Val::Fn(fun) => write!(f, "constant({})", fun.full_name()),
+                Val::Fn(fun) => {
+                    write!(f, "constant({})", plan_label(&format!("{:?}", fun)))
+                }
                 Val::Real(x) => {
                     write!(f, "constant({})", real_plan_constant(*x))
                 }
@@ -2719,30 +2721,53 @@ impl EagerF0 {
                     }
                 }
 
-                // Add constructors. Skip synthetic
-                // continuous_set / discrete_set wrapper constructors,
-                // which aren't surface-level visible.
+                // Add the constructors, and the globals: a top-level
+                // built-in such as `abs` or `op +`, and a structure member
+                // under its global name -- `length` for `List.length`,
+                // `op /` for `Real./`, `only` for `Bag.only` and
+                // `List.only`. A name bound more than once is listed
+                // once, with the type of the first in table order. A
+                // user's binding then shadows a built-in of its name.
+                let mut env: BTreeMap<String, String> =
+                    pairs.into_iter().collect();
                 for f in BuiltInFunction::iter() {
-                    if f.is_constructor()
-                        && !matches!(
-                            f.datatype(),
-                            Some("continuous_set") | Some("discrete_set")
-                        )
+                    // A hidden structure's globals are hidden with it.
+                    if let Some(p) = f.parent()
+                        && exclude.as_ref().is_some_and(|re| re.is_match(p))
                     {
-                        pairs.push((
-                            f.name().to_string(),
-                            format!("{}", f.get_type()),
-                        ));
+                        continue;
+                    }
+                    let names = if f.is_constructor() {
+                        vec![f.name()]
+                    } else {
+                        f.global_names()
+                    };
+                    let t = f.get_type();
+                    // A nullary constructor of a datatype, `NONE`, is
+                    // bound to a value of the datatype, `'a option`,
+                    // not to a scheme; `nil` is a value of a built-in
+                    // type, and keeps its `forall`.
+                    let t = match t.as_ref() {
+                        Type::Forall(inner, _)
+                            if f.is_nullary_constructor()
+                                && f.datatype().is_some_and(|d| {
+                                    library::BuiltInDatatype::from_name(d)
+                                        .is_some()
+                                }) =>
+                        {
+                            format!("{}", inner)
+                        }
+                        _ => format!("{}", t),
+                    };
+                    for name in names {
+                        env.entry(name.to_string())
+                            .or_insert_with(|| t.clone());
                     }
                 }
-
-                // Add user-defined variables from type_bindings.
                 for (name, (ty, _is_con)) in &r.session.type_bindings {
-                    pairs.push((name.clone(), format!("{}", ty)));
+                    env.insert(name.clone(), format!("{}", ty));
                 }
-
-                // Sort by name for consistent output.
-                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                let pairs: Vec<(String, String)> = env.into_iter().collect();
 
                 // Convert to Val::List of tuples (represented as lists).
                 let vals: Vec<Val> = pairs
@@ -4849,7 +4874,7 @@ pub enum Custom {
 impl Custom {
     // Passing Val by value is OK because it is small.
     #[allow(clippy::needless_pass_by_value)]
-    fn apply(&self, a0: Val, a1: Val) -> Val {
+    pub(crate) fn apply(&self, a0: Val, a1: Val) -> Val {
         #[expect(clippy::enum_glob_use)]
         use crate::eval::code::Custom::*;
 
@@ -5036,8 +5061,18 @@ fn plan_label(variant: &str) -> String {
         "BagTl" => "ListTl",
         other => other,
     };
-    BuiltInFunction::from_str(variant)
-        .map_or_else(|_| variant.to_string(), |b| b.full_name())
+    BuiltInFunction::from_str(variant).map_or_else(
+        |_| variant.to_string(),
+        |b| {
+            // A global operator's canonical name is `op +`; a plan shows
+            // it bare, as morel-java's does.
+            let full_name = b.full_name();
+            match full_name.strip_prefix("op ") {
+                Some(bare) => bare.to_string(),
+                None => full_name,
+            }
+        },
+    )
 }
 
 pub struct Lib {
@@ -5805,8 +5840,6 @@ impl LibBuilder {
         > = BTreeMap::new();
         for f in BuiltInFunction::iter() {
             let type_code = f.get_str("type").expect("type");
-            let name = f.get_str("name").expect("name");
-            let global = f.is_global();
 
             let t = intern_rc(type_parser::string_to_type(type_code));
             if let Some(fn_impl) = self.fn_impls.remove(&f) {
@@ -5815,8 +5848,9 @@ impl LibBuilder {
                 panic!("missing implementation for {:?}", f);
             }
 
-            if global {
-                name_to_built_in.insert(name.to_string(), BuiltIn::Fn(f));
+            for global_name in f.global_names() {
+                name_to_built_in
+                    .insert(global_name.to_string(), BuiltIn::Fn(f));
             }
 
             if let Some((parent, name)) = BuiltIn::Fn(f).heritage()
