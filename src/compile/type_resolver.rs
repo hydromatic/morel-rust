@@ -3642,6 +3642,12 @@ impl TypeResolver {
                 let x = ExprKind::Check(Box::new(e2), deduced);
                 self.reg_expr(&x, &expr.span, expr.id, v)
             }
+            ExprKind::Compose(left, right) => {
+                let (left2, right2) =
+                    self.deduce_call2_type(env, "op o", left, right, v)?;
+                let x = ExprKind::Compose(Box::new(left2), Box::new(right2));
+                self.reg_expr(&x, &expr.span, expr.id, v)
+            }
             ExprKind::Cons(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op ::", left, right, v)?;

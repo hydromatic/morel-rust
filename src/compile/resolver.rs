@@ -2107,6 +2107,9 @@ impl<'a> Resolver<'a> {
                 );
                 self.checked(value, &claimed, &span)
             }
+            ExprKind::Compose(a0, a1) => {
+                self.call2(t, BuiltInFunction::GeneralO, &span, a0, a1)
+            }
             ExprKind::Cons(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListCons, &span, a0, a1)
             }

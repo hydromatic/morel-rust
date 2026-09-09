@@ -1031,7 +1031,7 @@ pub enum BuiltInFunction {
     #[strum(props(p = "Range", name = "complement"))]
     #[strum(props(type = "forall 1 'a continuous_set -> 'a continuous_set"))]
     RangeCsComplement,
-    #[strum(props(name = "$csContains"))]
+    #[strum(props(name = "$csContains", global = true))]
     #[strum(props(type = "forall 1 'a continuous_set -> 'a -> bool"))]
     RangeCsContains,
     #[strum(props(p = "Range", name = "continuousSetOf"))]
@@ -1047,10 +1047,10 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a range list -> 'a discrete_set"))]
     #[strum(props(constructor_ordinal = "0"))]
     RangeDiscreteSet,
-    #[strum(props(name = "$dsComplement"))]
+    #[strum(props(name = "$dsComplement", global = true))]
     #[strum(props(type = "forall 1 'a discrete_set -> 'a discrete_set"))]
     RangeDsComplement,
-    #[strum(props(name = "$dsContains"))]
+    #[strum(props(name = "$dsContains", global = true))]
     #[strum(props(type = "forall 1 'a discrete_set -> 'a -> bool"))]
     RangeDsContains,
     #[strum(props(p = "Range", name = "discreteSetOf"))]
