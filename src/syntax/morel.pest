@@ -744,7 +744,11 @@ string_char = { !("\"" | "\\") ~ ANY }
 string_escape = @{
     "\\" ~ ("\\" | "\"" | "a" | "b" | "t" | "n" | "v" | "f" | "r") |
     "\\" ~ "^" ~ ('@'..'^') |
-    "\\" ~ ASCII_DIGIT{3}
+    "\\" ~ ASCII_DIGIT{3} |
+    // A backslash at the end of a line continues the string on the
+    // next line; the newline and the spaces and tabs that begin the
+    // next line are ignored.
+    "\\" ~ "\r"? ~ "\n" ~ (" " | "\t")*
 }
 
 char_literal = @{ "#" ~ string_literal }

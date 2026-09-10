@@ -2649,7 +2649,9 @@ pub fn unquote_string(s: &str) -> Result<String, String> {
     let mut result = String::new();
 
     while parser.i < parser.s.len() {
-        result.push(parser.parse_char()?);
+        if let Some(c) = parser.parse_char()? {
+            result.push(c);
+        }
     }
     Ok(result)
 }
@@ -2667,7 +2669,7 @@ pub fn unquote_char_literal(s: &str) -> Result<char, String> {
     if parser.i != inner.len() {
         return Err("Error: character literal not length 1".to_string());
     }
-    Ok(c)
+    c.ok_or_else(|| "Error: character literal not length 1".to_string())
 }
 
 /// Given string "a" returns a.
@@ -2677,7 +2679,7 @@ pub fn from_string(s: &str) -> Option<char> {
         return None;
     }
     let mut parser = StringParser::new(s);
-    parser.parse_char().ok()
+    parser.parse_char().ok().flatten()
 }
 
 /// Converts a character to how it appears in a character literal.
@@ -2851,9 +2853,11 @@ impl<'a> StringParser<'a> {
         StringParser { s, i: 0 }
     }
 
-    /// Parses a single character in a string literal or character literal.
-    /// Advances i to the next character in the string.
-    fn parse_char(&mut self) -> Result<char, String> {
+    /// Parses a single character in a string literal or character
+    /// literal. Advances i to the next character in the string. Returns
+    /// `None` if there is no character: the escape was a line
+    /// continuation, and it ended the string.
+    fn parse_char(&mut self) -> Result<Option<char>, String> {
         if self.i >= self.s.len() {
             return Err("Unexpected end of string".to_string());
         }
@@ -2863,7 +2867,7 @@ impl<'a> StringParser<'a> {
         self.i += 1;
 
         if c != '\\' {
-            return Ok(c);
+            return Ok(Some(c));
         }
 
         if self.i >= chars.len() {
@@ -2874,14 +2878,30 @@ impl<'a> StringParser<'a> {
         self.i += 1;
 
         match c2 {
-            '"' | '\\' => Ok(c2),
-            'a' => Ok('\u{0007}'), // Alert (ASCII 0x07)
-            'b' => Ok('\u{0008}'), // Backspace (ASCII 0x08)
-            't' => Ok('\t'),       // Horizontal tab (ASCII 0x09)
-            'n' => Ok('\n'),       // Linefeed or newline (ASCII 0x0A)
-            'v' => Ok('\u{000B}'), // Vertical tab (ASCII 0x0B)
-            'f' => Ok('\u{000C}'), // Form feed (ASCII 0x0C)
-            'r' => Ok('\r'),       // Carriage return (ASCII 0x0D)
+            '"' | '\\' => Ok(Some(c2)),
+            '\r' | '\n' => {
+                // Line continuation: a backslash at the end of a line.
+                // The newline (or carriage return and newline) and the
+                // spaces and tabs that begin the next line are ignored.
+                if c2 == '\r' && chars.get(self.i) == Some(&'\n') {
+                    self.i += 1;
+                }
+                while matches!(chars.get(self.i), Some(' ') | Some('\t')) {
+                    self.i += 1;
+                }
+                if self.i < chars.len() {
+                    self.parse_char()
+                } else {
+                    Ok(None)
+                }
+            }
+            'a' => Ok(Some('\u{0007}')), // Alert (ASCII 0x07)
+            'b' => Ok(Some('\u{0008}')), // Backspace (ASCII 0x08)
+            't' => Ok(Some('\t')),       // Horizontal tab (ASCII 0x09)
+            'n' => Ok(Some('\n')),       // Linefeed or newline (ASCII 0x0A)
+            'v' => Ok(Some('\u{000B}')), // Vertical tab (ASCII 0x0B)
+            'f' => Ok(Some('\u{000C}')), // Form feed (ASCII 0x0C)
+            'r' => Ok(Some('\r')),       // Carriage return (ASCII 0x0D)
             '0'..='9' => {
                 if self.i + 2 <= chars.len() {
                     let c3 = chars[self.i];
@@ -2893,7 +2913,7 @@ impl<'a> StringParser<'a> {
                         let d4 = (c4 as u8 - b'0') as u32;
                         let code = d2 * 100 + d3 * 10 + d4;
                         if code <= 255 {
-                            return Ok(code as u8 as char);
+                            return Ok(Some(code as u8 as char));
                         }
                     }
                 }
@@ -2909,7 +2929,7 @@ impl<'a> StringParser<'a> {
                 if ('@'..='_').contains(&c3) {
                     // Characters "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
                     // are contiguous.
-                    Ok((c3 as u8 - b'@') as char)
+                    Ok(Some((c3 as u8 - b'@') as char))
                 } else {
                     Err(concat!(
                         "illegal control escape; must be one of ",
@@ -3006,6 +3026,29 @@ mod test {
         }
     }
 
+    /// A backslash at the end of a line continues a string literal: it,
+    /// the newline, and the spaces and tabs that begin the next line are
+    /// ignored. A bare newline is still part of the string.
+    #[test]
+    fn string_line_continuation() {
+        let u = |s: &str| unquote_string(s).unwrap();
+        assert_eq!(u("\"a\\\nb\""), "ab");
+        assert_eq!(u("\"a\\\n   b\""), "ab");
+        assert_eq!(u("\"a\\\n\t b\""), "ab");
+        assert_eq!(u("\"a\\\r\n  b\""), "ab");
+        // A continuation that ends the string contributes nothing.
+        assert_eq!(u("\"a\\\n   \""), "a");
+        // Several continuations, as in a long string split over lines.
+        assert_eq!(
+            u("\"This is a very \\\n  long string split \\\n  across lines.\""),
+            "This is a very long string split across lines."
+        );
+        // A bare newline is content; other escapes are unaffected.
+        assert_eq!(u("\"a\nb\""), "a\nb");
+        assert_eq!(u("\"a\\nb\""), "a\nb");
+        // A character literal may carry a continuation too.
+        assert_eq!(super::unquote_char_literal("#\"\\\n  a\"").unwrap(), 'a');
+    }
     #[test]
     fn test_parse_literal() {
         ml("1").assert_parse(Rule::literal);
