@@ -92,6 +92,22 @@ Add three new read-only properties to the Sys structure.
 Fixes #30
 ```
 
+## Test scripts
+
+The `.smli` format, the harness and the rules by which output is
+matched are described in morel-java's `docs/script-format.md`, which is
+the contract that all three implementations share.
+
+In expected output, a top-level string value that contains a newline,
+has no space before a newline, and is otherwise printable ASCII is
+written as a raw string literal, `{|...|}` (or `{id|...|id}` if the
+content contains `|}`, the tag being lower-case letters and
+underscores), with verbatim content; the `{_|` form, whose tag starts
+with an underscore and whose content starts on the next line (the
+newline after the fence is not content), is used when the second line
+starts with a space. The harness generates these forms, and
+`output_matcher` treats them as equivalent to the escaped literal.
+
 ## Quick experiments
 
 To run a single Morel expression from the shell, pass `-e` (or

@@ -212,8 +212,9 @@ Sys.parseTree "(** outer (* one (* two *) *) end *) val x = 1";
  * the embedded newline becomes part of the doc text. *)
 Sys.parseTree "(** outer (*) line\n  rest *) val x = 1";
 > val it =
->   "(attributedDecl (val (valBind (idPat x) (int_literal 1))) (attribute @@doc (string_literal \" outer (*) line\n  rest \")))"
->   : string
+>   {_|
+> (attributedDecl (val (valBind (idPat x) (int_literal 1))) (attribute @@doc (string_literal " outer (*) line
+>   rest ")))|_} : string
 
 (* --- Attributes are inert: code evaluates normally -------------- *)
 val x = 1 [@@deprecated];

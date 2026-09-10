@@ -181,6 +181,13 @@ impl<'a> ScriptRunner<'a> {
                     Ok(s) => s,
                     Err(e) => format!("{}\n", e),
                 };
+                // In a script, a top-level string value that contains a
+                // newline is written as a raw string literal.
+                let raw = if idempotent {
+                    output_matcher::to_raw_strings(&raw)
+                } else {
+                    raw
+                };
                 // In idempotent mode, if the actual output is
                 // semantically equivalent to the expected output
                 // (modulo whitespace and bag reordering), emit the
