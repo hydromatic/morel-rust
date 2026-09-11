@@ -4256,6 +4256,96 @@ fn topo_order(
     order
 }
 
+/// If a scan iterates over a list of numeric literals, adds conjuncts
+/// for the least and the greatest of them to `bounds`.
+fn list_bounds(pat: &Pat, source: &Expr, bounds: &mut Vec<Expr>) {
+    let Pat::Identifier(t, name) = pat else {
+        return;
+    };
+    if !matches!(t.as_ref(), Type::Primitive(PrimitiveType::Int)) {
+        return;
+    }
+    let values: Vec<i32> = match source {
+        Expr::List(_, elements) => {
+            let mut values = Vec::with_capacity(elements.len());
+            for e in elements {
+                match e {
+                    Expr::Literal(_, Val::Int(i)) => values.push(*i),
+                    // Not a constant, so we know nothing about the range.
+                    _ => return,
+                }
+            }
+            values
+        }
+        Expr::Literal(_, Val::List(items)) => {
+            let mut values = Vec::with_capacity(items.len());
+            for v in items.iter() {
+                match v {
+                    Val::Int(i) => values.push(*i),
+                    _ => return,
+                }
+            }
+            values
+        }
+        _ => return,
+    };
+    let (Some(min), Some(max)) =
+        (values.iter().min().copied(), values.iter().max().copied())
+    else {
+        return;
+    };
+    bounds.push(int_bound(name, t, BuiltInFunction::IntGe, min));
+    bounds.push(int_bound(name, t, BuiltInFunction::IntLe, max));
+}
+
+/// Builds the conjunct `name op value`.
+fn int_bound(
+    name: &str,
+    t: &Rc<Type>,
+    op: BuiltInFunction,
+    value: i32,
+) -> Expr {
+    let int_t = Rc::new(Type::Primitive(PrimitiveType::Int));
+    let bool_t = Rc::new(Type::Primitive(PrimitiveType::Bool));
+    let pair_t = Rc::new(Type::Tuple(vec![int_t.clone(), int_t.clone()]));
+    let fn_t = Rc::new(Type::Fn(pair_t.clone(), bool_t.clone()));
+    Expr::Apply(
+        bool_t,
+        Box::new(Expr::Literal(fn_t, Val::Fn(op))),
+        Box::new(Expr::Tuple(
+            pair_t,
+            vec![
+                Expr::Identifier(t.clone(), name.to_string()),
+                Expr::Literal(int_t, Val::Int(value)),
+            ],
+        )),
+        Span::new(""),
+    )
+}
+
+/// Returns the patterns that are not yet bound when we are looking for a
+/// generator: the patterns of the extent scans, plus the patterns of any
+/// scan that is correlated with them, directly or transitively.
+///
+/// A correlated scan such as `y in [x * 2]` cannot run until `x` has a
+/// generator, so `y` is no better than `x` as a bound for `x`; treating
+/// it as bound would let the generator extractor choose a pair of
+/// generators that depend on each other.
+fn ungrounded_pats(steps: &[Step]) -> BTreeSet<String> {
+    use crate::compile::free_finder::free_names_in;
+    let mut pats: BTreeSet<String> = BTreeSet::new();
+    for step in steps {
+        if let StepKind::Scan(p, source, _) = &step.kind
+            && let Pat::Identifier(_, name) = p.as_ref()
+            && (matches!(source.as_ref(), Expr::Extent(_, _))
+                || free_names_in(source).iter().any(|n| pats.contains(n)))
+        {
+            pats.insert(name.clone());
+        }
+    }
+    pats
+}
+
 fn derive_generators(
     steps: &[Step],
     cache: &mut Cache,
@@ -4292,6 +4382,22 @@ fn derive_generators(
         .collect();
     let unbounded_siblings: BTreeSet<String> =
         unbounded_pats.iter().map(|(n, _)| n.clone()).collect();
+    let ungrounded = ungrounded_pats(steps);
+
+    // A scan over a list of numbers, such as `z in [1, 2, 3]`, bounds
+    // `z`. FBBT needs to see those bounds, because they may bound
+    // another variable: `z` bounds `x` in
+    // `from z in [1, 2, 3], x, y where x + y = z`. They are input to
+    // FBBT only; the scan already expresses them, so as conjuncts they
+    // would be redundant filters.
+    let mut implied: Vec<Expr> = Vec::new();
+    for step in steps {
+        if let StepKind::Scan(p, source, _) = &step.kind
+            && !matches!(source.as_ref(), Expr::Extent(_, _))
+        {
+            list_bounds(p, source, &mut implied);
+        }
+    }
 
     // Feasibility-based bound tightening: deduce constant bounds for the
     // unbounded patterns (from `abs`, cross-variable, and multiplication
@@ -4299,7 +4405,12 @@ fn derive_generators(
     // patterns it otherwise couldn't. Prepending makes a deduced constant
     // bound win over a same-side cross-variable bound (which would create
     // a cyclic generator dependency).
-    let deduced = fbbt::strengthen(&unbounded_pats, &all_constraints);
+    let fbbt_constraints: Vec<Expr> = implied
+        .iter()
+        .chain(all_constraints.iter())
+        .cloned()
+        .collect();
+    let deduced = fbbt::strengthen(&unbounded_pats, &fbbt_constraints);
     if !deduced.is_empty() {
         let mut combined = deduced;
         combined.extend(all_constraints);
@@ -4330,6 +4441,7 @@ fn derive_generators(
                 datatypes,
                 outer_scope,
                 &unbounded_siblings,
+                &ungrounded,
             );
         }
     }

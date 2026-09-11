@@ -72,6 +72,7 @@ pub fn maybe_generator(
         datatypes,
         &empty,
         &empty,
+        &empty,
     )
 }
 
@@ -87,6 +88,7 @@ pub fn maybe_generator_with_scope(
     datatypes: &DatatypeMap,
     outer_scope: &BTreeSet<String>,
     unbounded_siblings: &BTreeSet<String>,
+    ungrounded: &BTreeSet<String>,
 ) -> bool {
     // The structural tests below ask what kind of type this is, and an
     // alias is whatever it abbreviates. The pattern's own type is kept
@@ -184,6 +186,7 @@ pub fn maybe_generator_with_scope(
     }
     if has_bounds && matches!(peeled, Type::Primitive(PrimitiveType::Int)) {
         return create_range_generator(
+            ungrounded,
             cache,
             pat,
             pat_name,
@@ -513,6 +516,7 @@ fn create_point_generator(
 }
 
 fn create_range_generator(
+    ungrounded: &BTreeSet<String>,
     cache: &mut Cache,
     pat: &Pat,
     pat_name: &str,
@@ -520,11 +524,11 @@ fn create_range_generator(
     constraints: &[Expr],
     unbounded_siblings: &BTreeSet<String>,
 ) -> bool {
-    let lower = match lower_bound(pat_name, constraints) {
+    let lower = match lower_bound(pat_name, constraints, ungrounded) {
         Some(l) => l,
         None => return false,
     };
-    let upper = match upper_bound(pat_name, constraints) {
+    let upper = match upper_bound(pat_name, constraints, ungrounded) {
         Some(u) => u,
         None => return false,
     };
@@ -2623,12 +2627,86 @@ fn references_other_sibling(
         .any(|n| n != pat_name && unbounded_siblings.contains(n))
 }
 
-/// Returns `(bound, strict)` for the pattern's lower bound, picking
-/// the first matching constraint. Strict means `>` (exclusive).
-fn lower_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
+/// How much we like the shape of a bound. The variants are in order of
+/// preference; see [`choose_bound`].
+#[derive(Copy, Clone, PartialEq)]
+enum Preference {
+    /// Mentions only variables that are bound already.
+    Grounded,
+    /// Mentions no variables.
+    Constant,
+    /// Anything.
+    Any,
+}
+
+/// Returns whether a bound expression is acceptable at a preference.
+fn acceptable(
+    bound: &Expr,
+    ungrounded: &BTreeSet<String>,
+    preference: Preference,
+) -> bool {
+    let free = free_names_in(bound);
+    match preference {
+        Preference::Grounded => {
+            !free.is_empty() && free.iter().all(|n| !ungrounded.contains(n))
+        }
+        Preference::Constant => free.is_empty(),
+        Preference::Any => true,
+    }
+}
+
+/// Chooses a bound, in order of preference.
+///
+/// First, a bound that mentions only variables that are bound already,
+/// as `x` is in `from x in [3, 5, 7], y where y < x`. Such a bound
+/// generates `y` afresh for each `x`, which is tighter than any constant
+/// bound, and it cannot make a cycle, because `x` does not wait on `y`.
+///
+/// Failing that, a constant bound. It is independent of every other
+/// variable, and so is always safe.
+///
+/// Failing that, a bound of any shape, which may mention a variable that
+/// is itself waiting for a generator. Such a bound may make a cycle that
+/// generator scheduling cannot break, but it is better than no bound at
+/// all.
+fn choose_bound(
+    pat_name: &str,
+    constraints: &[Expr],
+    ungrounded: &BTreeSet<String>,
+    finder: fn(&str, &[Expr], &BTreeSet<String>, Preference) -> Option<Bound>,
+) -> Option<Bound> {
+    for preference in
+        [Preference::Grounded, Preference::Constant, Preference::Any]
+    {
+        if let Some(b) = finder(pat_name, constraints, ungrounded, preference) {
+            return Some(b);
+        }
+    }
+    None
+}
+
+/// Returns `(bound, strict)` for the pattern's lower bound. Strict means
+/// `>` (exclusive).
+fn lower_bound(
+    pat_name: &str,
+    constraints: &[Expr],
+    ungrounded: &BTreeSet<String>,
+) -> Option<Bound> {
+    choose_bound(pat_name, constraints, ungrounded, lower_bound1)
+}
+
+/// Helper for [`lower_bound`]: returns the first bound acceptable at
+/// `preference`.
+fn lower_bound1(
+    pat_name: &str,
+    constraints: &[Expr],
+    ungrounded: &BTreeSet<String>,
+    preference: Preference,
+) -> Option<Bound> {
     for c in constraints {
         if let Some((op, rhs)) = try_isolate_bound(c, pat_name)
             && (op == BuiltInFunction::IntGt || op == BuiltInFunction::IntGe)
+            && acceptable(&rhs, ungrounded, preference)
         {
             return Some(Bound {
                 bound: rhs,
@@ -2639,7 +2717,9 @@ fn lower_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
         // bound on `pat`.
         if let Some((_, bound)) = range_contains_bounds(c, pat_name)
             .into_iter()
-            .find(|(is_lower, _)| *is_lower)
+            .find(|(is_lower, b)| {
+                *is_lower && acceptable(&b.bound, ungrounded, preference)
+            })
         {
             return Some(bound);
         }
@@ -2648,11 +2728,27 @@ fn lower_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
 }
 
 /// Returns `(bound, strict)` for the pattern's upper bound. Strict
-/// means `<` (exclusive).
-fn upper_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
+/// means `<` (exclusive). Analogous to [`lower_bound`].
+fn upper_bound(
+    pat_name: &str,
+    constraints: &[Expr],
+    ungrounded: &BTreeSet<String>,
+) -> Option<Bound> {
+    choose_bound(pat_name, constraints, ungrounded, upper_bound1)
+}
+
+/// Helper for [`upper_bound`]: returns the first bound acceptable at
+/// `preference`.
+fn upper_bound1(
+    pat_name: &str,
+    constraints: &[Expr],
+    ungrounded: &BTreeSet<String>,
+    preference: Preference,
+) -> Option<Bound> {
     for c in constraints {
         if let Some((op, rhs)) = try_isolate_bound(c, pat_name)
             && (op == BuiltInFunction::IntLt || op == BuiltInFunction::IntLe)
+            && acceptable(&rhs, ungrounded, preference)
         {
             return Some(Bound {
                 bound: rhs,
@@ -2663,7 +2759,9 @@ fn upper_bound(pat_name: &str, constraints: &[Expr]) -> Option<Bound> {
         // bound on `pat`.
         if let Some((_, bound)) = range_contains_bounds(c, pat_name)
             .into_iter()
-            .find(|(is_lower, _)| !*is_lower)
+            .find(|(is_lower, b)| {
+                !*is_lower && acceptable(&b.bound, ungrounded, preference)
+            })
         {
             return Some(bound);
         }
