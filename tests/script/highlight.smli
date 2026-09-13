@@ -93,6 +93,9 @@ Test.highlight "1e~7";
 (*) A real may have both a fraction and an exponent.
 Test.highlight "1.5e~3";
 > val it = "mi{1.5e~3}" : string
+(*) A real may have both a fraction and an exponent.
+Test.highlight "1.5e~3";
+> val it = "mi{1.5e~3}" : string
 Test.highlight "0w7";
 > val it = "mi{0w7}" : string
 Test.highlight "0wx1F";
@@ -140,6 +143,9 @@ Test.highlight "\"a\\\"b\"";
 (*) Each of these is a prefix that the shell sees while the user types.
 Test.highlight "\"";
 > val it = "s2{\"}" : string
+(*) The state the buffer is in the moment a string escape is typed.
+Test.highlight "\"\\";
+> val it = "s2{\"\\}" : string
 (*) The state the buffer is in the moment a string escape is typed.
 Test.highlight "\"\\";
 > val it = "s2{\"\\}" : string

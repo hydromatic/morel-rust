@@ -1645,6 +1645,13 @@ from i in [1,2]
   group i compute {three = 1 + 2};
 > val it = [{i=1,three=3},{i=2,three=3}] : {i:int, three:int} list
 
+(* "compute" takes an expression, not a binder, so "compute c = e"
+ * is an equality whose left side is unbound; "group" and "yield"
+ * do allow a binder. *)
+from i in [1,2,3] group {} compute c = count over ();
+> stdIn:1.36 Error: unbound variable or constructor: c
+>   raised at: stdIn:1.36
+
 from i in [2,3,1,2]
   group i compute {elements};
 > val it = [{`elements`=[2,2],i=2},{`elements`=[3],i=3},{`elements`=[1],i=1}]
