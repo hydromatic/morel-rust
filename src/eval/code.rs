@@ -2806,7 +2806,7 @@ impl EagerF0 {
                 Val::String((s).into())
             }
             SysShowAll => {
-                // Return a list of (property_name, SOME value | NONE) pairs.
+                // Return a list of (property_name, value) pairs.
                 let props = Prop::all();
                 let vals: Vec<Val> = props
                     .iter()
@@ -3057,7 +3057,7 @@ impl EagerF1 {
                 Ok(Val::String((s).into()))
             }
             SysShow => {
-                // Return SOME(value) or NONE for the given property.
+                // Return the property's value, as a string.
                 let prop_name = a0.expect_string();
                 let prop = lookup_prop("show", prop_name, span)?;
                 Ok(shown_val(r, prop))
@@ -5775,13 +5775,20 @@ fn lookup_prop(
 }
 
 /// Returns a property's value as `Sys.show` and `Sys.showAll` report it:
-/// `SOME` of the value that `Sys.set` assigned, else `SOME` of the
-/// property's default value, else `NONE`.
+/// a string, always. A property of option type gives `SOME v` or `NONE`,
+/// so that what is shown is a value that `Sys.set` would accept; every
+/// other property gives its value alone.
 fn shown_val(r: &EvalEnv, prop: Prop) -> Val {
-    match r.session.config.shown(prop) {
-        Some(val) => Val::Some(Box::new(Val::String((val.to_string()).into()))),
-        None => Val::Unit, // NONE is represented as Unit
-    }
+    let shown = r.session.config.shown(prop);
+    let s = if prop.prop_type().option {
+        match shown {
+            Some(val) => format!("SOME {}", val),
+            None => "NONE".to_string(),
+        }
+    } else {
+        shown.map_or_else(String::new, |val| val.to_string())
+    };
+    Val::String(s.into())
 }
 
 /// Maps a runtime value of type `exn` to a [`BuiltInExn`] tag and an

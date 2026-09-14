@@ -32,6 +32,109 @@ pub trait Configurable {
     fn get(&self, prop: Prop) -> PropVal;
 }
 
+/// A property's Morel type: how the type is written, whether it
+/// admits `NONE`, and what it checks of a value.
+///
+/// The type is written as Morel writes it, conditions included --
+/// `(int check i => i >= 0) option` -- so that a condition is stated
+/// once, in the type, however many properties share it, and a value
+/// the property refuses is answered with the condition it failed.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct PropType {
+    /// The type as Morel writes it, conditions included.
+    pub name: &'static str,
+    /// Whether the type admits `NONE`.
+    pub option: bool,
+    /// The condition a value must satisfy. `NONE` is never offered to
+    /// it.
+    pub check: Check,
+}
+
+/// The condition a [`PropType`] checks of a value.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Check {
+    /// Every value of the type is admitted.
+    Any,
+    /// An `int` that must not be negative.
+    NonNegInt,
+    /// An `int` that must be positive.
+    PosInt,
+    /// An `IntInf.int` that must be positive.
+    PosIntInf,
+}
+
+impl PropType {
+    /// Returns whether `val` satisfies the condition this type checks.
+    /// A value of the wrong shape satisfies nothing.
+    pub fn checks(&self, val: &PropVal) -> bool {
+        match (self.check, val) {
+            (Check::Any, _) => true,
+            (Check::NonNegInt, PropVal::Int(i)) => *i >= 0,
+            (Check::PosInt, PropVal::Int(i)) => *i > 0,
+            (Check::PosIntInf, PropVal::BigInt(i)) => {
+                !i.is_zero() && !i.is_negative()
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The property types. A type that checks a condition names it, so the
+/// condition is written once however many properties share it.
+pub const T_BOOL: PropType = PropType {
+    name: "bool",
+    option: false,
+    check: Check::Any,
+};
+pub const T_ENUM: PropType = PropType {
+    name: "enum",
+    option: false,
+    check: Check::Any,
+};
+pub const T_FILE: PropType = PropType {
+    name: "file",
+    option: false,
+    check: Check::Any,
+};
+pub const T_INT: PropType = PropType {
+    name: "int",
+    option: false,
+    check: Check::Any,
+};
+pub const T_STRING: PropType = PropType {
+    name: "string",
+    option: false,
+    check: Check::Any,
+};
+pub const T_STRING_OPT: PropType = PropType {
+    name: "string option",
+    option: true,
+    check: Check::Any,
+};
+
+/// The type of a printing property that counts characters or elements:
+/// `NONE` is "no limit", and a count, if given, must not be negative.
+pub const T_NON_NEG_INT_OPT: PropType = PropType {
+    name: "(int check i => i >= 0) option",
+    option: true,
+    check: Check::NonNegInt,
+};
+
+/// The type of a printing property for which zero would mean nothing:
+/// `NONE` turns it off instead.
+pub const T_POS_INT_OPT: PropType = PropType {
+    name: "(int check i => i > 0) option",
+    option: true,
+    check: Check::PosInt,
+};
+
+/// The type of a count that may exceed an `int`, and must be positive.
+pub const T_POS_INT_INF: PropType = PropType {
+    name: "IntInf.int check i => i > 0",
+    option: false,
+    check: Check::PosIntInf,
+};
+
 /// Tagged value of a property.
 #[derive(Clone)]
 pub enum PropVal {
@@ -122,7 +225,7 @@ macro_rules! define_props {
             doc: $doc:literal,
             camel_name: $camel:literal,
             default: $default:expr,
-            required: $required:expr,
+            type: $type:expr,
         }
     ),* $(,)?) => {
         #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -148,10 +251,16 @@ macro_rules! define_props {
                 }
             }
 
-            /// Returns whether this property is required
+            /// Returns whether this property is required: whether its
+            /// type is not an option, and so admits no `NONE`.
             pub fn is_required(self) -> bool {
+                !self.prop_type().option
+            }
+
+            /// Returns the property's Morel type.
+            pub fn prop_type(self) -> PropType {
                 match self {
-                    $(Prop::$variant => $required,)*
+                    $(Prop::$variant => $type,)*
                 }
             }
 
@@ -159,6 +268,15 @@ macro_rules! define_props {
             pub fn default_value(self) -> PropVal {
                 match self {
                     $(Prop::$variant => $default.unwrap(),)*
+                }
+            }
+
+            /// Returns the default value of the property, or `None` if it
+            /// has none. A property of option type whose default is NONE
+            /// is one of those.
+            pub fn maybe_default_value(self) -> Option<PropVal> {
+                match self {
+                    $(Prop::$variant => $default,)*
                 }
             }
 
@@ -310,7 +428,7 @@ define_props! {
               read-only and should not be modified via Sys.set.",
         camel_name: "banner",
         default: Some(PropVal::String(Rc::new(create_banner()))),
-        required: true,
+        type: T_STRING,
     },
 
     ColorScheme => {
@@ -321,7 +439,7 @@ define_props! {
                environment (see Sys.deduceColorScheme).",
         camel_name: "colorScheme",
         default: None as Option<PropVal>,
-        required: false,
+        type: T_STRING_OPT,
     },
 
     Directory => {
@@ -332,7 +450,7 @@ define_props! {
                default value is the shell's current directory.",
         camel_name: "directory",
         default: Some(PropVal::String(Rc::new(String::new()))),
-        required: true,
+        type: T_FILE,
     },
 
     Echo => {
@@ -341,7 +459,7 @@ define_props! {
                 transcript-style output of script files.",
         camel_name: "echo",
         default: Some(PropVal::Bool(false)),
-        required: true,
+        type: T_BOOL,
     },
 
     ExcludeStructures => {
@@ -352,7 +470,7 @@ define_props! {
                structure.",
         camel_name: "excludeStructures",
         default: Some(PropVal::String(Rc::new(String::from("^Test$")))),
-        required: true,
+        type: T_STRING,
     },
 
     Hybrid => {
@@ -361,7 +479,7 @@ define_props! {
                algebra wherever possible. Default is false.",
         camel_name: "hybrid",
         default: Some(PropVal::Bool(false)),
-        required: true,
+        type: T_BOOL,
     },
 
     Idempotent => {
@@ -369,14 +487,14 @@ define_props! {
                 generates itself on successful execution.",
         camel_name: "idempotent",
         default: Some(PropVal::Bool(false)),
-        required: true,
+        type: T_BOOL,
     },
 
     InlinePassCount => {
         doc: "Maximum number of inlining passes.",
         camel_name: "inlinePassCount",
         default: Some(PropVal::Int(5)),
-        required: true,
+        type: T_INT,
     },
 
     LineWidth => {
@@ -386,7 +504,7 @@ define_props! {
                Library. Default is 79.",
         camel_name: "lineWidth",
         default: Some(PropVal::Int(79)),
-        required: true,
+        type: T_NON_NEG_INT_OPT,
     },
 
     MatchCoverageEnabled => {
@@ -397,7 +515,7 @@ define_props! {
                coverage, and therefore will not give warnings or errors.",
         camel_name: "matchCoverageEnabled",
         default: Some(PropVal::Bool(true)),
-        required: true,
+        type: T_BOOL,
     },
 
     MatchStrict => {
@@ -410,14 +528,14 @@ define_props! {
                pretty-printing) can be tested.",
         camel_name: "matchStrict",
         default: Some(PropVal::Bool(false)),
-        required: true,
+        type: T_BOOL,
     },
 
     Mode => {
         doc: "How much to validate each statement in a script.",
         camel_name: "mode",
         default: Some(PropVal::Mode(Mode::Evaluate)),
-        required: true,
+        type: T_ENUM,
     },
 
     Now => {
@@ -427,22 +545,16 @@ define_props! {
                not set, the system clock is used.",
         camel_name: "now",
         default: None as Option<PropVal>,
-        required: false,
+        type: T_STRING_OPT,
     },
 
-    OptionalInt => {
-        doc: "Integer property 'optionalInt' is for testing. Default is null.",
-        camel_name: "optionalInt",
-        default: None as Option<PropVal>,
-        required: false,
-    },
 
     Output => {
         doc: "String property 'output' controls how values are printed in \
                the shell. Default is 'classic'.",
         camel_name: "output",
         default: Some(PropVal::Output(Output::Classic)),
-        required: true,
+        type: T_ENUM,
     },
 
     PrintDepth => {
@@ -453,7 +565,7 @@ define_props! {
                Default is 5.",
         camel_name: "printDepth",
         default: Some(PropVal::Int(5)),
-        required: true,
+        type: T_NON_NEG_INT_OPT,
     },
 
     PrintLength => {
@@ -463,7 +575,7 @@ define_props! {
                Standard Basis Library. Default is 12.",
         camel_name: "printLength",
         default: Some(PropVal::Int(12)),
-        required: true,
+        type: T_NON_NEG_INT_OPT,
     },
 
     ProductName => {
@@ -472,7 +584,7 @@ define_props! {
               modified via Sys.set.",
         camel_name: "productName",
         default: Some(PropVal::String(Rc::new("morel-rust".to_string()))),
-        required: true,
+        type: T_STRING,
     },
 
     ProductVersion => {
@@ -483,7 +595,7 @@ define_props! {
         default: Some(PropVal::String(Rc::new(
             env!("CARGO_PKG_VERSION").to_string()
         ))),
-        required: true,
+        type: T_STRING,
     },
 
     RangeMaxLength => {
@@ -498,7 +610,7 @@ define_props! {
         default: Some(PropVal::BigInt(Rc::new(
             BigInt::from_u128((1 << 24) - 1)
         ))),
-        required: true,
+        type: T_POS_INT_INF,
     },
 
     Relationalize => {
@@ -506,7 +618,7 @@ define_props! {
                 relational algebra. Default is false.",
         camel_name: "relationalize",
         default: Some(PropVal::Bool(false)),
-        required: true,
+        type: T_BOOL,
     },
 
     ScriptDirectory => {
@@ -516,7 +628,7 @@ define_props! {
                the script.",
         camel_name: "scriptDirectory",
         default: Some(PropVal::String(Rc::new(String::new()))),
-        required: true,
+        type: T_FILE,
     },
 
     ShowBanner => {
@@ -524,7 +636,7 @@ define_props! {
               banner at the start of the shell. Default is true.",
         camel_name: "showBanner",
         default: Some(PropVal::Bool(true)),
-        required: true,
+        type: T_BOOL,
     },
 
     StringDepth => {
@@ -534,7 +646,7 @@ define_props! {
                Library. Default is 70.",
         camel_name: "stringDepth",
         default: Some(PropVal::Int(70)),
-        required: true,
+        type: T_NON_NEG_INT_OPT,
     },
 
     StringFold => {
@@ -545,7 +657,7 @@ define_props! {
                not set (the default), folding is disabled.",
         camel_name: "stringFold",
         default: None as Option<PropVal>,
-        required: false,
+        type: T_POS_INT_OPT,
     },
 
     TerminalBackground => {
@@ -555,7 +667,7 @@ define_props! {
                color scheme when 'colorScheme' is unset.",
         camel_name: "terminalBackground",
         default: None as Option<PropVal>,
-        required: false,
+        type: T_STRING_OPT,
     },
 
     TimeZone => {
@@ -566,7 +678,7 @@ define_props! {
                used.",
         camel_name: "timeZone",
         default: None as Option<PropVal>,
-        required: false,
+        type: T_STRING_OPT,
     },
 }
 
@@ -682,7 +794,7 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 27);
+        assert_eq!(all_props.len(), 26);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
         assert!(all_props.contains(&Prop::Now));

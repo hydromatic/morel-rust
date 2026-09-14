@@ -42,7 +42,7 @@ use crate::eval::val::Val;
 use crate::shell::ShellResult;
 use crate::shell::config::Config;
 use crate::shell::error::Error;
-use crate::shell::prop::{Mode, Output, Prop, PropVal};
+use crate::shell::prop::{Check, Mode, Output, Prop, PropVal};
 use crate::shell::statement::is_complete;
 use crate::shell::utils::strip_prefix;
 use crate::syntax::ast::Statement;
@@ -75,35 +75,70 @@ fn one_of(prop: &str, values: &str) -> String {
 }
 
 /// The message for a value whose type a property will not take. Names the
-/// property and the Morel type it takes; it names neither the value it
-/// rejected nor any Rust type.
-fn wrong_type(prop: Prop, type_name: &str) -> String {
+/// property and the Morel type it takes, conditions included; it names
+/// neither the value it rejected nor any Rust type.
+fn wrong_type(prop: Prop) -> String {
     format!(
         "value for property '{}' must have type '{}'",
         prop.camel_name(),
-        type_name
+        prop.prop_type().name
     )
 }
 
 /// Converts `val` to the `bool` that `prop` takes.
 fn expect_bool(prop: Prop, val: &Val) -> Result<bool, String> {
-    val.maybe_bool().ok_or_else(|| wrong_type(prop, "bool"))
+    val.maybe_bool().ok_or_else(|| wrong_type(prop))
 }
 
 /// Converts `val` to the file name that `prop` takes. A file name is
 /// written as a string, but the property's type is "file".
 fn expect_file(prop: Prop, val: &Val) -> Result<String, String> {
-    val.maybe_string().ok_or_else(|| wrong_type(prop, "file"))
+    val.maybe_string().ok_or_else(|| wrong_type(prop))
 }
 
 /// Converts `val` to the `int` that `prop` takes.
 fn expect_int(prop: Prop, val: &Val) -> Result<i32, String> {
-    val.maybe_int().ok_or_else(|| wrong_type(prop, "int"))
+    val.maybe_int().ok_or_else(|| wrong_type(prop))
 }
 
 /// Converts `val` to the `string` that `prop` takes.
 fn expect_string(prop: Prop, val: &Val) -> Result<String, String> {
-    val.maybe_string().ok_or_else(|| wrong_type(prop, "string"))
+    val.maybe_string().ok_or_else(|| wrong_type(prop))
+}
+
+/// Reads the argument of `Sys.set` against a property's type.
+///
+/// A property of option type takes `SOME v` or `NONE`, and takes a bare
+/// `v` as `SOME v`, so that a call written before the property became an
+/// option still says what it said. A property that is not an option takes
+/// the value alone, and refuses `NONE`: there is nothing for it to mean.
+///
+/// `Ok(None)` is `NONE`.
+fn unwrap_option(prop: Prop, val: &Val) -> Result<Option<Val>, String> {
+    let option = prop.prop_type().option;
+    match val {
+        Val::Unit if option => Ok(None),
+        Val::Some(inner) if option => Ok(Some(inner.as_ref().clone())),
+        Val::Unit | Val::Some(_) => Err(wrong_type(prop)),
+        _ => Ok(Some(val.clone())),
+    }
+}
+
+/// Returns whether `val` satisfies the condition that `prop`'s type
+/// checks. A value of the wrong shape satisfies nothing, so a value the
+/// condition cannot even be applied to is refused by the same message
+/// that names the condition.
+fn checks(prop: Prop, val: &Val) -> bool {
+    match prop.prop_type().check {
+        Check::Any => true,
+        Check::NonNegInt => val.maybe_int().is_some_and(|i| i >= 0),
+        Check::PosInt => val.maybe_int().is_some_and(|i| i > 0),
+        Check::PosIntInf => val
+            .maybe_int()
+            .map(|i| BigInt::from_i64(i64::from(i)))
+            .or_else(|| val.maybe_string().and_then(|s| BigInt::parse(&s)))
+            .is_some_and(|i| !i.is_zero() && !i.is_negative()),
+    }
 }
 
 fn is_plan_or_plan_ex_call(decl: &Decl) -> bool {
@@ -528,13 +563,45 @@ impl Kernel {
         // emitting the effect, so `lookup` cannot fail here.
         let prop = Prop::lookup(prop_name)
             .unwrap_or_else(|| panic!("set: unknown property '{}'", prop_name));
-        let prop_val = self.assign_prop(prop, val)?;
+        // A property of option type may be given NONE, which is not the
+        // same as unsetting it: the property keeps NONE as its value, and
+        // reverts to its default only on "Sys.unset".
+        let Some(val) = unwrap_option(prop, val)? else {
+            self.assign_none(prop);
+            self.session.borrow_mut().config.props.insert(prop, None);
+            return Ok(());
+        };
+        if !checks(prop, &val) {
+            return Err(wrong_type(prop));
+        }
+        let prop_val = self.assign_prop(prop, &val)?;
         self.session
             .borrow_mut()
             .config
             .props
-            .insert(prop, prop_val);
+            .insert(prop, Some(prop_val));
         Ok(())
+    }
+
+    /// Gives a property the value NONE, mirroring it into the field that
+    /// holds the value.
+    ///
+    /// A printing property is held as an `i32`, where a negative width is
+    /// how "no limit" is written, so NONE is stored as one of those; the
+    /// rest hold an `Option`, where clearing the field is NONE. What
+    /// `Sys.show` then reports comes from the session's property map, not
+    /// from these fields, so a property set to NONE is still told apart
+    /// from one that was never set.
+    fn assign_none(&mut self, prop: Prop) {
+        const NO_LIMIT: i32 = -1;
+        match prop {
+            // lint: sort until '#}' where '##Prop::'
+            Prop::LineWidth => self.config.line_width = Some(NO_LIMIT),
+            Prop::PrintDepth => self.config.print_depth = Some(NO_LIMIT),
+            Prop::PrintLength => self.config.print_length = Some(NO_LIMIT),
+            Prop::StringDepth => self.config.string_depth = Some(NO_LIMIT),
+            _ => self.unset_prop_fields(prop),
+        }
     }
 
     /// Converts `val` to the type that `prop` takes, and mirrors it into
@@ -595,12 +662,6 @@ impl Kernel {
                 self.session.borrow_mut().config.now = Some(s.clone());
                 Ok(PropVal::String(s))
             }
-            Prop::OptionalInt => {
-                let i = expect_int(prop, val)?;
-                self.config.optional_int = Some(i);
-                self.session.borrow_mut().config.optional_int = Some(i);
-                Ok(PropVal::Int(i))
-            }
             Prop::Output => {
                 let s = expect_string(prop, val)?;
                 let x =
@@ -629,7 +690,7 @@ impl Kernel {
                         val.maybe_string().and_then(|s| BigInt::parse(&s))
                     })
                     .map(Rc::new)
-                    .ok_or_else(|| wrong_type(prop, "IntInf.int"))?;
+                    .ok_or_else(|| wrong_type(prop))?;
                 self.session.borrow_mut().config.range_max_length =
                     Some(i.clone());
                 Ok(PropVal::BigInt(i))
@@ -686,6 +747,14 @@ impl Kernel {
             panic!("unset: unknown property '{}'", prop_name)
         });
         self.session.borrow_mut().config.props.remove(&prop);
+        self.unset_prop_fields(prop);
+    }
+
+    /// Clears the fields that mirror a property's value, leaving the
+    /// property with no value of its own. Both "Sys.unset" and a "Sys.set"
+    /// of NONE come here; they differ in what "Sys.show" then reports,
+    /// which the session's property map decides.
+    fn unset_prop_fields(&mut self, prop: Prop) {
         match prop {
             // lint: sort until '#}' where '##Prop::'
             Prop::ColorScheme => {
@@ -716,10 +785,6 @@ impl Kernel {
             }
             Prop::Now => {
                 self.session.borrow_mut().config.now = None;
-            }
-            Prop::OptionalInt => {
-                self.config.optional_int = None;
-                self.session.borrow_mut().config.optional_int = None;
             }
             Prop::Output => {
                 self.config.output = None;

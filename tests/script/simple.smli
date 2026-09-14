@@ -345,7 +345,7 @@ end;
 > val it = ("two","other") : string * string
 
 (*) All the characters
-Sys.set ("printLength", 300);
+Sys.set ("printLength", NONE);
 > val it = () : unit
 List.tabulate(256, fn i => (i, Char.chr i));
 > val it =

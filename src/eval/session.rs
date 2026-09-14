@@ -402,7 +402,7 @@ pub struct Config {
     /// [crate::shell::config::Config]) for the code that reads them.
     /// `Sys.show` and `Sys.showAll` read this map, so that they report
     /// what was set rather than the property's default.
-    pub props: HashMap<Prop, PropVal>,
+    pub props: HashMap<Prop, Option<PropVal>>,
 
     pub color_scheme: Option<Rc<String>>,
     pub directory: Option<Rc<PathBuf>>,
@@ -410,7 +410,6 @@ pub struct Config {
     pub hybrid: Option<bool>,
     pub inline_pass_count: Option<i32>,
     pub now: Option<Rc<String>>,
-    pub optional_int: Option<i32>,
     pub match_coverage_enabled: Option<bool>,
     pub range_max_length: Option<Rc<BigInt>>,
     pub output: Option<Output>,
@@ -430,7 +429,6 @@ impl Default for Config {
             hybrid: Some(false),
             inline_pass_count: Some(5),
             now: None,
-            optional_int: None,
             output: Some(Output::Classic),
             range_max_length: Some(Rc::new(BigInt::from_u128((1 << 24) - 1))),
             match_coverage_enabled: None,
@@ -443,23 +441,26 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Returns the value that `Sys.set` assigned to `prop`, or `None` if
-    /// the property has not been set (or has since been unset).
-    pub fn assigned(&self, prop: Prop) -> Option<&PropVal> {
+    /// Returns what `Sys.set` assigned to `prop`: `Some(None)` if it
+    /// assigned NONE, and `None` if the property has not been set (or has
+    /// since been unset). The two are not the same: NONE is a value that
+    /// a property of option type may hold, where being unset means the
+    /// property falls back to its default.
+    pub fn assigned(&self, prop: Prop) -> Option<&Option<PropVal>> {
         self.props.get(&prop)
     }
 
     /// Returns the value of `prop` as `Sys.show` reports it: the value
     /// that `Sys.set` assigned, else the property's default value, else
-    /// `None` for a property that is not required and has no default.
+    /// `None`, which `Sys.show` writes as NONE.
     pub fn shown(&self, prop: Prop) -> Option<PropVal> {
         if let Some(val) = self.assigned(prop) {
-            return Some(val.clone());
+            return val.clone();
         }
-        if prop.is_required() {
-            return Some(self.get(prop));
+        if let Some(val) = self.get_optional(prop) {
+            return Some(val);
         }
-        self.get_optional(prop)
+        prop.maybe_default_value()
     }
 
     /// Returns the value of an optional (non-required) property, or `None`
@@ -468,7 +469,6 @@ impl Config {
         match prop {
             Prop::ColorScheme => self.color_scheme.clone().map(PropVal::String),
             Prop::Now => self.now.clone().map(PropVal::String),
-            Prop::OptionalInt => self.optional_int.map(PropVal::Int),
             Prop::StringFold => self.string_fold.map(PropVal::Int),
             Prop::TerminalBackground => {
                 self.terminal_background.clone().map(PropVal::String)

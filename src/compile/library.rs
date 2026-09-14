@@ -1471,10 +1471,10 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 string * 'a -> unit", throws = "Fail"))]
     SysSet,
     #[strum(props(p = "Sys", name = "show", global = true))]
-    #[strum(props(type = "string -> string option", throws = "Fail"))]
+    #[strum(props(type = "string -> string", throws = "Fail"))]
     SysShow,
     #[strum(props(p = "Sys", name = "showAll", global = true))]
-    #[strum(props(type = "unit -> (string * string option) list"))]
+    #[strum(props(type = "unit -> (string * string) list"))]
     SysShowAll,
     #[strum(props(p = "Sys", name = "unset", global = true))]
     #[strum(props(type = "string -> unit", throws = "Fail"))]
