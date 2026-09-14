@@ -16,31 +16,20 @@
  * language governing permissions and limitations under the
  * License.
  *
- * The INTERACT signature, a Morel extension.
+ * Script that uses itself; tests that "use" bounds how deeply it
+ * nests. Unbounded, a file that uses itself recurses until the Java
+ * stack is exhausted. Bounded, the "use" that would exceed the bound
+ * fails as if the file could not be opened, which is what SML/NJ does
+ * when it runs out of file descriptors. The script sets "maxUseDepth"
+ * itself, so that it terminates quickly and does not depend on the
+ * default bound.
  *)
-(**
- * The `Interact` structure provides functions for interacting with the
- * Morel REPL, such as loading source files.
- *)
-signature INTERACT =
-sig
+Sys.set ("maxUseDepth", 1);
 
-  (**
-   * is raised by `use` and `useSilently` when the file named cannot be
-   * opened.
-   *)
-  exception Error
+(*) Allowed at depth 1, refused at depth 2.
+use "use-self.sml";
 
-  (** loads source text from the file named `f`. *)
-  val use : string -> unit [@@prototype "use f"]
+(*) The session carries on.
+1 + 1;
 
-  (**
-   * loads source text from the file named `f`, without
-   * printing to stdout.
-   *)
-  val useSilently : string -> unit [@@prototype "useSilently f"]
-end
-[@@description "Interactive session utilities."]
-[@@specified "morel"]
-
-(*) End interact.sig
+(*) End use-self.sml

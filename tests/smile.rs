@@ -390,6 +390,11 @@ fn use_1_sml() {
     run_script("tests/script/use-1.sml");
 }
 
+#[test]
+fn use_self_sml() {
+    run_script("tests/script/use-self.sml");
+}
+
 /// `use.sml` is morel-java's but for one line: a type-conflict message
 /// naming its two types in the other order. `"x is now " ^ x`, with
 /// `x` an int, is `conflict: int vs string` in morel-java and

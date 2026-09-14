@@ -477,6 +477,9 @@ pub struct Kernel {
     /// statement can still resolve their self-references when
     /// they are invoked from a later statement.
     pub(crate) link_table: RefCell<LinkTable>,
+    /// How deeply `use` is currently nested, so that the
+    /// "maxUseDepth" property can bound it.
+    use_depth: i32,
 }
 
 /// Simple environment for storing bindings.
@@ -597,6 +600,7 @@ impl Kernel {
         match prop {
             // lint: sort until '#}' where '##Prop::'
             Prop::LineWidth => self.config.line_width = Some(NO_LIMIT),
+            Prop::MaxUseDepth => self.config.max_use_depth = Some(NO_LIMIT),
             Prop::PrintDepth => self.config.print_depth = Some(NO_LIMIT),
             Prop::PrintLength => self.config.print_length = Some(NO_LIMIT),
             Prop::StringDepth => self.config.string_depth = Some(NO_LIMIT),
@@ -650,6 +654,11 @@ impl Kernel {
                 let b = expect_bool(prop, val)?;
                 self.config.match_strict = Some(b);
                 Ok(PropVal::Bool(b))
+            }
+            Prop::MaxUseDepth => {
+                let i = expect_int(prop, val)?;
+                self.config.max_use_depth = Some(i);
+                Ok(PropVal::Int(i))
             }
             Prop::Mode => {
                 let s = expect_string(prop, val)?;
@@ -780,6 +789,9 @@ impl Kernel {
             Prop::MatchStrict => {
                 self.config.match_strict = None;
             }
+            Prop::MaxUseDepth => {
+                self.config.max_use_depth = None;
+            }
             Prop::Mode => {
                 self.config.mode = None;
             }
@@ -860,6 +872,7 @@ impl Kernel {
             environment: Environment::new(),
             session: Rc::new(RefCell::new(Session::new())),
             link_table: RefCell::new(LinkTable::new()),
+            use_depth: 0,
         }
     }
 
@@ -1254,11 +1267,28 @@ impl Kernel {
                 Effect::UnsetShellProp(prop) => {
                     self.unset_prop(&prop);
                 }
-                Effect::UseFile(path, silent) => {
-                    // Resolve the file path relative to the script
-                    // directory.
+                Effect::UseFile(path, silent, span) => {
+                    // A file that cannot be read -- because it is not
+                    // there, or because "use" is already nested as deeply
+                    // as it may go -- is announced and raises
+                    // "Interact.Error", so that a script can tell success
+                    // from failure rather than carry on as if the file
+                    // were empty. The name appears as written, not as the
+                    // path it resolved to, so the message does not depend
+                    // on where the shell is running.
+                    if let Err(reason) = self.check_use(&path) {
+                        result.push_str(&format!(
+                            "[use failed: Io: openIn failed on {}, {}]\n",
+                            path, reason
+                        ));
+                        let e = MorelError::Runtime(BuiltInExn::Error, span);
+                        return Ok(format!("{}{}\n", result, e));
+                    }
                     let file_path = self.resolve_use_path(&path);
-                    match self.execute_use_file(&file_path, silent) {
+                    self.use_depth += 1;
+                    let outcome = self.execute_use_file(&file_path, silent);
+                    self.use_depth -= 1;
+                    match outcome {
                         Ok(output) => {
                             if !silent {
                                 result.push_str(&output);
@@ -1339,6 +1369,28 @@ impl Kernel {
         write!(output, "{}", result)?;
         if !result.ends_with('\n') {
             writeln!(output)?;
+        }
+        Ok(())
+    }
+
+    /// Returns why a `use` of `path` cannot go ahead, or `Ok(())` if it
+    /// can.
+    ///
+    /// The reasons read as the ones an SML system gives: a file that is
+    /// not there is "No such file or directory", and a `use` nested more
+    /// deeply than "maxUseDepth" allows is "Too many open files", which
+    /// is what SML/NJ says when it runs out of file descriptors. A script
+    /// that nests that deeply is almost certainly recursing, directly or
+    /// indirectly, into a file it is already reading.
+    fn check_use(&self, path: &str) -> Result<(), &'static str> {
+        if let Some(max) = self.config.max_use_depth
+            && max >= 0
+            && self.use_depth >= max
+        {
+            return Err("Too many open files");
+        }
+        if fs::metadata(self.resolve_use_path(path)).is_err() {
+            return Err("No such file or directory");
         }
         Ok(())
     }

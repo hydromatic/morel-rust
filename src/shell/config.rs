@@ -19,6 +19,9 @@ use crate::shell::prop::{Configurable, Mode, Output, Prop, PropVal};
 
 /// Configuration for the Morel shell.
 ///
+/// `max_use_depth` is how deeply `use` may nest; negative is no limit,
+/// which is how the "maxUseDepth" property's NONE is written here.
+///
 /// See also: [crate::eval::session::Config].
 pub struct Config {
     // lint: sort until '^ *}'
@@ -27,6 +30,7 @@ pub struct Config {
     pub idempotent: Option<bool>,
     pub line_width: Option<i32>,
     pub match_strict: Option<bool>,
+    pub max_use_depth: Option<i32>,
     pub mode: Option<Mode>,
     pub output: Option<Output>,
     pub print_depth: Option<i32>,
@@ -46,6 +50,7 @@ impl Default for Config {
             idempotent: Some(Prop::Idempotent.default_value().as_bool()),
             line_width: Some(Prop::LineWidth.default_value().as_int()),
             match_strict: Some(Prop::MatchStrict.default_value().as_bool()),
+            max_use_depth: Some(Prop::MaxUseDepth.default_value().as_int()),
             mode: Some(Prop::Mode.default_value().as_mode()),
             output: Some(Prop::Output.default_value().as_output()),
             print_depth: Some(Prop::PrintDepth.default_value().as_int()),
@@ -64,6 +69,9 @@ impl Configurable for Config {
             // lint: sort until '#}' where '##\(Prop::'
             (Prop::LineWidth, PropVal::Int(i)) => {
                 self.line_width = Some(*i);
+            }
+            (Prop::MaxUseDepth, PropVal::Int(i)) => {
+                self.max_use_depth = Some(*i);
             }
             (Prop::Output, PropVal::Output(x)) => {
                 self.output = Some(*x);
@@ -96,6 +104,13 @@ impl Configurable for Config {
             }
             Prop::LineWidth => {
                 if let Some(i) = self.line_width {
+                    PropVal::Int(i)
+                } else {
+                    prop.default_value()
+                }
+            }
+            Prop::MaxUseDepth => {
+                if let Some(i) = self.max_use_depth {
                     PropVal::Int(i)
                 } else {
                     prop.default_value()

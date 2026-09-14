@@ -531,6 +531,19 @@ define_props! {
         type: T_BOOL,
     },
 
+    MaxUseDepth => {
+        doc: "Integer option property 'maxUseDepth' is how deeply `use` \
+               may nest. A `use` at a greater depth fails as if the file \
+               could not be opened, rather than recursing until the stack \
+               is exhausted. Default is 50. A script that nests `use` more \
+               deeply than that is almost certainly recursing, directly or \
+               indirectly, into a file it is already reading. NONE means \
+               no limit; a depth, if given, must not be negative.",
+        camel_name: "maxUseDepth",
+        default: Some(PropVal::Int(50)),
+        type: T_NON_NEG_INT_OPT,
+    },
+
     Mode => {
         doc: "How much to validate each statement in a script.",
         camel_name: "mode",
@@ -794,9 +807,10 @@ mod tests {
     #[test]
     fn test_all_properties() {
         let all_props = Prop::all();
-        assert_eq!(all_props.len(), 26);
+        assert_eq!(all_props.len(), 27);
         assert!(all_props.contains(&Prop::Directory));
         assert!(all_props.contains(&Prop::LineWidth));
+        assert!(all_props.contains(&Prop::MaxUseDepth));
         assert!(all_props.contains(&Prop::Now));
         assert!(all_props.contains(&Prop::ProductName));
         assert!(all_props.contains(&Prop::ProductVersion));

@@ -475,31 +475,51 @@ Sys.showAll;
 > val it = fn : unit -> (string * string) list
 showAll;
 > val it = fn : unit -> (string * string) list
+(*) The table is easier to read, and is how morel-java shows it.
+Sys.set ("output", "tabular");
+> val it = () : unit
 map
   (fn (p,v) =>
-    (p, if p = "banner"
-          orelse p = "directory"
-          orelse p = "productVersion"
-          orelse p = "scriptDirectory"
+    (p, if p elem ["directory", "scriptDirectory", "banner", "productVersion"]
       then "?" else v))
   (Sys.showAll ());
-> val it =
->   [("banner","?"),("colorScheme","NONE"),("directory","?"),
->    ("echo","false"),("excludeStructures","^Test$"),("hybrid","true"),
->    ("idempotent","false"),("inlinePassCount","5"),("lineWidth","SOME 78"),
->    ("matchCoverageEnabled","true"),("matchStrict","false"),
->    ("mode","EVALUATE"),("now","SOME 2024-01-01T00:00:00Z"),
->    ("output","CLASSIC"),("printDepth","SOME 5"),("printLength","NONE"),
->    ("productName","morel-rust"),("productVersion","?"),
->    ("rangeMaxLength","16777215"),("relationalize","false"),
->    ("scriptDirectory","?"),("showBanner","true"),("stringDepth","NONE"),
->    ("stringFold","NONE"),("terminalBackground","NONE"),
->    ("timeZone","SOME UTC")]
->   : (string * string) list
+> 1                    2
+> -------------------- -------------------------
+> banner               ?
+> colorScheme          NONE
+> directory            ?
+> echo                 false
+> excludeStructures    ^Test$
+> hybrid               true
+> idempotent           false
+> inlinePassCount      5
+> lineWidth            SOME 78
+> matchCoverageEnabled true
+> matchStrict          false
+> maxUseDepth          SOME 50
+> mode                 EVALUATE
+> now                  SOME 2024-01-01T00:00:00Z
+> output               TABULAR
+> printDepth           SOME 5
+> printLength          NONE
+> productName          morel-rust
+> productVersion       ?
+> rangeMaxLength       16777215
+> relationalize        false
+> scriptDirectory      ?
+> showBanner           true
+> stringDepth          NONE
+> stringFold           NONE
+> terminalBackground   NONE
+> timeZone             SOME UTC
+>
+> val it : (string * string) list
+Sys.set ("output", "classic");
+> val it = () : unit
 List.length (Sys.showAll ());
-> val it = 26 : int
+> val it = 27 : int
 List.length (showAll ());
-> val it = 26 : int
+> val it = 27 : int
 Sys.plan ();
 > val it = "apply(fnValue List.length, argCode apply0(fnValue Sys.showAll))"
 >   : string
@@ -607,6 +627,48 @@ Sys.set ("lineWidth", 40);
 > val it = () : unit
 Sys.show "lineWidth";
 > val it = "SOME 40" : string
+
+(* A property that is not required is an option: NONE is a value in its
+ * own right, and means something particular to each property. For
+ * "maxUseDepth", whose default is SOME 50, NONE means that "use" may nest
+ * without limit. "set" takes a bare value as well as a "SOME". *)
+Sys.show "maxUseDepth";
+> val it = "SOME 50" : string
+Sys.set ("maxUseDepth", NONE);
+> val it = () : unit
+Sys.show "maxUseDepth";
+> val it = "NONE" : string
+Sys.set ("maxUseDepth", SOME 3);
+> val it = () : unit
+Sys.show "maxUseDepth";
+> val it = "SOME 3" : string
+Sys.set ("maxUseDepth", 7);
+> val it = () : unit
+Sys.show "maxUseDepth";
+> val it = "SOME 7" : string
+
+(* "unset" is not the same as setting NONE; it restores the default. *)
+Sys.set ("maxUseDepth", NONE);
+> val it = () : unit
+Sys.unset "maxUseDepth";
+> val it = () : unit
+Sys.show "maxUseDepth";
+> val it = "SOME 50" : string
+
+(* A depth, if given, must not be negative; the property keeps the value
+ * it had. *)
+Sys.set ("maxUseDepth", 4);
+> val it = () : unit
+Sys.set ("maxUseDepth", ~1);
+> uncaught exception Fail [Fail: value for property 'maxUseDepth' must have type '(int check i => i >= 0) option']
+>   raised at: stdIn:1.1-1.28
+Sys.set ("maxUseDepth", SOME ~2);
+> uncaught exception Fail [Fail: value for property 'maxUseDepth' must have type '(int check i => i >= 0) option']
+>   raised at: stdIn:1.1-1.33
+Sys.show "maxUseDepth";
+> val it = "SOME 4" : string
+Sys.unset "maxUseDepth";
+> val it = () : unit
 
 (* The properties that control printing are options, and NONE means "no
  * limit": no ellipsis, no truncation, no line wrapping. A bare value

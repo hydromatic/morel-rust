@@ -641,11 +641,11 @@ pub enum BuiltInFunction {
     /// 'useSilently "scott.smli"' (since `scott` is now a built-in
     /// constant) and for type-checking tests that reference `use`.
     #[strum(props(p = "Interact", name = "use", global = true))]
-    #[strum(props(type = "string -> unit"))]
+    #[strum(props(type = "string -> unit", throws = "Error"))]
     InteractUse,
     /// As `InteractUse`, but suppresses output.
     #[strum(props(p = "Interact", name = "useSilently", global = true))]
-    #[strum(props(type = "string -> unit"))]
+    #[strum(props(type = "string -> unit", throws = "Error"))]
     InteractUseSilently,
     #[strum(props(p = "ListPair", name = "all"))]
     #[strum(props(
@@ -2240,6 +2240,8 @@ pub enum BuiltInExn {
     Domain,
     #[strum(props(p = "List"))]
     Empty,
+    #[strum(props(p = "Interact"))]
+    Error,
     #[strum(props(p = "General"))]
     Fail,
     #[strum(props(p = "General", explain = "nonexhaustive match failure"))]
@@ -2272,7 +2274,6 @@ impl BuiltInExn {
 The following exceptions are in Morel Java but not yet in Morel Rust.
 
 EMPTY("List", "Empty"),
-ERROR("Interact", "Error"), // not in standard basis
 SIZE("General", "Size"),
 UNEQUAL_LENGTHS("ListPair", "UnequalLengths"),
  */
