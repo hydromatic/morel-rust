@@ -612,10 +612,11 @@ mod tests {
         )
         .unwrap();
 
-        // Transcript: input echoed, no "> " prefix.
+        // Transcript: input echoed, no "> " prefix, and a blank line
+        // after the output separating it from the input that follows.
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "val x = 1;\nval x = 1 : int\n"
+            "val x = 1;\nval x = 1 : int\n\n"
         );
         let _ = fs::remove_file(&path);
     }
@@ -659,9 +660,11 @@ mod tests {
         )
         .unwrap();
 
+        // Forced out of idempotent mode, a ".smli" file is read as a
+        // transcript, blank line and all.
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "val x = 1;\nval x = 1 : int\n"
+            "val x = 1;\nval x = 1 : int\n\n"
         );
         let _ = fs::remove_file(&path);
     }

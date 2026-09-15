@@ -29,4 +29,10 @@ Cargo.lock
 # Claude Code
 .claude
 
+# Working notes: untracked by intent, and named plainly enough that
+# "git add -A" would otherwise sweep them into a commit.
+/plan.md
+/scratch.txt
+/issue.md
+
 # End .gitignore

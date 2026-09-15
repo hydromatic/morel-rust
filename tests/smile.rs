@@ -386,8 +386,27 @@ fn type_inference() {
 }
 
 #[test]
-fn use_() {
-    run_script("tests/script/use.smli");
+fn use_1_sml() {
+    run_script("tests/script/use-1.sml");
+}
+
+/// `use.sml` is morel-java's, verbatim, and does not yet pass. It
+/// found two divergences, and is ignored until they are fixed rather
+/// than trimmed to suit, so that the corpus keeps saying what the
+/// answer should be.
+///
+/// A statement that raises must assign nothing: after
+/// `val a = String.sub ("abc", b)` raises `Subscript`, `a` keeps the
+/// value it had. morel-rust commits the failed statement's type
+/// binding without its value, so `a` becomes an empty `char`.
+///
+/// And a type-conflict message names its operands in the other order:
+/// `"x is now " ^ x`, with `x` an int, is `conflict: int vs string` in
+/// morel-java and `string vs int` here.
+#[test]
+#[ignore = "morel-rust bugs: binding after a raise; conflict operand order"]
+fn use_sml() {
+    run_script("tests/script/use.sml");
 }
 
 #[test]

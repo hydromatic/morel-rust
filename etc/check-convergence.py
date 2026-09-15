@@ -60,14 +60,22 @@ def git(repo, *args):
     return r.stdout if r.returncode == 0 else None
 
 
-def smli_files(repo, commit, prefix):
-    """Relative `.smli` paths (below `prefix`) present at `commit`."""
+# The script corpus, by extension. A `.smli` script carries its own
+# expected output and reproduces itself; a `.sml` script's transcript
+# is the companion `.sml.out`, and both halves count, since a
+# divergence may live in either. `.smli` does not end in `.sml`, so
+# the suffixes do not overlap.
+SCRIPT_SUFFIXES = (".smli", ".sml", ".sml.out")
+
+
+def script_files(repo, commit, prefix):
+    """Relative script paths (below `prefix`) present at `commit`."""
     out = git(repo, "ls-tree", "-r", "--name-only", commit)
     if out is None:
         sys.exit(f"error: cannot list files at {commit} in {repo}")
     files = set()
     for line in out.splitlines():
-        if line.startswith(prefix) and line.endswith(".smli"):
+        if line.startswith(prefix) and line.endswith(SCRIPT_SUFFIXES):
             files.add(line[len(prefix):])
     return files
 
@@ -132,10 +140,10 @@ def main():
 
     # Every relative .smli path seen on either side, at either revision.
     rels = (
-        smli_files(rust_repo, rust, RUST_PREFIX)
-        | smli_files(rust_repo, rust_parent, RUST_PREFIX)
-        | smli_files(args.java_repo, java, JAVA_PREFIX)
-        | smli_files(args.java_repo, java_parent, JAVA_PREFIX)
+        script_files(rust_repo, rust, RUST_PREFIX)
+        | script_files(rust_repo, rust_parent, RUST_PREFIX)
+        | script_files(args.java_repo, java, JAVA_PREFIX)
+        | script_files(args.java_repo, java_parent, JAVA_PREFIX)
     )
 
     regressions = []
@@ -183,7 +191,7 @@ def main():
                   f"follow")
         return 1
 
-    print("OK: no .smli file diverged further from morel-java.")
+    print("OK: no script file diverged further from morel-java.")
     return 0
 
 

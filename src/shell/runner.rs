@@ -223,6 +223,14 @@ impl<'a> ScriptRunner<'a> {
                     raw
                 };
                 write!(writer, "{}", to_write)?;
+                // In a transcript -- echoed, but not idempotent -- a
+                // blank line separates a statement's output from the
+                // input that follows. An idempotent script needs none:
+                // its output is prefixed, and so already tells itself
+                // apart from the input.
+                if echo_enabled && !idempotent && !to_write.is_empty() {
+                    writeln!(writer)?;
+                }
                 writer.flush()?;
                 // A statement followed only by whitespace or a comment is
                 // complete on the line that holds it: drop the remainder,

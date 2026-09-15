@@ -1319,17 +1319,17 @@ impl Kernel {
             if is_complete(&statement_buffer) {
                 // Remove the trailing semicolon.
                 statement_buffer.pop();
-                match self.process_statement(&statement_buffer, None) {
-                    Ok(stmt_output) => {
-                        if !silent {
-                            output.push_str(&stmt_output);
-                        }
-                    }
-                    Err(e) => {
-                        if !silent {
-                            output.push_str(&format!("{}\n", e));
-                        }
-                    }
+                let stmt_output =
+                    match self.process_statement(&statement_buffer, None) {
+                        Ok(s) => s,
+                        Err(e) => format!("{}\n", e),
+                    };
+                if !silent && !stmt_output.is_empty() {
+                    output.push_str(&stmt_output);
+                    // A blank line separates a statement's output from
+                    // the input that follows, as it does in the
+                    // transcript this file's lines are landing in.
+                    output.push('\n');
                 }
                 statement_buffer.clear();
             } else {

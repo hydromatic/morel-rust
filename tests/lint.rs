@@ -903,7 +903,9 @@ fn test_smli_coverage() {
     // "built-in/bag").
     let script_dir = Path::new("tests/script");
     // Helper scripts loaded by other tests, not standalone tests.
-    let helper_scripts: HashSet<&str> = HashSet::from(["use-1"]);
+    // There are none: "use-1.sml", which "use.sml" loads, has a test
+    // of its own, since morel-java runs it standalone too.
+    let helper_scripts: HashSet<&str> = HashSet::new();
     fn collect_smli(
         dir: &Path,
         base: &Path,
@@ -914,9 +916,14 @@ fn test_smli_coverage() {
             let path = entry.path();
             if path.is_dir() {
                 collect_smli(&path, base, out)?;
-            } else if path.extension().is_some_and(|ext| ext == "smli") {
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext == "smli" || ext == "sml")
+            {
+                // Keyed with the extension, since the two forms are
+                // different scripts: "use.smli" and "use.sml" are not
+                // the same file and do not share a test.
                 let rel = path
-                    .with_extension("")
                     .strip_prefix(base)
                     .unwrap()
                     .to_string_lossy()
@@ -959,18 +966,26 @@ fn test_smli_coverage() {
             // subdirectory, so map e.g. `built_in_list_pair` ->
             // `built-in/list-pair`.
             // Special cases: trailing underscores for reserved words.
-            let smli_name = match fn_name {
+            // A name ending "_sml" is the ".sml" form -- a script
+            // whose expected output is the transcript beside it;
+            // everything else is a ".smli", which carries its own.
+            let (stem, ext) = match fn_name.strip_suffix("_sml") {
+                Some(stem) => (stem, "sml"),
+                None => (fn_name, "smli"),
+            };
+            let base_name = match stem {
                 "type_" => "type".to_string(),
                 "match_test" => "match".to_string(),
                 "use_" => "use".to_string(),
                 _ => {
-                    if let Some(rest) = fn_name.strip_prefix("built_in_") {
+                    if let Some(rest) = stem.strip_prefix("built_in_") {
                         format!("built-in/{}", rest.replace('_', "-"))
                     } else {
-                        fn_name.replace('_', "-")
+                        stem.replace('_', "-")
                     }
                 }
             };
+            let smli_name = format!("{}.{}", base_name, ext);
             Some((smli_name, fn_name.to_string()))
         })
         .collect();
@@ -987,7 +1002,7 @@ fn test_smli_coverage() {
     let mut extra_tests = Vec::new();
     for (smli_name, fn_name) in &test_functions {
         if !smli_files.contains(smli_name) {
-            extra_tests.push(format!("{}() -> {}.smli", fn_name, smli_name));
+            extra_tests.push(format!("{}() -> {}", fn_name, smli_name));
         }
     }
 
@@ -1003,7 +1018,7 @@ fn test_smli_coverage() {
             for file in missing_tests {
                 let expected_fn = smli_to_fn_name(&file);
                 error_msg.push_str(&format!(
-                    "  - {}.smli (expected test function: {})\n",
+                    "  - {} (expected test function: {})\n",
                     file, expected_fn
                 ));
             }
@@ -1028,10 +1043,18 @@ fn test_smli_coverage() {
 /// "regex-example" -> "regex_example", "fixed-point" -> "fixed_point",
 /// "built-in/list-pair" -> "built_in_list_pair"
 fn smli_to_fn_name(smli_name: &str) -> String {
-    match smli_name {
+    // The inverse of the mapping in `test_smli_coverage`: a ".sml"
+    // script's test ends "_sml", so that the two forms of a script do
+    // not both claim the same function name.
+    let (stem, suffix) = match smli_name.strip_suffix(".sml") {
+        Some(stem) => (stem, "_sml"),
+        None => (smli_name.strip_suffix(".smli").unwrap_or(smli_name), ""),
+    };
+    let base = match stem {
         "type" => "type_".to_string(),
         "match" => "match_test".to_string(),
         "use" => "use_".to_string(),
-        _ => smli_name.replace(['-', '/'], "_"),
-    }
+        _ => stem.replace(['-', '/'], "_"),
+    };
+    format!("{}{}", base, suffix)
 }
