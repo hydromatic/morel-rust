@@ -1130,6 +1130,8 @@ impl Kernel {
         };
         let mut result = String::new();
         let mut bindings = Vec::new();
+        // Whether the statement declared nothing because it failed.
+        let mut decl_failed = false;
         // Collect effects from evaluation
         let mut effects = Vec::new();
         let session = self.session.borrow();
@@ -1163,6 +1165,9 @@ impl Kernel {
                         parent: Rc::new(empty_type_env) as Rc<dyn TypeEnv>,
                     };
                     session.type_env = Rc::new(type_env) as Rc<dyn TypeEnv>;
+                }
+                Effect::DeclFailed => {
+                    decl_failed = true;
                 }
                 Effect::EmitCode(code) => {
                     self.session.borrow_mut().code = Some(code);
@@ -1225,8 +1230,15 @@ impl Kernel {
 
         // Commit type bindings AFTER evaluation, so that Sys.env()
         // during evaluation does not see the current statement's own
-        // bindings (e.g. the implicit `it`).
-        self.session.borrow_mut().commit_bindings(resolved);
+        // bindings (e.g. the implicit `it`). A statement that failed
+        // declared nothing, so it commits nothing: its value bindings
+        // were never emitted, and committing its types alone would
+        // leave a name typed by a statement that did not run --
+        // `val a = String.sub ("abc", 20)`, which raises, would turn
+        // an `a` that is an int into a `char` with no value.
+        if !decl_failed {
+            self.session.borrow_mut().commit_bindings(resolved);
+        }
 
         // Record any single-arm `fn p => body` value-bindings for
         // future statements' predicate inversion. Save the

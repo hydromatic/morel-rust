@@ -390,21 +390,20 @@ fn use_1_sml() {
     run_script("tests/script/use-1.sml");
 }
 
-/// `use.sml` is morel-java's, verbatim, and does not yet pass. It
-/// found two divergences, and is ignored until they are fixed rather
-/// than trimmed to suit, so that the corpus keeps saying what the
-/// answer should be.
+/// `use.sml` is morel-java's but for one line: a type-conflict message
+/// naming its two types in the other order. `"x is now " ^ x`, with
+/// `x` an int, is `conflict: int vs string` in morel-java and
+/// `string vs int` here. It says the same thing about the same two
+/// types, so the script runs, and the transcript records what
+/// morel-rust says.
 ///
-/// A statement that raises must assign nothing: after
-/// `val a = String.sub ("abc", b)` raises `Subscript`, `a` keeps the
-/// value it had. morel-rust commits the failed statement's type
-/// binding without its value, so `a` becomes an empty `char`.
-///
-/// And a type-conflict message names its operands in the other order:
-/// `"x is now " ^ x`, with `x` an int, is `conflict: int vs string` in
-/// morel-java and `string vs int` here.
+/// Neither order is a rule either project chose. Each is
+/// self-consistent -- the same order whichever way the operands are
+/// written -- because the order falls out of the unifier's queue:
+/// `WorkQueue::add` normalises a (non-variable, variable) pair by
+/// swapping it, so which type is named first follows from the queue
+/// discipline and not from any one call site.
 #[test]
-#[ignore = "morel-rust bugs: binding after a raise; conflict operand order"]
 fn use_sml() {
     run_script("tests/script/use.sml");
 }

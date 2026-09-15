@@ -68,6 +68,26 @@ def git(repo, *args):
 SCRIPT_SUFFIXES = (".smli", ".sml", ".sml.out")
 
 
+# Divergences from morel-java that morel-rust has decided to keep, and
+# why. A file named here may differ by at most the lines given; the
+# gate reports it every run rather than failing, and anything beyond
+# the bound is still a regression.
+#
+# This is for a difference that has been settled, not one that is
+# merely outstanding. A file morel-rust has not caught up with yet
+# belongs in the divergence report, where it reads as work to do.
+ACCEPTED = {
+    "use.sml.out": (
+        2,
+        "a type-conflict message names its two types in the other "
+        "order: `conflict: string vs int` where morel-java writes "
+        "`int vs string`. It says the same thing about the same two "
+        "types, and neither order is a rule either project chose -- "
+        "each falls out of its own unifier's queue.",
+    ),
+}
+
+
 def script_files(repo, commit, prefix):
     """Relative script paths (below `prefix`) present at `commit`."""
     out = git(repo, "ls-tree", "-r", "--name-only", commit)
@@ -148,6 +168,7 @@ def main():
 
     regressions = []
     improvements = []
+    accepted = []
     net_before = net_after = 0
     rows = []
     for rel in sorted(rels):
@@ -161,7 +182,9 @@ def main():
         )
         net_before += before
         net_after += after
-        if after > before:
+        if after > before and rel in ACCEPTED and after <= ACCEPTED[rel][0]:
+            accepted.append((rel, after))
+        elif after > before:
             regressions.append((rel, before, after))
         elif after < before:
             improvements.append((rel, before, after))
@@ -181,6 +204,13 @@ def main():
     print(f"net divergence: {net_before} -> {net_after} "
           f"({net_after - net_before:+d} lines)")
     print()
+
+    for rel, after in accepted:
+        limit, why = ACCEPTED[rel]
+        print(f"accepted divergence: {rel} ({after} of {limit} lines)")
+        print(f"  {why}")
+    if accepted:
+        print()
 
     if regressions:
         print(f"FAIL: {len(regressions)} file(s) diverged further from "

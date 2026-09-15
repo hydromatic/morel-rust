@@ -116,6 +116,12 @@ pub enum Effect {
     AddBinding(Binding),
     /// Clears the environment.
     ClearEnv,
+    /// Says that a declaration did not complete -- it raised, or its
+    /// pattern did not match -- and so declared nothing. A statement
+    /// that fails must leave the environment as it found it, types
+    /// included, and the raise does not otherwise reach the caller:
+    /// `Action::apply` turns it into an output line and returns.
+    DeclFailed,
     /// Emits a piece of code.
     EmitCode(Arc<Code>),
     /// Emits an output line.

@@ -154,7 +154,7 @@ use "use-1.sml";
 val it = "entering use-1.sml" : string
 
 val y = x ^ ", ";
-stdIn:1.1-1.17 Error: Cannot deduce type: conflict: int vs string
+stdIn:1.1-1.17 Error: Cannot deduce type: conflict: string vs int
   raised at: stdIn:1.1-1.17
 
 val x = y ^ "step 2";

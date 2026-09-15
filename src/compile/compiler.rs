@@ -2645,6 +2645,7 @@ impl Action for ValDeclAction {
         match self.code.eval_f1(r, f, &Val::Unit) {
             Err(e) => {
                 r.emit_effect(Effect::EmitLine(e.to_string()));
+                r.emit_effect(Effect::DeclFailed);
             }
             Ok(o) => {
                 let pretty = Self::get_pretty(
@@ -2668,6 +2669,7 @@ impl Action for ValDeclAction {
                         self.span.clone().unwrap_or_else(|| Span::new("stdIn"));
                     let err = MorelError::Runtime(BuiltInExn::Bind, loc);
                     r.emit_effect(Effect::EmitLine(err.to_string()));
+                    r.emit_effect(Effect::DeclFailed);
                     return;
                 }
                 for (p2, v2) in emits {
