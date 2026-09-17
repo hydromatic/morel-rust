@@ -73,6 +73,30 @@ g 5;
 > val it = ~2147483648 : int
 2147483647;
 > val it = 2147483647 : int
+
+(* Negation binds tighter than any infix operator, so it takes the
+ * operand and not the chain: "~x div 2" is "(~x) div 2". Only an
+ * operator that is not commutative under negation can tell the two
+ * apart -- "~(x * 2)" and "(~x) * 2" are the same number -- and 5 is
+ * the value that separates them, giving ~3 rather than ~2. *)
+let val x = 5 in ~x div 2 end;
+> val it = ~3 : int
+let val x = 5 in (~x) div 2 end;
+> val it = ~3 : int
+let val x = 5 in ~(x div 2) end;
+> val it = ~2 : int
+
+(* But "~" is not prefix syntax: in Standard ML it is an ordinary
+ * function and "~e" applies it, so "~f 2" is "(~ f) 2" -- application
+ * is left-associative -- and does not typecheck. *)
+let fun f y = y + 1 in ~f 2 end;
+> stdIn:1.25 Error: operator '~' is not defined for type 'int -> int'
+>   raised at: stdIn:1.25
+
+(*) And it composes with itself.
+let val x = 3 in ~~x end;
+> val it = 3 : int
+
 1.0;
 > val it = 1 : real
 0.0;
