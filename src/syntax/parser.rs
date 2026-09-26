@@ -30,6 +30,10 @@ use pest_consume::match_nodes;
 use std::rc::Rc;
 
 type ParseInput<'input> = pest_consume::Node<'input, Rule, Rc<str>>;
+/// A trailing tail on an application: the label, plus the argument
+/// list if the call form `.label(args)` was used rather than a bare
+/// `.label` selector.
+type TrailingTail = (Label, Option<(Vec<Expr>, Span)>);
 /// The operand of an `extend` or `replace` modifier: either `all e` or a
 /// list of assignments. Carries no verb — the verb is parsed around it,
 /// so [`ModifierOperand::into_modifier`] supplies it.
@@ -539,7 +543,7 @@ impl MorelParser {
         // `match_nodes!` only supports one variable-length pattern
         // per arm, so we walk children manually.
         let mut exprs: Vec<Expr> = Vec::new();
-        let mut tails: Vec<(Label, Vec<Expr>, Span)> = Vec::new();
+        let mut tails: Vec<TrailingTail> = Vec::new();
         for child in input.into_children() {
             match child.as_rule() {
                 Rule::expr_unary => exprs.push(MorelParser::expr_unary(child)?),
@@ -553,27 +557,27 @@ impl MorelParser {
             }
         }
         let folded = fold(&exprs, ExprKind::Apply);
-        Ok(tails
-            .into_iter()
-            .fold(folded, |acc, (label, args, args_span)| {
-                let selector = ExprKind::RecordSelector(label.name.to_string())
-                    .spanned(&label.span);
-                let sel_span = acc.span.union(&label.span);
-                let sel_apply =
-                    ExprKind::Apply(Box::new(selector), Box::new(acc))
-                        .spanned(&sel_span);
-                let arg_expr = match args.len() {
-                    0 => {
-                        let unit = LiteralKind::Unit.spanned(&args_span);
-                        ExprKind::Literal(unit).spanned(&args_span)
-                    }
-                    1 => args.into_iter().next().unwrap(),
-                    _ => ExprKind::Tuple(args).spanned(&args_span),
-                };
-                let full_span = sel_span.union(&args_span);
-                ExprKind::Apply(Box::new(sel_apply), Box::new(arg_expr))
-                    .spanned(&full_span)
-            }))
+        Ok(tails.into_iter().fold(folded, |acc, (label, args)| {
+            let selector = ExprKind::RecordSelector(label.name.to_string())
+                .spanned(&label.span);
+            let sel_span = acc.span.union(&label.span);
+            let sel_apply = ExprKind::Apply(Box::new(selector), Box::new(acc))
+                .spanned(&sel_span);
+            let Some((args, args_span)) = args else {
+                return sel_apply;
+            };
+            let arg_expr = match args.len() {
+                0 => {
+                    let unit = LiteralKind::Unit.spanned(&args_span);
+                    ExprKind::Literal(unit).spanned(&args_span)
+                }
+                1 => args.into_iter().next().unwrap(),
+                _ => ExprKind::Tuple(args).spanned(&args_span),
+            };
+            let full_span = sel_span.union(&args_span);
+            ExprKind::Apply(Box::new(sel_apply), Box::new(arg_expr))
+                .spanned(&full_span)
+        }))
     }
 
     fn expr_unary_arg(input: ParseInput) -> ParseResult<Expr> {
@@ -716,11 +720,10 @@ impl MorelParser {
         ))
     }
 
-    fn trailing_method_call(
-        input: ParseInput,
-    ) -> ParseResult<(Label, Vec<Expr>, Span)> {
+    fn trailing_method_call(input: ParseInput) -> ParseResult<TrailingTail> {
         Ok(match_nodes!(input.children();
-            [label(l), trailing_method_arg(a)] => (l, a.0, a.1),
+            [label(l)] => (l, None),
+            [label(l), trailing_method_arg(a)] => (l, Some((a.0, a.1))),
         ))
     }
 
