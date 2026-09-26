@@ -6034,13 +6034,20 @@ fn build_scott() -> (Type, Val) {
         dept(40, "OPERATIONS", "BOSTON"),
     ]));
 
-    // Schema for one row of `emps`: {comm:real, deptno:int, empno:int,
-    // ename:string, hiredate:string, job:string, mgr:int, sal:real}
+    // Schema for one row of `emps`: {comm:real option, deptno:int,
+    // empno:int, ename:string, hiredate:string, job:string,
+    // mgr:int option, sal:real}. `comm` and `mgr` are the two columns
+    // that contain nulls in the SQL `scott` database, so morel-java
+    // reads them as `option`; this dataset is a literal and has no
+    // nulls, but it must present the same schema.
+    let opt = |t: PrimitiveType| -> Rc<Type> {
+        Rc::new(Type::Named(
+            vec![Rc::new(Type::Primitive(t))],
+            "option".to_string(),
+        ))
+    };
     let emp_fields: BTreeMap<Label, Rc<Type>> = [
-        (
-            S("comm".to_string()),
-            Rc::new(Type::Primitive(PrimitiveType::Real)),
-        ),
+        (S("comm".to_string()), opt(PrimitiveType::Real)),
         (
             S("deptno".to_string()),
             Rc::new(Type::Primitive(PrimitiveType::Int)),
@@ -6061,10 +6068,7 @@ fn build_scott() -> (Type, Val) {
             S("job".to_string()),
             Rc::new(Type::Primitive(PrimitiveType::String)),
         ),
-        (
-            S("mgr".to_string()),
-            Rc::new(Type::Primitive(PrimitiveType::Int)),
-        ),
+        (S("mgr".to_string()), opt(PrimitiveType::Int)),
         (
             S("sal".to_string()),
             Rc::new(Type::Primitive(PrimitiveType::Real)),
@@ -6076,113 +6080,169 @@ fn build_scott() -> (Type, Val) {
     // emps data: 14 rows. Each row is alphabetical by field name:
     // comm, deptno, empno, ename, hiredate, job, mgr, sal.
     #[allow(clippy::too_many_arguments)]
-    let emp = |comm: f32,
+    let emp = |comm: Option<f32>,
                deptno: i32,
                empno: i32,
                ename: &str,
                hiredate: &str,
                job: &str,
-               mgr: i32,
+               mgr: Option<i32>,
                sal: f32|
      -> Val {
+        // NONE is Val::Unit; SOME v is Val::Some(v).
+        let some = |v: Val| Val::Some(Box::new(v));
         Val::List(Rc::new(vec![
-            Val::Real(comm),
+            comm.map_or(Val::Unit, |c| some(Val::Real(c))),
             Val::Int(deptno),
             Val::Int(empno),
             Val::String((ename.to_string()).into()),
             Val::String((hiredate.to_string()).into()),
             Val::String((job.to_string()).into()),
-            Val::Int(mgr),
+            mgr.map_or(Val::Unit, |m| some(Val::Int(m))),
             Val::Real(sal),
         ]))
     };
     let emps = Val::List(Rc::new(vec![
-        emp(0.0, 20, 7369, "SMITH", "1980-12-17", "CLERK", 7902, 800.0),
         emp(
-            300.0,
+            None,
+            20,
+            7369,
+            "SMITH",
+            "1980-12-17",
+            "CLERK",
+            Some(7902),
+            800.0,
+        ),
+        emp(
+            Some(300.0),
             30,
             7499,
             "ALLEN",
             "1981-02-20",
             "SALESMAN",
-            7698,
+            Some(7698),
             1600.0,
         ),
         emp(
-            500.0,
+            Some(500.0),
             30,
             7521,
             "WARD",
             "1981-02-22",
             "SALESMAN",
-            7698,
+            Some(7698),
             1250.0,
         ),
         emp(
-            0.0,
+            None,
             20,
             7566,
             "JONES",
             "1981-02-04",
             "MANAGER",
-            7839,
+            Some(7839),
             2975.0,
         ),
         emp(
-            1400.0,
+            Some(1400.0),
             30,
             7654,
             "MARTIN",
             "1981-09-28",
             "SALESMAN",
-            7698,
+            Some(7698),
             1250.0,
         ),
         emp(
-            0.0,
+            None,
             30,
             7698,
             "BLAKE",
             "1981-01-05",
             "MANAGER",
-            7839,
+            Some(7839),
             2850.0,
         ),
         emp(
-            0.0,
+            None,
             10,
             7782,
             "CLARK",
             "1981-06-09",
             "MANAGER",
-            7839,
+            Some(7839),
             2450.0,
         ),
         emp(
-            0.0,
+            None,
             20,
             7788,
             "SCOTT",
             "1987-04-19",
             "ANALYST",
-            7566,
+            Some(7566),
             3000.0,
         ),
-        emp(0.0, 10, 7839, "KING", "1981-11-17", "PRESIDENT", 0, 5000.0),
         emp(
-            0.0,
+            None,
+            10,
+            7839,
+            "KING",
+            "1981-11-17",
+            "PRESIDENT",
+            None,
+            5000.0,
+        ),
+        emp(
+            Some(0.0),
             30,
             7844,
             "TURNER",
             "1981-09-08",
             "SALESMAN",
-            7698,
+            Some(7698),
             1500.0,
         ),
-        emp(0.0, 20, 7876, "ADAMS", "1987-05-23", "CLERK", 7788, 1100.0),
-        emp(0.0, 30, 7900, "JAMES", "1981-12-03", "CLERK", 7698, 950.0),
-        emp(0.0, 20, 7902, "FORD", "1981-12-03", "ANALYST", 7566, 3000.0),
-        emp(0.0, 10, 7934, "MILLER", "1982-01-23", "CLERK", 7782, 1300.0),
+        emp(
+            None,
+            20,
+            7876,
+            "ADAMS",
+            "1987-05-23",
+            "CLERK",
+            Some(7788),
+            1100.0,
+        ),
+        emp(
+            None,
+            30,
+            7900,
+            "JAMES",
+            "1981-12-03",
+            "CLERK",
+            Some(7698),
+            950.0,
+        ),
+        emp(
+            None,
+            20,
+            7902,
+            "FORD",
+            "1981-12-03",
+            "ANALYST",
+            Some(7566),
+            3000.0,
+        ),
+        emp(
+            None,
+            10,
+            7934,
+            "MILLER",
+            "1982-01-23",
+            "CLERK",
+            Some(7782),
+            1300.0,
+        ),
     ]));
 
     // Schema for one row of `salgrades`: {grade:int, hisal:real, losal:real}

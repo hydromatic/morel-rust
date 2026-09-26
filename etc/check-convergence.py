@@ -83,6 +83,14 @@ SCRIPT_SUFFIXES = (".smli", ".sml", ".sml.out")
 # merely outstanding. A file morel-rust has not caught up with yet
 # belongs in the divergence report, where it reads as work to do.
 ACCEPTED = {
+    "hybrid.smli": (
+        200,
+        "morel-rust does not translate `=` on an `option` column into "
+        "a Calcite `IS NOT DISTINCT FROM`, so `Sys.plan` shows the "
+        "filter evaluated locally over the dataset inlined as a "
+        "constant, where morel-java shows a pushed-down plan. The "
+        "rest is plan text.",
+    ),
     "use.sml.out": (
         2,
         "a type-conflict message names its two types in the other "
