@@ -72,9 +72,7 @@ impl Comparator for NaturalComparator {
                 xs.len().cmp(&ys.len())
             }
             (Val::Order(a), Val::Order(b)) => a.cmp(b),
-            (Val::Real(x), Val::Real(y)) => {
-                x.partial_cmp(y).unwrap_or(Ordering::Equal)
-            }
+            (Val::Real(x), Val::Real(y)) => total_cmp_real(*x, *y),
             (Val::Some(_), Val::Unit) => Ordering::Greater,
             (Val::Some(a), Val::Some(b)) => self.compare(a, b),
             (Val::String(x), Val::String(y)) => x.cmp(y),
@@ -84,6 +82,62 @@ impl Comparator for NaturalComparator {
             // #}
             _ => Ordering::Equal,
         }
+    }
+}
+
+/// The total order on reals, which `order`, `min` and `max` use:
+/// `NaN` comes after every other value and equals itself, and `~0.0`
+/// comes before `0.0`. IEEE 754 leaves the first pair unordered and
+/// calls the second equal, which would leave the result of `order`
+/// to the accident of input order.
+fn total_cmp_real(x: f32, y: f32) -> Ordering {
+    match (x.is_nan(), y.is_nan()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        // Equal under IEEE 754 leaves only the sign of a zero to
+        // separate them.
+        (false, false) => x
+            .partial_cmp(&y)
+            .unwrap()
+            .then_with(|| y.is_sign_negative().cmp(&x.is_sign_negative())),
+    }
+}
+
+/// Compares two values as the comparison operators `<`, `<=`, `>`
+/// and `>=` do: the natural order of [NaturalComparator], except
+/// that reals follow IEEE 754, so `~0.0` equals `0.0` and any
+/// comparison involving `NaN` is unordered and gives `None`. An
+/// unordered comparison makes the operator false, whichever way it
+/// points. A `NaN` that an earlier part has already settled does not
+/// decide, so `(1.0, 0.0 / 0.0) < (2.0, 3.0)` is ordered, and true.
+pub fn partial_compare(a: &Val, b: &Val) -> Option<Ordering> {
+    match (a, b) {
+        // lint: sort until '#}' where '##\(Val::'
+        (
+            Val::Constructor(ord_a, inner_a),
+            Val::Constructor(ord_b, inner_b),
+        ) => match ord_a.cmp(ord_b) {
+            Ordering::Equal => partial_compare(inner_a, inner_b),
+            other => Some(other),
+        },
+        (Val::Inl(a), Val::Inl(b)) => partial_compare(a, b),
+        (Val::Inr(a), Val::Inr(b)) => partial_compare(a, b),
+        (Val::List(xs), Val::List(ys)) => {
+            for (x, y) in xs.iter().zip(ys.iter()) {
+                match partial_compare(x, y)? {
+                    Ordering::Equal => continue,
+                    other => return Some(other),
+                }
+            }
+            Some(xs.len().cmp(&ys.len()))
+        }
+        (Val::Real(x), Val::Real(y)) => x.partial_cmp(y),
+        (Val::Some(a), Val::Some(b)) => partial_compare(a, b),
+        // #}
+        // Every other pair has no real in it, so it cannot be
+        // unordered; the natural order answers.
+        _ => Some(NaturalComparator.compare(a, b)),
     }
 }
 

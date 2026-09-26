@@ -462,10 +462,16 @@ from e in scott.emps where e.comm = NONE andalso e.deptno = 30 yield e.ename;
 > val it = ["BLAKE","JAMES"] : string bag
 from e in scott.emps where e.mgr = SOME 7698 yield e.ename;
 > val it = ["ALLEN","WARD","MARTIN","TURNER","JAMES"] : string bag
+(* 'NONE' is less than any 'SOME', so KING (who has no manager) is included. *)
+from e in scott.emps where e.mgr < SOME 7700 yield e.ename;
+> val it = ["ALLEN","WARD","MARTIN","SCOTT","KING","TURNER","JAMES","FORD"]
+>   : string bag
 Sys.plan ();
 > val it =
->   "from(sink join(pat bind(0), exp constant([[(),20,7369,\"SMITH\",\"1980-12-17\",\"CLERK\",SOME 7902,800],[SOME 300,30,7499,\"ALLEN\",\"1981-02-20\",\"SALESMAN\",SOME 7698,1600],[SOME 500,30,7521,\"WARD\",\"1981-02-22\",\"SALESMAN\",SOME 7698,1250],[(),20,7566,\"JONES\",\"1981-02-04\",\"MANAGER\",SOME 7839,2975],[SOME 1400,30,7654,\"MARTIN\",\"1981-09-28\",\"SALESMAN\",SOME 7698,1250],[(),30,7698,\"BLAKE\",\"1981-01-05\",\"MANAGER\",SOME 7839,2850],[(),10,7782,\"CLARK\",\"1981-06-09\",\"MANAGER\",SOME 7839,2450],[(),20,7788,\"SCOTT\",\"1987-04-19\",\"ANALYST\",SOME 7566,3000],[(),10,7839,\"KING\",\"1981-11-17\",\"PRESIDENT\",(),5000],[SOME 0,30,7844,\"TURNER\",\"1981-09-08\",\"SALESMAN\",SOME 7698,1500],[(),20,7876,\"ADAMS\",\"1987-05-23\",\"CLERK\",SOME 7788,1100],[(),30,7900,\"JAMES\",\"1981-12-03\",\"CLERK\",SOME 7698,950],[(),20,7902,\"FORD\",\"1981-12-03\",\"ANALYST\",SOME 7566,3000],[(),10,7934,\"MILLER\",\"1982-01-23\",\"CLERK\",SOME 7782,1300]]), sink where(condition apply(fnValue =, argCode tuple(apply(fn nth:6 arg get(0)), apply(fnValue Option.SOME, argCode constant(7698)))), sink collect(apply(fn nth:3 arg get(0))))))"
+>   "from(sink join(pat bind(0), exp constant([[(),20,7369,\"SMITH\",\"1980-12-17\",\"CLERK\",SOME 7902,800],[SOME 300,30,7499,\"ALLEN\",\"1981-02-20\",\"SALESMAN\",SOME 7698,1600],[SOME 500,30,7521,\"WARD\",\"1981-02-22\",\"SALESMAN\",SOME 7698,1250],[(),20,7566,\"JONES\",\"1981-02-04\",\"MANAGER\",SOME 7839,2975],[SOME 1400,30,7654,\"MARTIN\",\"1981-09-28\",\"SALESMAN\",SOME 7698,1250],[(),30,7698,\"BLAKE\",\"1981-01-05\",\"MANAGER\",SOME 7839,2850],[(),10,7782,\"CLARK\",\"1981-06-09\",\"MANAGER\",SOME 7839,2450],[(),20,7788,\"SCOTT\",\"1987-04-19\",\"ANALYST\",SOME 7566,3000],[(),10,7839,\"KING\",\"1981-11-17\",\"PRESIDENT\",(),5000],[SOME 0,30,7844,\"TURNER\",\"1981-09-08\",\"SALESMAN\",SOME 7698,1500],[(),20,7876,\"ADAMS\",\"1987-05-23\",\"CLERK\",SOME 7788,1100],[(),30,7900,\"JAMES\",\"1981-12-03\",\"CLERK\",SOME 7698,950],[(),20,7902,\"FORD\",\"1981-12-03\",\"ANALYST\",SOME 7566,3000],[(),10,7934,\"MILLER\",\"1982-01-23\",\"CLERK\",SOME 7782,1300]]), sink where(condition apply(fnValue <, argCode tuple(apply(fn nth:6 arg get(0)), apply(fnValue Option.SOME, argCode constant(7700)))), sink collect(apply(fn nth:3 arg get(0))))))"
 >   : string
+Sys.plan ();
+> val it = "apply0(fnValue Sys.plan)" : string
 from e in scott.emps
   where Option.isSome e.comm
   yield (e.ename, valOf e.comm);

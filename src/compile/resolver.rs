@@ -2214,7 +2214,9 @@ impl<'a> Resolver<'a> {
             }
             ExprKind::From(steps) => self.resolve_query(steps),
             ExprKind::GreaterThan(a0, a1) => {
-                match a0.get_type(self.type_map).expect("type").as_ref() {
+                let operand_t = a0.get_type(self.type_map).expect("type");
+                self.check_comparable(&operand_t, &span);
+                match operand_t.as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntGt, &span, a0, a1)
                     }
@@ -2234,7 +2236,9 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::GreaterThanOrEqual(a0, a1) => {
-                match a0.get_type(self.type_map).expect("type").as_ref() {
+                let operand_t = a0.get_type(self.type_map).expect("type");
+                self.check_comparable(&operand_t, &span);
+                match operand_t.as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntGe, &span, a0, a1)
                     }
@@ -2318,7 +2322,9 @@ impl<'a> Resolver<'a> {
                 self.call2(t, BuiltInFunction::BoolImplies, &span, a0, a1)
             }
             ExprKind::LessThan(a0, a1) => {
-                match a0.get_type(self.type_map).expect("type").as_ref() {
+                let operand_t = a0.get_type(self.type_map).expect("type");
+                self.check_comparable(&operand_t, &span);
+                match operand_t.as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntLt, &span, a0, a1)
                     }
@@ -2338,7 +2344,9 @@ impl<'a> Resolver<'a> {
                 }
             }
             ExprKind::LessThanOrEqual(a0, a1) => {
-                match a0.get_type(self.type_map).expect("type").as_ref() {
+                let operand_t = a0.get_type(self.type_map).expect("type");
+                self.check_comparable(&operand_t, &span);
+                match operand_t.as_ref() {
                     Type::Primitive(PrimitiveType::Int) => {
                         self.call2(t, BuiltInFunction::IntLe, &span, a0, a1)
                     }
@@ -4210,6 +4218,18 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// Rejects a comparison whose operand type has no order. Values
+    /// are compared part by part at run time, so every part must have
+    /// one, and a function has none.
+    fn check_comparable(&self, type_: &Type, span: &Span) {
+        if let Some(t) = uncomparable_part(type_) {
+            self.errors.borrow_mut().push((
+                format!("comparison not defined for type '{}'", t),
+                span.clone(),
+            ));
+        }
+    }
+
     /// Maps an overloaded operator to its general (polymorphic) built-in
     /// function.
     fn multi_op_to_builtin(&self, op_name: &str) -> BuiltInFunction {
@@ -4235,6 +4255,25 @@ impl<'a> Resolver<'a> {
             "notelem" => ListNotElem,
             _ => todo!("overloaded operator '{}' not supported", op_name),
         }
+    }
+}
+
+/// The first part of a type that has no order, if there is one. A
+/// function has no order; every other part either has one of its own
+/// or is made of parts that must.
+fn uncomparable_part(type_: &Type) -> Option<&Type> {
+    match type_ {
+        Type::Fn(_, _) => Some(type_),
+        Type::Bag(elem) | Type::List(elem) => uncomparable_part(elem),
+        Type::Tuple(args) | Type::Named(args, _) => {
+            args.iter().find_map(|a| uncomparable_part(a))
+        }
+        Type::Record(_, fields) => {
+            fields.values().find_map(|f| uncomparable_part(f))
+        }
+        Type::Alias(_, t, args, _) => uncomparable_part(t)
+            .or_else(|| args.iter().find_map(|a| uncomparable_part(a))),
+        _ => None,
     }
 }
 

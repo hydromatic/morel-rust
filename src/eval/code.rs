@@ -40,7 +40,7 @@ use crate::eval::bound::{
     set_contains,
 };
 use crate::eval::char::Char;
-use crate::eval::comparator::{Comparator, NaturalComparator};
+use crate::eval::comparator::{Comparator, NaturalComparator, partial_compare};
 use crate::eval::date;
 use crate::eval::discrete::Discrete;
 use crate::eval::either::Either;
@@ -4939,46 +4939,18 @@ impl Custom {
                 _ => panic!("Type error in div operation"),
             },
             GEq => Val::Bool(norm(a0) == norm(a1)),
-            GGe => match (a0, a1) {
-                (Val::Int(x), Val::Int(y)) => Val::Bool(x >= y),
-                (Val::Real(x), Val::Real(y)) => Val::Bool(x >= y),
-                (Val::Bool(x), Val::Bool(y)) => Val::Bool(x >= y),
-                (Val::Char(x), Val::Char(y)) => Val::Bool(x >= y),
-                (Val::List(x), Val::List(y)) => {
-                    Val::Bool(lex_compare(&x, &y) >= 0)
-                }
-                _ => panic!("Type error in >= comparison"),
-            },
-            GGt => match (a0, a1) {
-                (Val::Int(x), Val::Int(y)) => Val::Bool(x > y),
-                (Val::Real(x), Val::Real(y)) => Val::Bool(x > y),
-                (Val::Bool(x), Val::Bool(y)) => Val::Bool(x & !y),
-                (Val::Char(x), Val::Char(y)) => Val::Bool(x > y),
-                (Val::List(x), Val::List(y)) => {
-                    Val::Bool(lex_compare(&x, &y) > 0)
-                }
-                _ => panic!("Type error in > comparison"),
-            },
-            GLe => match (a0, a1) {
-                (Val::Int(x), Val::Int(y)) => Val::Bool(x <= y),
-                (Val::Real(x), Val::Real(y)) => Val::Bool(x <= y),
-                (Val::Bool(x), Val::Bool(y)) => Val::Bool(x <= y),
-                (Val::Char(x), Val::Char(y)) => Val::Bool(x <= y),
-                (Val::List(x), Val::List(y)) => {
-                    Val::Bool(lex_compare(&x, &y) <= 0)
-                }
-                _ => panic!("Type error in <= comparison"),
-            },
-            GLt => match (a0, a1) {
-                (Val::Int(x), Val::Int(y)) => Val::Bool(x < y),
-                (Val::Real(x), Val::Real(y)) => Val::Bool(x < y),
-                (Val::Bool(x), Val::Bool(y)) => Val::Bool(!x & y),
-                (Val::Char(x), Val::Char(y)) => Val::Bool(x < y),
-                (Val::List(x), Val::List(y)) => {
-                    Val::Bool(lex_compare(&x, &y) < 0)
-                }
-                _ => panic!("Type error in < comparison"),
-            },
+            GGe => Val::Bool(matches!(
+                partial_compare(&a0, &a1), Some(c) if c.is_ge()
+            )),
+            GGt => Val::Bool(matches!(
+                partial_compare(&a0, &a1), Some(c) if c.is_gt()
+            )),
+            GLe => Val::Bool(matches!(
+                partial_compare(&a0, &a1), Some(c) if c.is_le()
+            )),
+            GLt => Val::Bool(matches!(
+                partial_compare(&a0, &a1), Some(c) if c.is_lt()
+            )),
             GMinus => match (a0, a1) {
                 (Val::Int(x), Val::Int(y)) => Val::Int(x - y),
                 (Val::Real(x), Val::Real(y)) => Val::Real(x - y),
