@@ -2269,16 +2269,15 @@ impl<'a> Resolver<'a> {
                 // own, and `not` afterwards means that one. Whether a
                 // reference is to the basis is decided by the binding,
                 // not by the name.
-                let is_shadowed = self.type_map.user_bindings.contains(name)
-                    || if let Some(local_type) = expr.get_type(self.type_map) {
-                        // A local binding of a basis name shadows it too.
-                        // This does not see one whose type is the same as
-                        // the built-in's, which the binding above does.
-                        !matches!(local_type.as_ref(), Type::Fn(_, _))
-                            && library::lookup(name).is_some()
-                    } else {
-                        false
-                    };
+                // The type resolver walked this reference with the
+                // environment in hand and recorded whether it found a
+                // binding of the program's own, which is the whole
+                // question. Nothing here needs to guess from the name or
+                // the type.
+                let is_shadowed =
+                    expr.id.is_some_and(|id| {
+                        self.type_map.shadowing_ids.contains(&id)
+                    }) || self.type_map.user_bindings.contains(name);
                 if !is_shadowed && let Some(built_in) = library::lookup(name) {
                     match built_in {
                         BuiltIn::Fn(f) => {

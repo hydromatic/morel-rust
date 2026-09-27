@@ -188,6 +188,17 @@ pub struct TypeMap {
     /// and to the standard basis, and this is how a reference to
     /// something the user declared is told from one to a built-in.
     pub user_bindings: HashSet<String>,
+    /// The identifier expressions that resolved to a binding of the
+    /// program's own rather than to the standard basis.
+    ///
+    /// Only the type resolver knows this: it walks the expression with
+    /// the environment in hand, so it can see that the `size` in
+    /// `let fun size s = 99 in size "12" end` is the local one. The
+    /// resolver, which decides whether to emit the built-in or a
+    /// reference, has no environment, and guessed from the name and the
+    /// type -- which cannot tell a shadowing binding of the same type
+    /// from the built-in it shadows.
+    pub shadowing_ids: HashSet<i32>,
     /// The name of the alias a checked type that has no name was written
     /// on, by the name it was given: `one check i => i < 100`, where
     /// `one` is a `positive`, is a `positive` with a condition added. The
@@ -242,6 +253,7 @@ impl TypeMap {
             type_checks: HashMap::new(),
             check_predicates: Rc::new(RefCell::new(HashMap::new())),
             user_bindings: HashSet::new(),
+            shadowing_ids: HashSet::new(),
             anon_check_base: HashMap::new(),
             claiming_records: HashMap::new(),
             predicate_terms: Vec::new(),
@@ -1151,6 +1163,8 @@ pub struct TypeResolver {
     pub check_predicates: Rc<RefCell<CheckPredicates>>,
     /// The names the user has bound; see [`TypeMap::user_bindings`].
     pub user_bindings: HashSet<String>,
+    /// See [`TypeMap::shadowing_ids`].
+    pub shadowing_ids: HashSet<i32>,
     /// See [`TypeMap::claiming_records`].
     claiming_records: HashMap<(usize, usize), String>,
     /// See [`TypeMap::anon_check_base`].
@@ -1966,6 +1980,7 @@ impl TypeResolver {
             type_checks: HashMap::new(),
             check_predicates: Rc::new(RefCell::new(HashMap::new())),
             user_bindings: HashSet::new(),
+            shadowing_ids: HashSet::new(),
             claiming_records: HashMap::new(),
             anon_check_base: HashMap::new(),
             claimed_after_erasure: HashSet::new(),
@@ -2205,6 +2220,7 @@ impl TypeResolver {
         type_map.type_checks = self.type_checks.clone();
         type_map.check_predicates = Rc::clone(&self.check_predicates);
         type_map.user_bindings = self.user_bindings.clone();
+        type_map.shadowing_ids = self.shadowing_ids.clone();
         type_map.anon_check_base = self.anon_check_base.clone();
         type_map.claiming_records = self.claiming_records.clone();
 
@@ -3878,11 +3894,23 @@ impl TypeResolver {
                     }
                 }
                 // An overloaded operator named as a value, `abs`,
-                // prefers its table type when unconstrained.
-                if !self.user_bindings.contains(name) {
+                // prefers its table type when unconstrained -- unless
+                // this reference is to a binding of the program's own,
+                // which has nothing to do with the operator.
+                if !self.user_bindings.contains(name) && !env.binds(name) {
                     self.prefer_operator_value(name, v);
                 }
-                self.reg_expr(&expr.kind, &expr.span, expr.id, v)
+                // A binding of the program's own shadows a built-in of
+                // the same name, whatever its type. Record it while the
+                // environment is in hand; the resolver cannot see it.
+                // `reg_expr` may give the node a fresh id, and the
+                // resolver sees that one, so record what it returns.
+                let shadows = env.binds(name);
+                let out = self.reg_expr(&expr.kind, &expr.span, expr.id, v);
+                if shadows && let Some(id) = out.id {
+                    self.shadowing_ids.insert(id);
+                }
+                out
             }
             ExprKind::If(a0, a1, a2) => {
                 // `if cond then e1 else e2` is not a function: the condition is

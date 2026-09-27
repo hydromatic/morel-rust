@@ -37,6 +37,17 @@ pub trait TypeEnv {
     /// May consult or modify the `unifier` to construct the [Term].
     fn get(&self, name: &str, t: &mut TypeResolver) -> Option<BindType>;
 
+    /// Whether an explicit binding in this environment, or an enclosing
+    /// one, binds `name`.
+    ///
+    /// The standard basis does not count: [FunTypeEnv] answers for it,
+    /// and skips itself here. So this is how a reference to something
+    /// the program bound -- a `let`, a `fun`, a pattern variable, a
+    /// top-level declaration -- is told from a reference to a built-in
+    /// of the same name, which is what decides whether the built-in is
+    /// shadowed.
+    fn binds(&self, name: &str) -> bool;
+
     /// Binds a name to a term, returning a new environment.
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv>;
 
@@ -50,6 +61,10 @@ pub trait TypeEnv {
 impl TypeEnv for EmptyTypeEnv {
     fn get(&self, _name: &str, _t: &mut TypeResolver) -> Option<BindType> {
         None
+    }
+
+    fn binds(&self, _name: &str) -> bool {
+        false
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
@@ -78,6 +93,10 @@ impl TypeEnv for SimpleTypeEnv {
         } else {
             self.parent.get(name, t)
         }
+    }
+
+    fn binds(&self, name: &str) -> bool {
+        self.bindings.contains_key(name) || self.parent.binds(name)
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
@@ -127,6 +146,12 @@ impl TypeEnv for FunTypeEnv {
             return result;
         }
         self.parent.get(name, tr)
+    }
+
+    /// The basis binds many names, and none of them count here: this is
+    /// the environment a shadowing binding shadows.
+    fn binds(&self, name: &str) -> bool {
+        self.parent.binds(name)
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
@@ -222,6 +247,10 @@ impl TypeEnv for SchemeTypeEnv {
             .map(|g| (*g, Term::Variable(t.variable())))
             .collect();
         Some(BindType::Val(self.term.apply(&fresh)))
+    }
+
+    fn binds(&self, name: &str) -> bool {
+        name == self.name || self.parent.binds(name)
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {

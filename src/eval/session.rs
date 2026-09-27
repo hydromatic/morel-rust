@@ -602,6 +602,12 @@ impl TypeEnv for ResolvedTypeEnv {
         }
     }
 
+    /// A name a previous statement bound is the program's, so it
+    /// shadows a built-in of the same name.
+    fn binds(&self, name: &str) -> bool {
+        self.bindings.contains_key(name) || self.parent.binds(name)
+    }
+
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
         // We can't directly store a Term, so just create a new SimpleTypeEnv.
         SimpleTypeEnv::with_parent_and_binding(
@@ -684,6 +690,14 @@ impl TypeEnv for SessionAwareEnv {
             return Some(BindType::Val(Term::Variable(v)));
         }
         self.parent.get(name, tr)
+    }
+
+    /// `file` is this environment's own, as are the names a previous
+    /// statement bound to one.
+    fn binds(&self, name: &str) -> bool {
+        name == "file"
+            || self.runtime_bindings.contains_key(name)
+            || self.parent.binds(name)
     }
 
     fn bind(&self, name: String, term: Term) -> Rc<dyn TypeEnv> {
