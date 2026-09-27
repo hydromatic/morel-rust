@@ -493,7 +493,7 @@ pub enum BuiltInFunction {
     #[strum(props(type = "forall 1 'a -> 'a"))]
     FnId,
     #[strum(props(p = "Fn", name = "notEqual"))]
-    #[strum(props(type = "forall 2 'a -> 'a -> bool"))]
+    #[strum(props(type = "forall 1 'a -> 'a -> bool"))]
     FnNotEqual,
     #[strum(props(p = "Fn", name = "o"))]
     #[strum(props(type = "forall 3 ('b -> 'c) * ('a -> 'b) -> 'a -> 'c"))]
@@ -1717,7 +1717,7 @@ pub enum BuiltInFunction {
     VectorFind,
     #[strum(props(p = "Vector", name = "findi"))]
     #[strum(props(
-        type = "forall 2 (int * 'a -> bool) -> 'a vector -> (int * 'a) option"
+        type = "forall 1 (int * 'a -> bool) -> 'a vector -> (int * 'a) option"
     ))]
     VectorFindi,
     #[strum(props(p = "Vector", name = "foldl"))]
