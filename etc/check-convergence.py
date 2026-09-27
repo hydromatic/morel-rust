@@ -142,6 +142,35 @@ def java_sha_from_message(repo, commit):
     return m.group(1) if m else None
 
 
+def java_sha_for(repo, commit):
+    """The morel-java commit to measure `commit` against, and whether it
+    came from an ancestor.
+
+    A propagation names its morel-java commit, and is measured against
+    that commit and its parent: morel-java changed something, and the
+    question is whether this commit followed.
+
+    A commit of the port's own -- a refactor, a bug fix, anything with no
+    `Propagates` line -- is measured against a single morel-java commit,
+    the one the nearest ancestor propagated. morel-java does not move, so
+    any script that grows more divergent grew that way here. That is how
+    morel-rust lost #464: `abc7976` reverted `built-in/sys.smli` to a raw
+    listing as collateral of unrelated work, 410 lines of divergence that
+    no run measured, because the gate only looked at propagations.
+    """
+    sha = java_sha_from_message(repo, commit)
+    if sha:
+        return sha, False
+    log = git(repo, "log", "--format=%H", f"{commit}~1") or ""
+    for line in log.split("\n"):
+        if not line.strip():
+            continue
+        sha = java_sha_from_message(repo, line.strip())
+        if sha:
+            return sha, True
+    return None, False
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("rust_commit", nargs="?", default="HEAD")
@@ -160,18 +189,32 @@ def main():
     rust = rust.strip()
     rust_parent = git(rust_repo, "rev-parse", f"{rust}^").strip()
 
-    java = args.java or java_sha_from_message(rust_repo, rust)
+    local = False
+    if args.java:
+        java = args.java
+    else:
+        java, local = java_sha_for(rust_repo, rust)
     if not java:
-        sys.exit("error: no java SHA given and none found in commit message "
-                 "(expected a 'Propagates ... commit <sha>' line)")
+        sys.exit("error: no java SHA given, none in the commit message, and "
+                 "no ancestor has a 'Propagates ... commit <sha>' line")
     java_full = git(args.java_repo, "rev-parse", java)
     if java_full is None:
         sys.exit(f"error: bad java commit {java} in {args.java_repo}")
     java = java_full.strip()
-    java_parent = git(args.java_repo, "rev-parse", f"{java}^").strip()
+    if local:
+        # morel-java is held still, so the only thing that can move the
+        # numbers is this commit.
+        java_parent = java
+    else:
+        java_parent = git(args.java_repo, "rev-parse", f"{java}^").strip()
 
     print(f"rust  {rust[:9]}  (parent {rust_parent[:9]})")
-    print(f"java  {java[:9]}  (parent {java_parent[:9]})")
+    if local:
+        print(f"java  {java[:9]}  (held still: this commit propagates "
+              f"nothing, so it is measured against what its nearest "
+              f"ancestor did)")
+    else:
+        print(f"java  {java[:9]}  (parent {java_parent[:9]})")
     print()
 
     # Every relative .smli path seen on either side, at either revision.
@@ -232,9 +275,10 @@ def main():
         print(f"FAIL: {len(regressions)} file(s) diverged further from "
               f"morel-java:")
         for rel, before, after in regressions:
+            why = ("this commit diverged it" if local
+                   else "java changed this; rust did not follow")
             print(f"  {rel:40} {before:7} -> {after:7} "
-                  f"({after - before:+d})  -- java changed this; rust did not "
-                  f"follow")
+                  f"({after - before:+d})  -- {why}")
         return 1
 
     print("OK: no script file diverged further from morel-java.")
