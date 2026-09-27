@@ -2079,7 +2079,7 @@ from e in scott.emps
     (from e in scott.emps
       where e.deptno = 30
       yield e.job);
-> val it = ["CLERK","MANAGER"] : string bag
+> val it = ["MANAGER","CLERK"] : string bag
 
 set("mode", "validate");
 > val it = () : unit
