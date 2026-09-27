@@ -137,12 +137,12 @@ impl Real {
                 .to_string();
         }
         let neg_sign = r.is_sign_negative();
-        let abs = r.abs();
+        let (digits, exp) = canonical(r.abs());
         let body = match kind {
-            FmtKind::Sci => format_sci(abs, n),
-            FmtKind::Fix => format_fix(abs, n),
-            FmtKind::Gen => format_gen(abs, n),
-            FmtKind::Exact => format_exact(abs),
+            FmtKind::Sci => format_sci(&digits, exp, n, false),
+            FmtKind::Fix => format_fix(&digits, exp, n, false),
+            FmtKind::Gen => format_gen(&digits, exp, n, false),
+            FmtKind::Exact => format_exact(&digits, exp),
         };
         if neg_sign { format!("~{}", body) } else { body }
     }
@@ -547,17 +547,16 @@ fn parse_fmt_spec(spec: &Val) -> (FmtKind, usize) {
 }
 
 /// `D.dddE±exp` with `n` digits after the decimal.
-fn format_sci(abs: f32, n: usize) -> String {
-    if abs == 0.0 {
+pub fn format_sci(digits: &str, exp: i32, n: usize, half_even: bool) -> String {
+    if digits == ZERO_DIGITS {
         return if n == 0 {
             "0E0".to_string()
         } else {
             format!("0.{}E0", "0".repeat(n))
         };
     }
-    let (digits, exp) = canonical(abs);
     // Round `digits` to `n + 1` significant digits.
-    let (rounded, exp_adj) = round_half_down_digits(&digits, n + 1);
+    let (rounded, exp_adj) = round_digits(digits, n + 1, half_even);
     let exp = exp + exp_adj;
     if n == 0 {
         format!("{}E{}", &rounded[..1], sml_exp(exp))
@@ -567,15 +566,14 @@ fn format_sci(abs: f32, n: usize) -> String {
 }
 
 /// Fixed-point with `n` digits after the decimal.
-fn format_fix(abs: f32, n: usize) -> String {
-    if abs == 0.0 {
+pub fn format_fix(digits: &str, exp: i32, n: usize, half_even: bool) -> String {
+    if digits == ZERO_DIGITS {
         return if n == 0 {
             "0".to_string()
         } else {
             format!("0.{}", "0".repeat(n))
         };
     }
-    let (digits, exp) = canonical(abs);
     // The number is `digits.0 * 10^exp` (where `digits.0` is the
     // mantissa with the implicit decimal after the first character).
     // For FIX with `n` decimals, we round `digits` so that its implied
@@ -607,19 +605,18 @@ fn format_fix(abs: f32, n: usize) -> String {
         return format!("0.{}", String::from_utf8(frac).unwrap());
     }
     let (rounded, exp_adj) =
-        round_half_down_digits(&digits, total_sig as usize);
+        round_digits(digits, total_sig as usize, half_even);
     let exp = exp + exp_adj;
     place_decimal(&rounded, exp, n, false)
 }
 
 /// At most `n` significant digits, using fixed when exp in `[-3, n)`,
 /// scientific otherwise. Trailing zeros are stripped.
-fn format_gen(abs: f32, n: usize) -> String {
-    if abs == 0.0 {
+pub fn format_gen(digits: &str, exp: i32, n: usize, half_even: bool) -> String {
+    if digits == ZERO_DIGITS {
         return "0".to_string();
     }
-    let (digits, exp) = canonical(abs);
-    let (rounded, exp_adj) = round_half_down_digits(&digits, n);
+    let (rounded, exp_adj) = round_digits(digits, n, half_even);
     let exp = exp + exp_adj;
     // Strip trailing zeros from the rounded significant digits.
     let stripped = rounded.trim_end_matches('0');
@@ -639,11 +636,10 @@ fn format_gen(abs: f32, n: usize) -> String {
 }
 
 /// `0.dddE<exp>` form with no trailing zeros.
-fn format_exact(abs: f32) -> String {
-    if abs == 0.0 {
+pub fn format_exact(digits: &str, exp: i32) -> String {
+    if digits == ZERO_DIGITS {
         return "0.0".to_string();
     }
-    let (digits, exp) = canonical(abs);
     // EXACT prints as `0.<digits>E<exp+1>`. (Decimal point moves one
     // place left vs. standard scientific form.) Strip trailing zeros.
     let stripped = digits.trim_end_matches('0');
@@ -695,14 +691,25 @@ fn canonical(abs: f32) -> (String, i32) {
     (digits, exp)
 }
 
-/// Rounds the digit string `digits` to `target` significant digits
-/// using half-down (ties round toward zero). Returns the rounded
-/// digit string and an exponent adjustment (1 if rounding carried
-/// past the leading position, e.g. "999" -> "1000"; else 0).
-fn round_half_down_digits(digits: &str, target: usize) -> (String, i32) {
+/// The digit string of zero. No other value has it, because a digit
+/// string carries no leading zero.
+pub const ZERO_DIGITS: &str = "0";
+
+/// Rounds the digit string `digits` to `target` significant digits.
+/// A tie -- the dropped digits being exactly half -- goes toward zero
+/// if `half_even` is false, which is what `Real.fmt` does, and to the
+/// nearest even digit if it is true, which is what decimal128
+/// arithmetic and `Decimal.fmt` do. Returns the rounded digit string
+/// and an exponent adjustment (1 if rounding carried past the leading
+/// position, e.g. "999" -> "1000"; else 0).
+pub fn round_digits(
+    digits: &str,
+    target: usize,
+    half_even: bool,
+) -> (String, i32) {
     if target == 0 {
         // No significant digits requested. Treat as "0", exp_adj=0.
-        return ("0".to_string(), 0);
+        return (ZERO_DIGITS.to_string(), 0);
     }
     if digits.len() <= target {
         let mut s = digits.to_string();
@@ -717,8 +724,12 @@ fn round_half_down_digits(digits: &str, target: usize) -> (String, i32) {
     let rest_dropped = &dropped[1..];
     // Round up iff first_dropped > '5', or first_dropped == '5' and any
     // remaining dropped digit is non-zero (half-down: exact .5 stays).
-    let round_up = first_dropped > b'5'
-        || (first_dropped == b'5' && rest_dropped.bytes().any(|b| b != b'0'));
+    let tie = first_dropped == b'5' && rest_dropped.bytes().all(|b| b == b'0');
+    let mut round_up = first_dropped > b'5' || (first_dropped == b'5' && !tie);
+    if tie && half_even {
+        // Round to even: up only if the last kept digit is odd.
+        round_up = (kept.as_bytes()[target - 1] - b'0') & 1 == 1;
+    }
     if !round_up {
         return (kept.to_string(), 0);
     }
