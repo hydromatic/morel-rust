@@ -57,6 +57,7 @@ impl Comparator for NaturalComparator {
             ) => ord_a
                 .cmp(ord_b)
                 .then_with(|| self.compare(inner_a, inner_b)),
+            (Val::Decimal(x), Val::Decimal(y)) => x.cmp(y),
             (Val::Inl(_), Val::Inr(_)) => Ordering::Less,
             (Val::Inl(a), Val::Inl(b)) => self.compare(a, b),
             (Val::Inr(_), Val::Inl(_)) => Ordering::Greater,
@@ -121,6 +122,7 @@ pub fn partial_compare(a: &Val, b: &Val) -> Option<Ordering> {
             Ordering::Equal => partial_compare(inner_a, inner_b),
             other => Some(other),
         },
+        (Val::Decimal(x), Val::Decimal(y)) => Some(x.cmp(y)),
         (Val::Inl(a), Val::Inl(b)) => partial_compare(a, b),
         (Val::Inr(a), Val::Inr(b)) => partial_compare(a, b),
         (Val::List(xs), Val::List(ys)) => {

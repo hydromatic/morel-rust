@@ -3738,6 +3738,7 @@ impl TypeResolver {
             ExprKind::Divide(left, right) => {
                 let (left2, right2) =
                     self.deduce_call2_type(env, "op /", left, right, v)?;
+                self.note_operator("op /", v, &expr.span);
                 self.erase_alias(v);
                 let x = ExprKind::Divide(Box::new(left2), Box::new(right2));
                 self.reg_expr(&x, &expr.span, expr.id, v)
@@ -4590,6 +4591,11 @@ impl TypeResolver {
             let ok = match peel_type(&type_) {
                 Type::Variable(_) => true,
                 Type::Primitive(p) => f.overload_domain().contains(p),
+                Type::Data(name, args)
+                    if args.is_empty() && name == "decimal" =>
+                {
+                    f.overload_includes_decimal()
+                }
                 _ => false,
             };
             if !ok {

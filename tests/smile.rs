@@ -115,6 +115,11 @@ fn built_in_date() {
 }
 
 #[test]
+fn built_in_decimal() {
+    run_script("tests/script/built-in/decimal.smli");
+}
+
+#[test]
 fn built_in_either() {
     run_script("tests/script/built-in/either.smli");
 }

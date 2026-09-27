@@ -525,7 +525,7 @@ fn option_int(v: &Val) -> Option<i32> {
 }
 
 #[derive(Copy, Clone)]
-enum FmtKind {
+pub enum FmtKind {
     Sci,
     Fix,
     Gen,
@@ -534,7 +534,7 @@ enum FmtKind {
 
 /// Returns the (kind, n) pair for a validated `StringCvt.realfmt`. `n`
 /// defaults to 6 for `SCI`/`FIX`, 12 for `GEN`, and 0 for `EXACT`.
-fn parse_fmt_spec(spec: &Val) -> (FmtKind, usize) {
+pub fn parse_fmt_spec(spec: &Val) -> (FmtKind, usize) {
     let (kind, default, inner) = match spec {
         Val::Constructor(REALFMT_EXACT, _) => return (FmtKind::Exact, 0),
         Val::Constructor(REALFMT_SCI, inner) => (FmtKind::Sci, 6, inner),

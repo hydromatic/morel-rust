@@ -24,6 +24,7 @@ pub mod code;
 pub mod color_scheme;
 pub mod comparator;
 pub mod date;
+pub mod decimal;
 pub mod discrete;
 pub mod either;
 pub mod file;

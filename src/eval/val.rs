@@ -22,6 +22,7 @@ use crate::eval::code::{
     Code, EvalEnv, Frame as CodeFrame, Frame, Impl, LIBRARY,
 };
 use crate::eval::date;
+use crate::eval::decimal::Decimal;
 use crate::eval::file;
 use crate::eval::frame::FrameDef;
 use crate::eval::order::Order;
@@ -113,6 +114,9 @@ pub enum Val {
     /// `Date.year` use the local broken-down time (`utc_nanos +
     /// offset_secs * 1e9`).
     Date(i64, i32),
+    /// `Decimal(d)` represents a `decimal` value: exact decimal
+    /// floating point in the IEEE 754-2008 decimal128 format.
+    Decimal(Decimal),
     List(Rc<Vec<Val>>),
     /// Built-in function.
     Fn(BuiltInFunction),
@@ -340,6 +344,14 @@ impl Val {
         }
     }
 
+    /// The decimal this value holds.
+    pub(crate) fn expect_decimal(&self) -> &Decimal {
+        match self {
+            Val::Decimal(d) => d,
+            _ => panic!("Expected decimal"),
+        }
+    }
+
     pub(crate) fn maybe_bool(&self) -> Option<bool> {
         match self {
             Val::Bool(b) => Some(*b),
@@ -468,6 +480,7 @@ impl Display for Val {
                 }
             }
             Val::Date(d, o) => write!(f, "{}", date::format_iso(*d, *o)),
+            Val::Decimal(d) => write!(f, "{}", d),
             Val::Doc(_) => write!(f, "-"),
             Val::File(file) => write!(f, "{}", file::display_file(file)),
             Val::Fn(func) => {
@@ -574,6 +587,7 @@ impl PartialEq for Val {
             (Val::Unit, Val::Unit) => true,
             (Val::Bool(a), Val::Bool(b)) => a == b,
             (Val::Char(a), Val::Char(b)) => a == b,
+            (Val::Decimal(a), Val::Decimal(b)) => a == b,
             (Val::Int(a), Val::Int(b)) => a == b,
             (Val::Order(a), Val::Order(b)) => a == b,
             (Val::Real(a), Val::Real(b)) => a == b,
@@ -644,6 +658,10 @@ impl Hash for Val {
                 23.hash(state);
                 d.hash(state);
                 o.hash(state);
+            }
+            Val::Decimal(d) => {
+                24.hash(state);
+                d.hash(state);
             }
             Val::List(vs) => {
                 7.hash(state);

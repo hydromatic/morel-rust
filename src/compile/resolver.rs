@@ -47,6 +47,7 @@ use crate::compile::types::{
     Checks, Label, PrimitiveType, Type, TypeVariable, instantiate,
 };
 use crate::eval::code::LIBRARY;
+use crate::eval::decimal;
 use crate::eval::val::Val;
 use crate::syntax::ast::{
     CastKind, DatatypeBind, Decl, DeclKind, Expr, ExprKind, FunMatch, Literal,
@@ -1992,7 +1993,54 @@ impl<'a> Resolver<'a> {
                                     &span,
                                 );
                             }
+                            Type::Data(name, args)
+                                if args.is_empty() && name == "decimal" =>
+                            {
+                                return self.call1(
+                                    t,
+                                    BuiltInFunction::DecimalAbs,
+                                    arg,
+                                    &span,
+                                );
+                            }
                             _ => {}
+                        }
+                    }
+                }
+                // `decimal "12.3"` is converted here, so that the plan
+                // holds the value rather than a call, and an invalid
+                // literal is a compile error rather than a `Domain`
+                // exception at run time. Resolving is the right moment:
+                // the argument is still the one the program wrote, and a
+                // `decimal` that a local declaration shadows has another
+                // result type, which is how one is told from the other.
+                let is_decimal_fn = match &func.kind {
+                    ExprKind::Apply(sel, recv) => matches!(
+                        (&sel.kind, &recv.kind),
+                        (
+                            ExprKind::RecordSelector(member),
+                            ExprKind::Identifier(structure),
+                        ) if member == "decimal" && structure == "Decimal"
+                    ),
+                    ExprKind::Identifier(name) => name == "decimal",
+                    _ => false,
+                };
+                if is_decimal_fn
+                    && matches!(t.as_ref(), Type::Data(name, args)
+                        if args.is_empty() && name == "decimal")
+                    && let ExprKind::Literal(lit) = &arg.kind
+                    && let LiteralKind::String(raw) = &lit.kind
+                    && let Ok(text) = parser::unquote_string(raw)
+                {
+                    match decimal::parse_exact(&text) {
+                        Some(d) => {
+                            return CoreExpr::Literal(t, Val::Decimal(d));
+                        }
+                        None => {
+                            self.errors.borrow_mut().push((
+                                format!("invalid decimal literal '{}'", text),
+                                span.clone(),
+                            ));
                         }
                     }
                 }
@@ -2032,6 +2080,16 @@ impl<'a> Resolver<'a> {
                             return self.call1(
                                 t,
                                 BuiltInFunction::RelationalSumReal,
+                                arg,
+                                &span,
+                            );
+                        }
+                        Some(Type::Data(name, args))
+                            if args.is_empty() && name == "decimal" =>
+                        {
+                            return self.call1(
+                                t,
+                                BuiltInFunction::RelationalSumDecimal,
                                 arg,
                                 &span,
                             );
@@ -2123,7 +2181,28 @@ impl<'a> Resolver<'a> {
                 self.call2(t, f, &span, a0, a1)
             }
             ExprKind::Divide(a0, a1) => {
-                self.call2(t, BuiltInFunction::RealDivide, &span, a0, a1)
+                // `/` applies to real and to decimal, the two types
+                // closed under division; real is the default.
+                match a0.get_type(self.type_map).expect("type").as_ref() {
+                    Type::Data(name, args)
+                        if args.is_empty() && name == "decimal" =>
+                    {
+                        self.call2(
+                            t,
+                            BuiltInFunction::DecimalDivide,
+                            &span,
+                            a0,
+                            a1,
+                        )
+                    }
+                    _ => self.call2(
+                        t,
+                        BuiltInFunction::RealDivide,
+                        &span,
+                        a0,
+                        a1,
+                    ),
+                }
             }
             ExprKind::Elem(a0, a1) => {
                 self.call2(t, BuiltInFunction::ListElem, &span, a0, a1)
@@ -2406,6 +2485,17 @@ impl<'a> Resolver<'a> {
                         a0,
                         a1,
                     ),
+                    Type::Data(name, args)
+                        if args.is_empty() && name == "decimal" =>
+                    {
+                        self.call2(
+                            t,
+                            BuiltInFunction::DecimalMinus,
+                            &span,
+                            a0,
+                            a1,
+                        )
+                    }
                     _ => self.call2(t, BuiltInFunction::GMinus, &span, a0, a1),
                 }
             }
@@ -2427,6 +2517,11 @@ impl<'a> Resolver<'a> {
                     }
                     Type::Primitive(PrimitiveType::Word) => {
                         self.call1(t, BuiltInFunction::WordOpNegate, a0, &span)
+                    }
+                    Type::Data(name, args)
+                        if args.is_empty() && name == "decimal" =>
+                    {
+                        self.call1(t, BuiltInFunction::DecimalNegate, a0, &span)
                     }
                     _ => self.call1(t, BuiltInFunction::GNegate, a0, &span),
                 }
@@ -2478,6 +2573,17 @@ impl<'a> Resolver<'a> {
                         a0,
                         a1,
                     ),
+                    Type::Data(name, args)
+                        if args.is_empty() && name == "decimal" =>
+                    {
+                        self.call2(
+                            t,
+                            BuiltInFunction::DecimalPlus,
+                            &span,
+                            a0,
+                            a1,
+                        )
+                    }
                     // Polymorphic / unconstrained type variable: use the
                     // generic dispatcher which resolves at runtime.
                     _ => self.call2(t, BuiltInFunction::GPlus, &span, a0, a1),
@@ -2618,6 +2724,17 @@ impl<'a> Resolver<'a> {
                         a0,
                         a1,
                     ),
+                    Type::Data(name, args)
+                        if args.is_empty() && name == "decimal" =>
+                    {
+                        self.call2(
+                            t,
+                            BuiltInFunction::DecimalTimes,
+                            &span,
+                            a0,
+                            a1,
+                        )
+                    }
                     _ => self.call2(t, BuiltInFunction::GTimes, &span, a0, a1),
                 }
             }

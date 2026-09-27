@@ -42,6 +42,7 @@ use crate::eval::bound::{
 use crate::eval::char::Char;
 use crate::eval::comparator::{Comparator, NaturalComparator, partial_compare};
 use crate::eval::date;
+use crate::eval::decimal;
 use crate::eval::discrete::Discrete;
 use crate::eval::either::Either;
 use crate::eval::file::file_as_val;
@@ -52,6 +53,7 @@ use crate::eval::list_pair::ListPair;
 use crate::eval::math::Math;
 use crate::eval::option::Opt;
 use crate::eval::order::Order;
+use crate::eval::real;
 use crate::eval::real::Real;
 use crate::eval::relational::Relational;
 use crate::eval::row_sink::RowSinkFactory;
@@ -2447,6 +2449,10 @@ pub enum Eager0 {
     CharMaxChar,
     CharMaxOrd,
     CharMinChar,
+    DecimalMaxFinite,
+    DecimalMinPos,
+    DecimalPrecision,
+    DecimalRadix,
     ExnBind,
     ExnChr,
     ExnConstraint,
@@ -2531,6 +2537,14 @@ impl Eager0 {
             CharMaxChar => Val::Char(Char::MAX_CHAR),
             CharMaxOrd => Val::Int(Char::MAX_ORD),
             CharMinChar => Val::Char(Char::MIN_CHAR),
+            DecimalMaxFinite => Val::Decimal(decimal::Decimal::max_finite()),
+            DecimalMinPos => Val::Decimal(decimal::Decimal::min_pos()),
+            DecimalPrecision => Val::Int(decimal::PRECISION as i32),
+            DecimalRadix => Val::Int(10),
+            // `$check` is compiled, never evaluated as a value: the
+            // compiler turns an application of it into the check itself,
+            // because it needs the value's type to quote it in the
+            // message. The registry still wants an implementation.
             ExnBind => BuiltInFunction::ExnBind.nullary_constructor_val(),
             ExnChr => BuiltInFunction::ExnChr.nullary_constructor_val(),
             ExnConstraint => {
@@ -2619,10 +2633,6 @@ impl Eager0 {
             WeekdayTue => BuiltInFunction::WeekdayTue.nullary_constructor_val(),
             WeekdayWed => BuiltInFunction::WeekdayWed.nullary_constructor_val(),
             WordWordSize => Val::Int(word::WORD_SIZE),
-            // `$check` is compiled, never evaluated as a value: the
-            // compiler turns an application of it into the check itself,
-            // because it needs the value's type to quote it in the
-            // message. The registry still wants an implementation.
             ZAttempt | ZCheck | ZRequire => Val::Unit,
         }
     }
@@ -2852,6 +2862,13 @@ pub enum EagerF1 {
     DatalogValidate,
     DateDate,
     DateFromTimeLocal,
+    DecimalCeil,
+    DecimalDecimal,
+    DecimalFloor,
+    DecimalFromReal,
+    DecimalFromString,
+    DecimalRound,
+    DecimalTrunc,
     IntAbs,
     InteractUse,
     InteractUseSilently,
@@ -2870,6 +2887,8 @@ pub enum EagerF1 {
     RelationalMax,
     RelationalMin,
     RelationalOnly,
+    RelationalSum,
+    RelationalSumDecimal,
     StringFromString,
     SysParseTree,
     SysPlanEx,
@@ -2961,6 +2980,60 @@ impl EagerF1 {
             DateFromTimeLocal => {
                 Ok(date::from_time_local(a0.expect_time(), r.session))
             }
+            DecimalCeil => decimal_to_int(
+                a0.expect_decimal(),
+                decimal::RoundMode::Ceil,
+                span,
+            ),
+            DecimalDecimal => match decimal::parse_exact(a0.expect_string()) {
+                Some(d) => Ok(Val::Decimal(d)),
+                None => {
+                    Err(MorelError::Runtime(BuiltInExn::Domain, span.clone()))
+                }
+            },
+            DecimalFloor => decimal_to_int(
+                a0.expect_decimal(),
+                decimal::RoundMode::Floor,
+                span,
+            ),
+            DecimalFromReal => {
+                let r = a0.expect_real();
+                if r.is_nan() {
+                    Err(MorelError::Runtime(BuiltInExn::Domain, span.clone()))
+                } else if r.is_infinite() {
+                    Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone()))
+                } else {
+                    // The shortest decimal that converts back to `r`.
+                    let text = format!("{:E}", r);
+                    match decimal::parse_exact(&text) {
+                        Some(d) => Ok(Val::Decimal(d)),
+                        None => Err(MorelError::Runtime(
+                            BuiltInExn::Overflow,
+                            span.clone(),
+                        )),
+                    }
+                }
+            }
+            DecimalFromString => {
+                match decimal::parse_prefix(a0.expect_string()) {
+                    None => Ok(Val::Unit),
+                    Some(None) => Err(MorelError::Runtime(
+                        BuiltInExn::Overflow,
+                        span.clone(),
+                    )),
+                    Some(Some(d)) => Ok(Val::Some(Box::new(Val::Decimal(d)))),
+                }
+            }
+            DecimalRound => decimal_to_int(
+                a0.expect_decimal(),
+                decimal::RoundMode::HalfEven,
+                span,
+            ),
+            DecimalTrunc => decimal_to_int(
+                a0.expect_decimal(),
+                decimal::RoundMode::Trunc,
+                span,
+            ),
             IntAbs => {
                 let i = a0.expect_int();
                 if i == i32::MIN {
@@ -3007,6 +3080,22 @@ impl EagerF1 {
             RealTrunc => Real::trunc(a0.expect_real(), span),
             RelationalMax => Relational::max(a0.expect_list(), span),
             RelationalMin => Relational::min(a0.expect_list(), span),
+            RelationalSum => {
+                // `sum` is `'a bag -> 'a` where `'a` is numeric; dispatch
+                // on the element type, for the calls whose type the
+                // resolver could not settle -- a `compute sum over`
+                // reaches here rather than `sum$int` and its companions.
+                // An empty bag sums to `0` (int).
+                let items = a0.expect_list();
+                match items.first() {
+                    Some(Val::Decimal(_)) => decimal_sum_val(items, span),
+                    Some(Val::Real(_)) => {
+                        Ok(Val::Real(items.iter().map(Val::expect_real).sum()))
+                    }
+                    _ => Ok(Val::Int(items.iter().map(Val::expect_int).sum())),
+                }
+            }
+            RelationalSumDecimal => decimal_sum_val(a0.expect_list(), span),
             StringFromString => string_cvt::scan_str(
                 r,
                 f,
@@ -3130,6 +3219,16 @@ pub enum Eager1 {
     DateWeekDay,
     DateYear,
     DateYearDay,
+    DecimalAbs,
+    DecimalFromInt,
+    DecimalNegate,
+    DecimalRealCeil,
+    DecimalRealFloor,
+    DecimalRealRound,
+    DecimalRealTrunc,
+    DecimalSign,
+    DecimalToReal,
+    DecimalToString,
     DescendingDesc,
     EitherAsLeft,
     EitherAsRight,
@@ -3229,7 +3328,6 @@ pub enum Eager1 {
     RelationalCount,
     RelationalEmpty,
     RelationalNonEmpty,
-    RelationalSum,
     RelationalSumInt,
     RelationalSumReal,
     StringConcat,
@@ -3387,6 +3485,29 @@ impl Eager1 {
             DateYearDay => {
                 let (n, o) = a0.expect_date();
                 date::year_day(n, o)
+            }
+            DecimalAbs => Val::Decimal(a0.expect_decimal().abs()),
+            DecimalFromInt => {
+                Val::Decimal(decimal::Decimal::from_i32(a0.expect_int()))
+            }
+            DecimalNegate => Val::Decimal(a0.expect_decimal().negate()),
+            DecimalRealCeil => Val::Decimal(
+                a0.expect_decimal().round_to_int(decimal::RoundMode::Ceil),
+            ),
+            DecimalRealFloor => Val::Decimal(
+                a0.expect_decimal().round_to_int(decimal::RoundMode::Floor),
+            ),
+            DecimalRealRound => Val::Decimal(
+                a0.expect_decimal()
+                    .round_to_int(decimal::RoundMode::HalfEven),
+            ),
+            DecimalRealTrunc => Val::Decimal(
+                a0.expect_decimal().round_to_int(decimal::RoundMode::Trunc),
+            ),
+            DecimalSign => Val::Int(a0.expect_decimal().signum()),
+            DecimalToReal => Val::Real(a0.expect_decimal().to_f32()),
+            DecimalToString => {
+                Val::String(a0.expect_decimal().to_string().into())
             }
             DescendingDesc => {
                 BuiltInFunction::DescendingDesc.constructor_val(a0)
@@ -3610,16 +3731,6 @@ impl Eager1 {
             RelationalCount => Val::Int(a0.expect_list().len() as i32),
             RelationalEmpty => Val::Bool(a0.expect_list().is_empty()),
             RelationalNonEmpty => Val::Bool(!a0.expect_list().is_empty()),
-            RelationalSum => {
-                // `sum` is `'a bag -> 'a` where `'a` is numeric; dispatch on
-                // the element type. An empty bag sums to `0` (int).
-                let items = a0.expect_list();
-                if matches!(items.first(), Some(Val::Real(_))) {
-                    Val::Real(items.iter().map(Val::expect_real).sum())
-                } else {
-                    Val::Int(items.iter().map(Val::expect_int).sum())
-                }
-            }
             RelationalSumInt => {
                 Val::Int(a0.expect_list().iter().map(Val::expect_int).sum())
             }
@@ -3776,6 +3887,14 @@ pub enum Eager2 {
     CharNotContains,
     DateCompare,
     DateFmt,
+    DecimalCompare,
+    DecimalFmt,
+    DecimalGe,
+    DecimalGt,
+    DecimalLe,
+    DecimalLt,
+    DecimalMax,
+    DecimalMin,
     FnConst,
     FnEqual,
     FnNotEqual,
@@ -3920,6 +4039,23 @@ impl Eager2 {
                 let (n, o) = a1.expect_date();
                 date::fmt(a0.expect_string(), n, o)
             }
+            DecimalCompare => {
+                Val::Order(Order(a0.expect_decimal().cmp(a1.expect_decimal())))
+            }
+            DecimalFmt => {
+                let (kind, n) = real::parse_fmt_spec(&a0);
+                Val::String(a1.expect_decimal().fmt_style(kind, n).into())
+            }
+            DecimalGe => Val::Bool(a0.expect_decimal() >= a1.expect_decimal()),
+            DecimalGt => Val::Bool(a0.expect_decimal() > a1.expect_decimal()),
+            DecimalLe => Val::Bool(a0.expect_decimal() <= a1.expect_decimal()),
+            DecimalLt => Val::Bool(a0.expect_decimal() < a1.expect_decimal()),
+            DecimalMax => Val::Decimal(
+                a0.expect_decimal().max(a1.expect_decimal()).clone(),
+            ),
+            DecimalMin => Val::Decimal(
+                a0.expect_decimal().min(a1.expect_decimal()).clone(),
+            ),
             FnConst => a0,
             FnEqual => Val::Bool(a0 == a1),
             FnNotEqual => Val::Bool(a0 != a1),
@@ -4147,6 +4283,11 @@ pub enum EagerF2 {
     BoolScan,
     CharScan,
     DateScan,
+    DecimalDivide,
+    DecimalMinus,
+    DecimalPlus,
+    DecimalRem,
+    DecimalTimes,
     EitherApp,
     EitherAppLeft,
     EitherAppRight,
@@ -4280,6 +4421,30 @@ impl EagerF2 {
             BoolScan => string_cvt::bool_scan(r, f, &a0, &a1),
             CharScan => string_cvt::char_scan(r, f, &a0, &a1),
             DateScan => string_cvt::date_scan(r, f, &a0, &a1),
+            DecimalDivide => decimal_div(
+                a0.expect_decimal(),
+                a1.expect_decimal(),
+                false,
+                span.unwrap(),
+            ),
+            DecimalMinus => decimal_result(
+                decimal::sub(a0.expect_decimal(), a1.expect_decimal()),
+                span.unwrap(),
+            ),
+            DecimalPlus => decimal_result(
+                decimal::add(a0.expect_decimal(), a1.expect_decimal()),
+                span.unwrap(),
+            ),
+            DecimalRem => decimal_div(
+                a0.expect_decimal(),
+                a1.expect_decimal(),
+                true,
+                span.unwrap(),
+            ),
+            DecimalTimes => decimal_result(
+                decimal::mul(a0.expect_decimal(), a1.expect_decimal()),
+                span.unwrap(),
+            ),
             EitherApp => {
                 let tuple = a0.expect_list();
                 Either::app(r, f, &tuple[0], &tuple[1], &a1)?;
@@ -4872,6 +5037,7 @@ pub enum Custom {
     // lint: sort until '#}'
     GAbs,
     GDiv,
+    GDivide,
     GEq,
     GGe,
     GGt,
@@ -4937,6 +5103,13 @@ impl Custom {
                 (Val::Int(x), Val::Int(y)) => Val::Int(Int::div(x, y)),
                 (Val::Word(x), Val::Word(y)) => Val::Word(x / y),
                 _ => panic!("Type error in div operation"),
+            },
+            GDivide => match (a0, a1) {
+                (Val::Real(x), Val::Real(y)) => Val::Real(x / y),
+                // A decimal `/` is specialized to `Decimal./` while
+                // resolving, because it can overflow and divide by zero
+                // and this dispatcher cannot fail.
+                _ => panic!("Type error in / operation"),
             },
             GEq => Val::Bool(norm(a0) == norm(a1)),
             GGe => Val::Bool(matches!(
@@ -5020,6 +5193,9 @@ fn plan_label(variant: &str) -> String {
     // Internal overload instances whose label is a `structure.name$type`
     // form that does not follow from a structure `p` prop.
     match variant {
+        "RelationalSumDecimal" => {
+            return "Relational.sum$decimal".to_string();
+        }
         "RelationalSumInt" => return "Relational.sum$int".to_string(),
         "RelationalSumReal" => return "Relational.sum$real".to_string(),
         _ => {}
@@ -5224,6 +5400,40 @@ fn build_library() -> Lib {
     Eager1::DateWeekDay.implements(&mut b, DateWeekDay);
     Eager1::DateYear.implements(&mut b, DateYear);
     Eager1::DateYearDay.implements(&mut b, DateYearDay);
+    Eager1::DecimalAbs.implements(&mut b, DecimalAbs);
+    EagerF1::DecimalCeil.implements(&mut b, DecimalCeil);
+    Eager2::DecimalCompare.implements(&mut b, DecimalCompare);
+    EagerF1::DecimalDecimal.implements(&mut b, DecimalDecimal);
+    EagerF2::DecimalDivide.implements(&mut b, DecimalDivide);
+    EagerF1::DecimalFloor.implements(&mut b, DecimalFloor);
+    Eager2::DecimalFmt.implements(&mut b, DecimalFmt);
+    Eager1::DecimalFromInt.implements(&mut b, DecimalFromInt);
+    EagerF1::DecimalFromReal.implements(&mut b, DecimalFromReal);
+    EagerF1::DecimalFromString.implements(&mut b, DecimalFromString);
+    Eager2::DecimalGe.implements(&mut b, DecimalGe);
+    Eager2::DecimalGt.implements(&mut b, DecimalGt);
+    Eager2::DecimalLe.implements(&mut b, DecimalLe);
+    Eager2::DecimalLt.implements(&mut b, DecimalLt);
+    Eager2::DecimalMax.implements(&mut b, DecimalMax);
+    Eager0::DecimalMaxFinite.implements(&mut b, DecimalMaxFinite);
+    Eager2::DecimalMin.implements(&mut b, DecimalMin);
+    Eager0::DecimalMinPos.implements(&mut b, DecimalMinPos);
+    EagerF2::DecimalMinus.implements(&mut b, DecimalMinus);
+    Eager1::DecimalNegate.implements(&mut b, DecimalNegate);
+    EagerF2::DecimalPlus.implements(&mut b, DecimalPlus);
+    Eager0::DecimalPrecision.implements(&mut b, DecimalPrecision);
+    Eager0::DecimalRadix.implements(&mut b, DecimalRadix);
+    Eager1::DecimalRealCeil.implements(&mut b, DecimalRealCeil);
+    Eager1::DecimalRealFloor.implements(&mut b, DecimalRealFloor);
+    Eager1::DecimalRealRound.implements(&mut b, DecimalRealRound);
+    Eager1::DecimalRealTrunc.implements(&mut b, DecimalRealTrunc);
+    EagerF2::DecimalRem.implements(&mut b, DecimalRem);
+    EagerF1::DecimalRound.implements(&mut b, DecimalRound);
+    Eager1::DecimalSign.implements(&mut b, DecimalSign);
+    EagerF2::DecimalTimes.implements(&mut b, DecimalTimes);
+    Eager1::DecimalToReal.implements(&mut b, DecimalToReal);
+    Eager1::DecimalToString.implements(&mut b, DecimalToString);
+    EagerF1::DecimalTrunc.implements(&mut b, DecimalTrunc);
     Eager1::DescendingDesc.implements(&mut b, DescendingDesc);
     EagerF2::EitherApp.implements(&mut b, EitherApp);
     EagerF2::EitherAppLeft.implements(&mut b, EitherAppLeft);
@@ -5266,6 +5476,7 @@ fn build_library() -> Lib {
     EagerF2::FnUncurry.implements(&mut b, FnUncurry);
     Custom::GAbs.implements(&mut b, GAbs);
     Custom::GDiv.implements(&mut b, GDiv);
+    Custom::GDivide.implements(&mut b, GDivide);
     Custom::GEq.implements(&mut b, GEq);
     Custom::GGe.implements(&mut b, GGe);
     Custom::GGt.implements(&mut b, GGt);
@@ -5518,7 +5729,8 @@ fn build_library() -> Lib {
     EagerF2::RelationalMinBy.implements(&mut b, RelationalMinBy);
     Eager1::RelationalNonEmpty.implements(&mut b, RelationalNonEmpty);
     EagerF1::RelationalOnly.implements(&mut b, RelationalOnly);
-    Eager1::RelationalSum.implements(&mut b, RelationalSum);
+    EagerF1::RelationalSum.implements(&mut b, RelationalSum);
+    EagerF1::RelationalSumDecimal.implements(&mut b, RelationalSumDecimal);
     Eager1::RelationalSumInt.implements(&mut b, RelationalSumInt);
     Eager1::RelationalSumReal.implements(&mut b, RelationalSumReal);
     Eager2::StringCaret.implements(&mut b, StringCaret);
@@ -5711,7 +5923,12 @@ fn is_datatype_constructor(f: BuiltInFunction, name: &str) -> bool {
 /// first argument as soon as the closure is built — before the
 /// remaining arguments arrive. See [`Code::ValidatePartialArg1`].
 pub(crate) fn validates_partial_arg1(func: BuiltInFunction) -> bool {
-    matches!(func, BuiltInFunction::FnRepeat | BuiltInFunction::RealFmt)
+    matches!(
+        func,
+        BuiltInFunction::DecimalFmt
+            | BuiltInFunction::FnRepeat
+            | BuiltInFunction::RealFmt
+    )
 }
 
 fn validate_partial_arg1(
@@ -5729,7 +5946,9 @@ fn validate_partial_arg1(
             }
             Ok(())
         }
-        BuiltInFunction::RealFmt => Real::validate_fmt_spec(a0, span),
+        BuiltInFunction::DecimalFmt | BuiltInFunction::RealFmt => {
+            Real::validate_fmt_spec(a0, span)
+        }
         _ => Ok(()),
     }
 }
@@ -6280,4 +6499,58 @@ fn build_scott() -> (Type, Val) {
         salgrades,
     ]));
     (scott_type, scott_val)
+}
+
+/// Wraps the result of a decimal operation, raising `Overflow` where
+/// the value is too large to represent.
+fn decimal_result(
+    d: Option<decimal::Decimal>,
+    span: &Span,
+) -> Result<Val, MorelError> {
+    match d {
+        Some(d) => Ok(Val::Decimal(d)),
+        None => Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone())),
+    }
+}
+
+/// `Decimal./` and `Decimal.rem`: `Div` if the divisor is zero,
+/// `Overflow` if the result is too large.
+fn decimal_div(
+    a: &decimal::Decimal,
+    b: &decimal::Decimal,
+    remainder: bool,
+    span: &Span,
+) -> Result<Val, MorelError> {
+    let r = if remainder {
+        decimal::rem(a, b)
+    } else {
+        decimal::div(a, b)
+    };
+    match r {
+        Err(()) => Err(MorelError::Runtime(BuiltInExn::Div, span.clone())),
+        Ok(d) => decimal_result(d, span),
+    }
+}
+
+/// Rounds a decimal to an int, raising `Overflow` if it does not fit.
+fn decimal_to_int(
+    d: &decimal::Decimal,
+    mode: decimal::RoundMode,
+    span: &Span,
+) -> Result<Val, MorelError> {
+    match d.round_to_int(mode).to_i32() {
+        Some(n) => Ok(Val::Int(n)),
+        None => Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone())),
+    }
+}
+
+/// Sums a list of decimals, raising `Overflow` if the total is too
+/// large. The sum is exact and rounded once, at the end.
+fn decimal_sum_val(items: &[Val], span: &Span) -> Result<Val, MorelError> {
+    let values: Vec<decimal::Decimal> =
+        items.iter().map(|v| v.expect_decimal().clone()).collect();
+    match decimal::sum(&values) {
+        Some(d) => Ok(Val::Decimal(d)),
+        None => Err(MorelError::Runtime(BuiltInExn::Overflow, span.clone())),
+    }
 }

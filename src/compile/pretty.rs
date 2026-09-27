@@ -468,6 +468,11 @@ impl Pretty {
         {
             return text(&date::format_iso(*d, *o));
         }
+        if name == "decimal"
+            && let Val::Decimal(d) = value
+        {
+            return text(&d.to_string());
+        }
         // A "doc" (pretty-printer document) is abstract; print it as "-",
         // as Standard ML prints a value of an abstract type.
         if name == "doc" {

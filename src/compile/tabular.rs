@@ -84,6 +84,7 @@ impl Datatypes<'_> {
     /// an enum.
     fn is_scalar(&self, type_: &Type) -> bool {
         matches!(type_, Type::Primitive(_))
+            || is_decimal(type_)
             || self.enum_constructors(type_).is_some()
     }
 }
@@ -410,6 +411,13 @@ impl Section {
         if let Type::Primitive(p) = type_ {
             return Section::leaf(Kind::Scalar, name, is_numeric(p), false);
         }
+        if is_decimal(type_) {
+            // A scalar column, though `decimal` is a datatype with no
+            // constructors rather than a primitive. Left-aligned, as
+            // morel-java leaves it: the values are as wide as their
+            // notation, not a fixed number of places.
+            return Section::leaf(Kind::Scalar, name, false, false);
+        }
         if let Some(cs) = dt.enum_constructors(type_) {
             // An enum: a scalar column of constructor names.
             return Section::leaf_of(
@@ -650,6 +658,12 @@ fn is_numeric(p: &PrimitiveType) -> bool {
     matches!(p, PrimitiveType::Int | PrimitiveType::Real)
 }
 
+/// Whether a type is `decimal`.
+fn is_decimal(type_: &Type) -> bool {
+    matches!(type_, Type::Data(name, args)
+        if args.is_empty() && name == "decimal")
+}
+
 /// Whether values of a type are right-aligned in their column. An enum
 /// is not: its values are words.
 fn is_numeric_type(type_: &Type) -> bool {
@@ -739,6 +753,7 @@ fn stringify_scalar(value: &Val, string_depth: i32) -> String {
         // A table is not Standard ML text, and reads better with minus
         // signs than with the tildes of a classic-style value.
         Val::Int(i) => i.to_string(),
+        Val::Decimal(d) => d.to_string_with('-'),
         Val::Real(f) => Real::to_string_negation(*f, '-'),
         Val::Word(w) => format!("0wx{:X}", w),
         Val::String(s) => {
